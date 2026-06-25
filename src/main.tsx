@@ -160,6 +160,7 @@ import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdo
 import { setAllHookEventsEnabled } from 'src/utils/hooks/hookEvents.js';
 import { refreshModelCapabilities } from 'src/utils/model/modelCapabilities.js';
 import { peekForStdinData, writeToStderr } from 'src/utils/process.js';
+import { createHeadlessHeartbeat, parseHeadlessHeartbeatDuration, validateHeadlessHeartbeatPrintMode } from 'src/cli/headlessHeartbeat.js';
 import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
 import { plural } from 'src/utils/stringUtils.js';
@@ -935,7 +936,13 @@ async function run(): Promise<CommanderCommand> {
     // If not provided but flag is present, value will be true
     // The actual filtering is handled in debug.ts by parsing process.argv
     return true;
-  }).addOption(new Option('-d2e, --debug-to-stderr', 'Enable debug mode (to stderr)').argParser(Boolean).hideHelp()).option('--debug-file <path>', 'Write debug logs to a specific file path (implicitly enables debug mode)', () => true).option('--verbose', 'Override verbose mode setting from config', () => true).option('-p, --print', 'Print response and exit (useful for pipes). Note: The workspace trust dialog is skipped when Claude is run with the -p mode. Only use this flag in directories you trust.', () => true).option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.', () => true).addOption(new Option('--init', 'Run Setup hooks with init trigger, then continue').hideHelp()).addOption(new Option('--init-only', 'Run Setup and SessionStart:startup hooks, then exit').hideHelp()).addOption(new Option('--maintenance', 'Run Setup hooks with maintenance trigger, then continue').hideHelp()).addOption(new Option('--output-format <format>', 'Output format (only works with --print): "text" (default), "json" (single result), or "stream-json" (realtime streaming)').choices(['text', 'json', 'stream-json'])).addOption(new Option('--json-schema <schema>', 'JSON Schema for structured output validation. ' + 'Example: {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}').argParser(String)).option('--include-hook-events', 'Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)', () => true).option('--include-partial-messages', 'Include partial message chunks as they arrive (only works with --print and --output-format=stream-json)', () => true).addOption(new Option('--input-format <format>', 'Input format (only works with --print): "text" (default), or "stream-json" (realtime streaming input)').choices(['text', 'stream-json'])).option('--mcp-debug', '[DEPRECATED. Use --debug instead] Enable MCP debug mode (shows MCP server errors)', () => true).option('--dangerously-skip-permissions', 'Bypass all permission checks. Recommended only for sandboxes with no internet access.', () => true).option('--allow-dangerously-skip-permissions', 'Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.', () => true).addOption(new Option('--thinking <mode>', 'Thinking mode: enabled (equivalent to adaptive), disabled').choices(['enabled', 'adaptive', 'disabled']).hideHelp()).addOption(new Option('--max-thinking-tokens <tokens>', '[DEPRECATED. Use --thinking instead for newer models] Maximum number of thinking tokens (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-turns <turns>', 'Maximum number of agentic turns in non-interactive mode. This will early exit the conversation after the specified number of turns. (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-budget-usd <amount>', 'Maximum dollar amount to spend on API calls (only works with --print)').argParser(value => {
+  }).addOption(new Option('-d2e, --debug-to-stderr', 'Enable debug mode (to stderr)').argParser(Boolean).hideHelp()).option('--debug-file <path>', 'Write debug logs to a specific file path (implicitly enables debug mode)', () => true).option('--verbose', 'Override verbose mode setting from config', () => true).option('-p, --print', 'Print response and exit (useful for pipes). Note: The workspace trust dialog is skipped when Claude is run with the -p mode. Only use this flag in directories you trust.', () => true).addOption(new Option('--heartbeat <duration>', 'Emit a headless liveness heartbeat while output is quiet (only works with --print, e.g. 30s, 2m)').argParser(value => {
+    try {
+      return parseHeadlessHeartbeatDuration(value);
+    } catch (error) {
+      throw new InvalidArgumentError(errorMessage(error));
+    }
+  })).option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.', () => true).addOption(new Option('--init', 'Run Setup hooks with init trigger, then continue').hideHelp()).addOption(new Option('--init-only', 'Run Setup and SessionStart:startup hooks, then exit').hideHelp()).addOption(new Option('--maintenance', 'Run Setup hooks with maintenance trigger, then continue').hideHelp()).addOption(new Option('--output-format <format>', 'Output format (only works with --print): "text" (default), "json" (single result), or "stream-json" (realtime streaming)').choices(['text', 'json', 'stream-json'])).addOption(new Option('--json-schema <schema>', 'JSON Schema for structured output validation. ' + 'Example: {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}').argParser(String)).option('--include-hook-events', 'Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)', () => true).option('--include-partial-messages', 'Include partial message chunks as they arrive (only works with --print and --output-format=stream-json)', () => true).addOption(new Option('--input-format <format>', 'Input format (only works with --print): "text" (default), or "stream-json" (realtime streaming input)').choices(['text', 'stream-json'])).option('--mcp-debug', '[DEPRECATED. Use --debug instead] Enable MCP debug mode (shows MCP server errors)', () => true).option('--dangerously-skip-permissions', 'Bypass all permission checks. Recommended only for sandboxes with no internet access.', () => true).option('--allow-dangerously-skip-permissions', 'Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.', () => true).addOption(new Option('--thinking <mode>', 'Thinking mode: enabled (equivalent to adaptive), disabled').choices(['enabled', 'adaptive', 'disabled']).hideHelp()).addOption(new Option('--max-thinking-tokens <tokens>', '[DEPRECATED. Use --thinking instead for newer models] Maximum number of thinking tokens (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-turns <turns>', 'Maximum number of agentic turns in non-interactive mode. This will early exit the conversation after the specified number of turns. (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-budget-usd <amount>', 'Maximum dollar amount to spend on API calls (only works with --print)').argParser(value => {
     const amount = Number(value);
     if (isNaN(amount) || amount <= 0) {
       throw new Error('--max-budget-usd must be a positive number greater than 0');
@@ -1288,6 +1295,10 @@ async function run(): Promise<CommanderCommand> {
 
     // Get isNonInteractiveSession from state (was set before init())
     const isNonInteractiveSession = getIsNonInteractiveSession();
+    const heartbeatIntervalMs = (options as {
+      heartbeat?: number;
+    }).heartbeat;
+    const heartbeatHasPrintFlag = Boolean(options.print);
 
     // Validate that fallback model is different from main model
     if (fallbackModel && options.model && fallbackModel === options.model) {
@@ -1801,6 +1812,13 @@ async function run(): Promise<CommanderCommand> {
         writeToStderr(`Error: --include-partial-messages requires --print and --output-format=stream-json.`);
         process.exit(1);
       }
+    }
+
+    try {
+      validateHeadlessHeartbeatPrintMode(heartbeatIntervalMs, heartbeatHasPrintFlag);
+    } catch (error) {
+      writeToStderr(`Error: ${errorMessage(error)}\n`);
+      process.exit(1);
     }
 
     // Validate --no-session-persistence is only used with print mode
@@ -2655,88 +2673,100 @@ async function run(): Promise<CommanderCommand> {
       // (processBatched with Promise.all). claude.ai is awaited too — its
       // fetch was kicked off early (line ~2558) so only residual time blocks
       // here. --bare skips claude.ai entirely for perf-sensitive scripts.
-      profileCheckpoint('before_connectMcp');
-      await connectMcpBatch(regularMcpConfigs, 'regular');
-      profileCheckpoint('after_connectMcp');
-      // Dedup: suppress plugin MCP servers that duplicate a claude.ai
-      // connector (connector wins), then connect claude.ai servers.
-      // Bounded wait — #23725 made this blocking so single-turn -p sees
-      // connectors, but with 40+ slow connectors tengu_startup_perf p99
-      // climbed to 76s. If fetch+connect doesn't finish in time, proceed;
-      // the promise keeps running and updates headlessStore in the
-      // background so turn 2+ still sees connectors.
-      const CLAUDE_AI_MCP_TIMEOUT_MS = 5_000;
-      const claudeaiConnect = claudeaiConfigPromise.then(claudeaiConfigs => {
-        if (Object.keys(claudeaiConfigs).length > 0) {
-          const claudeaiSigs = new Set<string>();
-          for (const config of Object.values(claudeaiConfigs)) {
-            const sig = getMcpServerSignature(config);
-            if (sig) claudeaiSigs.add(sig);
-          }
-          const suppressed = new Set<string>();
-          for (const [name, config] of Object.entries(regularMcpConfigs)) {
-            if (!name.startsWith('plugin:')) continue;
-            const sig = getMcpServerSignature(config);
-            if (sig && claudeaiSigs.has(sig)) suppressed.add(name);
-          }
-          if (suppressed.size > 0) {
-            logForDebugging(`[MCP] Lazy dedup: suppressing ${suppressed.size} plugin server(s) that duplicate claude.ai connectors: ${[...suppressed].join(', ')}`);
-            // Disconnect before filtering from state. Only connected
-            // servers need cleanup — clearServerCache on a never-connected
-            // server triggers a real connect just to kill it (memoize
-            // cache-miss path, see useManageMCPConnections.ts:870).
-            for (const c of headlessStore.getState().mcp.clients) {
-              if (!suppressed.has(c.name) || c.type !== 'connected') continue;
-              c.client.onclose = undefined;
-              void clearServerCache(c.name, c.config).catch(() => {});
+      const startupHeartbeat = heartbeatIntervalMs ? createHeadlessHeartbeat({
+        intervalMs: heartbeatIntervalMs,
+        outputFormat: 'text',
+        getState: () => 'starting',
+        initialPhase: 'connecting_mcp',
+        getSessionId
+      }) : undefined;
+      startupHeartbeat?.start();
+      try {
+        profileCheckpoint('before_connectMcp');
+        await connectMcpBatch(regularMcpConfigs, 'regular');
+        profileCheckpoint('after_connectMcp');
+        // Dedup: suppress plugin MCP servers that duplicate a claude.ai
+        // connector (connector wins), then connect claude.ai servers.
+        // Bounded wait — #23725 made this blocking so single-turn -p sees
+        // connectors, but with 40+ slow connectors tengu_startup_perf p99
+        // climbed to 76s. If fetch+connect doesn't finish in time, proceed;
+        // the promise keeps running and updates headlessStore in the
+        // background so turn 2+ still sees connectors.
+        const CLAUDE_AI_MCP_TIMEOUT_MS = 5_000;
+        const claudeaiConnect = claudeaiConfigPromise.then(claudeaiConfigs => {
+          if (Object.keys(claudeaiConfigs).length > 0) {
+            const claudeaiSigs = new Set<string>();
+            for (const config of Object.values(claudeaiConfigs)) {
+              const sig = getMcpServerSignature(config);
+              if (sig) claudeaiSigs.add(sig);
             }
-            headlessStore.setState(prev => {
-              let {
-                clients,
-                tools,
-                commands,
-                resources
-              } = prev.mcp;
-              clients = clients.filter(c => !suppressed.has(c.name));
-              tools = tools.filter(t => !t.mcpInfo || !suppressed.has(t.mcpInfo.serverName));
-              for (const name of suppressed) {
-                commands = excludeCommandsByServer(commands, name);
-                resources = excludeResourcesByServer(resources, name);
+            const suppressed = new Set<string>();
+            for (const [name, config] of Object.entries(regularMcpConfigs)) {
+              if (!name.startsWith('plugin:')) continue;
+              const sig = getMcpServerSignature(config);
+              if (sig && claudeaiSigs.has(sig)) suppressed.add(name);
+            }
+            if (suppressed.size > 0) {
+              logForDebugging(`[MCP] Lazy dedup: suppressing ${suppressed.size} plugin server(s) that duplicate claude.ai connectors: ${[...suppressed].join(', ')}`);
+              // Disconnect before filtering from state. Only connected
+              // servers need cleanup — clearServerCache on a never-connected
+              // server triggers a real connect just to kill it (memoize
+              // cache-miss path, see useManageMCPConnections.ts:870).
+              for (const c of headlessStore.getState().mcp.clients) {
+                if (!suppressed.has(c.name) || c.type !== 'connected') continue;
+                c.client.onclose = undefined;
+                void clearServerCache(c.name, c.config).catch(() => {});
               }
-              return {
-                ...prev,
-                mcp: {
-                  ...prev.mcp,
+              headlessStore.setState(prev => {
+                let {
                   clients,
                   tools,
                   commands,
                   resources
+                } = prev.mcp;
+                clients = clients.filter(c => !suppressed.has(c.name));
+                tools = tools.filter(t => !t.mcpInfo || !suppressed.has(t.mcpInfo.serverName));
+                for (const name of suppressed) {
+                  commands = excludeCommandsByServer(commands, name);
+                  resources = excludeResourcesByServer(resources, name);
                 }
-              };
-            });
+                return {
+                  ...prev,
+                  mcp: {
+                    ...prev.mcp,
+                    clients,
+                    tools,
+                    commands,
+                    resources
+                  }
+                };
+              });
+            }
           }
+          // Suppress claude.ai connectors that duplicate an enabled
+          // manual server (URL-signature match). Plugin dedup above only
+          // handles `plugin:*` keys; this catches manual `.mcp.json` entries.
+          // plugin:* must be excluded here — step 1 already suppressed
+          // those (claude.ai wins); leaving them in suppresses the
+          // connector too, and neither survives (gh-39974).
+          const nonPluginConfigs = pickBy(regularMcpConfigs, (_, n) => !n.startsWith('plugin:'));
+          const {
+            servers: dedupedClaudeAi
+          } = dedupClaudeAiMcpServers(claudeaiConfigs, nonPluginConfigs);
+          return connectMcpBatch(dedupedClaudeAi, 'claudeai');
+        });
+        let claudeaiTimer: ReturnType<typeof setTimeout> | undefined;
+        const claudeaiTimedOut = await Promise.race([claudeaiConnect.then(() => false), new Promise<boolean>(resolve => {
+          claudeaiTimer = setTimeout(r => r(true), CLAUDE_AI_MCP_TIMEOUT_MS, resolve);
+        })]);
+        if (claudeaiTimer) clearTimeout(claudeaiTimer);
+        if (claudeaiTimedOut) {
+          logForDebugging(`[MCP] claude.ai connectors not ready after ${CLAUDE_AI_MCP_TIMEOUT_MS}ms — proceeding; background connection continues`);
         }
-        // Suppress claude.ai connectors that duplicate an enabled
-        // manual server (URL-signature match). Plugin dedup above only
-        // handles `plugin:*` keys; this catches manual `.mcp.json` entries.
-        // plugin:* must be excluded here — step 1 already suppressed
-        // those (claude.ai wins); leaving them in suppresses the
-        // connector too, and neither survives (gh-39974).
-        const nonPluginConfigs = pickBy(regularMcpConfigs, (_, n) => !n.startsWith('plugin:'));
-        const {
-          servers: dedupedClaudeAi
-        } = dedupClaudeAiMcpServers(claudeaiConfigs, nonPluginConfigs);
-        return connectMcpBatch(dedupedClaudeAi, 'claudeai');
-      });
-      let claudeaiTimer: ReturnType<typeof setTimeout> | undefined;
-      const claudeaiTimedOut = await Promise.race([claudeaiConnect.then(() => false), new Promise<boolean>(resolve => {
-        claudeaiTimer = setTimeout(r => r(true), CLAUDE_AI_MCP_TIMEOUT_MS, resolve);
-      })]);
-      if (claudeaiTimer) clearTimeout(claudeaiTimer);
-      if (claudeaiTimedOut) {
-        logForDebugging(`[MCP] claude.ai connectors not ready after ${CLAUDE_AI_MCP_TIMEOUT_MS}ms — proceeding; background connection continues`);
+        profileCheckpoint('after_connectMcp_claudeai');
+      } finally {
+        startupHeartbeat?.stop();
       }
-      profileCheckpoint('after_connectMcp_claudeai');
 
       // In headless mode, start deferred prefetches immediately (no user typing delay)
       // --bare / SIMPLE: startDeferredPrefetches early-returns internally.
@@ -2783,6 +2813,7 @@ async function run(): Promise<CommanderCommand> {
         enableAuthStatus: options.enableAuthStatus,
         agent: agentCli,
         workload: options.workload,
+        heartbeatIntervalMs,
         setupTrigger: setupTrigger ?? undefined,
         sessionStartHooksPromise
       });

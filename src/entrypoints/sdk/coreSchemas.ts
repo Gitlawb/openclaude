@@ -1770,6 +1770,43 @@ export const SDKSessionStateChangedMessageSchema = lazySchema(() =>
     ),
 )
 
+export const SDKHeartbeatMessageSchema = lazySchema(() =>
+  z
+    .object({
+      type: z.literal('system'),
+      subtype: z.literal('heartbeat'),
+      timestamp: z.string(),
+      elapsed_ms: z.number(),
+      since_last_activity_ms: z.number(),
+      state: z.enum([
+        'starting',
+        'running',
+        'requires_action',
+        'idle',
+        'shutting_down',
+      ]),
+      phase: z.enum([
+        'startup',
+        'loading_session',
+        'connecting_mcp',
+        'draining_commands',
+        'in_turn',
+        'waiting_for_permission',
+        'waiting_for_agents',
+        'flushing',
+        'shutting_down',
+      ]),
+      heartbeat_index: z.number(),
+      pending_permission_requests: z.number(),
+      background_tasks: z.record(z.string(), z.number()),
+      uuid: UUIDPlaceholder(),
+      session_id: z.string(),
+    })
+    .describe(
+      'Opt-in headless liveness signal emitted while --print output is quiet.',
+    ),
+)
+
 
 export const SDKTaskProgressMessageSchema = lazySchema(() =>
   z.object({
@@ -1908,6 +1945,7 @@ export const SDKMessageSchema = lazySchema(() =>
     SDKTaskStartedMessageSchema(),
     SDKTaskProgressMessageSchema(),
     SDKSessionStateChangedMessageSchema(),
+    SDKHeartbeatMessageSchema(),
     SDKFilesPersistedEventSchema(),
     SDKToolUseSummaryMessageSchema(),
     SDKRateLimitEventSchema(),

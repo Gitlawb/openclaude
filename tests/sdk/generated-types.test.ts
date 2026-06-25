@@ -193,6 +193,20 @@ describe('SDK Zod schemas (type generation source)', () => {
         uuid: '12345678-1234-1234-1234-123456789012',
         session_id: '12345678-1234-1234-1234-123456789012',
       },
+      {
+        type: 'system',
+        subtype: 'heartbeat',
+        timestamp: '2026-06-25T12:00:30.000Z',
+        elapsed_ms: 30_000,
+        since_last_activity_ms: 30_000,
+        state: 'running',
+        phase: 'in_turn',
+        heartbeat_index: 1,
+        pending_permission_requests: 0,
+        background_tasks: {},
+        uuid: '12345678-1234-1234-1234-123456789012',
+        session_id: '12345678-1234-1234-1234-123456789012',
+      },
     ]
 
     for (const msg of messages) {
