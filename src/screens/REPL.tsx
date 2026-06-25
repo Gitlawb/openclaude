@@ -122,7 +122,7 @@ import { WEB_FETCH_TOOL_NAME } from '../tools/WebFetchTool/prompt.js';
 import { SLEEP_TOOL_NAME } from '../tools/SleepTool/prompt.js';
 import { clearSpeculativeChecks } from '../tools/BashTool/bashPermissions.js';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
-import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
+import { getGlobalConfig, saveGlobalConfig, saveGlobalConfigDeferred } from '../utils/config.js';
 import { hasConsoleBillingAccess } from '../utils/billing.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js';
@@ -198,6 +198,7 @@ const SUGGEST_BG_PR_NOOP = (_p: string, _n: string): boolean => false;
 const useScheduledTasks = require('../hooks/useScheduledTasks.js').useScheduledTasks;
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js';
+import { decideStreamingTextUpdate } from './streamingTextPublish.js';
 import type { SandboxAskCallback, NetworkHostPattern } from '../utils/sandbox/sandbox-adapter.js';
 import { type IDEExtensionInstallationStatus, closeOpenDiffs, getConnectedIdeClient, type IdeType } from '../utils/ide.js';
 import { useIDEIntegration } from '../hooks/useIDEIntegration.js';
@@ -1543,15 +1544,37 @@ export function REPL({
     responseLengthRef.current = f(responseLengthRef.current);
   }, []);
 
-  // Streaming text display: set state directly per delta (Ink's 16ms render
-  // throttle batches rapid updates). Cleared on message arrival (messages.ts)
-  // so displayedMessages switches from deferredMessages to messages atomically.
+  // Streaming text display. streamingTextRef holds the full accumulated text
+  // (eager, per delta); streamingText state is only published when the visible
+  // (newline-truncated) preview actually changes. The Ink root is a LegacyRoot,
+  // so every setState from a stream event commits a synchronous REPL render —
+  // and because the preview hides the in-progress trailing line, deltas between
+  // newlines never change anything on screen. Publishing only on newline (and
+  // on clear) drops those no-op renders entirely under fast streams
+  // (100-300 deltas/sec) while keeping the displayed text byte-identical.
+  // Cleared on message arrival (messages.ts) so displayedMessages switches from
+  // deferredMessages to messages atomically.
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  const streamingTextRef = useRef<string | null>(null);
+  const lastFlushedStreamingVisibleRef = useRef<string | null>(null);
   const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   const showStreamingText = !reducedMotion && !hasCursorUpViewportYankBug();
   const onStreamingText = useCallback((f: (current: string | null) => string | null) => {
-    if (!showStreamingText) return;
-    setStreamingText(f);
+    // decideStreamingTextUpdate keeps the ref current even when the live preview
+    // is disabled (reduced-motion / cursor-up yank bug) — the Esc handler
+    // recovers partial assistant output from it — and publishes to state only
+    // when the newline-truncated visible preview changes.
+    const decision = decideStreamingTextUpdate(
+      streamingTextRef.current,
+      f,
+      showStreamingText,
+      lastFlushedStreamingVisibleRef.current,
+    );
+    streamingTextRef.current = decision.nextText;
+    if (decision.publish) {
+      lastFlushedStreamingVisibleRef.current = decision.nextVisible;
+      setStreamingText(decision.nextText);
+    }
   }, [showStreamingText]);
 
   // Hide the in-progress source line so text streams line-by-line, not
@@ -1675,6 +1698,8 @@ export function REPL({
     // does not leave the progress bar rendered in the idle UI.
     setCompactProgressRatio(null);
     responseLengthRef.current = 0;
+    streamingTextRef.current = null;
+    lastFlushedStreamingVisibleRef.current = null;
     setStreamingText(null);
     setStreamingToolUses([]);
     setSpinnerMessage(null);
@@ -1725,7 +1750,9 @@ export function REPL({
       if (count >= 3) return;
       const timer = setTimeout((ref, setMessages) => {
         ref.current = true;
-        saveGlobalConfig(prev => {
+        // Loss-tolerant notification counter — coalesce the write so it can't
+        // contend on the config lock with other writers.
+        saveGlobalConfigDeferred(prev => {
           const prevCount = prev.autoPermissionsNotificationCount ?? 0;
           if (prevCount >= 3) return prev;
           return {
@@ -2299,12 +2326,16 @@ export function REPL({
     skipIdleCheckRef.current = false;
 
     // Preserve partially-streamed text so the user can read what was
-    // generated before pressing Esc. Pushed before resetLoadingState clears
-    // streamingText, and before query.ts yields the async interrupt marker,
-    // giving final order [user, partial-assistant, [Request interrupted by user]].
-    if (streamingText?.trim()) {
+    // generated before pressing Esc. Read the ref, not streamingText state:
+    // state only holds up to the last published newline, while the ref has the
+    // full text including the in-progress trailing line. Pushed before
+    // resetLoadingState clears streamingText, and before query.ts yields the
+    // async interrupt marker, giving final order
+    // [user, partial-assistant, [Request interrupted by user]].
+    const partialStreamedText = streamingTextRef.current;
+    if (partialStreamedText?.trim()) {
       setMessages(prev => [...prev, createAssistantMessage({
-        content: streamingText
+        content: partialStreamedText
       })]);
     }
     resetLoadingState();
@@ -3105,6 +3136,8 @@ export function REPL({
         snapshotOutputTokensForTurn(parsedBudget ?? getCurrentTurnTokenBudget());
       }
       setStreamingToolUses([]);
+      streamingTextRef.current = null;
+      lastFlushedStreamingVisibleRef.current = null;
       setStreamingText(null);
 
       // messagesRef is updated synchronously by the setMessages wrapper
@@ -4093,7 +4126,10 @@ export function REPL({
     }
     if (hasCountedQueueUseRef.current) return;
     hasCountedQueueUseRef.current = true;
-    saveGlobalConfig(current => ({
+    // Loss-tolerant analytics counter. Deferring it coalesces the write so a
+    // render loop (see comment above) can no longer drive the lock contention
+    // that triggers GH #3117.
+    saveGlobalConfigDeferred(current => ({
       ...current,
       promptQueueUseCount: (current.promptQueueUseCount ?? 0) + 1
     }));
