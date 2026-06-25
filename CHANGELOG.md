@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.20.1](https://github.com/Gitlawb/openclaude/compare/v0.20.0...v0.20.1) (2026-06-25)
+
+
+### Bug Fixes
+
+* **bg:** stream session logs with bounded memory ([#1762](https://github.com/Gitlawb/openclaude/issues/1762)) ([bd00b3b](https://github.com/Gitlawb/openclaude/commit/bd00b3b3c5bfb1bc3a0e46ac5296013c6b9d1eef))
+* **bridge:** match loopback hostname exactly in HTTPS credential guard ([#1760](https://github.com/Gitlawb/openclaude/issues/1760)) ([66ddbec](https://github.com/Gitlawb/openclaude/commit/66ddbece19ed2b9735c7e6501c3cfbba4181ca75))
+* **memory:** bound memory-directory scanning work ([#1757](https://github.com/Gitlawb/openclaude/issues/1757)) ([28bbec4](https://github.com/Gitlawb/openclaude/commit/28bbec49481ba625fda57d99418dbc50f67e30a2))
+* **permissions:** bound the speculativeChecks cache with FIFO eviction ([#1724](https://github.com/Gitlawb/openclaude/issues/1724)) ([adcf5e5](https://github.com/Gitlawb/openclaude/commit/adcf5e5839edfd86595b7c75e09ba52e84d04588))
+* prevent recursive debounce infinite loop in team memory sync ([#1726](https://github.com/Gitlawb/openclaude/issues/1726)) ([669ecdf](https://github.com/Gitlawb/openclaude/commit/669ecdfa8b3606ee347cfd85aafedb3a305b227a))
+* **query:** prevent spurious Windows interruption prompt by passing 'interrupt' reason ([#1733](https://github.com/Gitlawb/openclaude/issues/1733)) ([701b68c](https://github.com/Gitlawb/openclaude/commit/701b68c2153dc26b1fa5e723298b51db496ea361))
+* **resume:** tolerate malformed legacy attachment records ([#1768](https://github.com/Gitlawb/openclaude/issues/1768)) ([db66f41](https://github.com/Gitlawb/openclaude/commit/db66f41071cce118eaffc301e392b4576d07ff5b))
+* surface swallowed error in plan file write ([#1725](https://github.com/Gitlawb/openclaude/issues/1725)) ([02d43b6](https://github.com/Gitlawb/openclaude/commit/02d43b69426eddf9a5f5a8478407223b44cf2a15))
+* **update:** stop false "development build" block on npm installs with NODE_ENV=development ([#1781](https://github.com/Gitlawb/openclaude/issues/1781)) ([d32b6f0](https://github.com/Gitlawb/openclaude/commit/d32b6f04765afeec9e9ca858b37df4c9d4435ef5))
+* **worktree:** base agent isolation worktree on parent HEAD, not origin/main ([#1652](https://github.com/Gitlawb/openclaude/issues/1652)) ([3fb718f](https://github.com/Gitlawb/openclaude/commit/3fb718f403aa3490c4d663797d38685b3074b528))
+
 ## [0.20.0](https://github.com/Gitlawb/openclaude/compare/v0.19.0...v0.20.0) (2026-06-24)
 
 
