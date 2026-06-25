@@ -11,6 +11,20 @@ const grokCapabilities = {
 
 export default [
   defineModel({
+    id: 'xai/grok-build-0.1',
+    label: 'Grok Build 0.1',
+    brandId: 'xai',
+    vendorId: 'xai',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: 'xai/grok-build-0.1',
+    capabilities: {
+      ...grokCapabilities,
+      supportsVision: false,
+    },
+    contextWindow: 262_144,
+    maxOutputTokens: 262_144,
+  }),
+  defineModel({
     id: 'grok-4.3',
     label: 'Grok 4.3',
     brandId: 'xai',

@@ -74,9 +74,10 @@ export const PROVIDER_PRESET_MANIFEST = [
   },
   {
     "preset": "atlas-cloud",
-    "routeKind": "vendor",
+    "routeKind": "gateway",
     "routeId": "atlas-cloud",
-    "vendorId": "atlas-cloud",
+    "vendorId": "openai",
+    "gatewayId": "atlas-cloud",
     "description": "Atlas Cloud AI (OpenAI-compatible)",
     "apiKeyEnvVars": [
       "ATLAS_CLOUD_API_KEY"

@@ -1260,7 +1260,7 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
-      if (route.vendorId === 'atlas-cloud') {
+      if (route.routeId === 'atlas-cloud') {
         const env =
           buildAtlasCloudProfileEnv({
             model: getPrimaryModel(activeProfile.model),
