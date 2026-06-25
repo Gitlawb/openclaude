@@ -142,6 +142,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "cloudflare",
+    "routeKind": "vendor",
+    "routeId": "cloudflare",
+    "vendorId": "cloudflare",
+    "description": "Cloudflare Workers AI OpenAI-compatible endpoint. Replace <ACCOUNT_ID> in the base URL with your Cloudflare account id.",
+    "label": "Cloudflare Workers AI",
+    "name": "Cloudflare Workers AI",
+    "apiKeyEnvVars": [
+      "CLOUDFLARE_API_TOKEN"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "deepseek",
     "routeKind": "vendor",
     "routeId": "deepseek",
@@ -475,6 +490,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "azure-openai",
   "bankr",
   "clinepass",
+  "cloudflare",
   "deepseek",
   "fireworks",
   "gemini",
