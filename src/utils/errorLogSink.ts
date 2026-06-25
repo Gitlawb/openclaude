@@ -19,6 +19,7 @@ import { registerCleanup } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { getFsImplementation } from './fsOperations.js'
 import { attachErrorLogSink, dateToFilename } from './log.js'
+import { redactSensitiveInfo } from './redaction.js'
 import { jsonStringify } from './slowOperations.js'
 
 const DATE = dateToFilename(new Date())
@@ -168,8 +169,10 @@ function logErrorImpl(error: Error): void {
 
   logForDebugging(`${error.name}: ${context}${errorStr}`, { level: 'error' })
 
+  const redactedContext = redactSensitiveInfo(context)
+
   appendToLog(getErrorsPath(), {
-    error: `${context}${errorStr}`,
+    error: `${redactedContext}${errorStr}`,
   })
 }
 

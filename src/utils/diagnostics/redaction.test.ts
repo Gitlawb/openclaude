@@ -221,6 +221,21 @@ describe("redactSensitiveInfo", () => {
   test("redacts values with nested trailing parens", () => {
     expect(redactSensitiveInfo("token=abc(def(ghi))")).toBe("token=[REDACTED]");
   });
+
+  // Regression: X_API_KEY_PATTERN and AUTHORIZATION_PATTERN used to exclude
+  // `)` and `}` from their value capture, leaking content after embedded
+  // closing delimiters. Same fix as GENERIC_HEADER_FIELD_PATTERN.
+  test("redacts x-api-key value with trailing paren", () => {
+    expect(redactSensitiveInfo("x-api-key: abc)def")).toBe(
+      "x-api-key: [REDACTED_API_KEY]",
+    );
+  });
+
+  test("redacts authorization value with trailing paren", () => {
+    expect(redactSensitiveInfo("Authorization: Bearer abc(def)ghi")).toBe(
+      "Authorization: Bearer [REDACTED_TOKEN]",
+    );
+  });
 });
 
 describe("logForDebugging", () => {

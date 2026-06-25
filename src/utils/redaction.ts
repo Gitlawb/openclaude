@@ -72,11 +72,11 @@ const GITHUB_TOKEN_PATTERN =
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g;
 
 // Generic x-api-key header redaction
-const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\s)}\]]+/gi;
+const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\s\[\]]+/gi;
 
 // Authorization header / Bearer token redaction
 const AUTHORIZATION_PATTERN =
-  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\s)}\]]+/gi;
+  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\s\[\]]+/gi;
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
@@ -86,7 +86,7 @@ const PROVIDER_PREFIXED_ENV_PATTERN =
 // with strict negative lookarounds so we don't redact normal text that
 // happens to contain "API_KEY=" mid-sentence.
 const GENERIC_CREDENTIAL_ENV_PATTERN =
-  /(?<![A-Za-z0-9_])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\s)&}\]]+["']?/gi;
+  /(?<![A-Za-z0-9_])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\s\[)&}\]]+["']?/gi;
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
 // access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
@@ -216,7 +216,15 @@ export function redactSensitiveInfo(text: string): string {
   // Catch-all: any of the standard credential field names with a value
   redacted = redacted.replace(
     GENERIC_HEADER_FIELD_PATTERN,
-    (_, prefix: string) => `${prefix}[REDACTED]`,
+    (match, prefix: string, value: string) => {
+      // Prevent backtracking: if `(?:bearer\s+)?` failed to match (because
+      // the token value starts with `[` — already redacted), the engine
+      // backtracks and captures `Bearer` as the value instead. Skip the
+      // replacement in that case to leave the earlier specific-pass label
+      // intact (e.g. `[REDACTED_TOKEN]`).
+      if (/^bearer$/i.test(value)) return match;
+      return `${prefix}[REDACTED]`;
+    },
   );
 
   // Post-processing: the value capture no longer excludes `)` or `}`, so
