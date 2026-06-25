@@ -980,7 +980,7 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.6+)'
+      return 'Maximum capability with deepest reasoning (Opus 4.8+)'
     case 'xhigh':
       return 'Extra high reasoning effort for complex tasks'
   }

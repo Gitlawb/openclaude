@@ -6,10 +6,12 @@ import {
 import * as realAuth from '../utils/auth.js'
 import * as realConfig from '../utils/config.js'
 import * as realEffort from '../utils/effort.js'
-
-async function importFreshEffortCallout() {
-  return import(`./EffortCallout.tsx?ts=${Date.now()}-${Math.random()}`)
-}
+// Import the consumer statically. mock.module() patches the dependency modules
+// through live bindings, so the already-evaluated EffortCallout picks up the
+// mocks at call time. Relying on a `?ts=` cache-busting dynamic import to force
+// a fresh evaluation is not portable — Bun does not re-evaluate the query-tagged
+// specifier on Linux CI, so the gate ran against unmocked deps there (#1769).
+import { shouldShowEffortCallout } from './EffortCallout.js'
 
 beforeEach(async () => {
   await acquireSharedMutationLock('components/EffortCallout.modelGate.test.ts')
@@ -26,7 +28,7 @@ afterEach(() => {
   }
 })
 
-test('shouldShowEffortCallout covers the current default Opus (now 4.8) (#1769)', async () => {
+test('shouldShowEffortCallout covers the current default Opus (now 4.8) (#1769)', () => {
   // Drive the non-model gates to a "show" state so the model check is decisive.
   mock.module('../utils/auth.js', () => ({
     ...realAuth,
@@ -47,8 +49,6 @@ test('shouldShowEffortCallout covers the current default Opus (now 4.8) (#1769)'
     ...realEffort,
     getOpusDefaultEffortConfig: () => ({ enabled: true }),
   }))
-
-  const { shouldShowEffortCallout } = await importFreshEffortCallout()
 
   // The 'opus' alias resolves to the default Opus (claude-opus-4-8). Pre-fix the
   // gate only matched opus-4-6, so the new default would never show the callout.
