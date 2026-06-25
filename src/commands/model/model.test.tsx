@@ -2806,18 +2806,107 @@ test('cross-profile /model switch drops latched fast mode before activating an u
     stdout as unknown as NodeJS.WriteStream,
   )
 
-  await waitForCondition(() => capturedOnSelect !== undefined)
-  capturedOnSelect?.(
-    encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
-    undefined,
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+      undefined,
+    )
+
+    await waitForCondition(() =>
+      observedStates.some(state => state.fastMode === false),
+    )
+    expect(observedStates.at(-1)?.fastMode).toBe(false)
+  } finally {
+    instance.unmount()
+    // Restore the real fast-mode module for sibling tests in this file.
+    mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+  }
+})
+
+test('cross-profile /model switch drops fast mode when the target provider cannot run it even though the model name passes source-side support (#1119)', async () => {
+  // jatmn review edge case: the target model name passes isFastModeSupportedByModel
+  // on the SOURCE provider, so the pre-activation reconcile returns 'on'. But the
+  // target provider cannot run fast mode (isFastModeEnabled() flips false after
+  // activation). The post-activation re-check must still force fastMode off rather
+  // than leaving it latched and printing "Fast mode ON".
+  let targetProfileActivated = false
+  mock.module('../../utils/fastMode.js', () => ({
+    ...REAL_FAST_MODE_FOR_MODEL_TEST,
+    // Model name passes support on both sides; only the provider gating changes.
+    isFastModeSupportedByModel: () => true,
+    isFastModeAvailable: () => true,
+    isFastModeEnabled: () => !targetProfileActivated,
+    clearFastModeCooldown: () => {},
+  }))
+  mockProviderProfiles({
+    setActiveProviderProfile: (profileId: string) => {
+      targetProfileActivated = true
+      return {
+        id: profileId,
+        name: 'Custom Shim',
+        provider: 'openai',
+        baseUrl: 'https://shim.example/v1',
+        model: 'claude-opus-4-6',
+      }
+    },
+  } as never)
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (model: string | null, effort: unknown) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+
+  const { getDefaultAppState } = await import('../../state/AppState.js')
+  const observedStates: Array<{ fastMode?: boolean }> = []
+  const { call } = await importFreshModelModule('fast-cross-profile-capability')
+  const element = await call(() => {}, {} as never, '')
+  const { AppStateProvider } = await import('../../state/AppState.js')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider
+      initialState={
+        {
+          ...getDefaultAppState(),
+          fastMode: true,
+          mainLoopModel: 'claude-opus-4-6',
+        } as never
+      }
+      onChangeAppState={({
+        newState,
+      }: {
+        newState: { fastMode?: boolean }
+      }) => {
+        observedStates.push(newState)
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
   )
 
-  await waitForCondition(() =>
-    observedStates.some(state => state.fastMode === false),
-  )
-  expect(observedStates.at(-1)?.fastMode).toBe(false)
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_shim', 'claude-opus-4-6'),
+      undefined,
+    )
 
-  instance.unmount()
-  // Restore the real fast-mode module for sibling tests in this file.
-  mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+    await waitForCondition(() =>
+      observedStates.some(state => state.fastMode === false),
+    )
+    expect(observedStates.at(-1)?.fastMode).toBe(false)
+  } finally {
+    instance.unmount()
+    mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+  }
 })

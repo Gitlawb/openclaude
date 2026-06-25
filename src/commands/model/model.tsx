@@ -685,15 +685,30 @@ function ModelPickerWrapper({
         mainLoopModelForSession: null,
       }))
 
-      if (switchFastMode === 'off') {
+      // Re-evaluate fast mode AFTER activation: the pre-activation reconcile
+      // gates on the *source* provider, so its 'on' result can be stale when
+      // the target provider can't actually run fast mode (e.g. switching from
+      // first-party to a third-party OpenAI-compatible profile whose model name
+      // still passes the source-side support check). isFastModeEnabled() now
+      // reflects the target provider, so force fastMode off whenever it is no
+      // longer genuinely supported (jatmn review, #1119).
+      const fastModeSupportedNow =
+        isFastModeEnabled() &&
+        isFastModeSupportedByModel(switchTarget.model) &&
+        isFastModeAvailable()
+      const shouldTurnFastModeOff =
+        (isFastMode ?? false) &&
+        (switchFastMode === 'off' || !fastModeSupportedNow)
+
+      if (shouldTurnFastModeOff) {
         setAppState(prev => ({ ...prev, fastMode: false }))
       }
 
       let switchMessage = `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`
-      if (switchFastMode === 'on') {
-        switchMessage += ' · Fast mode ON'
-      } else if (switchFastMode === 'off') {
+      if (shouldTurnFastModeOff) {
         switchMessage += ' · Fast mode OFF'
+      } else if ((isFastMode ?? false) && fastModeSupportedNow) {
+        switchMessage += ' · Fast mode ON'
       }
       onDone(switchMessage)
       return
