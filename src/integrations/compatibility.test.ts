@@ -93,8 +93,10 @@ describe('compatibility mappings', () => {
   })
 
   test('Atlas Cloud gateway models do not resolve to NearAI-scoped descriptors', () => {
+    const atlasModels = getModelsForGateway('atlas-cloud')
+    expect(atlasModels.length).toBeGreaterThan(0)
     expect(
-      getModelsForGateway('atlas-cloud').filter(model => model.vendorId === 'nearai'),
+      atlasModels.filter(model => model.vendorId === 'nearai'),
     ).toEqual([])
   })
   test('native gateway profile routes use their descriptor vendor', () => {

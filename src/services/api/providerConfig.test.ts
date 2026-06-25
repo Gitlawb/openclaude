@@ -49,6 +49,12 @@ test('resolveProviderRequest maps explicit Atlas coding aliases without ambiguit
     baseUrl: 'https://api.atlascloud.ai/v1',
     processEnv: {},
   }).resolvedModel).toBe('anthropic/claude-sonnet-4.6-coding')
+
+  expect(resolveProviderRequest({
+    model: 'deepseek-ai/deepseek-v3.2',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    processEnv: {},
+  }).resolvedModel).toBe('deepseek-ai/deepseek-v3.2')
 })
 
 test('resolveProviderRequest leaves OpenRouter routing untouched without explicit aliases', () => {
