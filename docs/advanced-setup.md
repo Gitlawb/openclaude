@@ -98,10 +98,22 @@ third-party gateways.
 
 Authentication uses Google Application Default Credentials through
 `google-auth-library`. There is no `OPENAI_API_KEY`-style API key for this
-route. Authenticate with either a service-account file or local ADC:
+route. **For global npm installs, install the auth package on demand** (it is
+not bundled by default — see [Optional provider packages](#optional-provider-packages)):
 
 ```bash
+npm i -g google-auth-library
+```
+
+Authenticate with either local Application Default Credentials (ADC) or a
+service-account key file:
+
+```bash
+# Option 1 — local ADC (interactive, uses your own Google account):
 gcloud auth application-default login
+
+# Option 2 — service-account key file (headless / CI):
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
 Minimal setup:
@@ -318,6 +330,24 @@ export OPENAI_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
 ```
 
 The **OpenClaude VS Code extension** can store the key in Secret Storage and set these variables for you when you launch from the Control Center. See `vscode-extension/openclaude-vscode/README.md`.
+
+## Optional provider packages
+
+To keep the default `npm i -g @gitlawb/openclaude` install small and
+warning-free, a few provider SDKs and the native image library are **not
+bundled**. They are loaded on demand, and the CLI prints an `npm install <pkg>`
+hint (add `-g` for the global CLI) if you enable a feature whose package is
+missing. Install only what you need:
+
+| Feature | Trigger | Install |
+| --- | --- | --- |
+| AWS Bedrock | `CLAUDE_CODE_USE_BEDROCK=1` | `npm i -g @anthropic-ai/bedrock-sdk`. Profile-based auth (`~/.aws/credentials`) additionally needs `@aws-sdk/credential-providers`; model listing needs `@aws-sdk/client-bedrock`. The CLI prints the exact missing package if you hit one. |
+| Azure Foundry | `CLAUDE_CODE_USE_FOUNDRY=1` | `npm i -g @anthropic-ai/foundry-sdk @azure/identity` |
+| Claude on Vertex AI / Gemini ADC | `CLAUDE_CODE_USE_VERTEX=1` / Gemini ADC auth | `npm i -g google-auth-library` |
+| Reading/processing images | reading an image file | `npm i -g sharp` |
+
+When installing OpenClaude from source (`bun install`), all of these are
+already present as dev dependencies, so source/dev builds need no extra steps.
 
 ## Environment Variables
 

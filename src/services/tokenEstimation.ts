@@ -1,4 +1,5 @@
 import type { Anthropic } from '@anthropic-ai/sdk'
+import { importOptionalRuntimeModule } from '../utils/optionalRuntimeModule.js'
 import type { BetaMessageParam as MessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 // @aws-sdk/client-bedrock-runtime is imported dynamically in countTokensWithBedrock()
 // to defer ~279KB of AWS SDK code until a Bedrock call is actually made
@@ -694,9 +695,9 @@ async function countTokensWithBedrock({
       }),
     }
 
-    const { CountTokensCommand } = await import(
-      '@aws-sdk/client-bedrock-runtime'
-    )
+    const { CountTokensCommand } = await importOptionalRuntimeModule<
+      typeof import('@aws-sdk/client-bedrock-runtime')
+    >('@aws-sdk/client-bedrock-runtime', 'AWS Bedrock')
     const input: CountTokensCommandInput = {
       modelId,
       input: {

@@ -6,7 +6,12 @@
  * added here (large packages, native modules, or packages with many exports).
  */
 
-// Packages that should be kept external in ALL bundles (CLI + SDK)
+// Packages that should be kept external in ALL bundles (CLI + SDK).
+// NOTE: some entries here are ALSO in OPTIONAL_RUNTIME_EXTERNALS below
+// (sharp, google-auth-library, @aws-sdk/*, @azure/identity). That overlap is
+// intentional: membership here means "never inline into the bundle", while
+// membership in OPTIONAL_RUNTIME_EXTERNALS additionally means "not shipped in
+// the default install — loaded on demand". A package can be both.
 export const COMMON_EXTERNALS: string[] = [
   // Native image processing
   'sharp',
@@ -35,11 +40,63 @@ export const SDK_ONLY_EXTERNALS: string[] = [
   '@modelcontextprotocol/sdk',
 ]
 
-// Packages kept external but NOT listed in package.json dependencies.
-// These are dynamically imported at runtime — they're optional and resolved
-// from transitive deps or installed by users who need that provider/protocol.
+// Optional runtime packages: dynamically imported only when a provider/feature
+// needs them, and NOT listed in package.json `dependencies`, so a default
+// `npm install -g @gitlawb/openclaude` stays small and warning-free.
+//
+// Two shapes (see RUNTIME_INDIRECTION_ONLY_EXTERNALS below):
+//   - Most stay external in both bundles (in COMMON_EXTERNALS) so esbuild never
+//     inlines them — they ARE referenced where esbuild can see them.
+//   - The indirection-only subset (@anthropic-ai/{bedrock,foundry}-sdk) is the
+//     opposite: loaded purely via the runtime importer, so esbuild never sees a
+//     static reference and they must stay OUT of the externals lists.
 export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
   // Cloud provider SDKs (dynamically imported per-provider)
+  '@aws-sdk/client-bedrock',
+  '@aws-sdk/client-bedrock-runtime',
+  '@aws-sdk/client-sts',
+  '@aws-sdk/credential-providers',
+  '@azure/identity',
+  // Anthropic Bedrock client — loaded via the runtime importer in
+  // services/api/client.ts. Not bundled (it statically imports @aws-sdk) and
+  // not shipped; Bedrock users install it on demand (it pulls @aws-sdk itself).
+  '@anthropic-ai/bedrock-sdk',
+  // Anthropic Foundry client — also loaded only via the runtime importer in
+  // services/api/client.ts (CLAUDE_CODE_USE_FOUNDRY). The Function indirection
+  // means esbuild never sees it, so it is not bundled; Foundry users install it
+  // on demand. (It is NOT in COMMON_EXTERNALS for the same reason as bedrock.)
+  '@anthropic-ai/foundry-sdk',
+  // GCP/Vertex auth — loaded via runtime import in services/api/client.ts.
+  // Optional: only Vertex users need it. Its transitive tree (gaxios →
+  // node-fetch → fetch-blob → node-domexception) is what triggered the
+  // deprecation warning on install, so we no longer ship it by default.
+  'google-auth-library',
+  // Native image processing — loaded via dynamic import in the image tools.
+  // Optional: only image reads need it, and it carries a native install
+  // script. Kept opt-in so default installs run no install scripts.
+  'sharp',
+]
+
+// OPTIONAL_RUNTIME_EXTERNALS that are loaded ONLY through the runtime importer
+// (the `new Function` indirection in src/utils/optionalRuntimeModule.ts), so
+// esbuild never sees a static reference to them. These must NOT appear in the
+// externals lists: marking @anthropic-ai/bedrock-sdk external would let esbuild
+// keep (and at startup evaluate) its static `@aws-sdk/client-bedrock-runtime`
+// import, which is exactly the default-install crash this design avoids. Every
+// OTHER optional external IS referenced somewhere esbuild can see (e.g. sharp's
+// dynamic import in imageProcessor.ts) and therefore must stay external.
+export const RUNTIME_INDIRECTION_ONLY_EXTERNALS: string[] = [
+  '@anthropic-ai/bedrock-sdk',
+  '@anthropic-ai/foundry-sdk',
+]
+
+// OPTIONAL_RUNTIME_EXTERNALS that are NOT direct devDependencies because they
+// are pulled transitively by another optional package's dependency tree, so
+// source builds/tests still resolve them: the @aws-sdk/* clients come via
+// @anthropic-ai/bedrock-sdk, and @azure/identity via @anthropic-ai/foundry-sdk.
+// Every OTHER optional external must be a direct devDependency (validated) so
+// `bun install` source/dev builds keep working.
+export const TRANSITIVE_OPTIONAL_EXTERNALS: string[] = [
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
   '@aws-sdk/client-sts',
@@ -54,10 +111,13 @@ export const SDK_EXTERNALS: string[] = [...COMMON_EXTERNALS, ...SDK_ONLY_EXTERNA
 // Packages intentionally bundled (not external, not flagged by validation)
 // These are small utilities that are fine to inline into the output bundle.
 export const INTENTIONALLY_BUNDLED: string[] = [
-  // Test utilities (bundled, not external)
-  // Anthropic provider variants (bundled, not the main SDK)
-  '@anthropic-ai/bedrock-sdk',
-  '@anthropic-ai/foundry-sdk',
+  // Anthropic provider variants (bundled, not the main SDK).
+  // NOTE: @anthropic-ai/bedrock-sdk AND @anthropic-ai/foundry-sdk are
+  // intentionally NOT bundled — they are loaded only via the runtime importer in
+  // services/api/client.ts (esbuild never sees the specifier), so they live in
+  // OPTIONAL_RUNTIME_EXTERNALS / RUNTIME_INDIRECTION_ONLY_EXTERNALS and Bedrock /
+  // Foundry users install them on demand. @anthropic-ai/sandbox-runtime IS
+  // statically imported (utils/sandbox/sandbox-adapter.ts), so esbuild bundles it.
   '@anthropic-ai/sandbox-runtime',
   // CLI / TUI utilities
   '@alcalzone/ansi-tokenize',

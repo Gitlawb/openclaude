@@ -5,69 +5,79 @@
  * Run as part of the build to catch missing externals early.
  */
 import { readFileSync } from 'fs'
-import { CLI_EXTERNALS, SDK_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS } from './externals.js'
+import { CLI_EXTERNALS, SDK_EXTERNALS, SDK_ONLY_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS, RUNTIME_INDIRECTION_ONLY_EXTERNALS, TRANSITIVE_OPTIONAL_EXTERNALS } from './externals.js'
+import {
+  bundledExemptionFor,
+  validateBundleExternals,
+  validateIntentionallyBundled,
+  validateOptionalPeers,
+  validateOptionalRuntimeExternals,
+} from './externalsValidation.js'
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-const allDeps = new Set([
+
+// Runtime deps: shipped to users and resolved from node_modules at runtime.
+// These must each be a genuine external (the bundle inlines everything else).
+const runtimeDeps = new Set<string>([
   ...Object.keys(pkg.dependencies || {}),
   ...Object.keys(pkg.peerDependencies || {}),
 ])
+const peerDepNames = new Set(Object.keys(pkg.peerDependencies ?? {}))
 
-function validate(bundleName: string, externals: string[]): boolean {
-  const externalSet = new Set(externals)
-  const intentionallyBundledSet = new Set(INTENTIONALLY_BUNDLED)
+// The bundled allowlist is scoped PER bundle. The CLI inlines every
+// INTENTIONALLY_BUNDLED package. In the SDK the optional peers (react,
+// @anthropic-ai/sdk, ...) are EXTERNAL — keyed on package.json's
+// peerDependencies (an independent source of truth) so dropping one of them
+// from SDK_EXTERNALS fails validation instead of silently passing.
+const CLI_BUNDLED_EXEMPTION = bundledExemptionFor(INTENTIONALLY_BUNDLED, new Set())
+const SDK_BUNDLED_EXEMPTION = bundledExemptionFor(INTENTIONALLY_BUNDLED, peerDepNames)
 
-  const missing = [...allDeps].filter(
-    d => !externalSet.has(d) && !intentionallyBundledSet.has(d),
-  )
+function report(result: { ok: boolean; errors: string[] }): boolean {
+  for (const err of result.errors) console.error(`❌ ${err}`)
+  return result.ok
+}
 
-  if (missing.length > 0) {
-    console.error(`❌ ${bundleName}: Dependencies missing from externals:`)
-    for (const dep of missing) {
-      console.error(`   - ${dep}`)
-    }
-    console.error(
-      `\n   Either add them to scripts/externals.ts or to INTENTIONALLY_BUNDLED.`,
-    )
-    return false
-  }
+const cliOk = report(
+  validateBundleExternals('CLI bundle', runtimeDeps, CLI_EXTERNALS, CLI_BUNDLED_EXEMPTION),
+)
+const sdkOk = report(
+  validateBundleExternals('SDK bundle', runtimeDeps, SDK_EXTERNALS, SDK_BUNDLED_EXEMPTION),
+)
+const intentionallyBundledOk = report(
+  validateIntentionallyBundled(pkg, INTENTIONALLY_BUNDLED, SDK_ONLY_EXTERNALS),
+)
+const optionalPeersOk = report(validateOptionalPeers(pkg))
+const optionalExternalsOk = report(
+  validateOptionalRuntimeExternals(
+    OPTIONAL_RUNTIME_EXTERNALS,
+    CLI_EXTERNALS,
+    SDK_EXTERNALS,
+    RUNTIME_INDIRECTION_ONLY_EXTERNALS,
+    pkg,
+    TRANSITIVE_OPTIONAL_EXTERNALS,
+  ),
+)
 
+// Surface external entries not declared in package.json (informational only).
+for (const [name, externals] of [
+  ['CLI bundle', CLI_EXTERNALS],
+  ['SDK bundle', SDK_EXTERNALS],
+] as const) {
   const optionalSet = new Set(OPTIONAL_RUNTIME_EXTERNALS)
-  const extra = [...externalSet].filter(d => !allDeps.has(d) && !optionalSet.has(d))
+  const extra = externals.filter(d => !runtimeDeps.has(d) && !optionalSet.has(d))
   if (extra.length > 0) {
-    console.warn(`⚠️  ${bundleName}: External entries not in package.json (may be ok):`)
-    for (const dep of extra) {
-      console.warn(`   - ${dep}`)
-    }
+    console.warn(`⚠️  ${name}: External entries not in package.json (may be ok): ${extra.join(', ')}`)
   }
-
-  console.log(`✓ ${bundleName}: All dependencies accounted for (${missing.length} missing, ${externalSet.size} external)`)
-  return true
 }
 
-function validateIntentionallyBundled(): boolean {
-  const stale = INTENTIONALLY_BUNDLED.filter(dep => !allDeps.has(dep))
+const allOk =
+  cliOk && sdkOk && intentionallyBundledOk && optionalPeersOk && optionalExternalsOk
 
-  if (stale.length > 0) {
-    console.error(`❌ INTENTIONALLY_BUNDLED entries not in package.json:`)
-    for (const dep of stale) {
-      console.error(`   - ${dep}`)
-    }
-    console.error(
-      `\n   Remove stale entries from INTENTIONALLY_BUNDLED or add the package back to dependencies.`,
-    )
-    return false
-  }
-
-  console.log(`✓ INTENTIONALLY_BUNDLED: All entries still exist in package.json (${INTENTIONALLY_BUNDLED.length} entries)`)
-  return true
-}
-
-const cliOk = validate('CLI bundle', CLI_EXTERNALS)
-const sdkOk = validate('SDK bundle', SDK_EXTERNALS)
-const intentionallyBundledOk = validateIntentionallyBundled()
-
-if (!cliOk || !sdkOk || !intentionallyBundledOk) {
+if (allOk) {
+  console.log(
+    `✓ CLI/SDK externals + ${INTENTIONALLY_BUNDLED.length} bundled packages valid (devDependencies-only; SDK peers external & optional; optional externals never bundled).`,
+  )
+} else {
   console.error(`\n❌ External list validation failed. Fix scripts/externals.ts before committing.`)
   process.exit(1)
 }

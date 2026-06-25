@@ -1,4 +1,5 @@
 import memoize from 'lodash-es/memoize.js'
+import { importOptionalRuntimeModule } from '../optionalRuntimeModule.js'
 import { refreshAndGetAwsCredentials } from '../auth.js'
 import { getAWSRegion, isEnvTruthy } from '../envUtils.js'
 import { logError } from '../log.js'
@@ -9,7 +10,10 @@ export const getBedrockInferenceProfiles = memoize(async function (): Promise<
 > {
   const [client, { ListInferenceProfilesCommand }] = await Promise.all([
     createBedrockClient(),
-    import('@aws-sdk/client-bedrock'),
+    importOptionalRuntimeModule<typeof import('@aws-sdk/client-bedrock')>(
+      '@aws-sdk/client-bedrock',
+      'AWS Bedrock',
+    ),
   ])
   const allProfiles: Array<{ inferenceProfileId?: string }> = []
   let nextToken: string | undefined
@@ -48,7 +52,9 @@ export function findFirstMatch(
 }
 
 async function createBedrockClient() {
-  const { BedrockClient } = await import('@aws-sdk/client-bedrock')
+  const { BedrockClient } = await importOptionalRuntimeModule<
+    typeof import('@aws-sdk/client-bedrock')
+  >('@aws-sdk/client-bedrock', 'AWS Bedrock')
   // Match the Anthropic Bedrock SDK's region behavior exactly:
   // - Reads AWS_REGION or AWS_DEFAULT_REGION env vars (not AWS config files)
   // - Falls back to 'us-east-1' if neither is set
@@ -94,9 +100,9 @@ async function createBedrockClient() {
 }
 
 export async function createBedrockRuntimeClient() {
-  const { BedrockRuntimeClient } = await import(
-    '@aws-sdk/client-bedrock-runtime'
-  )
+  const { BedrockRuntimeClient } = await importOptionalRuntimeModule<
+    typeof import('@aws-sdk/client-bedrock-runtime')
+  >('@aws-sdk/client-bedrock-runtime', 'AWS Bedrock')
   const region = getAWSRegion()
   const skipAuth = isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH)
 
@@ -144,7 +150,10 @@ export const getInferenceProfileBackingModel = memoize(async function (
   try {
     const [client, { GetInferenceProfileCommand }] = await Promise.all([
       createBedrockClient(),
-      import('@aws-sdk/client-bedrock'),
+      importOptionalRuntimeModule<typeof import('@aws-sdk/client-bedrock')>(
+      '@aws-sdk/client-bedrock',
+      'AWS Bedrock',
+    ),
     ])
     const command = new GetInferenceProfileCommand({
       inferenceProfileIdentifier: profileId,

@@ -1,4 +1,5 @@
 import { logForDebugging } from './debug.js'
+import { importOptionalRuntimeModule } from './optionalRuntimeModule.js'
 
 /** AWS short-term credentials format. */
 export type AwsCredentials = {
@@ -61,7 +62,9 @@ export async function checkStsCallerIdentity(): Promise<void> {
 export async function clearAwsIniCache(): Promise<void> {
   try {
     logForDebugging('Clearing AWS credential provider cache')
-    const { fromIni } = await import('@aws-sdk/credential-providers')
+    const { fromIni } = await importOptionalRuntimeModule<
+      typeof import('@aws-sdk/credential-providers')
+    >('@aws-sdk/credential-providers', 'AWS Bedrock')
     const iniProvider = fromIni({ ignoreCache: true })
     await iniProvider() // This updates the global file cache
     logForDebugging('AWS credential provider cache refreshed')
