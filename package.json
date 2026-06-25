@@ -21,6 +21,7 @@
     "src/entrypoints/sdk.d.ts",
     "src/entrypoints/sdk/coreTypes.generated.ts",
     "scripts/windows/openclaude-aliases.ps1",
+    "vendor/node-domexception-shim/",
     "docs/windows-aliases-and-launchers.md",
     "README.md"
   ],
