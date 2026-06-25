@@ -24,6 +24,7 @@ import {
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 import { PROVIDER_SELECTION_FLAGS } from './providerSelectionFlags.js'
+import { isEnvTruthy } from './envUtils.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -223,9 +224,7 @@ export function applyModelFlagFromArgs(args: string[]): void {
   const model = parseModelFlag(args)
   if (!model) return
 
-  const useGeminiVertex =
-    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX === '1' ||
-    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX === 'true'
+  const useGeminiVertex = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX)
   const useGemini =
     process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
     process.env.CLAUDE_CODE_USE_GEMINI === 'true'
