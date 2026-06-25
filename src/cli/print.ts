@@ -339,6 +339,7 @@ import {
   shouldSelectHeadlessFinalMessage,
   type HeadlessHeartbeat,
   type HeadlessHeartbeatEvent,
+  type HeadlessHeartbeatState,
 } from './headlessHeartbeat.js'
 import {
   isTeamLead,
@@ -619,15 +620,12 @@ export async function runHeadless(
     () => streamJsonDrainStarted,
   )
   const heartbeat = options.heartbeatIntervalMs
-    ? createHeadlessHeartbeat({
+    ? createRunHeadlessHeartbeat({
         intervalMs: options.heartbeatIntervalMs,
-        outputFormat:
-          options.outputFormat === 'stream-json' && !options.verbose
-            ? 'text'
-            : options.outputFormat,
+        outputFormat: options.outputFormat,
+        verbose: options.verbose,
         getSessionId,
         getState: () => (isShuttingDown() ? 'shutting_down' : getSessionState()),
-        initialPhase: 'loading_session',
         getPendingPermissionRequests: () =>
           structuredIO.getPendingPermissionRequests(),
         getBackgroundTaskCounts: () => getBackgroundTaskCounts(getAppState()),
@@ -1037,6 +1035,21 @@ type HeadlessHeartbeatStructuredTarget = {
   }
 }
 
+type RunHeadlessHeartbeatOptions = {
+  intervalMs: number | undefined
+  outputFormat: string | undefined
+  verbose: boolean | undefined
+  getSessionId: () => string | undefined
+  getState: () => HeadlessHeartbeatState
+  getPendingPermissionRequests: () => number | readonly unknown[]
+  getBackgroundTaskCounts: () => Record<string, number>
+  emitStructured: (message: HeadlessHeartbeatEvent) => void | Promise<void>
+  now?: () => number
+  setInterval?: (callback: () => void, intervalMs: number) => unknown
+  clearInterval?: (timer: unknown) => void
+  createUuid?: () => string
+}
+
 /** @internal */
 export function createHeadlessHeartbeatStructuredEmitter(
   structuredIO: HeadlessHeartbeatStructuredTarget,
@@ -1049,6 +1062,33 @@ export function createHeadlessHeartbeatStructuredEmitter(
     }
     return structuredIO.write(message)
   }
+}
+
+/** @internal */
+export function createRunHeadlessHeartbeat(
+  options: RunHeadlessHeartbeatOptions,
+): HeadlessHeartbeat | undefined {
+  if (options.intervalMs === undefined) {
+    return undefined
+  }
+
+  return createHeadlessHeartbeat({
+    intervalMs: options.intervalMs,
+    outputFormat:
+      options.outputFormat === 'stream-json' && !options.verbose
+        ? 'text'
+        : options.outputFormat,
+    getSessionId: options.getSessionId,
+    getState: options.getState,
+    initialPhase: 'startup',
+    getPendingPermissionRequests: options.getPendingPermissionRequests,
+    getBackgroundTaskCounts: options.getBackgroundTaskCounts,
+    emitStructured: options.emitStructured,
+    now: options.now,
+    setInterval: options.setInterval,
+    clearInterval: options.clearInterval,
+    createUuid: options.createUuid,
+  })
 }
 
 function getBackgroundTaskCounts(appState: AppState): Record<string, number> {
