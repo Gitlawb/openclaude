@@ -154,7 +154,10 @@ export function formatOutput(content: string): {
   }
 
   const truncatedPart = content.slice(0, maxOutputLength)
-  const remainingLines = countCharInString(content, '\n', maxOutputLength) + 1
+  // Count the lines fully omitted after the cut. The line straddling the cut
+  // has its head shown in `truncatedPart`, so it must not be counted as
+  // truncated; counting newlines from `maxOutputLength` already excludes it.
+  const remainingLines = countCharInString(content, '\n', maxOutputLength)
   const truncated = `${truncatedPart}\n\n... [${remainingLines} lines truncated] ...`
 
   return {
