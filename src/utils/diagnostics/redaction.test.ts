@@ -236,6 +236,46 @@ describe("redactSensitiveInfo", () => {
       "Authorization: Bearer [REDACTED_TOKEN]",
     );
   });
+
+  // P1: Bracketed credential values were not redacted because [ and ] were
+  // excluded from value captures. Ensure they are fully consumed.
+  test("redacts bracketed x-api-key value", () => {
+    expect(redactSensitiveInfo("x-api-key: [secret]")).toBe(
+      "x-api-key: [REDACTED_API_KEY]",
+    );
+  });
+
+  test("redacts bracketed token value", () => {
+    expect(redactSensitiveInfo("token=[secret]")).toBe("token=[REDACTED]");
+  });
+
+  test("redacts bracketed env var value", () => {
+    expect(redactSensitiveInfo("MY_API_KEY=[secret]")).toBe("MY_API_KEY=[REDACTED]");
+  });
+
+  // P2: Multi-word header values leaked after the first whitespace because
+  // value captures excluded \s. Ensure spaces inside values are consumed.
+  test("redacts multi-word x-api-key value", () => {
+    expect(redactSensitiveInfo("x-api-key: a b c")).toBe(
+      "x-api-key: [REDACTED_API_KEY]",
+    );
+  });
+
+  test("redacts multi-word Authorization Bearer value", () => {
+    expect(redactSensitiveInfo("Authorization: Bearer abc def ghi")).toBe(
+      "Authorization: Bearer [REDACTED_TOKEN]",
+    );
+  });
+
+  test("redacts multi-word Authorization Basic value", () => {
+    expect(redactSensitiveInfo("Authorization: Basic dXNlcjpwYXNz")).toBe(
+      "Authorization: [REDACTED_TOKEN]",
+    );
+  });
+
+  test("redacts multi-word password value", () => {
+    expect(redactSensitiveInfo("password: foo bar")).toBe("password: [REDACTED]");
+  });
 });
 
 describe("logForDebugging", () => {

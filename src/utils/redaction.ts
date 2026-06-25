@@ -72,11 +72,11 @@ const GITHUB_TOKEN_PATTERN =
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g;
 
 // Generic x-api-key header redaction
-const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\s\[\]]+/gi;
+const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n&]+/gi;
 
 // Authorization header / Bearer token redaction
 const AUTHORIZATION_PATTERN =
-  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\s\[\]]+/gi;
+  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n&]+/gi;
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
@@ -86,14 +86,14 @@ const PROVIDER_PREFIXED_ENV_PATTERN =
 // with strict negative lookarounds so we don't redact normal text that
 // happens to contain "API_KEY=" mid-sentence.
 const GENERIC_CREDENTIAL_ENV_PATTERN =
-  /(?<![A-Za-z0-9_])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\s\[)&}\]]+["']?/gi;
+  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n&]+["']?/gi;
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
 // access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\s\[\]]+)/gi;
+  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&]+)/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -217,21 +217,17 @@ export function redactSensitiveInfo(text: string): string {
   redacted = redacted.replace(
     GENERIC_HEADER_FIELD_PATTERN,
     (match, prefix: string, value: string) => {
-      // Prevent backtracking: if `(?:bearer\s+)?` failed to match (because
-      // the token value starts with `[` — already redacted), the engine
-      // backtracks and captures `Bearer` as the value instead. Skip the
-      // replacement in that case to leave the earlier specific-pass label
-      // intact (e.g. `[REDACTED_TOKEN]`).
-      if (/^bearer$/i.test(value)) return match;
+      // If the value starts with `[REDACTED`, an earlier pass already handled
+      // this field. Skip to preserve the specific label (e.g. `[REDACTED_TOKEN]`).
+      if (/^\[REDACTED/.test(value)) return match;
       return `${prefix}[REDACTED]`;
     },
   );
 
-  // Post-processing: the value capture no longer excludes `)` or `}`, so
-  // embedded parens/braces are consumed as part of the value. However,
-  // `[REDACTED]` from env-var replacement may still be followed by a leftover
-  // `]` (from the original `[REDACTED]` having a trailing `]`). Absorb any
-  // trailing bracket pairs or single bracket chars that immediately follow.
+  // Post-processing: absorb any trailing brackets, parens, or braces that may
+  // remain after a value capture consumed part of a bracketed value. This is a
+  // safety net for edge cases where a delimiter-based match ends before a
+  // closing delimiter.
   redacted = redacted.replace(
     /\[REDACTED\](?:\[[^\]]*\]|[)\]}])+/g,
     "[REDACTED]",
