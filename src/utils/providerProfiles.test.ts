@@ -803,6 +803,26 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
+  test('cloudflare profile retargeted to the shared AI Gateway host does not mirror CLOUDFLARE_API_TOKEN', async () => {
+    // gateway.ai.cloudflare.com is a shared AI Gateway host that fronts other
+    // providers (openai/anthropic/...). A cloudflare profile keeps
+    // routeId === 'cloudflare', but the token must NOT be mirrored when the
+    // base URL is the shared gateway, otherwise the profile stays tied to the
+    // cloudflare route through the descriptor's host-based detection.
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildCloudflareProfile({
+        baseUrl:
+          'https://gateway.ai.cloudflare.com/v1/abc123/my-gateway/openai',
+      }),
+    )
+
+    expect(process.env.CLOUDFLARE_API_TOKEN).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
+  })
+
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

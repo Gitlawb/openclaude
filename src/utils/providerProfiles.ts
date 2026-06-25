@@ -891,7 +891,13 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'cloudflare' || isCloudflareBaseUrl(profile.baseUrl)) {
+      // Gate on the base URL host alone, not the saved route id. A cloudflare
+      // profile retargeted to the shared gateway.ai.cloudflare.com AI Gateway
+      // host keeps routeId === 'cloudflare', so mirroring CLOUDFLARE_API_TOKEN
+      // on the route id would leak the token to a shared-gateway profile. The
+      // sibling sites (isProcessEnvAlignedWithProfile, buildOpenAICompatibleStartupEnv)
+      // already key on isCloudflareBaseUrl only.
+      if (isCloudflareBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.CLOUDFLARE_API_TOKEN = profile.apiKey
       }
     }
