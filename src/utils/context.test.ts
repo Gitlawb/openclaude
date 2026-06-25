@@ -887,6 +887,20 @@ test('Anthropic model with high CLAUDE_CODE_MAX_OUTPUT_TOKENS still caps at mode
   expect(getMaxOutputTokensForModel('claude-3-opus')).toBe(4_096)
 })
 
+test('recent Opus models (4.8/4.7/4.6) get the elevated output-token limits (#1769)', () => {
+  // Regression: 4.8/4.7 used to fall through to the generic opus-4 branch and
+  // cap at 32k, while the default Opus is now 4.8.
+  const elevated = { default: 64_000, upperLimit: 128_000 }
+  expect(getModelMaxOutputTokens('claude-opus-4-8')).toEqual(elevated)
+  expect(getModelMaxOutputTokens('claude-opus-4-7')).toEqual(elevated)
+  expect(getModelMaxOutputTokens('claude-opus-4-6')).toEqual(elevated)
+  // Older Opus still capped lower.
+  expect(getModelMaxOutputTokens('claude-opus-4-1')).toEqual({
+    default: 32_000,
+    upperLimit: 32_000,
+  })
+})
+
 test('modelSupports1M recognizes the current default Opus (4.8) as 1M-capable', () => {
   const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
   delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
