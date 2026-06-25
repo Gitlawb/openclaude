@@ -632,7 +632,11 @@ export async function runHeadless(
         emitStructured: emitStructuredHeartbeat,
       })
     : undefined
-  heartbeat?.start()
+  const deferHeartbeatStartUntilStreamDrain =
+    options.outputFormat === 'stream-json'
+  if (!deferHeartbeatStartUntilStreamDrain) {
+    heartbeat?.start()
+  }
   registerCleanup(async () => heartbeat?.stop())
 
   // #34044: if user explicitly set sandbox.enabled=true but deps are missing,
@@ -920,6 +924,10 @@ export async function runHeadless(
 
   headlessProfilerCheckpoint('before_runHeadlessStreaming')
   streamJsonDrainStarted = true
+  if (deferHeartbeatStartUntilStreamDrain) {
+    heartbeat?.start()
+    heartbeat?.setPhase('draining_commands')
+  }
   for await (const message of runHeadlessStreaming(
     structuredIO,
     appState.mcp.clients,
@@ -1056,11 +1064,10 @@ export function createHeadlessHeartbeatStructuredEmitter(
   hasDrainStarted: () => boolean,
 ): (message: HeadlessHeartbeatEvent) => void | Promise<void> {
   return message => {
-    if (hasDrainStarted()) {
-      structuredIO.outbound.enqueue(message)
+    if (!hasDrainStarted()) {
       return
     }
-    return structuredIO.write(message)
+    structuredIO.outbound.enqueue(message)
   }
 }
 

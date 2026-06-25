@@ -65,7 +65,7 @@ const heartbeatEvent: HeadlessHeartbeatEvent = {
 }
 
 describe('createHeadlessHeartbeatStructuredEmitter', () => {
-  test('writes heartbeat events immediately before the stream-json drain starts', async () => {
+  test('does not emit heartbeat events before the stream-json drain starts', async () => {
     const write = mock(async (_message: HeadlessHeartbeatEvent) => {})
     const enqueue = mock((_message: HeadlessHeartbeatEvent) => {})
     const emitter = createHeadlessHeartbeatStructuredEmitter(
@@ -75,7 +75,7 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 
     await emitter(heartbeatEvent)
 
-    expect(write).toHaveBeenCalledWith(heartbeatEvent)
+    expect(write).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -95,7 +95,7 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 })
 
 describe('createRunHeadlessHeartbeat', () => {
-  test('emits stream-json heartbeats through the print flow sink without becoming the final result', async () => {
+  test('keeps stream-json heartbeats dormant until the print flow starts the drain', async () => {
     const clock = createFakeClock()
     const written: HeadlessHeartbeatEvent[] = []
     const enqueued: HeadlessHeartbeatEvent[] = []
@@ -129,18 +129,19 @@ describe('createRunHeadlessHeartbeat', () => {
       createUuid: () => `heartbeat-${written.length + enqueued.length + 1}`,
     })
 
-    heartbeat?.start()
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
-    expect(written).toHaveLength(1)
-    expect(written[0]!.phase).toBe('startup')
+    expect(written).toHaveLength(0)
+    expect(enqueued).toHaveLength(0)
 
     streamJsonDrainStarted = true
+    heartbeat?.start()
     heartbeat?.setPhase('loading_session')
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
+    expect(written).toHaveLength(0)
     expect(enqueued).toHaveLength(1)
     expect(enqueued[0]!.phase).toBe('loading_session')
 

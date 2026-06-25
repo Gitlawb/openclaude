@@ -234,6 +234,13 @@ describe('SDK Zod schemas (type generation source)', () => {
     }
 
     expect(schema.safeParse(validHeartbeat).success).toBe(true)
+    expect(
+      schema.safeParse({
+        ...validHeartbeat,
+        uuid: '00000000-0000-4000-8000-000000000000',
+        session_id: '',
+      }).success,
+    ).toBe(true)
 
     for (const invalidHeartbeat of [
       { ...validHeartbeat, elapsed_ms: -1 },
