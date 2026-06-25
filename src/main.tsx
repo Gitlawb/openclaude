@@ -1298,7 +1298,7 @@ async function run(): Promise<CommanderCommand> {
     const heartbeatIntervalMs = (options as {
       heartbeat?: number;
     }).heartbeat;
-    const heartbeatHasPrintFlag = Boolean(options.print);
+    const heartbeatHasPrintFlag = Boolean(print);
 
     // Validate that fallback model is different from main model
     if (fallbackModel && options.model && fallbackModel === options.model) {

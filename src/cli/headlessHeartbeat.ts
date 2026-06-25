@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import { writeToStderr } from 'src/utils/process.js'
 
 export const HEADLESS_HEARTBEAT_MIN_INTERVAL_MS = 5_000
@@ -233,8 +232,12 @@ function safelyGet<T>(getter: (() => T) | undefined, fallback: T): T {
   }
 }
 
-export function isHeadlessHeartbeatMessage(message: StdoutMessage): boolean {
-  return message?.type === 'system' && message.subtype === 'heartbeat'
+export function isHeadlessHeartbeatMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') {
+    return false
+  }
+  const candidate = message as { type?: unknown; subtype?: unknown }
+  return candidate.type === 'system' && candidate.subtype === 'heartbeat'
 }
 
 export function validateHeadlessHeartbeatPrintMode(
@@ -247,7 +250,7 @@ export function validateHeadlessHeartbeatPrintMode(
 }
 
 export function shouldSelectHeadlessFinalMessage(
-  message: StdoutMessage,
+  message: unknown,
 ): boolean {
   if (
     !message ||
@@ -257,24 +260,25 @@ export function shouldSelectHeadlessFinalMessage(
     return false
   }
 
+  const candidate = message as { type: string; subtype?: unknown }
   return (
-    message.type !== 'control_response' &&
-    message.type !== 'control_request' &&
-    message.type !== 'control_cancel_request' &&
+    candidate.type !== 'control_response' &&
+    candidate.type !== 'control_request' &&
+    candidate.type !== 'control_cancel_request' &&
     !(
-      message.type === 'system' &&
-      (message.subtype === 'session_state_changed' ||
-        message.subtype === 'task_notification' ||
-        message.subtype === 'task_started' ||
-        message.subtype === 'task_progress' ||
-        message.subtype === 'heartbeat' ||
-        message.subtype === 'post_turn_summary')
+      candidate.type === 'system' &&
+      (candidate.subtype === 'session_state_changed' ||
+        candidate.subtype === 'task_notification' ||
+        candidate.subtype === 'task_started' ||
+        candidate.subtype === 'task_progress' ||
+        candidate.subtype === 'heartbeat' ||
+        candidate.subtype === 'post_turn_summary')
     ) &&
-    message.type !== 'stream_event' &&
-    message.type !== 'keep_alive' &&
-    message.type !== 'streamlined_text' &&
-    message.type !== 'streamlined_tool_use_summary' &&
-    message.type !== 'prompt_suggestion'
+    candidate.type !== 'stream_event' &&
+    candidate.type !== 'keep_alive' &&
+    candidate.type !== 'streamlined_text' &&
+    candidate.type !== 'streamlined_tool_use_summary' &&
+    candidate.type !== 'prompt_suggestion'
   )
 }
 

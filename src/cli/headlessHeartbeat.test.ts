@@ -3,6 +3,7 @@ import {
   createHeadlessHeartbeat,
   HEADLESS_HEARTBEAT_MAX_INTERVAL_MS,
   HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
+  isHeadlessHeartbeatMessage,
   parseHeadlessHeartbeatDuration,
   shouldSelectHeadlessFinalMessage,
   validateHeadlessHeartbeatPrintMode,
@@ -441,6 +442,8 @@ test('heartbeat events are excluded from final-result and verbose JSON selection
   }
 
   expect(shouldSelectHeadlessFinalMessage(heartbeatMessage)).toBe(false)
+  expect(isHeadlessHeartbeatMessage(heartbeatMessage)).toBe(true)
+  expect(isHeadlessHeartbeatMessage('partial output')).toBe(false)
   expect(shouldSelectHeadlessFinalMessage(resultMessage)).toBe(true)
   expect(shouldSelectHeadlessFinalMessage(null)).toBe(false)
   expect(shouldSelectHeadlessFinalMessage('partial output')).toBe(false)
