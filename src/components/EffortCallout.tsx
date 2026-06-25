@@ -217,9 +217,14 @@ function EffortOptionLabel(t0) {
  * - Everyone else: mark as dismissed so it never shows
  */
 export function shouldShowEffortCallout(model: string): boolean {
-  // Only show for Opus 4.6 for now
-  const parsed = parseUserSpecifiedModel(model);
-  if (!parsed.toLowerCase().includes('opus-4-6')) {
+  // Show for the recent Opus models that get the medium-effort default (the
+  // default Opus is now 4.8, so it must be covered alongside 4.7/4.6).
+  const parsed = parseUserSpecifiedModel(model).toLowerCase();
+  if (
+    !parsed.includes('opus-4-8') &&
+    !parsed.includes('opus-4-7') &&
+    !parsed.includes('opus-4-6')
+  ) {
     return false;
   }
   const config = getGlobalConfig();
