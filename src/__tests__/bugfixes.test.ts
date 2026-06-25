@@ -197,6 +197,13 @@ describe('Expanded continuation coverage', () => {
     expect(analyzeContinuationIntent("Now run the tests.").shouldNudge).toBe(true)
     expect(analyzeContinuationIntent("Next I will fix the bug.").shouldNudge).toBe(true)
     expect(analyzeContinuationIntent("Next we need to add tests.").shouldNudge).toBe(true)
+
+    // "Need to ..." should NOT match subject-led advice ("You need to...", "We need to...")
+    // ("I need to..." is correctly caught by strongIntent as agent's own intent)
+    expect(analyzeContinuationIntent("You need to update the config.").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("You need to process these files.").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("You need to update the config").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("We need to deploy the changes.").shouldNudge).toBe(false)
   })
 
   test('present-progressive fallback triggers continuation', async () => {

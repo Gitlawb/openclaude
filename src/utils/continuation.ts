@@ -92,7 +92,7 @@ function buildContinuationSignals(): RegExp[] {
     // Universal: Open task marker indicates pending work
     /◻/,
     // Imperative/declarative patterns (no subject required)
-    new RegExp(`\\bneed to (${v})\\b`, 'i'),
+    new RegExp(`(?<!\\b(?:you|i|we|they|he|she|it)\\s+)\\bneed to (${v})\\b`, 'i'),
     new RegExp(`\\bnow (${v})\\b(?!\\s+you\\b)`, 'i'),
     new RegExp(`\\bnext (i|we)\\s+(need to|will|shall|should|must)?\\s*(${v})\\b`, 'i'),
   ]
@@ -182,7 +182,7 @@ export function analyzeContinuationIntent(
       // Imperative/declarative patterns also signal intent when punctuated
       // (e.g. "Need to process files.", "Now create the component.", "Next we need to add tests.")
       // Use lateText (last 120 chars) for consistency with the late-window intent check above.
-      const hasImperativeSignal = new RegExp(`\\bneed to (?:${VERB_ALT})\\b`, 'i').test(lateText) ||
+      const hasImperativeSignal = new RegExp(`(?<!\\b(?:you|i|we|they|he|she|it)\\s+)\\bneed to (?:${VERB_ALT})\\b`, 'i').test(lateText) ||
         new RegExp(`\\bnow (?:${VERB_ALT})\\b(?!\\s+you\\b)`, 'i').test(lateText) ||
         new RegExp(`\\bnext (?:i|we)\\s+(?:need to|will|shall|should|must)?\\s*(?:${VERB_ALT})\\b`, 'i').test(lateText)
       const endsWithColon = /:\s*$/.test(lastText)
