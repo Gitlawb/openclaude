@@ -274,7 +274,10 @@ import {
   modelDisplayString,
   parseUserSpecifiedModel,
 } from 'src/utils/model/model.js'
-import { getModelOptions } from 'src/utils/model/modelOptions.js'
+import {
+  getModelOptions,
+  parseSwitchProfileValue,
+} from 'src/utils/model/modelOptions.js'
 import {
   modelSupportsEffort,
   getAvailableEffortLevels,
@@ -1356,7 +1359,14 @@ function runHeadlessStreaming(
     })
   }
 
-  const modelOptions = getModelOptions()
+  // getModelOptions() now also returns inactive-provider-profile entries whose
+  // `value` is an encoded `__switch_profile__:<id>:<model>` string. Those are
+  // UI-only affordances for the interactive `/model` switcher — they are not
+  // real, selectable model ids, so they must not leak into the SDK `models`
+  // response. Drop them before building ModelInfo.
+  const modelOptions = getModelOptions().filter(
+    option => parseSwitchProfileValue(option.value) === null,
+  )
   const modelInfos: ModelInfo[] = modelOptions.map((option): ModelInfo => {
     const modelId = option.value === null ? 'default' : option.value
     const resolvedModel =
