@@ -224,6 +224,12 @@ export function sanitizeError(err: Error): Error {
         (sanitizedErr as unknown as Record<string, unknown>)[key] = redacted
       }
     } else if (typeof value === 'object' && value !== null) {
+      const topLevelRedacted = jsonRedactor(key, value)
+      if (topLevelRedacted !== value) {
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] =
+          topLevelRedacted
+        continue
+      }
       try {
         ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
           JSON.stringify(value, jsonRedactor),
