@@ -1224,6 +1224,128 @@ export function parseTextToolCalls(text: string): {
   return { calls: results, toolCallRanges: acceptedRanges }
 }
 
+// ---------------------------------------------------------------------------
+// XML tool call parser (GLM / Qwen / DeepSeek family)
+//
+// Several open models routed through OpenAI-compatible gateways emit tool
+// calls as XML text inside the assistant message rather than as structured
+// `tool_calls`. Without recovery these leak into visible prose and never
+// execute — the turn then ends with no tool_use block, so the agent appears
+// to "forget" and stop mid-task. We support the three dialects seen in the
+// wild:
+//   A. <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
+//   B. <tool_call>NAME<arg_key>KEY</arg_key><arg_value>VALUE</arg_value>…</tool_call>  (GLM native)
+//   C. <tool_call>{"name":"NAME","arguments":{…}}</tool_call>                          (Hermes JSON)
+// ---------------------------------------------------------------------------
+
+// The streaming finalize path buffers from this opener onward so the raw XML
+// is never surfaced as text before extraction.
+const XML_TOOL_CALL_OPEN = '<tool_call>'
+// Non-greedy block matcher; the `$` alternative tolerates a truncated final
+// block (stream cut off before the closing tag).
+const XML_TOOL_CALL_BLOCK_RE = /<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g
+const XML_FUNCTION_NAME_RE = /<function=([^>\s]+)\s*>/
+const XML_PARAMETER_RE = /<parameter=([^>\s]+)\s*>([\s\S]*?)<\/parameter>/g
+const XML_ARG_PAIR_RE = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g
+
+// Parameter/arg values arrive as untyped text. Try JSON first so numbers,
+// booleans, and nested objects round-trip; fall back to the raw string.
+function coerceXmlToolValue(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (trimmed === '') return ''
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return raw
+  }
+}
+
+/**
+ * Returns the length of the longest suffix of `s` that is a (proper) prefix of
+ * the `<tool_call>` opener. Used by the stream to hold back a trailing partial
+ * opener split across SSE deltas so it is never emitted as visible text.
+ */
+function trailingXmlOpenerPrefixLen(s: string): number {
+  const max = Math.min(s.length, XML_TOOL_CALL_OPEN.length - 1)
+  for (let len = max; len > 0; len--) {
+    if (XML_TOOL_CALL_OPEN.startsWith(s.slice(s.length - len))) return len
+  }
+  return 0
+}
+
+/** Exported for unit testing only. */
+export function parseXmlToolCalls(text: string): {
+  calls: ParsedTextToolCall[]
+  toolCallRanges: Array<[number, number]>
+} {
+  const results: ParsedTextToolCall[] = []
+  const seen = new Set<string>()
+  const ranges: Array<[number, number]> = []
+
+  for (const block of text.matchAll(XML_TOOL_CALL_BLOCK_RE)) {
+    const inner = block[1] ?? ''
+    const range: [number, number] = [
+      block.index!,
+      block.index! + block[0].length,
+    ]
+    let name: string | undefined
+    const args: Record<string, unknown> = {}
+
+    const fnMatch = inner.match(XML_FUNCTION_NAME_RE)
+    if (fnMatch) {
+      // Dialect A: <function=NAME><parameter=KEY>VALUE</parameter>…
+      name = fnMatch[1]
+      for (const p of inner.matchAll(XML_PARAMETER_RE)) {
+        const key = p[1]
+        if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
+      }
+    } else {
+      const trimmedInner = inner.trim()
+      const argPairs = [...inner.matchAll(XML_ARG_PAIR_RE)]
+      if (argPairs.length > 0 && !trimmedInner.startsWith('{')) {
+        // Dialect B: leading token is the function name, then arg_key/arg_value.
+        const nameTok = trimmedInner.split(/[\n<]/, 1)[0]?.trim()
+        if (nameTok) name = nameTok
+        for (const p of argPairs) {
+          const key = (p[1] ?? '').trim()
+          if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
+        }
+      } else {
+        // Dialect C: a JSON tool-call object inside the tags.
+        const jsonStart = trimmedInner.indexOf('{')
+        if (jsonStart !== -1) {
+          const jsonRaw = extractBalancedJson(trimmedInner, jsonStart)
+          if (jsonRaw) {
+            try {
+              const obj = JSON.parse(jsonRaw) as Record<string, unknown>
+              if (typeof obj['name'] === 'string') {
+                name = obj['name'] as string
+                const rawArgs = obj['arguments']
+                if (typeof rawArgs === 'string') {
+                  try {
+                    Object.assign(args, JSON.parse(rawArgs))
+                  } catch {}
+                } else if (rawArgs && typeof rawArgs === 'object') {
+                  Object.assign(args, rawArgs as Record<string, unknown>)
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+
+    if (!name) continue
+    const dedupKey = `${name}:${JSON.stringify(args)}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    ranges.push(range)
+  }
+
+  return { calls: results, toolCallRanges: ranges }
+}
+
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -1505,6 +1627,12 @@ async function* openaiStreamToAnthropic(
   let ollamaTextBuffer = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
+  // XML tool-call fallback (GLM/Qwen-style `<tool_call><function=…>` emitted as
+  // text). Once the opener is seen we stop emitting text and buffer the
+  // remainder in xmlToolCallText, converting it to tool_use blocks at finalize.
+  // xmlHoldback retains a trailing partial opener split across deltas.
+  let xmlToolCallText: string | null = null
+  let xmlHoldback = ''
 
   // Emit message_start
   yield {
@@ -1746,6 +1874,9 @@ async function* openaiStreamToAnthropic(
             if (visible) {
               ollamaTextBuffer += visible
             }
+          } else if (xmlToolCallText !== null) {
+            // Inside an XML tool-call region — buffer, emit nothing visible.
+            xmlToolCallText += delta.content
           } else if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
@@ -1761,12 +1892,40 @@ async function* openaiStreamToAnthropic(
               bufferedRawToolCallsText = null
             }
           } else {
-            yield* emitTextDelta(delta.content)
+            // Watch for an XML tool-call opener that may be split across deltas.
+            // Everything from `<tool_call>` onward is held back (never shown) and
+            // converted to tool_use blocks at finalize; prose before it streams
+            // normally, minus a trailing partial-opener prefix.
+            const combined = xmlHoldback + delta.content
+            const openIdx = combined.indexOf(XML_TOOL_CALL_OPEN)
+            if (openIdx !== -1) {
+              const before = combined.slice(0, openIdx)
+              if (before) yield* emitTextDelta(before)
+              xmlHoldback = ''
+              xmlToolCallText = combined.slice(openIdx)
+            } else {
+              const keep = trailingXmlOpenerPrefixLen(combined)
+              const emit =
+                keep > 0 ? combined.slice(0, combined.length - keep) : combined
+              xmlHoldback = keep > 0 ? combined.slice(combined.length - keep) : ''
+              if (emit) yield* emitTextDelta(emit)
+            }
           }
         }
 
         // Tool calls
         if (delta.tool_calls) {
+          // Structured tool calls arrived — any held-back XML was a false
+          // positive (the model uses one mechanism or the other). Flush it
+          // as text so nothing is lost.
+          if (xmlToolCallText !== null) {
+            yield* emitTextDelta(xmlToolCallText)
+            xmlToolCallText = null
+          }
+          if (xmlHoldback) {
+            yield* emitTextDelta(xmlHoldback)
+            xmlHoldback = ''
+          }
           if (bufferedRawToolCallsText !== null) {
             const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
               bufferedRawToolCallsText,
@@ -1979,6 +2138,57 @@ async function* openaiStreamToAnthropic(
             }
           }
 
+          // XML tool-call fallback for non-Ollama OpenAI-compatible providers
+          // (GLM/Qwen emit `<tool_call><function=…>` as text). Mirror the Ollama
+          // path: convert buffered XML to tool_use blocks and strip the raw XML.
+          let xmlClosedContentBlock = false
+          if (!isOllamaStream && xmlToolCallText !== null) {
+            const buffered = xmlToolCallText
+            xmlToolCallText = null
+            const { calls, toolCallRanges } = parseXmlToolCalls(buffered)
+            if (calls.length > 0) {
+              const stripped = stripRanges(buffered, toolCallRanges).trim()
+              const strippedVisible = stripThinkTags(stripped).trim()
+              if (strippedVisible) {
+                // emitTextDelta opens a text block if one is not already open;
+                // when prose preceded the opener the block is still open and we
+                // simply append the trailing prose to it.
+                yield* emitTextDelta(strippedVisible)
+              }
+              if (hasEmittedContentStart) {
+                yield* closeActiveContentBlock()
+                xmlClosedContentBlock = true
+              }
+              for (const tc of calls) {
+                const toolBlockIndex = contentBlockIndex
+                yield {
+                  type: 'content_block_start',
+                  index: toolBlockIndex,
+                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
+                }
+                contentBlockIndex++
+                yield {
+                  type: 'content_block_delta',
+                  index: toolBlockIndex,
+                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
+                }
+                yield { type: 'content_block_stop', index: toolBlockIndex }
+              }
+              if (originalFinishReason === 'stop') {
+                choice.finish_reason = 'tool_calls'
+              }
+            } else {
+              // No valid tool calls parsed — the buffered text was a false
+              // positive (e.g. the model wrote about `<tool_call>` literally).
+              // Emit it verbatim so nothing is lost.
+              yield* emitTextDelta(buffered)
+            }
+          } else if (!isOllamaStream && xmlHoldback) {
+            // A trailing partial opener that never completed is just text.
+            yield* emitTextDelta(xmlHoldback)
+            xmlHoldback = ''
+          }
+
           // Flush bufferedRawToolCallsText for non-Ollama providers
           const parsedBufferedToolCalls = bufferedRawToolCallsText
             ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
@@ -1991,8 +2201,9 @@ async function* openaiStreamToAnthropic(
             bufferedRawToolCallsText = null
           }
 
-          // Close any open content blocks (skipped when Ollama already closed it above)
-          if (hasEmittedContentStart && !ollamaClosedContentBlock) {
+          // Close any open content blocks (skipped when the Ollama or XML
+          // fallback already closed it above)
+          if (hasEmittedContentStart && !ollamaClosedContentBlock && !xmlClosedContentBlock) {
             yield* closeActiveContentBlock()
           }
           // Close active tool calls
@@ -3532,6 +3743,43 @@ class OpenAIShimMessages {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
 
+    // Recover tool calls that the model emitted as text (no structured
+    // tool_calls field): first the "Tool calls requested:" prefix format, then
+    // XML dialects (GLM/Qwen `<tool_call>…`). Falls back to plain text.
+    const pushParsedTextContent = (strippedContent: string) => {
+      if (choice?.message?.tool_calls) {
+        content.push({ type: 'text', text: strippedContent })
+        return
+      }
+      const rawToolCalls = parseRawToolCallsRequestedText(strippedContent)
+      if (rawToolCalls) {
+        for (const toolCall of rawToolCalls) {
+          content.push({
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.name,
+            input: JSON.parse(toolCall.argumentsJson),
+          })
+        }
+        return
+      }
+      const { calls, toolCallRanges } = parseXmlToolCalls(strippedContent)
+      if (calls.length > 0) {
+        const remaining = stripRanges(strippedContent, toolCallRanges).trim()
+        if (remaining) content.push({ type: 'text', text: remaining })
+        for (const tc of calls) {
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.name,
+            input: tc.arguments,
+          })
+        }
+        return
+      }
+      content.push({ type: 'text', text: strippedContent })
+    }
+
     // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
     // reasoning_content while content stays null. Preserve it as a thinking
     // block, but do not surface it as visible assistant text.
@@ -3544,25 +3792,7 @@ class OpenAIShimMessages {
         ? choice?.message?.content
         : null
     if (typeof rawContent === 'string' && rawContent) {
-      const strippedContent = stripThinkTags(rawContent)
-      const rawToolCalls = choice?.message?.tool_calls
-        ? null
-        : parseRawToolCallsRequestedText(strippedContent)
-      if (rawToolCalls) {
-        for (const toolCall of rawToolCalls) {
-          content.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: JSON.parse(toolCall.argumentsJson),
-          })
-        }
-      } else {
-        content.push({
-          type: 'text',
-          text: strippedContent,
-        })
-      }
+      pushParsedTextContent(stripThinkTags(rawContent))
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
       for (const part of rawContent) {
@@ -3577,25 +3807,7 @@ class OpenAIShimMessages {
       }
       const joined = parts.join('\n')
       if (joined) {
-        const strippedContent = stripThinkTags(joined)
-        const rawToolCalls = choice?.message?.tool_calls
-          ? null
-          : parseRawToolCallsRequestedText(strippedContent)
-        if (rawToolCalls) {
-          for (const toolCall of rawToolCalls) {
-            content.push({
-              type: 'tool_use',
-              id: toolCall.id,
-              name: toolCall.name,
-              input: JSON.parse(toolCall.argumentsJson),
-            })
-          }
-        } else {
-          content.push({
-            type: 'text',
-            text: strippedContent,
-          })
-        }
+        pushParsedTextContent(stripThinkTags(joined))
       }
     }
 
