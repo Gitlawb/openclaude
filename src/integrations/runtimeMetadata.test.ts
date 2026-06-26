@@ -194,6 +194,22 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
       }),
     ).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
 
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'kimi-k2.6',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 262_144 })
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'kimi-k2.5',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 262_144 })
+
     const result = resolveOpenAIShimRuntimeContext({
       model: 'kimi-k2.7-code',
       baseUrl: 'https://api.moonshot.ai/v1',
