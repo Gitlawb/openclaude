@@ -211,7 +211,7 @@ export function logError(error: unknown): void {
  * @internal exported for testing only
  */
 export function sanitizeError(err: Error): Error {
-  const sanitizedErr = Object.assign(Object.create(err), err)
+  const sanitizedErr = Object.assign(Object.create(Object.getPrototypeOf(err)), err)
   sanitizedErr.message = redactSensitiveInfo(err.message)
   if (err.stack) {
     sanitizedErr.stack = redactSensitiveInfo(err.stack)

@@ -56,5 +56,23 @@ describe('sanitizeError', () => {
     const sanitized = sanitizeError(err)
     expect(sanitized instanceof TypeError).toBe(true)
     expect(sanitized instanceof Error).toBe(true)
+    // Direct prototype should be TypeError.prototype, not the original
+    // error instance — Object.create(err) would leak non-enumerable
+    // own properties through the prototype chain.
+    expect(Object.getPrototypeOf(sanitized)).toBe(TypeError.prototype)
+  })
+
+  test("sanitized error does not leak non-enumerable properties", () => {
+    const err = new Error("test")
+    // Non-enumerable own property (Object.assign does not copy these)
+    Object.defineProperty(err, "secretKey", {
+      value: "should-not-leak",
+      enumerable: false,
+    })
+    const sanitized = sanitizeError(err)
+    expect(sanitized instanceof Error).toBe(true)
+    expect(
+      (sanitized as unknown as Record<string, unknown>)["secretKey"],
+    ).toBeUndefined()
   })
 })
