@@ -454,10 +454,19 @@ function isDirectExecution(): boolean {
   if (!process.argv[1]) {
     return false
   }
-  return (
-    realpathSync.native(resolve(process.argv[1])) ===
-    realpathSync.native(scriptPath)
+  const invokedPath = realpathOrUndefined(resolve(process.argv[1]))
+  const currentScriptPath = realpathOrUndefined(scriptPath)
+  return Boolean(
+    invokedPath && currentScriptPath && invokedPath === currentScriptPath,
   )
+}
+
+function realpathOrUndefined(path: string): string | undefined {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return undefined
+  }
 }
 
 if (isDirectExecution()) {

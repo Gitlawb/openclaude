@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { generateSdkTypes } from '../../scripts/generate-sdk-types.js'
 import {
   AccountInfoSchema,
@@ -25,6 +27,8 @@ import {
 } from '../../src/entrypoints/sdk/coreSchemas.js'
 import { z } from 'zod/v4'
 
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+const normalizeLineEndings = (source: string) => source.replace(/\r\n/g, '\n')
 const generatedTypesSource = () =>
   readFileSync(
     new URL('../../src/entrypoints/sdk/coreTypes.generated.ts', import.meta.url),
@@ -43,8 +47,9 @@ const generatedTypesSource = () =>
 describe('SDK Zod schemas (type generation source)', () => {
   test('SDK type generation exports heartbeat messages directly', () => {
     const generatedSource = generateSdkTypes()
+    const committedSource = normalizeLineEndings(generatedTypesSource())
 
-    expect(generatedSource).toBe(generatedTypesSource())
+    expect(generatedSource).toBe(committedSource)
     expect(generatedSource).toMatch(/^export type SDKHeartbeatMessage\b/m)
     expect(generatedSource).not.toContain(
       '// ⚠ Failed: SDKHeartbeatMessageSchema',
@@ -52,6 +57,23 @@ describe('SDK Zod schemas (type generation source)', () => {
     expect(generatedSource).not.toMatch(
       /^export type SDKHeartbeatMessage = any$/m,
     )
+  })
+
+  test('SDK type generator can be imported from non-file entrypoints', () => {
+    // The generator is a Bun TypeScript script, matching package.json scripts.
+    const bunExecutable = process.execPath
+    const result = spawnSync(
+      bunExecutable,
+      [
+        '--eval',
+        "process.argv[1] = '-'; import('./scripts/generate-sdk-types.ts').then(() => console.log('import-ok'))",
+      ],
+      { cwd: repoRoot, encoding: 'utf8' },
+    )
+
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(normalizeLineEndings(result.stdout).trim()).toBe('import-ok')
   })
 
   test('SDKAssistantMessageSchema accepts valid data', () => {
