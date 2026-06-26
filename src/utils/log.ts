@@ -219,14 +219,17 @@ export function sanitizeError(err: Error): Error {
   for (const key of Object.keys(err)) {
     const value = (err as unknown as Record<string, unknown>)[key]
     if (typeof value === 'string') {
-      (sanitizedErr as unknown as Record<string, unknown>)[key] = redactSensitiveInfo(value)
+      const redacted = jsonRedactor(key, value)
+      if (typeof redacted === 'string') {
+        (sanitizedErr as unknown as Record<string, unknown>)[key] = redacted
+      }
     } else if (typeof value === 'object' && value !== null) {
       try {
         ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
           JSON.stringify(value, jsonRedactor),
         )
       } catch {
-        // non-serializable — leave as-is rather than crash the reporting path
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] = "[REDACTED]"
       }
     }
   }

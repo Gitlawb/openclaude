@@ -75,4 +75,34 @@ describe('sanitizeError', () => {
       (sanitized as unknown as Record<string, unknown>)["secretKey"],
     ).toBeUndefined()
   })
+
+  test("redacts string values with sensitive key names using key-aware redaction", () => {
+    // A value like "my-key" would pass through redactSensitiveInfo
+    // unchanged since it doesn't look like a credential. jsonRedactor
+    // catches it because the key name "apiKey" is in SENSITIVE_FIELD_SUBSTRINGS.
+    const err = new Error("test")
+    ;(err as unknown as Record<string, unknown>)["apiKey"] = "my-key"
+    ;(err as unknown as Record<string, unknown>)["token"] = "abc-123"
+
+    const sanitized = sanitizeError(err)
+
+    const obj = sanitized as unknown as Record<string, unknown>
+    expect(obj["apiKey"] as string).toBe("[REDACTED]")
+    expect(obj["token"] as string).toBe("[REDACTED]")
+  })
+
+  test("fails closed on non-serializable object properties", () => {
+    const err = new Error("test")
+    const circular: Record<string, unknown> = { self: null }
+    circular["self"] = circular
+    ;(err as unknown as Record<string, unknown>)["meta"] = circular
+
+    const sanitized = sanitizeError(err)
+
+    const obj = sanitized as unknown as Record<string, unknown>
+    // Should not be the original reference (circular object)
+    expect(obj["meta"]).not.toBe(circular)
+    // Should have been replaced with a safe placeholder
+    expect(obj["meta"] as string).toBe("[REDACTED]")
+  })
 })
