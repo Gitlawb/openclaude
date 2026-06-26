@@ -18,7 +18,8 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import * as schemas from '../src/entrypoints/sdk/coreSchemas.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const scriptPath = fileURLToPath(import.meta.url)
+const __dirname = dirname(scriptPath)
 const outPath = resolve(
   __dirname, '..', 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts',
 )
@@ -375,7 +376,7 @@ function needsArrayElementParens(ts: string): boolean {
 // Generation
 // ---------------------------------------------------------------------------
 
-function generate(): string {
+export function generateSdkTypes(): string {
   const lines: string[] = [
     '// AUTO-GENERATED — do not edit manually.',
     '// Regenerate with: bun scripts/generate-sdk-types.ts',
@@ -442,7 +443,13 @@ function generate(): string {
 // Main
 // ---------------------------------------------------------------------------
 
-console.log('Generating SDK types from Zod schemas...')
-const output = generate()
-writeFileSync(outPath, output, 'utf-8')
-console.log(`✓ Written to ${outPath}`)
+function writeGeneratedSdkTypes(): void {
+  console.log('Generating SDK types from Zod schemas...')
+  const output = generateSdkTypes()
+  writeFileSync(outPath, output, 'utf-8')
+  console.log(`✓ Written to ${outPath}`)
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+  writeGeneratedSdkTypes()
+}

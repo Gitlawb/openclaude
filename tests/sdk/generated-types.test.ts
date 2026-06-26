@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { generateSdkTypes } from '../../scripts/generate-sdk-types.js'
 import {
   AccountInfoSchema,
   SDKAssistantMessageSchema,
@@ -40,12 +41,17 @@ const generatedTypesSource = () =>
  * 4. The full SDKMessage union accepts all message variants
  */
 describe('SDK Zod schemas (type generation source)', () => {
-  test('generated SDK types export heartbeat messages directly', () => {
-    const source = generatedTypesSource()
+  test('SDK type generation exports heartbeat messages directly', () => {
+    const generatedSource = generateSdkTypes()
 
-    expect(source).toMatch(/^export type SDKHeartbeatMessage\b/m)
-    expect(source).not.toContain('// ⚠ Failed: SDKHeartbeatMessageSchema')
-    expect(source).not.toMatch(/^export type SDKHeartbeatMessage = any$/m)
+    expect(generatedSource).toBe(generatedTypesSource())
+    expect(generatedSource).toMatch(/^export type SDKHeartbeatMessage\b/m)
+    expect(generatedSource).not.toContain(
+      '// ⚠ Failed: SDKHeartbeatMessageSchema',
+    )
+    expect(generatedSource).not.toMatch(
+      /^export type SDKHeartbeatMessage = any$/m,
+    )
   })
 
   test('SDKAssistantMessageSchema accepts valid data', () => {
