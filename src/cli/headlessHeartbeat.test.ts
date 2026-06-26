@@ -476,8 +476,13 @@ test('heartbeat events are excluded from final-result and verbose JSON selection
     uuid: 'files-uuid',
     session_id: 'session-id',
   }
+  const postTurnSummaryMessage = {
+    type: 'system',
+    subtype: 'post_turn_summary',
+  }
 
   expect(shouldSelectHeadlessFinalMessage(heartbeatMessage)).toBe(false)
+  expect(shouldSelectHeadlessFinalMessage(postTurnSummaryMessage)).toBe(false)
   expect(shouldSelectHeadlessFinalMessage(filesPersistedMessage)).toBe(false)
   expect(isHeadlessHeartbeatMessage(heartbeatMessage)).toBe(true)
   expect(isHeadlessHeartbeatMessage('partial output')).toBe(false)
@@ -486,8 +491,11 @@ test('heartbeat events are excluded from final-result and verbose JSON selection
   expect(shouldSelectHeadlessFinalMessage('partial output')).toBe(false)
   expect(shouldSelectHeadlessFinalMessage({})).toBe(false)
   expect(
-    [heartbeatMessage, resultMessage, filesPersistedMessage].filter(
-      shouldSelectHeadlessFinalMessage,
-    ),
+    [
+      heartbeatMessage,
+      postTurnSummaryMessage,
+      resultMessage,
+      filesPersistedMessage,
+    ].filter(shouldSelectHeadlessFinalMessage),
   ).toEqual([resultMessage])
 })
