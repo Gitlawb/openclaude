@@ -1,81 +1,60 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
-import {
-  _resetErrorLogForTesting,
-  attachErrorLogSink,
-  logError,
-} from './log.js'
+import { sanitizeError } from './log.js'
 
-describe('logError', () => {
-  let capturedErrors: Error[] = []
+// Test sanitizeError directly (an exported wrapper around the inline
+// redaction logic in logError). Direct unit testing avoids races on
+// the shared errorLogSink singleton from parallel test execution.
 
-  beforeAll(() => {
-    // Ensure env vars don't short-circuit the reporting path
-    const prevBedrock = process.env.CLAUDE_CODE_USE_BEDROCK
-    const prevVertex = process.env.CLAUDE_CODE_USE_VERTEX
-    const prevFoundry = process.env.CLAUDE_CODE_USE_FOUNDRY
-    const prevDisable = process.env.DISABLE_ERROR_REPORTING
-    delete process.env.CLAUDE_CODE_USE_BEDROCK
-    delete process.env.CLAUDE_CODE_USE_VERTEX
-    delete process.env.CLAUDE_CODE_USE_FOUNDRY
-    delete process.env.DISABLE_ERROR_REPORTING
-
-    // Clean-attach the test sink
-    _resetErrorLogForTesting()
-    attachErrorLogSink({
-      logError: (err: Error) => {
-        capturedErrors.push(err)
-      },
-      logMCPError: () => {},
-      logMCPDebug: () => {},
-      getErrorsPath: () => '/tmp/test-errors',
-      getMCPLogsPath: () => '/tmp/test-mcp-logs',
-    })
-
-    // Restore env vars after setup
-    return () => {
-      if (prevBedrock) process.env.CLAUDE_CODE_USE_BEDROCK = prevBedrock
-      if (prevVertex) process.env.CLAUDE_CODE_USE_VERTEX = prevVertex
-      if (prevFoundry) process.env.CLAUDE_CODE_USE_FOUNDRY = prevFoundry
-      if (prevDisable) process.env.DISABLE_ERROR_REPORTING = prevDisable
-    }
-  })
-
-  afterEach(() => {
-    capturedErrors = []
-  })
-
-  afterAll(() => {
-    _resetErrorLogForTesting()
-  })
-
-  test("redacts custom enumerable string properties on the sanitized error", () => {
+describe('sanitizeError', () => {
+  test("redacts custom enumerable string properties", () => {
     const err = new Error("test error")
-    const originalSecret = "sk-ant-03abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyzAA"
+    const originalSecret =
+      "sk-ant-03abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyzAA"
     ;(err as unknown as Record<string, unknown>)["apiKey"] = originalSecret
 
-    logError(err)
+    const sanitized = sanitizeError(err)
 
-    expect(capturedErrors.length).toBe(1)
-    const sanitized = capturedErrors[0]
-    const redacted = (sanitized as unknown as Record<string, unknown>)["apiKey"] as string
-    expect(redacted).not.toBe(originalSecret)
-    expect(redacted).toMatch(/\[REDACTED/)
+    const redacted = sanitized as unknown as Record<string, unknown>
+    expect(redacted["apiKey"] as string).not.toBe(originalSecret)
+    expect(redacted["apiKey"] as string).toMatch(/\[REDACTED/)
+    // Original error should not be mutated
+    expect((err as unknown as Record<string, unknown>)["apiKey"] as string).toBe(
+      originalSecret,
+    )
   })
 
   test("redacts enumerable object properties via jsonRedactor", () => {
     const err = new Error("test error")
     ;(err as unknown as Record<string, unknown>)["cause"] = {
-      apiKey: "sk-ant-03abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyzAA",
+      apiKey:
+        "sk-ant-03abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyzAA",
       url: "https://example.com?token=secret",
     }
 
-    logError(err)
+    const sanitized = sanitizeError(err)
 
-    expect(capturedErrors.length).toBe(1)
-    const sanitized = capturedErrors[0]
-    const cause = (sanitized as unknown as Record<string, unknown>)["cause"] as Record<string, unknown>
+    const cause = (sanitized as unknown as Record<string, unknown>)[
+      "cause"
+    ] as Record<string, unknown>
     expect(cause["apiKey"] as string).toMatch(/\[REDACTED/)
     expect(cause["url"] as string).toContain("[REDACTED]")
+  })
+
+  test("preserves message and stack on the sanitized copy", () => {
+    const err = new Error("sensitive: API_KEY=abc123")
+    err.stack = "Error: sensitive: API_KEY=abc123\n    at test (file.ts:1:1)"
+
+    const sanitized = sanitizeError(err)
+
+    expect(sanitized.message).toMatch(/\[REDACTED/)
+    expect(sanitized.stack).toMatch(/\[REDACTED/)
+  })
+
+  test("sanitized error retains prototype chain (instanceof)", () => {
+    const err = new TypeError("test")
+    const sanitized = sanitizeError(err)
+    expect(sanitized instanceof TypeError).toBe(true)
+    expect(sanitized instanceof Error).toBe(true)
   })
 })

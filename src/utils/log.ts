@@ -180,33 +180,7 @@ export function logError(error: unknown): void {
 
     // Build a sanitized copy so callers that keep a reference to the
     // original error don't see redacted message/stack as a side effect.
-    // Object.create(err) sets __proto__ so instanceof checks work and
-    // inherited getters (name) resolve through the prototype chain.
-    // Object.assign copies own enumerable properties (cause, custom props).
-    // message and stack are own non-enumerable properties that Object.assign
-    // does NOT copy, so they must be assigned explicitly below.
-    const sanitizedErr = Object.assign(Object.create(err), err)
-    sanitizedErr.message = redactSensitiveInfo(err.message)
-    if (err.stack) {
-      sanitizedErr.stack = redactSensitiveInfo(err.stack)
-    }
-    // Redact enumerable own string properties (custom fields like err.apiKey
-    // or err.cause) that Object.assign copied verbatim above. Non-string
-    // values (e.g. nested Error cause) are run through the JSON redactor.
-    for (const key of Object.keys(err)) {
-      const value = (err as unknown as Record<string, unknown>)[key]
-      if (typeof value === 'string') {
-        (sanitizedErr as unknown as Record<string, unknown>)[key] = redactSensitiveInfo(value)
-      } else if (typeof value === 'object' && value !== null) {
-        try {
-          ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
-            JSON.stringify(value, jsonRedactor),
-          )
-        } catch {
-          // non-serializable — leave as-is rather than crash the reporting path
-        }
-      }
-    }
+    const sanitizedErr = sanitizeError(err)
 
     const errorInfo = {
       error: sanitizedErr.stack || sanitizedErr.message,
@@ -226,6 +200,37 @@ export function logError(error: unknown): void {
   } catch {
     // pass
   }
+}
+
+/**
+ * Build a sanitized copy of an Error that has its message, stack, and all
+ * enumerable own string/object properties redacted. The original error is
+ * not mutated. The returned copy shares the same prototype chain so
+ * `instanceof` checks and inherited getters (e.g. `.name`) still work.
+ *
+ * @internal exported for testing only
+ */
+export function sanitizeError(err: Error): Error {
+  const sanitizedErr = Object.assign(Object.create(err), err)
+  sanitizedErr.message = redactSensitiveInfo(err.message)
+  if (err.stack) {
+    sanitizedErr.stack = redactSensitiveInfo(err.stack)
+  }
+  for (const key of Object.keys(err)) {
+    const value = (err as unknown as Record<string, unknown>)[key]
+    if (typeof value === 'string') {
+      (sanitizedErr as unknown as Record<string, unknown>)[key] = redactSensitiveInfo(value)
+    } else if (typeof value === 'object' && value !== null) {
+      try {
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
+          JSON.stringify(value, jsonRedactor),
+        )
+      } catch {
+        // non-serializable — leave as-is rather than crash the reporting path
+      }
+    }
+  }
+  return sanitizedErr
 }
 
 export function getInMemoryErrors(): { error: string; timestamp: string }[] {
