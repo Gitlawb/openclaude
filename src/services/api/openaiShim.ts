@@ -491,6 +491,19 @@ function isGeminiMode(): boolean {
   )
 }
 
+/**
+ * First candidate whose trimmed value is non-empty, else ''. Used for
+ * credential fallback chains where a whitespace-only env value must not
+ * suppress a real token further down the chain (`||` alone treats '  ' as
+ * truthy and would leave the request unauthenticated).
+ */
+function firstNonBlankCredential(...values: (string | undefined)[]): string {
+  for (const value of values) {
+    if (value && value.trim().length > 0) return value
+  }
+  return ''
+}
+
 function hydrateOpenAIShimCompatibilityEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
@@ -514,16 +527,17 @@ function hydrateOpenAIShimCompatibilityEnv(
   }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    // Use || (not ??) so a blank exported OPENAI_API_KEY does not win over a
-    // real GITHUB_TOKEN/GH_TOKEN and leave GitHub requests unauthenticated —
-    // the shim auth path reads OPENAI_API_KEY ?? '', so an empty string here
-    // means no Authorization header. Matches the Gemini/Mistral branches.
-    processEnv.OPENAI_API_KEY =
-      processEnv.GITHUB_COPILOT_KEY ||
-      processEnv.OPENAI_API_KEY ||
-      processEnv.GITHUB_TOKEN ||
-      processEnv.GH_TOKEN ||
-      ''
+    // Pick the first non-blank candidate so a blank or whitespace-only exported
+    // OPENAI_API_KEY does not win over a real GITHUB_TOKEN/GH_TOKEN and leave
+    // GitHub requests unauthenticated — the shim auth path reads
+    // OPENAI_API_KEY ?? '', so a blank-like value here means no Authorization
+    // header. Matches the Gemini/Mistral branches.
+    processEnv.OPENAI_API_KEY = firstNonBlankCredential(
+      processEnv.GITHUB_COPILOT_KEY,
+      processEnv.OPENAI_API_KEY,
+      processEnv.GITHUB_TOKEN,
+      processEnv.GH_TOKEN,
+    )
     return
   }
 

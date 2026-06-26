@@ -700,6 +700,45 @@ test('GitHub mode falls back to GITHUB_TOKEN when OPENAI_API_KEY is blank', asyn
   expect(capturedHeaders?.get('authorization')).toBe('Bearer gho_test_token')
 })
 
+test('GitHub mode falls back to GH_TOKEN when OPENAI_API_KEY is whitespace-only', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  // Whitespace-only (not just empty) OPENAI_API_KEY is truthy under `||`, so it
+  // would suppress a real token and emit a blank Authorization header unless the
+  // fallback chain trims candidates.
+  process.env.OPENAI_API_KEY = '   '
+  process.env.GH_TOKEN = 'gho_ws_token'
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GITHUB_TOKEN
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer gho_ws_token')
+})
+
 test('uses Hicap api-key auth header for the Hicap route', async () => {
   process.env.OPENAI_API_KEY = 'hicap-live-key'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'

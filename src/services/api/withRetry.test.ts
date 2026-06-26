@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
 import { APIError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import { PROVIDER_SELECTION_FLAGS } from '../../utils/providerSelectionFlags.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
@@ -20,13 +21,7 @@ const originalEnv = { ...process.env }
 let originalProvidersModule: ProvidersModule | undefined
 
 const envKeys = [
-  'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_GEMINI_VERTEX',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
+  ...PROVIDER_SELECTION_FLAGS,
   'CLAUDE_CODE_UNATTENDED_RETRY',
   'CLAUDE_CODE_MAX_RETRIES',
   'OPENCLAUDE_MAX_RETRIES',
