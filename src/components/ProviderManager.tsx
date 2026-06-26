@@ -2206,8 +2206,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // Use memoized menuOptions from component scope
     const hasProfiles = profiles.length > 0
     const hasSelectableProviders = hasProfiles || githubProviderAvailable
-    const canSwitchActiveProvider =
-      hasSelectableProviders || isGithubActive || activeProfileId != null
+    // canSwitchActiveProvider is derived once in the component body; reuse it
+    // here rather than recomputing so the two sites cannot drift.
 
     return (
       <Box flexDirection="column" gap={1}>
