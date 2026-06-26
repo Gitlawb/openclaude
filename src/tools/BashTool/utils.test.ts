@@ -180,6 +180,27 @@ describe('formatOutput', () => {
       }
     }
   })
+
+  test('truncated output counts the first line omitted at a line boundary', () => {
+    const prev = process.env.BASH_MAX_OUTPUT_LENGTH
+    process.env.BASH_MAX_OUTPUT_LENGTH = '20'
+    try {
+      // The first line is 19 chars + its newline = exactly 20, so the cut lands
+      // right after that newline (a line boundary). B, C and D are all fully
+      // omitted, so the count must include B even though no newline precedes it
+      // in the omitted suffix.
+      const content = `${'A'.repeat(19)}\nB\nC\nD`
+      const result = formatOutput(content)
+      expect(result.truncatedContent).toContain('[3 lines truncated]')
+      expect(result.totalLines).toBe(4)
+    } finally {
+      if (prev === undefined) {
+        delete process.env.BASH_MAX_OUTPUT_LENGTH
+      } else {
+        process.env.BASH_MAX_OUTPUT_LENGTH = prev
+      }
+    }
+  })
 })
 
 // =============================================================================
