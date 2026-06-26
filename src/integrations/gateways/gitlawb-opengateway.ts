@@ -1,4 +1,5 @@
 import { defineGateway } from '../define.js'
+import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
 
 export default defineGateway({
   id: 'gitlawb-opengateway',
@@ -117,11 +118,9 @@ export default defineGateway({
         modelDescriptorId: 'glm-5.2',
         transportOverrides: {
           openaiShim: {
-            thinkingRequestFormat: 'zai-compatible',
-            preserveReasoningContent: true,
-            requireReasoningContentOnAssistantMessages: true,
-            reasoningContentFallback: '',
-            enableToolStreaming: true,
+            ...ZAI_GLM_OPENAI_SHIM,
+            maxTokensField: 'max_completion_tokens',
+            removeBodyFields: ['store', 'stream_options'],
           },
         },
       },
