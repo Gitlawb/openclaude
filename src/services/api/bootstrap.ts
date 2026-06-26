@@ -196,18 +196,29 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
   }
 }
 
-async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | null> {
+type FetchLocalOpenAIModelOptionsDeps = {
+  discoverModelsForRoute?: typeof discoverModelsForRoute
+  getAdditionalModelOptionsCacheScope?: typeof getAdditionalModelOptionsCacheScope
+  listOpenAICompatibleModels?: typeof listOpenAICompatibleModels
+  resolveProviderRequest?: typeof resolveProviderRequest
+}
+
+export async function fetchLocalOpenAIModelOptions(
+  deps: FetchLocalOpenAIModelOptionsDeps = {},
+): Promise<BootstrapCachePayload | null> {
   if (isEssentialTrafficOnly()) {
     logForDebugging('[Bootstrap] Skipped local model discovery: Nonessential traffic disabled')
     return null
   }
 
-  const scope = getAdditionalModelOptionsCacheScope()
+  const getScope = deps.getAdditionalModelOptionsCacheScope ?? getAdditionalModelOptionsCacheScope
+  const resolveRequest = deps.resolveProviderRequest ?? resolveProviderRequest
+  const scope = getScope()
   if (!scope?.startsWith('openai:')) {
     return null
   }
 
-  const { baseUrl } = resolveProviderRequest()
+  const { baseUrl } = resolveRequest()
   const routeId = resolveDiscoveryRouteIdFromBaseUrl(baseUrl)
   const routeLabel =
     (routeId
@@ -222,8 +233,10 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     ? undefined
     : firstUsableCredential(routeCredential)
 
+  const discoverModels = deps.discoverModelsForRoute ?? discoverModelsForRoute
+  const listModels = deps.listOpenAICompatibleModels ?? listOpenAICompatibleModels
   const discovered = routeId
-    ? await discoverModelsForRoute(routeId, {
+    ? await discoverModels(routeId, {
         baseUrl,
         apiKey,
         headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
@@ -231,7 +244,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     : null
   const models =
     getDiscoveredModelApiNames(discovered) ??
-    (await listOpenAICompatibleModels({
+    (await listModels({
       baseUrl,
       apiKey,
       headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
