@@ -194,6 +194,19 @@ test('defaults Hicap gpt-5.5 to responses transport', () => {
   })
 })
 
+test('defaults Hicap gpt-5.5 catalog id to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'hicap-gpt-5.5'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'hicap-gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
 test('forces Hicap gpt-5.5 to responses even when chat completions is configured', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'

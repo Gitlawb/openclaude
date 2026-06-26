@@ -869,6 +869,20 @@ export function resolveProviderRequest(options?: {
     ? normalizeGithubModelsApiModel(requestedModel)
     : requestedModel
 
+  // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
+  // For GitHub Models/custom endpoints:
+  //   - Normalize default alias (github:copilot -> gpt-4o)
+  //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
+  const resolvedModel = isGithubCopilotLike
+    ? normalizeGithubCopilotModel(descriptor.baseModel)
+    : (isGithubModels || isGithubCustom || isGithubGhe
+      ? normalizeGithubModelsApiModel(descriptor.baseModel)
+      : resolveRouteCatalogAliasApiName({
+          model: descriptor.baseModel,
+          baseUrl: finalBaseUrl,
+          processEnv,
+        }))
+
   // For GHE instances, build the Copilot API base URL from either
   // GITHUB_ENTERPRISE_URL or an already-classified GHE OPENAI_BASE_URL.
   const gheBaseUrl = isGithubGhe ? (gheUrl ?? rawBaseUrl) : undefined
@@ -882,7 +896,7 @@ export function resolveProviderRequest(options?: {
       : resolveOpenAIShimRuntimeContext({
           processEnv,
           baseUrl: finalBaseUrl,
-          model: descriptor.baseModel,
+          model: resolvedModel,
           treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
         })
   const explicitApiFormat =
@@ -905,7 +919,7 @@ export function resolveProviderRequest(options?: {
     openAIShimSupportsApiFormatForModel(
       runtimeShimContext?.openaiShimConfig,
       'responses',
-      descriptor.baseModel,
+      resolvedModel,
     )
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
@@ -914,20 +928,6 @@ export function resolveProviderRequest(options?: {
       : (requestedApiFormat === 'responses' || requestedApiFormat === 'responses_compat') && supportsRequestedApiFormat
         ? requestedApiFormat
         : 'chat_completions'
-
-  // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
-  // For GitHub Models/custom endpoints:
-  //   - Normalize default alias (github:copilot -> gpt-4o)
-  //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
-  const resolvedModel = isGithubCopilotLike
-    ? normalizeGithubCopilotModel(descriptor.baseModel)
-    : (isGithubModels || isGithubCustom || isGithubGhe
-      ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : resolveRouteCatalogAliasApiName({
-          model: descriptor.baseModel,
-          baseUrl: finalBaseUrl,
-          processEnv,
-        }))
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
