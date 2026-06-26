@@ -25,7 +25,7 @@ import type { MarketplaceSource } from './schemas.js'
 // @ts-expect-error -- query-string cache-buster: the import specifier ends with `?bust=...`
 // so TypeScript cannot resolve the bare path. The runtime import works under Bun (treats the
 // query string as a distinct module id that bypasses other test files' mock.module registrations).
-import { _test, removeMarketplaceSource } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
+import { _test, removeMarketplaceSource, getMarketplaceCacheOnly, getPluginByIdCacheOnly } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 
 const { loadAndCacheMarketplace } = _test
 
@@ -516,11 +516,21 @@ describe('isCaseInsensitiveFsAt — probes the volume, not the platform', () => 
   })
 })
 
+const PROTO_NAMES = [
+  'constructor',
+  '__proto__',
+  'toString',
+  'hasOwnProperty',
+  'valueOf',
+]
+
 describe('removeMarketplaceSource — prototype-shadowing names', () => {
   let originalFs: FsOperations
+  let rmCalls: string[]
 
   beforeEach(() => {
     originalFs = getFsImplementation()
+    rmCalls = []
     // No config file on disk → loadKnownMarketplacesConfig returns an empty
     // config. Writes are stubbed so the test stays hermetic even if a
     // regression let execution fall past the "not found" guard.
@@ -533,7 +543,9 @@ describe('removeMarketplaceSource — prototype-shadowing names', () => {
       ...originalFs,
       readFile: async () => enoent(),
       mkdir: async () => {},
-      rm: async () => {},
+      rm: async (path: string) => {
+        rmCalls.push(path)
+      },
     })
   })
 
@@ -544,12 +556,66 @@ describe('removeMarketplaceSource — prototype-shadowing names', () => {
   // A marketplace name that shadows an Object.prototype member must report
   // "not found" — not resolve the inherited member via the prototype chain and
   // then crash / silently mis-act on a bogus entry.
-  test.each(['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'])(
+  test.each(PROTO_NAMES)(
     'reports "not found" for prototype-shadowing name %p',
     async name => {
       await expect(removeMarketplaceSource(name)).rejects.toThrow(
         `Marketplace '${name}' not found`,
       )
+      // The not-found path must short-circuit before touching the filesystem:
+      // never rm a cache directory derived from a bogus inherited entry.
+      expect(rmCalls).toEqual([])
+    },
+  )
+})
+
+describe('cache-only lookups — prototype-shadowing names', () => {
+  let originalFs: FsOperations
+  let configReads: number
+
+  beforeEach(() => {
+    originalFs = getFsImplementation()
+    configReads = 0
+    // A *valid* (but empty) config file exists on disk, so the cache-only
+    // readers reach the `config[name]` lookup instead of bailing on ENOENT.
+    // With the null-prototype hardening, a name that shadows an
+    // Object.prototype member resolves to `undefined` and the "not found"
+    // guard short-circuits; without it, `config['constructor']` is the
+    // inherited Object function and the reader takes a bogus path on a
+    // non-marketplace entry.
+    setFsImplementation({
+      ...originalFs,
+      readFile: async () => {
+        configReads++
+        return '{}'
+      },
+    })
+  })
+
+  afterEach(() => {
+    setFsImplementation(originalFs)
+  })
+
+  test.each(PROTO_NAMES)(
+    'getMarketplaceCacheOnly returns null for shadowing name %p',
+    async name => {
+      await expect(getMarketplaceCacheOnly(name)).resolves.toBeNull()
+    },
+  )
+
+  // The strong regression signal: without the null-prototype guard,
+  // `config[name]` resolves to the inherited Object member, the "not found"
+  // check passes, and the reader re-enters `getMarketplaceCacheOnly(name)` —
+  // re-reading the config file a *second* time before failing. The hardened
+  // path short-circuits on the first lookup, so the config is read exactly
+  // once.
+  test.each(PROTO_NAMES)(
+    'getPluginByIdCacheOnly returns null and does not re-resolve a shadowing marketplace %p',
+    async name => {
+      await expect(
+        getPluginByIdCacheOnly(`some-plugin@${name}`),
+      ).resolves.toBeNull()
+      expect(configReads).toBe(1)
     },
   )
 })

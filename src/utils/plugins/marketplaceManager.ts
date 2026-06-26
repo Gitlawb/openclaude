@@ -2194,7 +2194,7 @@ export async function getMarketplaceCacheOnly(
 
   try {
     const content = await fs.readFile(configFile, { encoding: 'utf-8' })
-    const config = jsonParse(content) as KnownMarketplacesConfig
+    const config = toNullProtoConfig(jsonParse(content) as KnownMarketplacesConfig)
     const entry = config[name]
 
     if (!entry) {
@@ -2308,7 +2308,7 @@ export async function getPluginByIdCacheOnly(pluginId: string): Promise<{
 
   try {
     const content = await fs.readFile(configFile, { encoding: 'utf-8' })
-    const config = jsonParse(content) as KnownMarketplacesConfig
+    const config = toNullProtoConfig(jsonParse(content) as KnownMarketplacesConfig)
     const marketplaceConfig = config[marketplaceName]
 
     if (!marketplaceConfig) {
