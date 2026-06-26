@@ -275,7 +275,8 @@ export function shouldSelectHeadlessFinalMessage(
         candidate.subtype === 'task_started' ||
         candidate.subtype === 'task_progress' ||
         candidate.subtype === 'heartbeat' ||
-        candidate.subtype === 'post_turn_summary')
+        candidate.subtype === 'post_turn_summary' ||
+        candidate.subtype === 'files_persisted')
     ) &&
     candidate.type !== 'stream_event' &&
     candidate.type !== 'keep_alive' &&

@@ -467,15 +467,27 @@ test('heartbeat events are excluded from final-result and verbose JSON selection
     permission_denials: [],
     uuid: 'result-uuid',
   }
+  const filesPersistedMessage = {
+    type: 'system',
+    subtype: 'files_persisted',
+    files: [],
+    failed: [],
+    processed_at: '2026-06-25T12:00:31.000Z',
+    uuid: 'files-uuid',
+    session_id: 'session-id',
+  }
 
   expect(shouldSelectHeadlessFinalMessage(heartbeatMessage)).toBe(false)
+  expect(shouldSelectHeadlessFinalMessage(filesPersistedMessage)).toBe(false)
   expect(isHeadlessHeartbeatMessage(heartbeatMessage)).toBe(true)
   expect(isHeadlessHeartbeatMessage('partial output')).toBe(false)
   expect(shouldSelectHeadlessFinalMessage(resultMessage)).toBe(true)
   expect(shouldSelectHeadlessFinalMessage(null)).toBe(false)
   expect(shouldSelectHeadlessFinalMessage('partial output')).toBe(false)
   expect(shouldSelectHeadlessFinalMessage({})).toBe(false)
-  expect([heartbeatMessage, resultMessage].filter(shouldSelectHeadlessFinalMessage)).toEqual([
-    resultMessage,
-  ])
+  expect(
+    [heartbeatMessage, resultMessage, filesPersistedMessage].filter(
+      shouldSelectHeadlessFinalMessage,
+    ),
+  ).toEqual([resultMessage])
 })
