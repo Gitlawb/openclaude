@@ -1579,6 +1579,59 @@ test('providerOverride Atlas Kimi metadata emits top-level reasoning_effort and 
   expect(requestBody?.reasoning_effort).toBe('xhigh')
 })
 
+test('providerOverride Kimi Code clamps unsupported xhigh effort to high', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-kimi-code',
+        model: 'kimi-for-coding',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    effortValue: 'xhigh',
+    providerOverride: {
+      model: 'kimi-for-coding',
+      baseURL: 'https://api.kimi.com/coding/v1',
+      apiKey: 'kimi-test-key',
+    },
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'unused',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.reasoning_effort).toBe('high')
+})
 test('providerOverride Atlas Grok Build does not send reasoning effort', async () => {
   let requestBody: Record<string, unknown> | undefined
 

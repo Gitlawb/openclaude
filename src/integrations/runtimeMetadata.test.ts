@@ -184,6 +184,90 @@ describe('resolveOpenAIShimRuntimeContext - Z.AI GLM-5.2', () => {
   })
 })
 
+describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metadata', () => {
+  it('uses Moonshot direct catalog order, limits, and reasoning controls', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'kimi-k2.7-code',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 262_144 })
+
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'kimi-k2.7-code',
+      baseUrl: 'https://api.moonshot.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+
+    expect(result.routeId).toBe('moonshot')
+    expect(result.descriptor?.catalog?.models?.map(model => model.id)).toEqual([
+      'kimi-k2.7-code',
+      'kimi-k2.6',
+      'kimi-k2.5',
+    ])
+    expect(result.catalogEntry?.id).toBe('kimi-k2.7-code')
+    expect(result.catalogEntry?.aliases).toContain('moonshotai/kimi-k2.7-code')
+    expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+    expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toContain('store')
+
+    const qualified = resolveOpenAIShimRuntimeContext({
+      model: 'moonshotai/kimi-k2.7-code',
+      baseUrl: 'https://api.moonshot.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(qualified.routeId).toBe('moonshot')
+    expect(qualified.catalogEntry?.id).toBe('kimi-k2.7-code')
+    expect(qualified.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+  })
+
+  it('uses Kimi Code gateway catalog limits and reasoning controls', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'kimi-for-coding',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
+
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'kimi-for-coding',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+
+    expect(result.routeId).toBe('kimi-code')
+    expect(result.descriptor?.catalog?.models?.map(model => model.id)).toEqual([
+      'kimi-k2.7-code',
+      'kimi-for-coding',
+    ])
+    expect(result.catalogEntry?.id).toBe('kimi-for-coding')
+    expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+    expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toContain('store')
+
+    const k27 = resolveOpenAIShimRuntimeContext({
+      model: 'kimi-k2.7-code',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(k27.routeId).toBe('kimi-code')
+    expect(k27.catalogEntry?.id).toBe('kimi-k2.7-code')
+    expect(k27.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+
+    const qualified = resolveOpenAIShimRuntimeContext({
+      model: 'moonshotai/kimi-k2.7-code',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(qualified.routeId).toBe('kimi-code')
+    expect(qualified.catalogEntry?.id).toBe('kimi-k2.7-code')
+    expect(qualified.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+  })
+})
 describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
   it('uses Hicap static model limits and per-model shim overrides', () => {
     expect(

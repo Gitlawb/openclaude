@@ -409,6 +409,86 @@ test('explicit reasoning metadata enables model-level effort without provider-wi
   expect(resolveAppliedEffort('xai/grok-build-0.1', 'high')).toBeUndefined()
 })
 
+test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls', async () => {
+  const moonshotVendor = (await import('../integrations/vendors/moonshot.js')).default
+  const kimiCodeGateway = (await import('../integrations/gateways/kimi-code.js')).default
+
+  expect(moonshotVendor.catalog?.models?.map(model => model.id)).toEqual([
+    'kimi-k2.7-code',
+    'kimi-k2.6',
+    'kimi-k2.5',
+  ])
+
+  for (const { routeId, model, entries } of [
+    { routeId: 'moonshot', model: 'kimi-k2.6', entries: moonshotVendor.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'kimi-for-coding', entries: kimiCodeGateway.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'kimi-k2.7-code', entries: kimiCodeGateway.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'moonshotai/kimi-k2.7-code', entries: kimiCodeGateway.catalog?.models ?? [] },
+  ]) {
+    const {
+      getAvailableEffortLevels,
+      getDefaultEffortForModel,
+      modelSupportsEffort,
+      modelSupportsWireEffort,
+      resolveAppliedEffort,
+      resolveModelReasoningControl,
+    } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+      routeId,
+      catalogEntries: entries,
+    })
+
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high'],
+      defaultLevel: 'medium',
+      wireFormat: 'reasoning_effort',
+    })
+    expect(modelSupportsEffort(model)).toBe(true)
+    expect(modelSupportsWireEffort(model)).toBe(true)
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high'])
+    expect(getDefaultEffortForModel(model)).toBe('medium')
+    expect(resolveAppliedEffort(model, undefined)).toBe('medium')
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('high')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  const {
+    getAvailableEffortLevels,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'moonshot',
+    catalogEntries: moonshotVendor.catalog?.models ?? [],
+  })
+
+  expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('kimi-k2.7-code')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('kimi-k2.7-code', 'xhigh')).toBe('high')
+  expect(resolveAppliedEffort('kimi-k2.7-code', 'max')).toBe('high')
+  expect(resolveModelReasoningControl('moonshotai/kimi-k2.7-code')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('moonshotai/kimi-k2.7-code')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.7-code', 'xhigh')).toBe('high')
+})
 test('Atlas Cloud catalog exposes only verified reasoning controls for exact models', async () => {
   const atlasGateway = (await import('../integrations/gateways/atlas-cloud.js')).default
   const {
