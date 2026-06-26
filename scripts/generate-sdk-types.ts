@@ -13,7 +13,7 @@
  * are replaced via TypeOverrideMap with real TS type references.
  */
 
-import { writeFileSync } from 'fs'
+import { realpathSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import * as schemas from '../src/entrypoints/sdk/coreSchemas.js'
@@ -450,6 +450,16 @@ function writeGeneratedSdkTypes(): void {
   console.log(`✓ Written to ${outPath}`)
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+function isDirectExecution(): boolean {
+  if (!process.argv[1]) {
+    return false
+  }
+  return (
+    realpathSync.native(resolve(process.argv[1])) ===
+    realpathSync.native(scriptPath)
+  )
+}
+
+if (isDirectExecution()) {
   writeGeneratedSdkTypes()
 }
