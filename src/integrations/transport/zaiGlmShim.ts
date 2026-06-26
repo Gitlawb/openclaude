@@ -20,4 +20,5 @@ export const ZAI_GLM_OPENAI_SHIM = {
   thinkingRequestFormat: 'zai-compatible',
   maxTokensField: 'max_tokens',
   removeBodyFields: ['store'],
+  enableToolStreaming: true,
 } as const satisfies Partial<OpenAIShimTransportConfig>

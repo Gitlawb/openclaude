@@ -115,6 +115,15 @@ export default defineGateway({
         apiName: 'z-ai/glm-5.2',
         label: 'GLM 5.2 (via Opengateway)',
         modelDescriptorId: 'glm-5.2',
+        transportOverrides: {
+          openaiShim: {
+            thinkingRequestFormat: 'zai-compatible',
+            preserveReasoningContent: true,
+            requireReasoningContentOnAssistantMessages: true,
+            reasoningContentFallback: '',
+            enableToolStreaming: true,
+          },
+        },
       },
       // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
       // gate, so it works even with an empty credit balance.
