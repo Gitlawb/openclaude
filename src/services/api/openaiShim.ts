@@ -1336,11 +1336,11 @@ export function parseXmlToolCalls(text: string): {
     }
 
     if (!name) continue
+    ranges.push(range)
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) continue
     seen.add(dedupKey)
     results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
-    ranges.push(range)
   }
 
   return { calls: results, toolCallRanges: ranges }
