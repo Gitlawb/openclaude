@@ -144,13 +144,15 @@ export function createHeadlessHeartbeat(
     heartbeatIndex += 1
     lastHeartbeatAt = currentTime
 
+    const elapsedMs = Math.max(0, currentTime - startedAt)
+    const emittedSinceLastActivityMs = Math.max(0, sinceLastActivityMs)
     const state = safelyGet(options.getState, 'running')
     const event: HeadlessHeartbeatEvent = {
       type: 'system',
       subtype: 'heartbeat',
       timestamp: new Date(currentTime).toISOString(),
-      elapsed_ms: currentTime - startedAt,
-      since_last_activity_ms: sinceLastActivityMs,
+      elapsed_ms: elapsedMs,
+      since_last_activity_ms: emittedSinceLastActivityMs,
       state,
       phase,
       heartbeat_index: heartbeatIndex,

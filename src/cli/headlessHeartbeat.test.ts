@@ -203,6 +203,33 @@ describe('createHeadlessHeartbeat', () => {
     expect(JSON.stringify(structured[0])).not.toContain('cwd')
   })
 
+  test('clamps emitted durations when the system clock moves backward', () => {
+    const clock = createFakeClock(10_000)
+    const structured: Array<Record<string, unknown>> = []
+    const heartbeat = createHeadlessHeartbeat({
+      intervalMs: HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
+      outputFormat: 'stream-json',
+      emitStructured: event => {
+        structured.push(event)
+      },
+      now: clock.now,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    })
+
+    heartbeat.start()
+    clock.setNow(0)
+    heartbeat.markActivity()
+    clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
+    clock.tick()
+
+    expect(structured).toHaveLength(1)
+    expect(structured[0]).toMatchObject({
+      elapsed_ms: 0,
+      since_last_activity_ms: HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
+    })
+  })
+
   test('falls back to safe metadata defaults when heartbeat getters throw', () => {
     const clock = createFakeClock(0)
     const structured: Array<Record<string, unknown>> = []
