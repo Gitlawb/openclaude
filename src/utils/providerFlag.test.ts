@@ -185,6 +185,24 @@ describe('applyProviderFlag - cloudflare', () => {
       'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1',
     )
   })
+
+  test('mirrors CLOUDFLARE_API_TOKEN into OPENAI_API_KEY', () => {
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    // The Cloudflare transport authenticates via the generic OpenAI-compatible
+    // header, so the dedicated token must be copied into OPENAI_API_KEY.
+    expect(String(process.env.OPENAI_API_KEY)).toBe('cf-token')
+  })
+
+  test('clears a stale OPENAI_API_KEY when no CLOUDFLARE_API_TOKEN is set', () => {
+    delete process.env.CLOUDFLARE_API_TOKEN
+    process.env.OPENAI_API_KEY = 'leftover-from-another-provider'
+    applyProviderFlag('cloudflare', [])
+    // Without a Cloudflare token a lingering generic key must not be sent to
+    // Cloudflare; validation should report the missing token instead.
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
 })
 
 describe('applyProviderFlag - gemini', () => {

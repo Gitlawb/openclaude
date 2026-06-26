@@ -2529,6 +2529,48 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('persists Cloudflare profiles with CLOUDFLARE_API_TOKEN in the strict startup env', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const cloudflareProfile = buildCloudflareProfile({ id: 'cloudflare_prof' })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [cloudflareProfile],
+      }))
+
+      const result = setActiveProviderProfile('cloudflare_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('cloudflare_prof')
+      expect(persisted.profile).toBe('openai')
+      // The strict startup-env branch (keyed profile) must mirror the dedicated
+      // token, otherwise a relaunched Cloudflare profile persists an env that
+      // omits CLOUDFLARE_API_TOKEN and re-detects inconsistently.
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL:
+          'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+        OPENAI_MODEL: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+        OPENAI_API_KEY: 'cloudflare-test-token',
+        CLOUDFLARE_API_TOKEN: 'cloudflare-test-token',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))

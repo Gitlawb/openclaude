@@ -526,6 +526,27 @@ export function applyProviderFlag(
       }
       break
 
+    case 'cloudflare':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // applyOpenAIBaseUrlDefault skips unresolved `<...>` placeholder
+      // endpoints (the Cloudflare default carries `<ACCOUNT_ID>`), so the
+      // user must export a real account-scoped base URL.
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      // The Cloudflare transport reads the generic OpenAI-compatible auth
+      // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same
+      // way nearai/fireworks mirror their dedicated keys. Without this a user
+      // who only sets CLOUDFLARE_API_TOKEN sends an unauthenticated request.
+      if (process.env.CLOUDFLARE_API_TOKEN) {
+        process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)

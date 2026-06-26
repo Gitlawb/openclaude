@@ -1183,6 +1183,13 @@ function buildOpenAICompatibleStartupEnv(
       if (isFireworksBaseUrl(activeProfile.baseUrl)) {
         strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
       }
+      // Cloudflare's transport reads the dedicated CLOUDFLARE_API_TOKEN for
+      // host-based re-detection; mirror it like nearai/fireworks so a keyed
+      // Cloudflare profile's persisted startup env stays consistent and
+      // re-detects correctly after relaunch.
+      if (isCloudflareBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
