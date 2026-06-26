@@ -172,8 +172,6 @@ export type ChannelGateResult =
       kind:
         | 'capability'
         | 'disabled'
-        | 'auth'
-        | 'policy'
         | 'session'
         | 'marketplace'
         | 'allowlist'

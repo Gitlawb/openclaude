@@ -20,6 +20,16 @@ import { findChannelEntry, gateChannelServer } from './channelNotification.js'
 import { filterPermissionRelayClients } from './channelPermissions.js'
 import { parsePluginIdentifier } from '../../utils/plugins/pluginIdentifier.js'
 
+// Re-import the real channelAllowlist module via a cache-busting URL so
+// afterAll can re-register it. This MUST happen before mock.module() below
+// so the real exports are captured untouched. mock.restore() does NOT clear
+// module-level mock.module() overrides in bun (the registry is process-global),
+// so without this, neighboring test files that import the real module would
+// fail with "Export named 'getChannelAllowlist' not found".
+const _realChannelAllowlist = await import(
+  `./channelAllowlist.js?real=${Date.now()}-${Math.random()}`
+)
+
 // Module-level mocks for the GrowthBook-backed helpers. The gate
 // reads these on every call; resetting between tests keeps the
 // scenarios independent.
@@ -39,6 +49,7 @@ mock.module('./channelAllowlist.js', () => ({
 
 afterAll(() => {
   mock.restore()
+  mock.module('./channelAllowlist.js', () => _realChannelAllowlist)
 })
 
 function cap(extra: Record<string, unknown> = {}): ServerCapabilities {

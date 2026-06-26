@@ -20,7 +20,7 @@ import { stripDisplayTags, stripDisplayTagsAllowEmpty } from './displayTags.js'
 import { isEnvTruthy } from './envUtils.js'
 import { toError } from './errors.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
-import { redactSensitiveInfo } from './redaction.js'
+import { jsonRedactor, redactSensitiveInfo } from './redaction.js'
 import { jsonParse } from './slowOperations.js'
 
 /**
@@ -189,6 +189,23 @@ export function logError(error: unknown): void {
     sanitizedErr.message = redactSensitiveInfo(err.message)
     if (err.stack) {
       sanitizedErr.stack = redactSensitiveInfo(err.stack)
+    }
+    // Redact enumerable own string properties (custom fields like err.apiKey
+    // or err.cause) that Object.assign copied verbatim above. Non-string
+    // values (e.g. nested Error cause) are run through the JSON redactor.
+    for (const key of Object.keys(err)) {
+      const value = (err as unknown as Record<string, unknown>)[key]
+      if (typeof value === 'string') {
+        (sanitizedErr as unknown as Record<string, unknown>)[key] = redactSensitiveInfo(value)
+      } else if (typeof value === 'object' && value !== null) {
+        try {
+          ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
+            JSON.stringify(value, jsonRedactor),
+          )
+        } catch {
+          // non-serializable — leave as-is rather than crash the reporting path
+        }
+      }
     }
 
     const errorInfo = {

@@ -1,12 +1,17 @@
 /**
  * Centralized credential redaction utility.
  *
- * Single source of truth for redacting secrets (API keys, tokens, passwords)
+ * Primary source of truth for redacting secrets (API keys, tokens, passwords)
  * from strings, JSON values, URLs, filesystem paths, and structured
  * diagnostic objects that flow into logs, bug reports, transcript shares,
  * /status output, doctor reports, and other public-safe surfaces. The
- * regex sets and credential-name lists live here; call sites should never
- * fork their own copy of these patterns.
+ * regex sets and credential-name lists live here; call sites for diagnostic
+ * and logging paths should prefer these over forking their own patterns.
+ *
+ * Specialized scanners (e.g. team-memory pre-upload scanning in
+ * secretScanner.ts, OAuth token redaction in xaa.ts) maintain their own
+ * rules for domain-specific needs and different threat models. Those are
+ * intentional exceptions, not drift.
  *
  * Surface map:
  *
