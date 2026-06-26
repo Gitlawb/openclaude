@@ -4,6 +4,14 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 
+// @ts-expect-error -- query-string cache-buster: the `?...` suffix makes Bun
+// treat this as a distinct module id, bypassing other suites'
+// mock.module('../settings/settings.js') registrations so we capture the
+// genuine module. Importing it at module scope (once) keeps the real-module
+// load out of beforeEach, where the cold dynamic import sat right at Bun's 5s
+// hook-timeout boundary and intermittently failed the first test.
+import * as realSettingsModule from '../settings/settings.js?openaiContextWindowsRealSettings'
+
 const originalEnv = {
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS:
     process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
@@ -26,9 +34,6 @@ let mockSettings: SettingsShape = {}
 // transparent passthrough to the real settings whenever this suite is not the
 // one running — settings.js is read by many suites, so a stub must not leak.
 let settingsOverrideActive = false
-let realSettingsModule:
-  | typeof import('../settings/settings.js')
-  | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiContextWindows.test.ts')
@@ -37,14 +42,12 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_BASE_URL
-  realSettingsModule ??= (await import(
-    `../settings/settings.js?ts=${Date.now()}-${Math.random()}`
-  )) as typeof import('../settings/settings.js')
-  const real = realSettingsModule
   mock.module('../settings/settings.js', () => ({
-    ...real,
+    ...realSettingsModule,
     getInitialSettings: () =>
-      settingsOverrideActive ? mockSettings : real.getInitialSettings(),
+      settingsOverrideActive
+        ? mockSettings
+        : realSettingsModule.getInitialSettings(),
   }))
   settingsOverrideActive = true
 })

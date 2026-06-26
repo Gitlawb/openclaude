@@ -4,14 +4,23 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+// @ts-expect-error -- query-string cache-buster: the `?...` suffix makes Bun
+// treat this as a distinct module id, bypassing other suites'
+// mock.module('../utils/settings/settings.js') registrations so we capture the
+// genuine module. Importing it at module scope (once) keeps the real-module
+// load out of beforeEach, where the cold dynamic import sat right at Bun's 5s
+// hook-timeout boundary.
+import * as realSettingsModule from '../utils/settings/settings.js?modelLimitsRealSettings'
+
 // Integration coverage for the `modelLimits` settings override flowing through
 // the real runtime resolution path (CodeRabbit review on PR #1164/#1234). The
 // per-symbol tests in openaiContextWindows.test.ts exercise the lookup helpers
 // directly; this drives the full chain via resolveModelRuntimeLimits, which is
 // what runtime code actually calls. It also confirms the settings fallback is
 // reached (resolveModelRuntimeLimits calls the settings-aware
-// getOpenAIContextWindow / getOpenAIMaxOutputTokens, not a settings-blind
-// variant) for prefix and host-qualified keys, and that env overrides win.
+// getOpenAIContextWindowMatches / getOpenAIMaxOutputTokenMatches, not a
+// settings-blind variant) for prefix and host-qualified keys, and that env
+// overrides win.
 
 type SettingsShape = {
   modelLimits?: Record<
@@ -26,22 +35,17 @@ let mockSettings: SettingsShape = {}
 // one running — otherwise a later integrations test that reads
 // getInitialSettings() would see this suite's stub settings leak in.
 let settingsOverrideActive = false
-let realSettingsModule:
-  | typeof import('../utils/settings/settings.js')
-  | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('integrations/runtimeMetadata.modelLimits.test.ts')
   mock.restore()
   mockSettings = {}
-  realSettingsModule ??= (await import(
-    `../utils/settings/settings.js?modelLimitsReal=${Date.now()}-${Math.random()}`
-  )) as typeof import('../utils/settings/settings.js')
-  const real = realSettingsModule
   mock.module('../utils/settings/settings.js', () => ({
-    ...real,
+    ...realSettingsModule,
     getInitialSettings: () =>
-      settingsOverrideActive ? mockSettings : real.getInitialSettings(),
+      settingsOverrideActive
+        ? mockSettings
+        : realSettingsModule.getInitialSettings(),
   }))
   settingsOverrideActive = true
 })
