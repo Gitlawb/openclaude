@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { generateSdkTypes } from '../../scripts/generate-sdk-types.js'
 import {
@@ -28,12 +28,11 @@ import {
 import { z } from 'zod/v4'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+const generatedTypesPath = fileURLToPath(
+  new URL('../../src/entrypoints/sdk/coreTypes.generated.ts', import.meta.url),
+)
 const normalizeLineEndings = (source: string) => source.replace(/\r\n/g, '\n')
-const generatedTypesSource = () =>
-  readFileSync(
-    new URL('../../src/entrypoints/sdk/coreTypes.generated.ts', import.meta.url),
-    'utf8',
-  )
+const generatedTypesSource = () => readFileSync(generatedTypesPath, 'utf8')
 
 /**
  * Tests for generated SDK types from Zod schemas.
@@ -60,6 +59,9 @@ describe('SDK Zod schemas (type generation source)', () => {
   })
 
   test('SDK type generator can be imported from non-file entrypoints', () => {
+    const beforeSource = generatedTypesSource()
+    const beforeMtimeMs = statSync(generatedTypesPath).mtimeMs
+
     // The generator is a Bun TypeScript script, matching package.json scripts.
     const bunExecutable = process.execPath
     const result = spawnSync(
@@ -74,6 +76,8 @@ describe('SDK Zod schemas (type generation source)', () => {
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
     expect(normalizeLineEndings(result.stdout).trim()).toBe('import-ok')
+    expect(generatedTypesSource()).toBe(beforeSource)
+    expect(statSync(generatedTypesPath).mtimeMs).toBe(beforeMtimeMs)
   })
 
   test('SDKAssistantMessageSchema accepts valid data', () => {
