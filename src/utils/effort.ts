@@ -177,7 +177,7 @@ function modelLooksZaiCompatible(model: string): boolean {
 
 function supportsZaiReasoningEffort(model: string | undefined): boolean {
   const normalized = normalizedBaseModel(model)
-  return normalized === 'glm-5.2' || normalized === 'zai-org/glm-5.2'
+  return normalized === 'glm-5.2' || normalized === 'zai-org/glm-5.2' || normalized.endsWith('/glm-5.2')
 }
 
 function normalizeReasoningThinkingType(
