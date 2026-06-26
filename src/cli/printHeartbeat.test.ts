@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import {
   createHeadlessHeartbeatStructuredEmitter,
   createRunHeadlessHeartbeat,
+  runWithHeartbeatErrorCleanup,
 } from './print.js'
 import {
   HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
@@ -95,6 +96,23 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 })
 
 describe('createRunHeadlessHeartbeat', () => {
+  test('stops active heartbeats when guarded setup work throws', async () => {
+    const stop = mock(() => {})
+    const heartbeat = {
+      start: () => {},
+      stop,
+      markActivity: () => {},
+      setPhase: () => {},
+    }
+
+    await expect(
+      runWithHeartbeatErrorCleanup(heartbeat, async () => {
+        throw new Error('setup failed')
+      }),
+    ).rejects.toThrow('setup failed')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   test('keeps stream-json heartbeats dormant until the print flow starts the drain', async () => {
     const clock = createFakeClock()
     const written: HeadlessHeartbeatEvent[] = []
@@ -129,6 +147,7 @@ describe('createRunHeadlessHeartbeat', () => {
       createUuid: () => `heartbeat-${written.length + enqueued.length + 1}`,
     })
 
+    heartbeat?.start()
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
@@ -136,7 +155,6 @@ describe('createRunHeadlessHeartbeat', () => {
     expect(enqueued).toHaveLength(0)
 
     streamJsonDrainStarted = true
-    heartbeat?.start()
     heartbeat?.setPhase('loading_session')
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()

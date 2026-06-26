@@ -133,6 +133,16 @@ export function createHeadlessHeartbeat(
 
   const emit = () => {
     const currentTime = now()
+    if (currentTime < startedAt) {
+      startedAt = currentTime
+    }
+    if (currentTime < lastActivityAt) {
+      lastActivityAt = currentTime - options.intervalMs
+    }
+    if (currentTime < lastHeartbeatAt) {
+      lastHeartbeatAt = currentTime - options.intervalMs
+    }
+
     const sinceLastActivityMs = currentTime - lastActivityAt
     if (sinceLastActivityMs < options.intervalMs) {
       return
@@ -319,10 +329,14 @@ function sanitizeBackgroundTaskCounts(
 ): Record<string, number> {
   const sanitized: Record<string, number> = {}
   for (const [type, count] of Object.entries(counts)) {
-    if (!Number.isFinite(count) || count <= 0) {
+    if (!Number.isFinite(count)) {
       continue
     }
-    sanitized[type] = Math.trunc(count)
+    const normalizedCount = Math.trunc(count)
+    if (normalizedCount <= 0) {
+      continue
+    }
+    sanitized[type] = normalizedCount
   }
   return sanitized
 }

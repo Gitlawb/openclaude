@@ -169,7 +169,11 @@ describe('createHeadlessHeartbeat', () => {
       getState: () => 'requires_action',
       initialPhase: 'waiting_for_permission',
       getPendingPermissionRequests: () => ['request-1'],
-      getBackgroundTaskCounts: () => ({ local_agent: 2, local_workflow: 1 }),
+      getBackgroundTaskCounts: () => ({
+        local_agent: 2.9,
+        local_workflow: 1,
+        fractional_agent: 0.5,
+      }),
       emitStructured: event => {
         structured.push(event)
       },
@@ -220,6 +224,32 @@ describe('createHeadlessHeartbeat', () => {
     heartbeat.start()
     clock.setNow(0)
     heartbeat.markActivity()
+    clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
+    clock.tick()
+
+    expect(structured).toHaveLength(1)
+    expect(structured[0]).toMatchObject({
+      elapsed_ms: 0,
+      since_last_activity_ms: HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
+    })
+  })
+
+  test('emits after a backward clock jump without waiting for wall time to catch up', () => {
+    const clock = createFakeClock(10_000)
+    const structured: Array<Record<string, unknown>> = []
+    const heartbeat = createHeadlessHeartbeat({
+      intervalMs: HEADLESS_HEARTBEAT_MIN_INTERVAL_MS,
+      outputFormat: 'stream-json',
+      emitStructured: event => {
+        structured.push(event)
+      },
+      now: clock.now,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    })
+
+    heartbeat.start()
+    clock.setNow(0)
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     clock.tick()
 

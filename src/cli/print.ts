@@ -724,28 +724,35 @@ export async function runHeadless(
 
   if (options.setupTrigger) {
     heartbeat?.setPhase('startup')
-    await processSetupHooks(options.setupTrigger)
+    await runWithHeartbeatErrorCleanup(heartbeat, () =>
+      processSetupHooks(options.setupTrigger!),
+    )
   }
 
   headlessProfilerCheckpoint('before_loadInitialMessages')
   heartbeat?.setPhase('loading_session')
   const appState = getAppState()
+  const initialMessagesResult = await runWithHeartbeatErrorCleanup(
+    heartbeat,
+    () =>
+      loadInitialMessages(setAppState, {
+        getAppState,
+        continue: options.continue,
+        teleport: options.teleport,
+        resume: options.resume,
+        fromPr: options.fromPr,
+        resumeSessionAt: options.resumeSessionAt,
+        forkSession: options.forkSession,
+        outputFormat: options.outputFormat,
+        sessionStartHooksPromise: options.sessionStartHooksPromise,
+        restoredWorkerState: structuredIO.restoredWorkerState,
+      }),
+  )
   const {
     messages: initialMessages,
     turnInterruptionState,
     agentSetting: resumedAgentSetting,
-  } = await loadInitialMessages(setAppState, {
-    getAppState,
-    continue: options.continue,
-    teleport: options.teleport,
-    resume: options.resume,
-    fromPr: options.fromPr,
-    resumeSessionAt: options.resumeSessionAt,
-    forkSession: options.forkSession,
-    outputFormat: options.outputFormat,
-    sessionStartHooksPromise: options.sessionStartHooksPromise,
-    restoredWorkerState: structuredIO.restoredWorkerState,
-  })
+  } = initialMessagesResult
 
   // SessionStart hooks can emit initialUserMessage — the first user turn for
   // headless orchestrator sessions where stdin is empty and additionalContext
@@ -805,11 +812,13 @@ export async function runHeadless(
     }
 
     const currentAppState = getAppState()
-    const result = await handleRewindFiles(
-      options.rewindFiles as UUID,
-      currentAppState,
-      setAppState,
-      false,
+    const result = await runWithHeartbeatErrorCleanup(heartbeat, () =>
+      handleRewindFiles(
+        options.rewindFiles as UUID,
+        currentAppState,
+        setAppState,
+        false,
+      ),
     )
     if (!result.canRewind) {
       process.stderr.write(`Error: ${result.error || 'Unexpected error'}\n`)
@@ -900,7 +909,7 @@ export async function runHeadless(
 
   // Ensure model strings are initialized before generating model options.
   // For Bedrock users, this waits for the profile fetch to get correct region strings.
-  await ensureModelStringsInitialized()
+  await runWithHeartbeatErrorCleanup(heartbeat, ensureModelStringsInitialized)
   headlessProfilerCheckpoint('after_modelStrings')
 
   // UDS inbox store registration is deferred until after `run` is defined
@@ -928,54 +937,56 @@ export async function runHeadless(
     heartbeat?.start()
     heartbeat?.setPhase('draining_commands')
   }
-  for await (const message of runHeadlessStreaming(
-    structuredIO,
-    appState.mcp.clients,
-    [...commands, ...appState.mcp.commands],
-    filteredTools,
-    initialMessages,
-    canUseTool,
-    sdkMcpConfigs,
-    getAppState,
-    setAppState,
-    agents,
-    { ...options, heartbeat },
-    turnInterruptionState,
-  )) {
-    if (transformToStreamlined) {
-      if (isHeadlessHeartbeatMessage(message)) {
+  try {
+    for await (const message of runHeadlessStreaming(
+      structuredIO,
+      appState.mcp.clients,
+      [...commands, ...appState.mcp.commands],
+      filteredTools,
+      initialMessages,
+      canUseTool,
+      sdkMcpConfigs,
+      getAppState,
+      setAppState,
+      agents,
+      { ...options, heartbeat },
+      turnInterruptionState,
+    )) {
+      if (transformToStreamlined) {
+        if (isHeadlessHeartbeatMessage(message)) {
+          await structuredIO.write(message)
+          continue
+        }
+        // Streamlined mode: transform messages and stream immediately
+        const transformed = transformToStreamlined(message)
+        if (transformed) {
+          await structuredIO.write(transformed)
+          if (!isHeadlessHeartbeatMessage(transformed)) {
+            heartbeat?.markActivity()
+          }
+        }
+      } else if (options.outputFormat === 'stream-json' && options.verbose) {
         await structuredIO.write(message)
-        continue
-      }
-      // Streamlined mode: transform messages and stream immediately
-      const transformed = transformToStreamlined(message)
-      if (transformed) {
-        await structuredIO.write(transformed)
-        if (!isHeadlessHeartbeatMessage(transformed)) {
+        if (!isHeadlessHeartbeatMessage(message)) {
           heartbeat?.markActivity()
         }
       }
-    } else if (options.outputFormat === 'stream-json' && options.verbose) {
-      await structuredIO.write(message)
-      if (!isHeadlessHeartbeatMessage(message)) {
-        heartbeat?.markActivity()
+      // Should not be getting control messages or stream events in non-stream mode.
+      // Also filter out streamlined types since they're only produced by the transformer.
+      // SDK-only system events are excluded so lastMessage stays at the result
+      // (session_state_changed(idle) and any late task_notification drain after
+      // result in the finally block).
+      if (shouldSelectHeadlessFinalMessage(message)) {
+        if (needsFullArray) {
+          messages.push(message)
+        }
+        lastMessage = message
       }
     }
-    // Should not be getting control messages or stream events in non-stream mode.
-    // Also filter out streamlined types since they're only produced by the transformer.
-    // SDK-only system events are excluded so lastMessage stays at the result
-    // (session_state_changed(idle) and any late task_notification drain after
-    // result in the finally block).
-    if (shouldSelectHeadlessFinalMessage(message)) {
-      if (needsFullArray) {
-        messages.push(message)
-      }
-      lastMessage = message
-    }
+  } finally {
+    heartbeat?.setPhase('flushing')
+    heartbeat?.stop()
   }
-
-  heartbeat?.setPhase('flushing')
-  heartbeat?.stop()
 
   switch (options.outputFormat) {
     case 'json':
@@ -1056,6 +1067,19 @@ type RunHeadlessHeartbeatOptions = {
   setInterval?: (callback: () => void, intervalMs: number) => unknown
   clearInterval?: (timer: unknown) => void
   createUuid?: () => string
+}
+
+/** @internal */
+export async function runWithHeartbeatErrorCleanup<T>(
+  heartbeat: Pick<HeadlessHeartbeat, 'stop'> | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    heartbeat?.stop()
+    throw error
+  }
 }
 
 /** @internal */
