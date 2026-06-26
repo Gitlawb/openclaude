@@ -7,31 +7,63 @@ export const CLAUDE_AI_STAGING_BASE_URL = 'https://claude-ai.staging.ant.dev'
 export const CLAUDE_AI_LOCAL_BASE_URL = 'http://localhost:4000'
 
 /**
+ * Parse the hostname from an ingress URL, lowercased. Returns undefined for a
+ * missing or malformed URL so callers can treat it as "no match" rather than
+ * matching on arbitrary substrings of the raw string.
+ *
+ * Inlined (rather than reusing src/bridge helpers) to keep constants/ a leaf of
+ * the module-load DAG.
+ */
+function getIngressHostname(ingressUrl?: string): string | undefined {
+  if (!ingressUrl) {
+    return undefined
+  }
+  try {
+    return new URL(ingressUrl).hostname.toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Determine if we're in a staging environment for remote sessions.
  * Checks session ID format and ingress URL.
+ *
+ * The ingress URL is matched on a hostname *label* (`...staging...` as a
+ * dot-delimited segment, e.g. `claude-ai.staging.ant.dev`) rather than a raw
+ * substring, so a production URL that merely carries `staging` in its path or
+ * query (e.g. `https://claude.ai/code/x?ref=staging`) is not misrouted to the
+ * staging endpoint.
  */
 export function isRemoteSessionStaging(
   sessionId?: string,
   ingressUrl?: string,
 ): boolean {
-  return (
-    sessionId?.includes('_staging_') === true ||
-    ingressUrl?.includes('staging') === true
-  )
+  if (sessionId?.includes('_staging_') === true) {
+    return true
+  }
+  const hostname = getIngressHostname(ingressUrl)
+  return hostname !== undefined && hostname.split('.').includes('staging')
 }
 
 /**
  * Determine if we're in a local-dev environment for remote sessions.
  * Checks session ID format (e.g. `session_local_...`) and ingress URL.
+ *
+ * The ingress URL is matched on an exact localhost hostname (mirroring
+ * `isLocalhostBaseUrl` in src/bridge/workSecret.ts) rather than a raw
+ * substring, so a production URL that merely carries `localhost` in its path or
+ * query is not misrouted to the local-dev endpoint.
  */
 export function isRemoteSessionLocal(
   sessionId?: string,
   ingressUrl?: string,
 ): boolean {
-  return (
-    sessionId?.includes('_local_') === true ||
-    ingressUrl?.includes('localhost') === true
-  )
+  if (sessionId?.includes('_local_') === true) {
+    return true
+  }
+  const hostname = getIngressHostname(ingressUrl)
+  return hostname === 'localhost' || hostname === '127.0.0.1'
 }
 
 /**
