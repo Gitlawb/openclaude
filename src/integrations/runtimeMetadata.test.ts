@@ -277,7 +277,7 @@ describe('resolveOpenAIShimRuntimeContext - xAI catalog metadata', () => {
         baseUrl: 'https://api.x.ai/v1',
         processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
       }),
-    ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: undefined })
+    ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: 32_768 })
 
     const grok420Reasoning = resolveOpenAIShimRuntimeContext({
       model: 'grok-4.20',

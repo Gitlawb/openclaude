@@ -47,6 +47,7 @@ export default [
     capabilities: grokCapabilities,
     reasoning: { mode: 'always-on', wireFormat: 'none' },
     contextWindow: 1_000_000,
+    maxOutputTokens: 32_768,
   }),
   defineModel({
     id: 'grok-4.20-0309-non-reasoning',
@@ -60,5 +61,6 @@ export default [
       supportsReasoning: false,
     },
     contextWindow: 1_000_000,
+    maxOutputTokens: 32_768,
   }),
 ]
