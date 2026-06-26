@@ -902,13 +902,11 @@ export function resolveProviderRequest(options?: {
         parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.defaultApiFormat)
   const supportsRequestedApiFormat =
     (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
-    (() => {
-      return openAIShimSupportsApiFormatForModel(
-        runtimeShimContext?.openaiShimConfig,
-        'responses',
-        descriptor.baseModel,
-      )
-    })()
+    openAIShimSupportsApiFormatForModel(
+      runtimeShimContext?.openaiShimConfig,
+      'responses',
+      descriptor.baseModel,
+    )
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilotLike && shouldUseGithubResponsesApi(githubResolvedModel))

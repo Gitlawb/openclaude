@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { RouteDiscoveryResult } from '../../integrations/discoveryService.js'
-import { _getDiscoveredModelApiNamesForTesting } from './bootstrap.js'
+import { getDiscoveredModelApiNames } from './bootstrap.js'
 
 test('uses static route models from errored discovery results', () => {
   const discovered: RouteDiscoveryResult = {
@@ -15,7 +15,7 @@ test('uses static route models from errored discovery results', () => {
     source: 'error',
   }
 
-  expect(_getDiscoveredModelApiNamesForTesting(discovered)).toEqual(['glm-5.2'])
+  expect(getDiscoveredModelApiNames(discovered)).toEqual(['glm-5.2'])
 })
 
 test('falls back to raw discovery when route discovery has no usable models', () => {
@@ -27,5 +27,5 @@ test('falls back to raw discovery when route discovery has no usable models', ()
     source: 'error',
   }
 
-  expect(_getDiscoveredModelApiNamesForTesting(discovered)).toBeNull()
+  expect(getDiscoveredModelApiNames(discovered)).toBeNull()
 })

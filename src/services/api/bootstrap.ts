@@ -71,7 +71,7 @@ function normalizeDiscoveredModelLookupKey(model: string): string {
   return model.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
 }
 
-export function _getDiscoveredModelApiNamesForTesting(
+export function getDiscoveredModelApiNames(
   discovered: RouteDiscoveryResult | null,
 ): string[] | null {
   const discoveredModels = discovered?.models
@@ -230,7 +230,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
       })
     : null
   const models =
-    _getDiscoveredModelApiNamesForTesting(discovered) ??
+    getDiscoveredModelApiNames(discovered) ??
     (await listOpenAICompatibleModels({
       baseUrl,
       apiKey,
