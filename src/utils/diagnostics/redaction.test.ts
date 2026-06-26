@@ -85,6 +85,20 @@ describe("diagnostic redaction", () => {
     });
   });
 
+  test("redacts bare auth header keys in JSON/header objects", () => {
+    const redacted = redactDiagnosticObject({
+      auth: "plain-auth-secret",
+      "x-auth": "plain-x-auth-secret",
+      "Authorization": "Bearer token",
+    });
+
+    expect(redacted).toEqual({
+      auth: "[redacted]",
+      "x-auth": "[redacted]",
+      Authorization: "[redacted]",
+    });
+  });
+
   test("redacts secret-looking values even under harmless field names", () => {
     const home = homedir();
     const redacted = redactDiagnosticObject({

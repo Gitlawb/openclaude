@@ -107,6 +107,7 @@ const GENERIC_HEADER_FIELD_PATTERN =
 // value collapsed to `'[REDACTED]'` regardless of value shape — the
 // header-field regex below handles the same key in inline key=value text.
 const SENSITIVE_FIELD_SUBSTRINGS = [
+  "auth",
   "token",
   "apikey",
   "secret",

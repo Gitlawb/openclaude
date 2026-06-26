@@ -276,6 +276,12 @@ export function gateChannelServer(
   // (API key or OAuth) and have no managed org admin console, so these
   // gates are bypassed. The session allowlist (--channels flag) and
   // capability check remain as the security boundary.
+  // This changes the trust boundary from org-managed policy to explicit user
+  // opt-in. Previously, channels required OAuth authentication and org team/
+  // enterprise approval. Now, only explicit --channels registration enables
+  // inbound channel notifications. See PR scope for details on this change.
+  // The OAuth/team/enterprise removal is separate from credential redaction
+  // and changes who can register inbound channel notifications.
 
   // User-level session opt-in. A server must be explicitly listed in
   // --channels to push inbound this session — protects against a trusted
