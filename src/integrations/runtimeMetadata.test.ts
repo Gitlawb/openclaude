@@ -269,6 +269,60 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
   })
 })
 
+describe('resolveOpenAIShimRuntimeContext - xAI catalog metadata', () => {
+  it('uses live xAI model metadata and per-model shim overrides', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-4.20-0309-reasoning',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: undefined })
+
+    const grok420Reasoning = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.20',
+      baseUrl: 'https://api.x.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok420Reasoning.catalogEntry?.id).toBe('grok-4.20-0309-reasoning')
+    expect(grok420Reasoning.openaiShimConfig.endpointPath).toBe('/responses')
+    expect(grok420Reasoning.openaiShimConfig.removeBodyFields).toContain('reasoning_effort')
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-build-0.1',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 256_000, maxOutputTokens: 64_000 })
+
+    const grok43 = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4',
+      baseUrl: 'https://api.x.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok43.routeId).toBe('xai')
+    expect(grok43.catalogEntry?.id).toBe('grok-4.3')
+    expect(grok43.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+    ])
+
+    const build = resolveOpenAIShimRuntimeContext({
+      model: 'grok-code-fast-1',
+      baseUrl: 'https://api.x.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(build.routeId).toBe('xai')
+    expect(build.catalogEntry?.id).toBe('grok-build-0.1')
+    expect(build.catalogEntry?.capabilities?.supportsReasoning).toBe(false)
+    expect(build.catalogEntry?.reasoning).toBeUndefined()
+    expect(build.openaiShimConfig.endpointPath).toBe('/responses')
+    expect(build.openaiShimConfig.removeBodyFields).toContain('reasoning_effort')
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - provider override route preference', () => {
   it('does not inherit ambient route config when the preferred base URL is unrecognized', () => {
     const result = resolveOpenAIShimRuntimeContext({

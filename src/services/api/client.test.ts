@@ -642,7 +642,7 @@ test('routes env-only xAI requests through the OpenAI-compatible shim', async ()
   // cached system prompt and conversation history can be reused. Mirrors the
   // Hermes implementation (RELEASE_v0.8.0 PR #5604).
   expect(capturedHeaders?.get('x-grok-conv-id')).toBeTruthy()
-  expect(capturedBody?.model).toBe('grok-4')
+  expect(capturedBody?.model).toBe('grok-4.3')
   expect(response).toMatchObject({
     role: 'assistant',
     model: 'grok-4',
@@ -1579,7 +1579,7 @@ test('providerOverride Atlas Kimi metadata emits top-level reasoning_effort and 
   expect(requestBody?.reasoning_effort).toBe('xhigh')
 })
 
-test('providerOverride Atlas Grok Build uses always-on no-wire reasoning metadata', async () => {
+test('providerOverride Atlas Grok Build does not send reasoning effort', async () => {
   let requestBody: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (_input, init) => {

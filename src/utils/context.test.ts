@@ -436,7 +436,7 @@ test('env-only xAI key uses provider-specific context and output caps before cli
     upperLimit: 32_768,
   })
   expect(getMaxOutputTokensForModel('grok-4.3')).toBe(32_768)
-  expect(getContextWindowForModel('grok-4')).toBe(2_000_000)
+  expect(getContextWindowForModel('grok-4')).toBe(1_000_000)
   expect(getModelMaxOutputTokens('grok-4')).toEqual({
     default: 32_768,
     upperLimit: 32_768,

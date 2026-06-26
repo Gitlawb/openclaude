@@ -82,9 +82,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
+  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.3.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   return getDefaultHaikuModel()
 }
@@ -316,9 +316,9 @@ export function getDefaultHaikuModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — faster Grok model for "haiku"-equivalent.
+  // xAI — use the current Grok default for "haiku"-equivalent until xAI exposes a smaller live alias.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -623,7 +623,11 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
       'gemini-3-flash-preview': 'Gemini 3 Flash',
       'gemini-2.5-pro': 'Gemini 2.5 Pro',
-      'grok-code-fast-1': 'Grok Code Fast 1',
+      'grok-code-fast-1': 'Grok Build 0.1',
+      'grok-build-0.1': 'Grok Build 0.1',
+      'grok-4.20': 'Grok 4.20 Reasoning',
+      'grok-4.20-0309-reasoning': 'Grok 4.20 Reasoning',
+      'grok-4.20-0309-non-reasoning': 'Grok 4.20 Non-Reasoning',
     }
     if (copilotModelNames[model]) {
       return copilotModelNames[model]

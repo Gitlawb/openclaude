@@ -138,5 +138,9 @@ test('Atlas Cloud canonicalizes static catalog aliases without hiding the catalo
 
   expect(values).toContain('anthropic/claude-opus-4.8')
   expect(values).toContain('deepseek-ai/deepseek-v4-pro')
+  expect(values).toContain('xai/grok-build-0.1')
+  expect(values).toContain('xai/grok-4.3')
   expect(values).not.toContain('claude-opus-4-8')
+  expect(values).not.toContain('grok-code-fast-1')
+  expect(values).not.toContain('grok-4')
 })
