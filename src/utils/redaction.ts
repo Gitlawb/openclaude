@@ -633,7 +633,7 @@ function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
  * Handles nested braces, escaped quotes inside string values, and unicode
  * escapes in keys/values (which `JSON.parse` resolves natively).
  */
-function tryParseFirstJsonObject(text: string): { parsed: unknown; rest: string } | null {
+function tryParseFirstJsonObject(text: string): { before: string; parsed: unknown; rest: string } | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
 
@@ -667,7 +667,7 @@ function tryParseFirstJsonObject(text: string): { parsed: unknown; rest: string 
         if (depth === 0) {
           const jsonStr = text.slice(start, i + 1);
           try {
-            return { parsed: JSON.parse(jsonStr), rest: text.slice(i + 1) };
+            return { before: text.slice(0, start), parsed: JSON.parse(jsonStr), rest: text.slice(i + 1) };
           } catch {
             return null;
           }
@@ -699,14 +699,14 @@ export function redactJsonLines(raw: string): string {
         const extracted = tryParseFirstJsonObject(line);
         if (extracted) {
           const redacted = JSON.stringify(extracted.parsed, jsonRedactor);
-          // If there is trailing garbage, redact it too before appending
-          // (the rest may contain credential patterns the JSON parser
-          // never saw). Falls back to the bare line on failure so we never
-          // lose data entirely.
-          if (extracted.rest) {
-            const leading = line.length - line.trimStart().length;
-            const prefix = line.slice(0, leading);
-            return prefix + redacted + redactSensitiveInfo(extracted.rest);
+          // Preserve any non-JSON prefix (e.g. log level labels) and
+          // trailing garbage — both are redacted before concatenation.
+          if (extracted.before || extracted.rest) {
+            return (
+              redactSensitiveInfo(extracted.before) +
+              redacted +
+              redactSensitiveInfo(extracted.rest)
+            );
           }
           return redacted;
         }
