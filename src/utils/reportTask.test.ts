@@ -324,6 +324,50 @@ describe('task report generation', () => {
     )
   })
 
+  test('captures numeric structured exit codes from observed Bash results', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000028',
+          'Run a structured command.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000029',
+          {
+            id: 'tool-command-structured-exit',
+            name: 'Bash',
+            input: {
+              command: 'node missing.js',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000030',
+          'tool-command-structured-exit',
+          'No textual exit code here',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: '', stderr: 'missing\n', exitCode: 2 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.commands).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-command-structured-exit',
+            status: 'error',
+            exitCode: 2,
+          }),
+        ])
+      },
+    )
+  })
+
   test('classifies validation commands from the raw Bash command before truncation', async () => {
     const longPrefix = 'echo setup && '.repeat(20)
     const rawCommand = `${longPrefix}bun test src/utils/reportTask.test.ts`
@@ -373,6 +417,54 @@ describe('task report generation', () => {
         )
       },
     )
+  })
+
+  test('classifies documented web checks as validations', async () => {
+    for (const command of ['bun run web:typecheck', 'bun run web:build']) {
+      await withTempTranscript(
+        [
+          userMessage(
+            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000032' : '000000000031'}`,
+            `Run ${command}.`,
+            '2026-06-27T08:00:00.000Z',
+          ),
+          assistantToolMessage(
+            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000034' : '000000000033'}`,
+            {
+              id: `tool-${command.replaceAll(/[^A-Za-z0-9]/g, '-')}`,
+              name: 'Bash',
+              input: {
+                command,
+              },
+            },
+            '2026-06-27T08:01:00.000Z',
+          ),
+          toolResultMessage(
+            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000036' : '000000000035'}`,
+            `tool-${command.replaceAll(/[^A-Za-z0-9]/g, '-')}`,
+            'passed',
+            '2026-06-27T08:01:03.000Z',
+            { stdout: 'passed\n', stderr: '', exitCode: 0 },
+          ),
+        ],
+        async transcriptPath => {
+          const report = await buildTaskReport({
+            transcriptPath,
+            git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+          })
+
+          expect(report.validations).toEqual([
+            expect.objectContaining({
+              command,
+              status: 'success',
+            }),
+          ])
+          expect(report.warnings).not.toContain(
+            'No validation commands were observed in this transcript.',
+          )
+        },
+      )
+    }
   })
 
   test('captures file changes and branch metadata when available', async () => {
@@ -479,6 +571,47 @@ describe('task report generation', () => {
             repository: 'Gitlawb/openclaude',
             url: 'https://github.com/Gitlawb/openclaude/pull/456',
           },
+        ])
+      },
+    )
+  })
+
+  test('normalizes in-repo paths whose relative path starts with dots', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000037',
+          'Update a dot-prefixed fixture path.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000038',
+          {
+            id: 'tool-dot-fixture',
+            name: 'Edit',
+            input: {
+              file_path: `${cwd}/..fixtures/report.ts`,
+              old_string: 'old',
+              new_string: 'new',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000039',
+          'tool-dot-fixture',
+          'Updated fixture',
+          '2026-06-27T08:01:02.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.changedFiles).toEqual([
+          { path: '..fixtures/report.ts', sources: ['tool'] },
         ])
       },
     )
@@ -680,6 +813,7 @@ describe('task report generation', () => {
     const binDir = join(dir, 'bin')
     const repoDir = join(dir, 'repo')
     const gitPath = join(binDir, 'git')
+    const gitCmdPath = join(binDir, 'git.cmd')
     const previousPath = process.env.PATH
 
     try {
@@ -709,7 +843,32 @@ esac
 exit 2
 `,
       )
-      chmodSync(gitPath, 0o755)
+      writeFileSync(
+        gitCmdPath,
+        `@echo off
+set args=%*
+if "%args%"=="--no-optional-locks rev-parse --is-inside-work-tree" (
+  echo true
+  exit /b 0
+)
+if "%args%"=="--no-optional-locks branch --show-current" (
+  echo feat/report
+  exit /b 0
+)
+if "%args%"=="--no-optional-locks rev-parse --short=12 HEAD" (
+  echo 13cf30afa469
+  exit /b 0
+)
+if "%args%"=="--no-optional-locks status --porcelain=v1" (
+  echo status failed 1>&2
+  exit /b 1
+)
+exit /b 2
+`,
+      )
+      if (process.platform !== 'win32') {
+        chmodSync(gitPath, 0o755)
+      }
       process.env.PATH = `${binDir}${delimiter}${previousPath ?? ''}`
 
       const metadata = await collectTaskReportGitMetadata(repoDir)

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import {
   basename,
@@ -9,6 +8,8 @@ import {
   resolve,
   win32,
 } from 'node:path'
+
+import { execa } from 'execa'
 
 import {
   redactDiagnosticObject,
@@ -174,7 +175,7 @@ const MUTATING_FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const FILE_CONTENT_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
 
 const VALIDATION_COMMAND_PATTERNS = [
-  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|build|smoke|check|lint|security:pr-scan)\b/,
+  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|web:typecheck|web:build|build|smoke|check|lint|security:pr-scan)\b/,
   /\bbun\s+test\b/,
   /\bgit\s+diff\s+--check\b/,
   /\bpython\s+-m\s+pytest\b/,
@@ -750,6 +751,12 @@ function summarizeToolInput(
 
 function extractExitCode(result: ObservedToolResult | undefined): number | undefined {
   if (!result) return undefined
+  const structuredResult = recordValue(result.toolUseResult)
+  const structuredExitCode = numberValue(structuredResult?.exitCode)
+  if (structuredExitCode !== undefined) {
+    return structuredExitCode
+  }
+
   const parts = [
     unknownToString(result.content),
     unknownToString(result.toolUseResult),
@@ -935,9 +942,13 @@ function relativeWithinCwd(
 ): string | undefined {
   if (!isAbsolutePath(path) || !isAbsolutePath(cwd)) return undefined
   const relativePathValue = relativePath(cwd, path)
+  const isOutsideCwd =
+    relativePathValue === '..' ||
+    relativePathValue.startsWith('../') ||
+    relativePathValue.startsWith('..\\')
   if (
     !relativePathValue ||
-    relativePathValue.startsWith('..') ||
+    isOutsideCwd ||
     isAbsolutePath(relativePathValue)
   ) {
     return undefined
@@ -967,51 +978,38 @@ async function runGit(
   cwd: string,
   args: string[],
 ): Promise<{ stdout: string; stderr: string; code: number; error?: string }> {
-  const maxBuffer = 1_000_000
-  return new Promise(resolve => {
-    let stdout = ''
-    let stderr = ''
-    let resolved = false
-    const child = spawn('git', args, {
+  try {
+    const result = await execa('git', args, {
       cwd,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      reject: false,
+      timeout: 3_000,
+      maxBuffer: 1_000_000,
     })
-    const finish = (
-      code: number,
-      extra?: { error?: string; stderr?: string },
-    ) => {
-      if (resolved) return
-      resolved = true
-      clearTimeout(timer)
-      resolve({
-        stdout,
-        stderr: extra?.stderr ?? stderr,
-        code,
-        ...(extra?.error ? { error: extra.error } : {}),
-      })
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      code: result.exitCode ?? 0,
     }
-    const append = (current: string, chunk: Buffer) => {
-      if (current.length >= maxBuffer) return current
-      return `${current}${chunk.toString('utf8')}`.slice(0, maxBuffer)
+  } catch (error) {
+    const execaError = error as {
+      stdout?: unknown
+      stderr?: unknown
+      exitCode?: unknown
+      timedOut?: unknown
     }
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM')
-      finish(124, { error: 'git command timed out' })
-    }, 3_000)
-    child.stdout?.on('data', chunk => {
-      stdout = append(stdout, chunk)
-    })
-    child.stderr?.on('data', chunk => {
-      stderr = append(stderr, chunk)
-    })
-    child.on('error', error => {
-      finish(1, { error: error.message })
-    })
-    child.on('close', code => {
-      finish(code ?? 1)
-    })
-  })
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      stdout: typeof execaError.stdout === 'string' ? execaError.stdout : '',
+      stderr: typeof execaError.stderr === 'string' ? execaError.stderr : '',
+      code:
+        typeof execaError.exitCode === 'number'
+          ? execaError.exitCode
+          : execaError.timedOut === true
+            ? 124
+            : 1,
+      error: execaError.timedOut === true ? 'git command timed out' : message,
+    }
+  }
 }
 
 function findSessionId(entries: JsonRecord[]): string | undefined {

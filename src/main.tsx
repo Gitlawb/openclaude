@@ -4239,6 +4239,11 @@ async function run(): Promise<CommanderCommand> {
             'Task reports currently support JSON output only. Pass --json.',
           );
         }
+        if (options.transcript && options.session) {
+          throw new Error(
+            'Pass either --transcript <file> or --session <id>, not both.',
+          );
+        }
         await taskReportHandler({
           format: 'json',
           transcriptPath: options.transcript ?? null,
