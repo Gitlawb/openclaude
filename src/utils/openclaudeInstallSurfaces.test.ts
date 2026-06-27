@@ -29,15 +29,44 @@ const realExecFileNoThrowModule = { ...realExecFileNoThrow }
 // at module load and gate it on this flag so the persisted mock transparently
 // falls through to the real implementation whenever the flag is off.
 let simulateNpmUninstallFailure = false
+let simulateNpmUninstallEnotempty = false
+let fakeNpmPrefix: string | undefined
 
 mock.module('./execFileNoThrow.js', () => ({
   ...realExecFileNoThrowModule,
   execFileNoThrowWithCwd: (
     ...args: Parameters<typeof realExecFileNoThrow.execFileNoThrowWithCwd>
-  ) =>
-    simulateNpmUninstallFailure
-      ? Promise.resolve({ stdout: '', stderr: 'npm ERR! code E404', code: 1 })
-      : realExecFileNoThrowModule.execFileNoThrowWithCwd(...args),
+  ) => {
+    const [command, commandArgs] = args
+    if (command === 'npm' && Array.isArray(commandArgs)) {
+      if (
+        fakeNpmPrefix &&
+        commandArgs[0] === 'config' &&
+        commandArgs[1] === 'get' &&
+        commandArgs[2] === 'prefix'
+      ) {
+        return Promise.resolve({ stdout: fakeNpmPrefix, stderr: '', code: 0 })
+      }
+
+      if (simulateNpmUninstallEnotempty && commandArgs[0] === 'uninstall') {
+        return Promise.resolve({
+          stdout: '',
+          stderr: 'npm error code ENOTEMPTY',
+          code: 1,
+        })
+      }
+
+      if (simulateNpmUninstallFailure && commandArgs[0] === 'uninstall') {
+        return Promise.resolve({
+          stdout: '',
+          stderr: 'npm ERR! code E404',
+          code: 1,
+        })
+      }
+    }
+
+    return realExecFileNoThrowModule.execFileNoThrowWithCwd(...args)
+  },
 }))
 
 beforeEach(async () => {
@@ -53,6 +82,8 @@ afterEach(() => {
       ;(globalThis as Record<string, unknown>).MACRO = originalMacro
     }
     simulateNpmUninstallFailure = false
+    simulateNpmUninstallEnotempty = false
+    fakeNpmPrefix = undefined
     mock.restore()
     mock.module('../utils/env.js', () => realEnv)
     mock.module('./envUtils.js', () => realEnvUtils)
@@ -69,6 +100,9 @@ async function importFreshInstaller() {
   return import(`./nativeInstaller/installer.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
+async function importFreshProtocolRegistration() {
+  return import(`./deepLink/registerProtocol.ts?ts=${Date.now()}-${Math.random()}`)
+}
 async function mockEnvPlatform(platform: 'darwin' | 'win32') {
   const actualEnvModule = await import(`./env.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('../utils/env.js', () => ({
@@ -98,6 +132,40 @@ test('install command displays openclaude.exe path on Windows', async () => {
   )
 })
 
+test('native installer uses openclaude launcher for OpenClaude package', async () => {
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    PACKAGE_URL: '@gitlawb/openclaude',
+  }
+
+  const { getBinaryName, getExecutableName } = await importFreshInstaller()
+
+  expect(getBinaryName('linux-x64')).toBe('claude')
+  expect(getExecutableName('linux-x64')).toBe('openclaude')
+  expect(getExecutableName('win32-x64')).toBe('openclaude.exe')
+})
+
+test('native installer preserves claude launcher for Anthropic package', async () => {
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    PACKAGE_URL: '@anthropic-ai/claude-code',
+  }
+
+  const { getExecutableName } = await importFreshInstaller()
+
+  expect(getExecutableName('linux-x64')).toBe('claude')
+  expect(getExecutableName('win32-x64')).toBe('claude.exe')
+})
+
+test('deep-link protocol resolver uses openclaude launcher for OpenClaude package', async () => {
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    PACKAGE_URL: '@gitlawb/openclaude',
+  }
+
+  const { getProtocolBinaryName } = await importFreshProtocolRegistration()
+
+  expect(getProtocolBinaryName('linux')).toBe('openclaude')
+  expect(getProtocolBinaryName('win32')).toBe('openclaude.exe')
+})
+
 test('cleanupNpmInstallations removes both openclaude and legacy claude local install dirs', async () => {
   const removedPaths: string[] = []
   ;(globalThis as Record<string, unknown>).MACRO = {
@@ -124,4 +192,34 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
 
   expect(removedPaths).toContain(join(homedir(), '.openclaude', 'local'))
   expect(removedPaths).toContain(join(homedir(), '.claude', 'local'))
+})
+
+test('cleanupNpmInstallations manual fallback removes openclaude npm shim', async () => {
+  await mockEnvPlatform('darwin')
+
+  const npmPrefix = join(process.cwd(), 'work', 'npm-prefix-openclaude-test')
+  const shimPath = join(npmPrefix, 'bin', 'openclaude')
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    PACKAGE_URL: '@gitlawb/openclaude',
+  }
+  process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+  fakeNpmPrefix = npmPrefix
+  simulateNpmUninstallEnotempty = true
+
+  await fsPromises.mkdir(join(npmPrefix, 'bin'), { recursive: true })
+  await fsPromises.writeFile(shimPath, 'stale npm shim')
+
+  mock.module('./envUtils.js', () => ({
+    ...realEnvUtils,
+    getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
+  }))
+
+  try {
+    const { cleanupNpmInstallations } = await importFreshInstaller()
+    await cleanupNpmInstallations()
+
+    await expect(fsPromises.stat(shimPath)).rejects.toThrow()
+  } finally {
+    await fsPromises.rm(npmPrefix, { recursive: true, force: true })
+  }
 })
