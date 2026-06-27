@@ -1,5 +1,6 @@
 import { defineGateway } from '../define.js'
 import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
+import type { ReasoningControlMode, ReasoningEffortLevel, ReasoningWireFormat } from '../descriptors.js'
 
 type OpenCodeGoCatalogSpec = {
   id: string
@@ -27,6 +28,20 @@ function catalogEntry(spec: OpenCodeGoCatalogSpec) {
     apiName: spec.apiName,
     label: spec.label,
     modelDescriptorId: `opencode-go-${spec.id}`,
+    ...(spec.zaiGlm
+      ? {
+          capabilities: {
+            supportsFunctionCalling: true,
+            supportsJsonMode: true,
+            supportsReasoning: true,
+          },
+          reasoning: {
+            mode: 'levels' as ReasoningControlMode,
+            levels: ['low', 'medium', 'high', 'xhigh'] as ReasoningEffortLevel[],
+            wireFormat: 'zai_compatible' as ReasoningWireFormat,
+          },
+        }
+      : {}),
     ...(Object.keys(openaiShim).length > 0
       ? { transportOverrides: { openaiShim } }
       : {}),
