@@ -258,10 +258,11 @@ export function gateChannelServer(
   }
 
   // Overall runtime gate. After capability so normal MCP servers never hit
-  // this path. Before auth/policy so the killswitch works regardless of
-  // session state.
-  // isChannelsEnabled() reads the tengu_harbor feature gate and can return
-  // false (e.g. cold disk cache on first run).
+  // this path. The feature gate (tengu_harbor) acts as a killswitch —
+  // when disabled all channel processing is skipped. Session allowlisting
+  // via --channels is checked after the gate passes.
+  // isChannelsEnabled() reads disk cache and can return false (e.g. cold
+  // cache on first run).
   if (!isChannelsEnabled()) {
     return {
       action: 'skip',
@@ -293,7 +294,7 @@ export function gateChannelServer(
   if (!entry) {
     const hint =
       pluginSource !== undefined
-        ? `use --channels plugin:<name>@<marketplace> or install an approved channel plugin`
+        ? `use --channels plugin:<name>@<marketplace>`
         : `use --channels ${serverName}`
     return {
       action: 'skip',

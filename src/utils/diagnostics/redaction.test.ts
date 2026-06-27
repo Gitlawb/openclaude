@@ -15,6 +15,7 @@ import {
   redactDiagnosticObject,
   redactDiagnosticUrl,
   redactHomePath,
+  redactJsonLines,
   redactSensitiveInfo,
   summarizeSecretEnvPresence,
 } from "../redaction.js";
@@ -289,6 +290,21 @@ describe("redactSensitiveInfo", () => {
 
   test("redacts multi-word password value", () => {
     expect(redactSensitiveInfo("password: foo bar")).toBe("password: [REDACTED]");
+  });
+
+  test("redacts secrets in malformed JSONL lines via redactJsonLines fallback", () => {
+    const malformedLine = '{"auth": "sk-ant-secret-key"} broken json';
+    // Single malformed line — parsing fails, catch branch must still redact.
+    const result = redactJsonLines(malformedLine);
+    expect(result).not.toContain("sk-ant-secret-key");
+    expect(result).toMatch(/\[REDACTED/);
+  });
+
+  test("redactJsonLines redacts valid JSONL lines with auth keys", () => {
+    const input = JSON.stringify({ auth: "plain-secret" });
+    const result = redactJsonLines(input);
+    const parsed = JSON.parse(result) as Record<string, unknown>;
+    expect(parsed.auth).toBe("[REDACTED]");
   });
 });
 

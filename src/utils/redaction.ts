@@ -640,7 +640,7 @@ export function redactJsonLines(raw: string): string {
       try {
         return JSON.stringify(JSON.parse(trimmed), jsonRedactor);
       } catch {
-        return line;
+        return redactSensitiveInfo(line);
       }
     })
     .join("\n");
