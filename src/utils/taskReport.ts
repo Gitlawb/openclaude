@@ -68,6 +68,18 @@ export type TaskReportGitMetadata = {
   error?: string
 }
 
+type TaskReportGitCommandResult = {
+  stdout: string
+  stderr: string
+  code: number
+  error?: string
+}
+
+export type TaskReportGitRunner = (
+  cwd: string,
+  args: string[],
+) => Promise<TaskReportGitCommandResult>
+
 export type TaskReportChangedFile = {
   path: string
   sources: Array<'tool' | 'git'>
@@ -338,9 +350,10 @@ export async function buildTaskReport(
 
 export async function collectTaskReportGitMetadata(
   cwd: string,
+  gitRunner: TaskReportGitRunner = runGit,
 ): Promise<TaskReportGitMetadata> {
   const base = ['--no-optional-locks']
-  const inside = await runGit(cwd, [
+  const inside = await gitRunner(cwd, [
     ...base,
     'rev-parse',
     '--is-inside-work-tree',
@@ -357,9 +370,9 @@ export async function collectTaskReportGitMetadata(
   }
 
   const [branch, head, status] = await Promise.all([
-    runGit(cwd, [...base, 'branch', '--show-current']),
-    runGit(cwd, [...base, 'rev-parse', '--short=12', 'HEAD']),
-    runGit(cwd, [...base, 'status', '--porcelain=v1']),
+    gitRunner(cwd, [...base, 'branch', '--show-current']),
+    gitRunner(cwd, [...base, 'rev-parse', '--short=12', 'HEAD']),
+    gitRunner(cwd, [...base, 'status', '--porcelain=v1']),
   ])
   const gitStatusAvailable = status.code === 0
   const changedFiles = gitStatusAvailable
@@ -921,7 +934,7 @@ function addChangedFileSource(
 function normalizeChangedFilePath(path: string, cwd: string): string {
   const value = path.trim()
   const posixRelative = relativeWithinCwd(value, cwd, isAbsolute, relative)
-  if (posixRelative) return posixRelative
+  if (posixRelative) return posixRelative.replaceAll('\\', '/')
 
   const windowsRelative = relativeWithinCwd(
     value,
@@ -977,7 +990,7 @@ function parseGitStatusChangedFiles(stdout: string): string[] {
 async function runGit(
   cwd: string,
   args: string[],
-): Promise<{ stdout: string; stderr: string; code: number; error?: string }> {
+): Promise<TaskReportGitCommandResult> {
   try {
     const result = await execa('git', args, {
       cwd,

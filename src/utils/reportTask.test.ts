@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 
 import {
   buildTaskReport,
@@ -617,6 +617,76 @@ describe('task report generation', () => {
     )
   })
 
+  test('normalizes Windows-style tool paths before merging with git paths', async () => {
+    const windowsCwd = 'C:\\workspace\\openclaude'
+
+    await withTempTranscript(
+      [
+        {
+          ...userMessage(
+            '00000000-0000-4000-8000-000000000040',
+            'Update Windows paths.',
+            '2026-06-27T08:00:00.000Z',
+          ),
+          cwd: windowsCwd,
+        },
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000041',
+          {
+            id: 'tool-windows-path',
+            name: 'Edit',
+            input: {
+              file_path: 'C:\\workspace\\openclaude\\src\\report.ts',
+              old_string: 'old',
+              new_string: 'new',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000042',
+          'tool-windows-path',
+          'Updated report',
+          '2026-06-27T08:01:02.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000043',
+          {
+            id: 'tool-windows-dot-path',
+            name: 'Edit',
+            input: {
+              file_path: 'C:\\workspace\\openclaude\\..fixtures\\report.ts',
+              old_string: 'old',
+              new_string: 'new',
+            },
+          },
+          '2026-06-27T08:02:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000044',
+          'tool-windows-dot-path',
+          'Updated fixture',
+          '2026-06-27T08:02:02.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () =>
+            gitMetadata({
+              cwd: windowsCwd,
+              changedFiles: ['src/report.ts'],
+            }),
+        })
+
+        expect(report.changedFiles).toEqual([
+          { path: '..fixtures/report.ts', sources: ['tool'] },
+          { path: 'src/report.ts', sources: ['git', 'tool'] },
+        ])
+      },
+    )
+  })
+
   test('prefers transcript cwd over caller cwd for git metadata', async () => {
     const callerCwd = '/workspace/different-project'
     const observedGitCwds: string[] = []
@@ -809,87 +879,52 @@ describe('task report generation', () => {
   })
 
   test('omits dirty status when git status cannot be collected', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'openclaude-task-report-git-'))
-    const binDir = join(dir, 'bin')
-    const repoDir = join(dir, 'repo')
-    const gitPath = join(binDir, 'git')
-    const gitCmdPath = join(binDir, 'git.cmd')
-    const previousPath = process.env.PATH
+    const repoDir = join(tmpdir(), 'openclaude-task-report-git-repo')
+    const calls: string[] = []
 
-    try {
-      mkdirSync(binDir)
-      mkdirSync(repoDir)
-      writeFileSync(
-        gitPath,
-        `#!/bin/sh
-case "$*" in
-  "--no-optional-locks rev-parse --is-inside-work-tree")
-    echo true
-    exit 0
-    ;;
-  "--no-optional-locks branch --show-current")
-    echo feat/report
-    exit 0
-    ;;
-  "--no-optional-locks rev-parse --short=12 HEAD")
-    echo 13cf30afa469
-    exit 0
-    ;;
-  "--no-optional-locks status --porcelain=v1")
-    echo "status failed" >&2
-    exit 1
-    ;;
-esac
-exit 2
-`,
-      )
-      writeFileSync(
-        gitCmdPath,
-        `@echo off
-set args=%*
-if "%args%"=="--no-optional-locks rev-parse --is-inside-work-tree" (
-  echo true
-  exit /b 0
-)
-if "%args%"=="--no-optional-locks branch --show-current" (
-  echo feat/report
-  exit /b 0
-)
-if "%args%"=="--no-optional-locks rev-parse --short=12 HEAD" (
-  echo 13cf30afa469
-  exit /b 0
-)
-if "%args%"=="--no-optional-locks status --porcelain=v1" (
-  echo status failed 1>&2
-  exit /b 1
-)
-exit /b 2
-`,
-      )
-      if (process.platform !== 'win32') {
-        chmodSync(gitPath, 0o755)
+    const metadata = await collectTaskReportGitMetadata(
+      repoDir,
+      async (gitCwd, args) => {
+        expect(gitCwd).toBe(repoDir)
+        const command = args.join(' ')
+        calls.push(command)
+
+        switch (command) {
+          case '--no-optional-locks rev-parse --is-inside-work-tree':
+            return { stdout: 'true', stderr: '', code: 0 }
+          case '--no-optional-locks branch --show-current':
+            return { stdout: 'feat/report', stderr: '', code: 0 }
+          case '--no-optional-locks rev-parse --short=12 HEAD':
+            return { stdout: '13cf30afa469', stderr: '', code: 0 }
+          case '--no-optional-locks status --porcelain=v1':
+            return { stdout: '', stderr: 'status failed', code: 1 }
+          default:
+            return {
+              stdout: '',
+              stderr: `unexpected command: ${command}`,
+              code: 2,
+            }
+        }
       }
-      process.env.PATH = `${binDir}${delimiter}${previousPath ?? ''}`
+    )
 
-      const metadata = await collectTaskReportGitMetadata(repoDir)
-
-      expect(metadata).toEqual({
-        status: 'available',
-        cwd: repoDir,
-        branch: 'feat/report',
-        head: '13cf30afa469',
-        changedFiles: [],
-        error: 'status failed',
-      })
-      expect(metadata).not.toHaveProperty('dirty')
-    } finally {
-      if (previousPath === undefined) {
-        delete process.env.PATH
-      } else {
-        process.env.PATH = previousPath
-      }
-      rmSync(dir, { recursive: true, force: true })
-    }
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        '--no-optional-locks rev-parse --is-inside-work-tree',
+        '--no-optional-locks branch --show-current',
+        '--no-optional-locks rev-parse --short=12 HEAD',
+        '--no-optional-locks status --porcelain=v1',
+      ]),
+    )
+    expect(metadata).toEqual({
+      status: 'available',
+      cwd: repoDir,
+      branch: 'feat/report',
+      head: '13cf30afa469',
+      changedFiles: [],
+      error: 'status failed',
+    })
+    expect(metadata).not.toHaveProperty('dirty')
   })
 
   test('degrades gracefully for malformed and old transcripts', async () => {
