@@ -631,11 +631,12 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['low', 'medium', 'high', 'xhigh'],
+    levels: ['low', 'medium', 'high'],
     wireFormat: 'reasoning_effort',
   })
   expect(modelSupportsEffort('moonshotai/kimi-k2.7-code')).toBe(true)
   expect(modelSupportsWireEffort('moonshotai/kimi-k2.7-code')).toBe(true)
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.7-code', 'xhigh')).toBe('high')
 
   expect(resolveModelReasoningControl('xai/grok-build-0.1')).toMatchObject({
     supportsReasoning: false,
