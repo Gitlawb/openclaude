@@ -2,23 +2,30 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  getAutoCompactThreshold,
-  MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-  type AutoCompactTrackingState,
-} from '../services/compact/autoCompact.js'
+import type { AutoCompactTrackingState } from '../services/compact/autoCompact.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { Message } from '../types/message.js'
-import { query } from '../query.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
-import {
-  getGlobalConfig,
-  type MaxMessagesCompactionThreshold,
-  saveGlobalConfig,
-} from '../utils/config.js'
+import type { MaxMessagesCompactionThreshold } from '../utils/config.js'
+
+// Some smoke-suite files mock config globally; bun:test does not unregister
+// mock.module() registrations on mock.restore(). Pin this suite to the real
+// config before importing query so saved settings are visible to the query loop.
+const realConfigModule = (await import(
+  `../utils/config.js?autoCompactCooldownReal=${Date.now()}-${Math.random()}`
+)) as typeof import('../utils/config.js')
+mock.module('../utils/config.js', () => ({ ...realConfigModule }))
+
+const { getGlobalConfig, saveGlobalConfig } = realConfigModule
+const {
+  getAutoCompactThreshold,
+  MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+} = (await import(
+  `../services/compact/autoCompact.js?autoCompactCooldownReal=${Date.now()}-${Math.random()}`
+)) as typeof import('../services/compact/autoCompact.js')
 
 const SAVED_ENV = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
@@ -175,6 +182,12 @@ async function drain<T, TReturn>(
   }
 }
 
+async function loadQuery() {
+  return (await import(
+    `../query.js?autoCompactCooldown=${Date.now()}-${Math.random()}`
+  )) as typeof import('../query.js')
+}
+
 function successfulQueryDeps(
   microcompactImpl?: (input: Message[]) => Promise<{ messages: Message[] }>,
 ) {
@@ -204,6 +217,7 @@ async function runSuccessfulQuery(
   deps: never,
   querySource: 'repl_main_thread' | 'compact' = 'repl_main_thread',
 ) {
+  const { query } = await loadQuery()
   return await drain(
     query({
       messages: [userMessage('hello')],
@@ -313,6 +327,7 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
     uuid: () => 'test-uuid',
   } as never
 
+  const { query } = await loadQuery()
   const { yielded, terminal } = await drain(
     query({
       messages,
@@ -390,6 +405,7 @@ test('auto-compact cooldown tracking is carried into the next query call', async
     },
   })
 
+  const { query } = await loadQuery()
   const first = await drain(query(queryParams()))
   expect(first.terminal.reason).toBe('blocking_limit')
   expect(persistedTracking?.nextRetryAtMs).toBe(nextRetryAtMs)
@@ -426,6 +442,7 @@ test('post-compact turn tracking callback publishes a fresh object', async () =>
     uuid: () => 'test-uuid',
   } as never
 
+  const { query } = await loadQuery()
   const { terminal } = await drain(
     query({
       messages: [userMessage('hello')],
@@ -476,6 +493,7 @@ test('persisted breaker state does not block when auto-compact is disabled', asy
     uuid: () => 'test-uuid',
   } as never
 
+  const { query } = await loadQuery()
   const { yielded, terminal } = await drain(
     query({
       messages: [overAutoCompactThresholdMessage()],
@@ -529,6 +547,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
     uuid: () => 'test-uuid',
   } as never
 
+  const { query } = await loadQuery()
   const { terminal } = await drain(
     query({
       messages: [overAutoCompactThresholdMessage()],
