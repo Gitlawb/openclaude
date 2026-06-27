@@ -699,12 +699,14 @@ export function redactJsonLines(raw: string): string {
         const extracted = tryParseFirstJsonObject(line);
         if (extracted) {
           const redacted = JSON.stringify(extracted.parsed, jsonRedactor);
-          // If there is trailing garbage, reconstruct the line
+          // If there is trailing garbage, redact it too before appending
+          // (the rest may contain credential patterns the JSON parser
+          // never saw). Falls back to the bare line on failure so we never
+          // lose data entirely.
           if (extracted.rest) {
-            // Reconstruct: trimmed spaces in original line + redacted JSON + rest
             const leading = line.length - line.trimStart().length;
             const prefix = line.slice(0, leading);
-            return prefix + redacted + extracted.rest;
+            return prefix + redacted + redactSensitiveInfo(extracted.rest);
           }
           return redacted;
         }

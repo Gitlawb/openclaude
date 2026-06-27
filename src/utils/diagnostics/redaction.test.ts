@@ -331,17 +331,32 @@ describe("redactSensitiveInfo", () => {
     expect(result).not.toContain('plain\\"secret');
   });
 
+  test("redactJsonLines fallback redacts secret in trailing garbage after parsed JSON", () => {
+    // The JSON object parses fine; the trailing text contains a credential
+    // that must be caught by redactSensitiveInfo on the rest.
+    const line = '{"ok": true} api_key=sk-ant-supersecret-trailing';
+    const result = redactJsonLines(line);
+    expect(result).not.toContain("sk-ant-supersecret-trailing");
+    expect(result).toMatch(/\[REDACTED/);
+  });
+
   // P2: free-form text auth/x-auth coverage
   test("redactSensitiveInfo redacts auth= in free-form text", () => {
-    expect(redactSensitiveInfo("auth=plain-secret-value")).toMatch(/\[REDACTED/);
+    const result = redactSensitiveInfo("auth=plain-secret-value");
+    expect(result).toMatch(/\[REDACTED/);
+    expect(result).not.toContain("plain-secret-value");
   });
 
   test("redactSensitiveInfo redacts x-auth= in free-form text", () => {
-    expect(redactSensitiveInfo("x-auth=plain-secret-value")).toMatch(/\[REDACTED/);
+    const result = redactSensitiveInfo("x-auth=plain-secret-value");
+    expect(result).toMatch(/\[REDACTED/);
+    expect(result).not.toContain("plain-secret-value");
   });
 
   test("redactSensitiveInfo redacts auth: in free-form text", () => {
-    expect(redactSensitiveInfo('"auth": "plain-secret-value"')).toMatch(/\[REDACTED/);
+    const result = redactSensitiveInfo('"auth": "plain-secret-value"');
+    expect(result).toMatch(/\[REDACTED/);
+    expect(result).not.toContain("plain-secret-value");
   });
 });
 
