@@ -98,7 +98,7 @@ const GENERIC_CREDENTIAL_ENV_PATTERN =
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&]+)/gi;
+  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&]+)/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -626,10 +626,66 @@ function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
 }
 
 /**
+ * Try to extract the first complete JSON object from a string that may
+ * contain trailing garbage after a valid JSON value.  Returns the parsed
+ * object and the remaining text on success, or null on failure.
+ *
+ * Handles nested braces, escaped quotes inside string values, and unicode
+ * escapes in keys/values (which `JSON.parse` resolves natively).
+ */
+function tryParseFirstJsonObject(text: string): { parsed: unknown; rest: string } | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\" && inString) {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const jsonStr = text.slice(start, i + 1);
+          try {
+            return { parsed: JSON.parse(jsonStr), rest: text.slice(i + 1) };
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Redact a raw JSONL transcript string by parsing each line as JSON,
  * applying {@link jsonRedactor} as the `JSON.stringify` replacer, and
- * reassembling.  Lines that fail to parse are returned as-is so that
- * malformed entries are not lost entirely.
+ * reassembling.  Lines that fail to parse are handled by extracting the
+ * first valid JSON object, redacting it key-awarably, and preserving any
+ * trailing garbage so that key-based secrets in malformed lines (e.g.
+ * `{"auth":"plain-secret"} broken`) are still caught.
  */
 export function redactJsonLines(raw: string): string {
   return raw
@@ -640,6 +696,18 @@ export function redactJsonLines(raw: string): string {
       try {
         return JSON.stringify(JSON.parse(trimmed), jsonRedactor);
       } catch {
+        const extracted = tryParseFirstJsonObject(line);
+        if (extracted) {
+          const redacted = JSON.stringify(extracted.parsed, jsonRedactor);
+          // If there is trailing garbage, reconstruct the line
+          if (extracted.rest) {
+            // Reconstruct: trimmed spaces in original line + redacted JSON + rest
+            const leading = line.length - line.trimStart().length;
+            const prefix = line.slice(0, leading);
+            return prefix + redacted + extracted.rest;
+          }
+          return redacted;
+        }
         return redactSensitiveInfo(line);
       }
     })

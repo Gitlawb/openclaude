@@ -306,6 +306,43 @@ describe("redactSensitiveInfo", () => {
     const parsed = JSON.parse(result) as Record<string, unknown>;
     expect(parsed.auth).toBe("[REDACTED]");
   });
+
+  // P1: malformed JSONL lines — jsonRedactor key-awareness must apply via
+  // the tryParseFirstJsonObject fallback, not just redactSensitiveInfo.
+  test("redactJsonLines fallback redacts non-pattern auth value with trailing garbage", () => {
+    const line = '{"auth":"plain-secret-value"} trailing';
+    const result = redactJsonLines(line);
+    expect(result).toContain("[REDACTED]");
+    expect(result).not.toContain("plain-secret-value");
+  });
+
+  test("redactJsonLines fallback redacts unicode-escaped api_key with trailing garbage", () => {
+    // \u005f is underscore, so the key becomes "api_key" after unescaping.
+    const line = '{"api\\u005fkey":"plain-secret-value"} trailing';
+    const result = redactJsonLines(line);
+    expect(result).toContain("[REDACTED]");
+    expect(result).not.toContain("plain-secret-value");
+  });
+
+  test("redactJsonLines fallback redacts auth value with escaped quote with trailing garbage", () => {
+    const line = '{"auth":"plain\\"secret"} trailing';
+    const result = redactJsonLines(line);
+    expect(result).toContain("[REDACTED]");
+    expect(result).not.toContain('plain\\"secret');
+  });
+
+  // P2: free-form text auth/x-auth coverage
+  test("redactSensitiveInfo redacts auth= in free-form text", () => {
+    expect(redactSensitiveInfo("auth=plain-secret-value")).toMatch(/\[REDACTED/);
+  });
+
+  test("redactSensitiveInfo redacts x-auth= in free-form text", () => {
+    expect(redactSensitiveInfo("x-auth=plain-secret-value")).toMatch(/\[REDACTED/);
+  });
+
+  test("redactSensitiveInfo redacts auth: in free-form text", () => {
+    expect(redactSensitiveInfo('"auth": "plain-secret-value"')).toMatch(/\[REDACTED/);
+  });
 });
 
 describe("logForDebugging", () => {
