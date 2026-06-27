@@ -10,6 +10,9 @@ import {
 import type { Message } from '../types/message.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import type { MaxMessagesCompactionThreshold } from '../utils/config.js'
+import type { QueryDeps } from './deps.js'
+
+type AutocompactArgs = Parameters<QueryDeps['autocompact']>
 
 // Some smoke-suite files mock config globally; bun:test does not unregister
 // mock.module() registrations on mock.restore(). Pin this suite to the real
@@ -200,13 +203,14 @@ function successfulQueryDeps(
   const autocompact = mock(async () => ({
     wasCompacted: false,
   }))
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: microcompact as QueryDeps['microcompact'],
+    autocompact: autocompact as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
   return {
-    deps: {
-      callModel,
-      microcompact,
-      autocompact,
-      uuid: () => 'test-uuid',
-    } as never,
+    deps,
     callModel,
     microcompact,
     autocompact,
@@ -214,7 +218,7 @@ function successfulQueryDeps(
 }
 
 async function runSuccessfulQuery(
-  deps: never,
+  deps: QueryDeps,
   querySource: 'repl_main_thread' | 'compact' = 'repl_main_thread',
 ) {
   const { query } = await loadQuery()
@@ -304,11 +308,11 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
   const callModel = mock(() => {
     throw new Error('model should not be called while autocompact cools down')
   })
-  const deps = {
-    callModel,
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
     microcompact: mock(async (input: Message[]) => ({
       messages: input,
-    })),
+    })) as QueryDeps['microcompact'],
     autocompact: mock(
       async (): Promise<{
         wasCompacted: boolean
@@ -323,9 +327,9 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
         circuitBreakerActive: true,
         circuitBreakerTripped: false,
       }),
-    ),
+    ) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
-  } as never
+  }
 
   const { query } = await loadQuery()
   const { yielded, terminal } = await drain(
@@ -361,18 +365,18 @@ test('auto-compact cooldown tracking is carried into the next query call', async
   const callModel = mock(() => {
     throw new Error('model should not be called while autocompact cools down')
   })
-  const deps = {
-    callModel,
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
     microcompact: mock(async (input: Message[]) => ({
       messages: input,
-    })),
+    })) as QueryDeps['microcompact'],
     autocompact: mock(
       async (
-        _messages: never,
-        _toolUseContext: never,
-        _params: never,
-        _querySource: never,
-        tracking: AutoCompactTrackingState | undefined,
+        _messages: AutocompactArgs[0],
+        _toolUseContext: AutocompactArgs[1],
+        _params: AutocompactArgs[2],
+        _querySource: AutocompactArgs[3],
+        tracking: AutocompactArgs[4],
       ) => {
         seenTracking.push(tracking)
         return {
@@ -383,9 +387,9 @@ test('auto-compact cooldown tracking is carried into the next query call', async
           circuitBreakerTripped: false,
         }
       },
-    ),
+    ) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
-  } as never
+  }
 
   let persistedTracking: AutoCompactTrackingState | undefined
   const queryParams = () => ({
@@ -429,18 +433,18 @@ test('post-compact turn tracking callback publishes a fresh object', async () =>
     consecutiveFailures: 0,
   }
   const trackingUpdates: AutoCompactTrackingState[] = []
-  const deps = {
+  const deps: QueryDeps = {
     callModel: mock(async function* () {
       yield assistantToolUseMessage()
-    }),
+    }) as QueryDeps['callModel'],
     microcompact: mock(async (input: Message[]) => ({
       messages: input,
-    })),
+    })) as QueryDeps['microcompact'],
     autocompact: mock(async () => ({
       wasCompacted: false,
-    })),
+    })) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
-  } as never
+  }
 
   const { query } = await loadQuery()
   const { terminal } = await drain(
@@ -482,16 +486,16 @@ test('persisted breaker state does not block when auto-compact is disabled', asy
   const callModel = mock(async function* () {
     yield assistantToolUseMessage()
   })
-  const deps = {
-    callModel,
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
     microcompact: mock(async (input: Message[]) => ({
       messages: input,
-    })),
+    })) as QueryDeps['microcompact'],
     autocompact: mock(async () => ({
       wasCompacted: false,
-    })),
+    })) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
-  } as never
+  }
 
   const { query } = await loadQuery()
   const { yielded, terminal } = await drain(
@@ -529,13 +533,13 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
     lastFailureAtMs: 5_000,
   }
   const trackingUpdates: AutoCompactTrackingState[] = []
-  const deps = {
+  const deps: QueryDeps = {
     callModel: mock(() => {
       throw new Error('model should not be called while autocompact cools down')
-    }),
+    }) as QueryDeps['callModel'],
     microcompact: mock(async (input: Message[]) => ({
       messages: input,
-    })),
+    })) as QueryDeps['microcompact'],
     autocompact: mock(async () => ({
       wasCompacted: false,
       consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
@@ -543,9 +547,9 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
       lastFailureAtMs: 15_000,
       circuitBreakerActive: true,
       circuitBreakerTripped: true,
-    })),
+    })) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
-  } as never
+  }
 
   const { query } = await loadQuery()
   const { terminal } = await drain(
