@@ -21,7 +21,7 @@ import { getAuthHeaders, getUserAgent } from '../utils/http.js';
 import { getInMemoryErrors, logError } from '../utils/log.js';
 import { getAPIProvider } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
-import { redactSensitiveInfo } from '../utils/redaction.js';
+import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
 import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
 import { asSystemPrompt } from '../utils/systemPromptType.js';
@@ -68,9 +68,6 @@ type FeedbackData = {
   };
   rawTranscriptJsonl?: string;
 };
-
-// `redactSensitiveInfo` is imported from `../utils/redaction.js` so the same
-// patterns are reused by `submitTranscriptShare.ts` and any future caller.
 
 // Get sanitized error logs with sensitive information redacted
 function getSanitizedErrorLogs(): Array<{
@@ -165,6 +162,9 @@ export function Feedback({
       ...diskTranscripts,
       ...teammateTranscripts
     };
+    const redactedTranscriptJsonl = rawTranscriptJsonl
+      ? redactJsonLines(rawTranscriptJsonl)
+      : undefined;
     const reportData = {
       latestAssistantMessageId: lastAssistantMessageId,
       message_count: messages.length,
@@ -180,8 +180,8 @@ export function Feedback({
       ...(Object.keys(subagentTranscripts).length > 0 && {
         subagentTranscripts
       }),
-      ...(rawTranscriptJsonl && {
-        rawTranscriptJsonl
+      ...(rawTranscriptJsonl && redactedTranscriptJsonl && {
+        rawTranscriptJsonl: redactedTranscriptJsonl
       })
     };
     const [result, t] = await Promise.all([submitFeedback(reportData, abortSignal), generateTitle(description, abortSignal)]);
@@ -510,7 +510,7 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
       ...authResult.headers
     };
     const response = await axios.post('https://api.anthropic.com/api/claude_cli_feedback', {
-      content: jsonStringify(data)
+      content: redactSensitiveInfo(jsonStringify(data, jsonRedactor))
     }, {
       headers,
       timeout: 30000,

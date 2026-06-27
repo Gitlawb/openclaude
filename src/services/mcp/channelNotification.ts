@@ -291,10 +291,14 @@ export function gateChannelServer(
   // from different marketplaces.
   const entry = findChannelEntry(serverName, getAllowedChannels(), pluginSource)
   if (!entry) {
+    const hint =
+      pluginSource !== undefined
+        ? `use --channels plugin:<name>@<marketplace> or install an approved channel plugin`
+        : `use --channels ${serverName}`
     return {
       action: 'skip',
       kind: 'session',
-      reason: `server ${serverName} not in --channels list for this session (use --channels plugin:<name>@<marketplace> or install an approved channel plugin)`,
+      reason: `server ${serverName} not in --channels list for this session (${hint})`,
     }
   }
 

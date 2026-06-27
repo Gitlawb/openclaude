@@ -13,7 +13,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../../utils/sessionStorage.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { jsonRedactor, redactSensitiveInfo } from '../../utils/redaction.js'
+import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../../utils/redaction.js'
 
 type TranscriptShareResult = {
   success: boolean
@@ -57,6 +57,12 @@ export async function submitTranscriptShare(
       // File may not exist
     }
 
+    // Pre-redact JSONL lines so nested keys like "auth" are caught by
+    // jsonRedactor (which can't see inside pre-serialized string values).
+    const redactedTranscriptJsonl = rawTranscriptJsonl
+      ? redactJsonLines(rawTranscriptJsonl)
+      : undefined
+
     const data = {
       trigger,
       version: MACRO.VERSION,
@@ -66,7 +72,7 @@ export async function submitTranscriptShare(
         Object.keys(subagentTranscripts).length > 0
           ? subagentTranscripts
           : undefined,
-      rawTranscriptJsonl,
+      rawTranscriptJsonl: redactedTranscriptJsonl,
     }
 
     // Two-pass redaction:

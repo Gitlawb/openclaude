@@ -107,7 +107,6 @@ const GENERIC_HEADER_FIELD_PATTERN =
 // value collapsed to `'[REDACTED]'` regardless of value shape — the
 // header-field regex below handles the same key in inline key=value text.
 const SENSITIVE_FIELD_SUBSTRINGS = [
-  "auth",
   "token",
   "apikey",
   "secret",
@@ -118,6 +117,11 @@ const SENSITIVE_FIELD_SUBSTRINGS = [
   "bearer",
   "privatekey",
 ] as const;
+
+// Bare auth-style header keys that should be matched exactly (not as a
+// substring) to avoid false positives like "author", "oauthProvider",
+// "authenticationMode".
+const AUTH_WHOLE_WORDS = new Set(["auth", "xauth"]);
 
 /**
  * Build a regex matching a known credential env-var name on the left side of
@@ -270,6 +274,11 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   ];
   if (EXCLUDED_KEYS.includes(normalizedKey)) {
     return value;
+  }
+
+  // Exact-match for auth-style keys to avoid false positives (e.g. "author").
+  if (AUTH_WHOLE_WORDS.has(normalizedKey)) {
+    return "[REDACTED]";
   }
 
   if (SENSITIVE_FIELD_SUBSTRINGS.some((s) => normalizedKey.includes(s))) {
@@ -614,4 +623,25 @@ function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
   }
 
   return String(value);
+}
+
+/**
+ * Redact a raw JSONL transcript string by parsing each line as JSON,
+ * applying {@link jsonRedactor} as the `JSON.stringify` replacer, and
+ * reassembling.  Lines that fail to parse are returned as-is so that
+ * malformed entries are not lost entirely.
+ */
+export function redactJsonLines(raw: string): string {
+  return raw
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      try {
+        return JSON.stringify(JSON.parse(trimmed), jsonRedactor);
+      } catch {
+        return line;
+      }
+    })
+    .join("\n");
 }
