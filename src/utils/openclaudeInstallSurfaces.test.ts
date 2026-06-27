@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { PassThrough } from 'node:stream'
 import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
+import { createElement } from 'react'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -166,6 +168,86 @@ test('deep-link protocol resolver uses openclaude launcher for OpenClaude packag
   expect(getProtocolBinaryName('win32')).toBe('openclaude.exe')
 })
 
+test('install command repairs launcher after npm cleanup before final check', async () => {
+  const calls: string[] = []
+  let repairCompleted = false
+
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+
+  mock.module('../utils/nativeInstaller/index.js', () => ({
+    installLatest: async () => {
+      calls.push('installLatest')
+      return { latestVersion: '1.2.3', wasUpdated: true, lockFailed: false }
+    },
+    cleanupNpmInstallations: async () => {
+      calls.push('cleanupNpmInstallations')
+      return { removed: 1, errors: [], warnings: [] }
+    },
+    repairNativeLauncher: async (version: string) => {
+      calls.push('repairNativeLauncher:' + version)
+      await Bun.sleep(1)
+      repairCompleted = true
+    },
+    checkInstall: async (setup: boolean) => {
+      calls.push('checkInstall:' + setup + ':' + repairCompleted)
+      return []
+    },
+    cleanupShellAliases: async () => {
+      calls.push('cleanupShellAliases')
+      return []
+    },
+  }))
+
+  const [{ Install }, { render }] = await Promise.all([
+    importFreshInstallCommand(),
+    import(`../ink.js?ts=${Date.now()}-${Math.random()}`),
+  ])
+  const done = new Promise<void>((resolve, reject) => {
+    void render(
+      createElement(Install, {
+        target: '1.2.3',
+        onDone: (result: string) => {
+          try {
+            expect(result).toBe('OpenClaude installation completed successfully')
+            resolve()
+          } catch (error) {
+            reject(error)
+          }
+        },
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        patchConsole: false,
+      },
+    ).catch(reject)
+  })
+
+  try {
+    await done
+  } finally {
+    stdin.end()
+    stdout.end()
+  }
+  expect(calls).toEqual([
+    'installLatest',
+    'cleanupNpmInstallations',
+    'repairNativeLauncher:1.2.3',
+    'checkInstall:true:true',
+    'cleanupShellAliases',
+  ])
+})
+
 test('cleanupNpmInstallations removes both openclaude and legacy claude local install dirs', async () => {
   const removedPaths: string[] = []
   ;(globalThis as Record<string, unknown>).MACRO = {
@@ -197,22 +279,20 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
 test('cleanupNpmInstallations manual fallback removes openclaude npm shim', async () => {
   await mockEnvPlatform('darwin')
 
-  const npmPrefix = join(process.cwd(), 'work', 'npm-prefix-openclaude-test')
+  const testHome = join(process.cwd(), 'work', 'openclaude-install-home-test')
+  const npmPrefix = join(testHome, '.npm-global')
   const shimPath = join(npmPrefix, 'bin', 'openclaude')
   ;(globalThis as Record<string, unknown>).MACRO = {
     PACKAGE_URL: '@gitlawb/openclaude',
   }
-  process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+  process.env.HOME = testHome
+  process.env.USERPROFILE = testHome
+  process.env.CLAUDE_CONFIG_DIR = join(testHome, '.openclaude')
   fakeNpmPrefix = npmPrefix
   simulateNpmUninstallEnotempty = true
 
   await fsPromises.mkdir(join(npmPrefix, 'bin'), { recursive: true })
   await fsPromises.writeFile(shimPath, 'stale npm shim')
-
-  mock.module('./envUtils.js', () => ({
-    ...realEnvUtils,
-    getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
-  }))
 
   try {
     const { cleanupNpmInstallations } = await importFreshInstaller()
@@ -220,6 +300,6 @@ test('cleanupNpmInstallations manual fallback removes openclaude npm shim', asyn
 
     await expect(fsPromises.stat(shimPath)).rejects.toThrow()
   } finally {
-    await fsPromises.rm(npmPrefix, { recursive: true, force: true })
+    await fsPromises.rm(testHome, { recursive: true, force: true })
   }
 })

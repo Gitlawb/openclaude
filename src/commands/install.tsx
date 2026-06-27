@@ -86,7 +86,7 @@ function SetupNotes(t0) {
 function _temp(message, index) {
   return <Box key={index} marginLeft={2}><Text dimColor={true}>• {message}</Text></Box>;
 }
-function Install({
+export function Install({
   onDone,
   force,
   target
