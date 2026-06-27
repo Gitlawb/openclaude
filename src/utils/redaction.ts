@@ -352,7 +352,7 @@ function redactMalformedQuery(rawUrl: string): string {
   const prefix = noFragment.slice(0, queryStart + 1);
   const query = noFragment.slice(queryStart + 1);
   const redacted = query
-    .split("&")
+    .split(/[&;]/)
     .map((pair) => {
       const eqIndex = pair.indexOf("=");
       if (eqIndex === -1) return pair;
@@ -371,6 +371,50 @@ function redactMalformedQuery(rawUrl: string): string {
     .join("&");
   return `${prefix}${redacted}`;
 }
+
+/**
+ * Post-process a URL string to redact sensitive query parameters that
+ * were delimited by `;` instead of `&`.  `URLSearchParams` doesn't split
+ * on `;` (it treats the entire span between two `&` as one key-value
+ * pair), so keys like `token` or `api_key` inside `;`-delimited segments
+ * are invisible to the standard `parsed.searchParams` loop.
+ *
+ * This function is applied as a final pass on both the valid-URL and
+ * fallback paths so that the behavior is consistent regardless of how
+ * the URL was originally parsed.
+ */
+function redactSemicolonQueryParams(urlStr: string): string {
+  if (!urlStr.includes(";")) return urlStr;
+  const qs = urlStr.indexOf("?");
+  if (qs === -1) return urlStr;
+  const prefix = urlStr.slice(0, qs + 1);
+  const hashIdx = urlStr.indexOf("#", qs);
+  const queryEnd = hashIdx === -1 ? urlStr.length : hashIdx;
+  const query = urlStr.slice(qs + 1, queryEnd);
+  const suffix = hashIdx === -1 ? "" : urlStr.slice(hashIdx);
+
+  const parts = query.split(/[&;]/);
+  let changed = false;
+  const result = parts.map((pair) => {
+    const eq = pair.indexOf("=");
+    if (eq === -1) return pair;
+    const rawKey = pair.slice(0, eq);
+    let key: string;
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      key = rawKey;
+    }
+    if (shouldRedactUrlQueryParam(key)) {
+      changed = true;
+      return `${rawKey}=redacted`;
+    }
+    return pair;
+  });
+  if (!changed) return urlStr;
+  return prefix + result.join("&") + suffix;
+}
+
 export function redactUrlForDisplay(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
@@ -388,13 +432,13 @@ export function redactUrlForDisplay(rawUrl: string): string {
     }
 
     parsed.hash = "";
-    return parsed.toString();
+    return redactSemicolonQueryParams(parsed.toString());
   } catch {
     const userinfoRedacted = rawUrl.replace(
-      /\/\/[^/@\s?#]+(?::[^/@\s?#]*)?@/g,
+      /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
       "//redacted@",
     );
-    return redactMalformedQuery(userinfoRedacted);
+    return redactSemicolonQueryParams(redactMalformedQuery(userinfoRedacted));
   }
 }
 

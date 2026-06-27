@@ -168,6 +168,28 @@ describe("diagnostic redaction", () => {
       "https://redacted:redacted@example.com/v1?api_key=redacted&mode=test&token=redacted",
     );
   });
+
+  test("redacts userinfo when password contains # (malformed URL)", () => {
+    // The fragment char `#` inside userinfo breaks URL parsing, so the
+    // fallback regex handles it. The `:redacted` is omitted because the
+    // regex replaces the whole `//user:pass@` span at once.
+    expect(
+      redactDiagnosticUrl("https://alice:pa#ss@example.com/v1?token=abc"),
+    ).toBe("https://redacted@example.com/v1?token=redacted");
+  });
+
+  test("redacts semicolon-delimited sensitive query params", () => {
+    // The `;` separator is normalized to `&` during redaction.
+    expect(
+      redactDiagnosticUrl("https://x.test/path?mode=ok;token=SECRET123&x=1"),
+    ).toBe("https://x.test/path?mode=ok&token=redacted&x=1");
+  });
+
+  test("redacts semicolon-delimited api_key query params via fallback path", () => {
+    expect(
+      redactDiagnosticUrl("//x.test/path?mode=ok;api_key=SECRET123&x=1"),
+    ).toBe("//x.test/path?mode=ok&api_key=redacted&x=1");
+  });
 });
 
 describe("redactSensitiveInfo", () => {

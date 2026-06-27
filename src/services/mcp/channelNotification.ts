@@ -7,30 +7,26 @@
  *
  * The notification handler wraps the content in a <channel> tag and
  * enqueues it. SleepTool polls hasCommandsInQueue() and wakes within 1s.
- * The channel-origin wrapper in utils/messages.ts (wrapCommandText, case
- * 'channel') tells the model exactly which tool to call (the `*__reply`
- * tool for origin.server) and that text-only turns are silent for the
- * remote user — the model doesn't have to infer the convention.
+ * The model sees where the message came from and decides which tool to reply
+ * with (the channel's MCP tool, SendUserMessage, or both).
  *
- * feature('KAIROS') || feature('KAIROS_CHANNELS') (replaced with true in
- * OpenClaude build). Runtime gate via isChannelsEnabled() — still reads the
- * tengu_harbor feature gate and can return false. No OAuth or org policy
- * requirement.
- *
- * OpenClaude: allowlisted plugins (telegram, discord, imessage, fakechat)
- * pass the allowlist check automatically when listed via --channels.
- * Custom channels need --dangerously-load-development-channels.
+ * feature('KAIROS') || feature('KAIROS_CHANNELS'). Runtime gate tengu_harbor.
+ * Requires claude.ai OAuth auth — API key users are blocked until
+ * console gets a channelsEnabled admin surface. Teams/Enterprise orgs
+ * must explicitly opt in via channelsEnabled: true in managed settings.
  */
 
 import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod/v4'
-import {
-  type ChannelEntry,
-  getAllowedChannels,
-} from '../../bootstrap/state.js'
+import { type ChannelEntry, getAllowedChannels } from '../../bootstrap/state.js'
 import { CHANNEL_TAG } from '../../constants/xml.js'
+import {
+  getClaudeAIOAuthTokens,
+  getSubscriptionType,
+} from '../../utils/auth.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { parsePluginIdentifier } from '../../utils/plugins/pluginIdentifier.js'
+import { getSettingsForSource } from '../../utils/settings/settings.js'
 import { escapeXmlAttr } from '../../utils/xml.js'
 import {
   type ChannelAllowlistEntry,
@@ -120,48 +116,24 @@ export function wrapChannelMessage(
 }
 
 /**
- * Build the QueuedCommand that pushes an inbound channel message into the
- * session command queue. Extracted from the inline shape inside
- * useManageMCPConnections.ts so the wake-up path (queue subscriber → run()
- * kickoff) can be tested end-to-end without standing up a React hook.
+ * Effective allowlist for the current session. Team/enterprise orgs can set
+ * allowedChannelPlugins in managed settings — when set, it REPLACES the
+ * GrowthBook ledger (admin owns the trust decision). Undefined falls back
+ * to the ledger. Unmanaged users always get the ledger.
  *
- * The shape is what the queue consumer (REPL.tsx / print.ts streaming loop)
- * needs to:
- *  - treat the message as a user prompt (mode: 'prompt')
- *  - run it before pending task notifications (priority: 'next')
- *  - render the wrapped <channel> tag and keep it visible in the transcript
- *    (isMeta: true, but UserTextMessage renders the source attribute)
- *  - dispatch the reply back through the originating MCP server
- *    (origin.kind: 'channel')
- *  - skip slash-command parsing for inbound chat messages
+ * Callers already read sub/policy for the policy gate — pass them in to
+ * avoid double-reading getSettingsForSource (uncached).
  */
-export function buildChannelMessageCommand(
-  serverName: string,
-  content: string,
-  meta?: Record<string, string>,
-) {
-  return {
-    mode: 'prompt' as const,
-    value: wrapChannelMessage(serverName, content, meta),
-    priority: 'next' as const,
-    isMeta: true as const,
-    origin: { kind: 'channel' as const, server: serverName },
-    skipSlashCommands: true as const,
-  }
-}
-
-/**
- * Effective allowlist for the current session. OpenClaude: always returns
- * the hardcoded allowlist (ledger). The org override path was removed so
- * that startup guidance (ChannelsNotice) uses exactly the same allowlist
- * as the runtime gate (gateChannelServer) — a plugin present in an org
- * policy list but absent from the ledger would otherwise show no
- * "not on the allowlist" warning and then be skipped at registration.
- */
-export function getEffectiveChannelAllowlist(): {
+export function getEffectiveChannelAllowlist(
+  sub: ReturnType<typeof getSubscriptionType>,
+  orgList: ChannelAllowlistEntry[] | undefined,
+): {
   entries: ChannelAllowlistEntry[]
-  source: 'ledger'
+  source: 'org' | 'ledger'
 } {
+  if ((sub === 'team' || sub === 'enterprise') && orgList) {
+    return { entries: orgList, source: 'org' }
+  }
   return { entries: getChannelAllowlist(), source: 'ledger' }
 }
 
@@ -172,6 +144,8 @@ export type ChannelGateResult =
       kind:
         | 'capability'
         | 'disabled'
+        | 'auth'
+        | 'policy'
         | 'session'
         | 'marketplace'
         | 'allowlist'
@@ -183,58 +157,32 @@ export type ChannelGateResult =
  * server-kind is exact match on bare name; plugin-kind matches on the second
  * segment of plugin:X:Y. Returns the matching entry so callers can read its
  * kind — that's the user's trust declaration, not inferred from runtime shape.
- *
- * When multiple entries share the same plugin name (e.g. a user has both
- * `plugin:telegram@anthropic-marketplace` and `plugin:telegram@evil-marketplace`
- * in --channels) and a pluginSource is provided, prefer the entry whose
- * marketplace matches the actually-installed plugin. The trust declaration is
- * marketplace-specific, so the lookup must be too — picking the first
- * same-name match would let gateChannelServer() reject a valid configured
- * entry as a marketplace mismatch.
  */
 export function findChannelEntry(
   serverName: string,
   channels: readonly ChannelEntry[],
-  pluginSource?: string,
 ): ChannelEntry | undefined {
   // split unconditionally — for a bare name like 'slack', parts is ['slack']
   // and the plugin-kind branch correctly never matches (parts[0] !== 'plugin').
   const parts = serverName.split(':')
-  const candidates = channels.filter(c =>
+  return channels.find(c =>
     c.kind === 'server'
       ? serverName === c.name
       : parts[0] === 'plugin' && parts[1] === c.name,
   )
-  if (candidates.length <= 1) {
-    return candidates[0]
-  }
-  // Multiple same-name entries — disambiguate by runtime marketplace.
-  if (parts[0] === 'plugin' && pluginSource) {
-    const runtimeMarketplace = parsePluginIdentifier(pluginSource).marketplace
-    if (runtimeMarketplace) {
-      const exact = candidates.find(
-        c => c.kind === 'plugin' && c.marketplace === runtimeMarketplace,
-      )
-      if (exact) return exact
-    }
-  }
-  // No disambiguator available — preserve prior first-match behavior so
-  // gateChannelServer's existing marketplace check still surfaces the issue.
-  return candidates[0]
 }
 
 /**
  * Gate an MCP server's channel-notification path. Caller checks
  * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
- * elimination). Gate order: capability → runtime gate (isChannelsEnabled) →
- * session --channels → marketplace verification → allowlist.
+ * elimination). Gate order: capability → runtime gate (tengu_harbor) →
+ * auth (OAuth only) → org policy → session --channels → allowlist.
+ * API key users are blocked at the auth layer — channels requires
+ * claude.ai auth; console orgs have no admin opt-in surface yet.
  *
- * OpenClaude: OAuth and org policy gates removed. The session allowlist
- * (--channels flag) and capability check remain as the security boundary.
- * Users must explicitly opt in via --channels for all channel servers.
- *
- *   skip      Not a channel server, or not allowlisted/registered.
- *             Connection stays up; handler not registered.
+ *   skip      Not a channel server, or managed org hasn't opted in, or
+ *             not in session --channels. Connection stays up; handler
+ *             not registered.
  *   register  Subscribe to notifications/claude/channel.
  *
  * Which servers can connect at all is governed by allowedMcpServers —
@@ -258,11 +206,8 @@ export function gateChannelServer(
   }
 
   // Overall runtime gate. After capability so normal MCP servers never hit
-  // this path. The feature gate (tengu_harbor) acts as a killswitch —
-  // when disabled all channel processing is skipped. Session allowlisting
-  // via --channels is checked after the gate passes.
-  // isChannelsEnabled() reads disk cache and can return false (e.g. cold
-  // cache on first run).
+  // this path. Before auth/policy so the killswitch works regardless of
+  // session state.
   if (!isChannelsEnabled()) {
     return {
       action: 'skip',
@@ -271,35 +216,43 @@ export function gateChannelServer(
     }
   }
 
-  // OpenClaude: OAuth and org policy gates removed.
-  // Original Claude Code requires claude.ai OAuth and Teams/Enterprise
-  // channelsEnabled policy. OpenClaude users control their own setup
-  // (API key or OAuth) and have no managed org admin console, so these
-  // gates are bypassed. The session allowlist (--channels flag) and
-  // capability check remain as the security boundary.
-  // This changes the trust boundary from org-managed policy to explicit user
-  // opt-in. Previously, channels required OAuth authentication and org team/
-  // enterprise approval. Now, only explicit --channels registration enables
-  // inbound channel notifications. See PR scope for details on this change.
-  // The OAuth/team/enterprise removal is separate from credential redaction
-  // and changes who can register inbound channel notifications.
+  // OAuth-only. API key users (console) are blocked — there's no
+  // channelsEnabled admin surface in console yet, so the policy opt-in
+  // flow doesn't exist for them. Drop this when console parity lands.
+  if (!getClaudeAIOAuthTokens()?.accessToken) {
+    return {
+      action: 'skip',
+      kind: 'auth',
+      reason: 'channels requires claude.ai authentication (run /login)',
+    }
+  }
+
+  // Teams/Enterprise opt-in. Managed orgs must explicitly enable channels.
+  // Default OFF — absent or false blocks. Keyed off subscription tier, not
+  // "policy settings exist" — a team org with zero configured policy keys
+  // (remote endpoint returns 404) is still a managed org and must not fall
+  // through to the unmanaged path.
+  const sub = getSubscriptionType()
+  const managed = sub === 'team' || sub === 'enterprise'
+  const policy = managed ? getSettingsForSource('policySettings') : undefined
+  if (managed && policy?.channelsEnabled !== true) {
+    return {
+      action: 'skip',
+      kind: 'policy',
+      reason:
+        'channels not enabled by org policy (set channelsEnabled: true in managed settings)',
+    }
+  }
 
   // User-level session opt-in. A server must be explicitly listed in
   // --channels to push inbound this session — protects against a trusted
-  // server surprise-adding the capability. No auto-registration: even
-  // allowlisted plugins require explicit --channels opt-in. Pass
-  // pluginSource so findChannelEntry can disambiguate same-name entries
-  // from different marketplaces.
-  const entry = findChannelEntry(serverName, getAllowedChannels(), pluginSource)
+  // server surprise-adding the capability.
+  const entry = findChannelEntry(serverName, getAllowedChannels())
   if (!entry) {
-    const hint =
-      pluginSource !== undefined
-        ? `use --channels plugin:<name>@<marketplace>`
-        : `use --channels ${serverName}`
     return {
       action: 'skip',
       kind: 'session',
-      reason: `server ${serverName} not in --channels list for this session (${hint})`,
+      reason: `server ${serverName} not in --channels list for this session`,
     }
   }
 
@@ -327,9 +280,10 @@ export function gateChannelServer(
     // not the session-wide bit) bypasses — so accepting the dev dialog for
     // one entry doesn't leak allowlist-bypass to --channels entries.
     if (!entry.dev) {
-      // OpenClaude: use hardcoded allowlist from getChannelAllowlist()
-      // instead of GrowthBook + org policy. No sub/policy variables needed.
-      const entries = getChannelAllowlist()
+      const { entries, source } = getEffectiveChannelAllowlist(
+        sub,
+        policy?.allowedChannelPlugins,
+      )
       if (
         !entries.some(
           e => e.plugin === entry.name && e.marketplace === entry.marketplace,
@@ -338,21 +292,22 @@ export function gateChannelServer(
         return {
           action: 'skip',
           kind: 'allowlist',
-          reason: `plugin ${entry.name}@${entry.marketplace} is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`,
+          reason:
+            source === 'org'
+              ? `plugin ${entry.name}@${entry.marketplace} is not on your org's approved channels list (set allowedChannelPlugins in managed settings)`
+              : `plugin ${entry.name}@${entry.marketplace} is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`,
         }
       }
     }
   } else {
-    // server-kind entries are never covered by the plugin allowlist, so keep
-    // the original safety boundary: manually configured MCP servers must be
-    // marked as development entries before they can register for inbound
-    // channel notifications.
+    // server-kind: allowlist schema is {marketplace, plugin} — a server entry
+    // can never match. Without this, --channels server:plugin:foo:bar would
+    // match a plugin's runtime name and register with no allowlist check.
     if (!entry.dev) {
       return {
         action: 'skip',
         kind: 'allowlist',
-        reason:
-          'server entries require --dangerously-load-development-channels before they can register as channels',
+        reason: `server ${entry.name} is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`,
       }
     }
   }
