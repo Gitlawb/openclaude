@@ -14,7 +14,11 @@ import {
 import type { Message } from '../types/message.js'
 import { query } from '../query.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
-import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
+import {
+  getGlobalConfig,
+  type MaxMessagesCompactionThreshold,
+  saveGlobalConfig,
+} from '../utils/config.js'
 
 const SAVED_ENV = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
@@ -24,32 +28,52 @@ const SAVED_ENV = {
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
+  OPENCLAUDE_MAX_ACTIVE_MESSAGES: process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
 }
 
-let savedAutoCompactEnabled: boolean | undefined
+let savedGlobalConfig:
+  | {
+      autoCompactEnabled: boolean
+      maxMessagesCompactionThreshold:
+        | MaxMessagesCompactionThreshold
+        | undefined
+    }
+  | undefined
 let tempDir: string | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-autocompact-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
-  savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
-  saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
+  const globalConfig = getGlobalConfig()
+  savedGlobalConfig = {
+    autoCompactEnabled: globalConfig.autoCompactEnabled,
+    maxMessagesCompactionThreshold:
+      globalConfig.maxMessagesCompactionThreshold,
+  }
+  saveGlobalConfig(current => ({
+    ...current,
+    autoCompactEnabled: true,
+    maxMessagesCompactionThreshold: undefined,
+  }))
   process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '200000'
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
 })
 
 afterEach(() => {
   try {
-    if (savedAutoCompactEnabled !== undefined) {
-      const autoCompactEnabled = savedAutoCompactEnabled
+    if (savedGlobalConfig) {
+      const { autoCompactEnabled, maxMessagesCompactionThreshold } =
+        savedGlobalConfig
       saveGlobalConfig(current => ({
         ...current,
         autoCompactEnabled,
+        maxMessagesCompactionThreshold,
       }))
-      savedAutoCompactEnabled = undefined
+      savedGlobalConfig = undefined
     }
 
     for (const [key, value] of Object.entries(SAVED_ENV)) {
@@ -150,6 +174,115 @@ async function drain<T, TReturn>(
     yielded.push(next.value)
   }
 }
+
+function successfulQueryDeps(
+  microcompactImpl?: (input: Message[]) => Promise<{ messages: Message[] }>,
+) {
+  const callModel = mock(async function* (_params: { messages: Message[] }) {
+    yield assistantToolUseMessage()
+  })
+  const microcompact = mock(
+    microcompactImpl ?? (async (input: Message[]) => ({ messages: input })),
+  )
+  const autocompact = mock(async () => ({
+    wasCompacted: false,
+  }))
+  return {
+    deps: {
+      callModel,
+      microcompact,
+      autocompact,
+      uuid: () => 'test-uuid',
+    } as never,
+    callModel,
+    microcompact,
+    autocompact,
+  }
+}
+
+async function runSuccessfulQuery(
+  deps: never,
+  querySource: 'repl_main_thread' | 'compact' = 'repl_main_thread',
+) {
+  return await drain(
+    query({
+      messages: [userMessage('hello')],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource,
+      maxTurns: 1,
+      deps,
+    }),
+  )
+}
+
+test('explicit off skips automatic microcompact during query flow', async () => {
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: 'off',
+  }))
+  const { deps, callModel, microcompact, autocompact } = successfulQueryDeps(
+    async input => ({ messages: input }),
+  )
+
+  const { terminal } = await runSuccessfulQuery(deps)
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(autocompact).toHaveBeenCalledTimes(1)
+  expect(microcompact).not.toHaveBeenCalled()
+})
+
+test('unset message-count threshold keeps automatic microcompact behavior', async () => {
+  const { deps, microcompact } = successfulQueryDeps()
+
+  const { terminal } = await runSuccessfulQuery(deps)
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(microcompact).toHaveBeenCalledTimes(1)
+})
+
+test('automatic microcompact passes compacted messages to the model call', async () => {
+  const compactedMessages = [userMessage('compacted hello')]
+  const { deps, callModel, microcompact } = successfulQueryDeps(async () => ({
+    messages: compactedMessages,
+  }))
+
+  const { terminal } = await runSuccessfulQuery(deps)
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(microcompact).toHaveBeenCalledTimes(1)
+  expect(callModel.mock.calls[0]?.[0].messages).toEqual(compactedMessages)
+})
+
+test('numeric message-count threshold keeps automatic microcompact behavior', async () => {
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: '100',
+  }))
+  const { deps, microcompact } = successfulQueryDeps()
+
+  const { terminal } = await runSuccessfulQuery(deps)
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(microcompact).toHaveBeenCalledTimes(1)
+})
+
+test('explicit compact query source still runs microcompact when threshold is off', async () => {
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: 'off',
+  }))
+  const { deps, microcompact } = successfulQueryDeps()
+
+  const { terminal } = await runSuccessfulQuery(deps, 'compact')
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(microcompact).toHaveBeenCalledTimes(1)
+})
 
 test('active auto-compact cooldown blocks before model call with cooldown guidance', async () => {
   const messages = [overAutoCompactThresholdMessage()]

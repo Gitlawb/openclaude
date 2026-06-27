@@ -740,7 +740,9 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
-    maxMessagesCompactionThreshold: 'off',
+    // Omitted by default so callers can distinguish "unset" from an explicit
+    // persisted "off"; normalizeMaxMessagesCompactionThreshold keeps the
+    // effective default disabled.
   }
   return config
 }
@@ -1150,11 +1152,17 @@ registerCleanup(async () => {
  * @internal
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  const { maxMessagesCompactionThreshold, ...restConfig } = config
   const normalizedConfig = {
-    ...config,
-    maxMessagesCompactionThreshold: normalizeMaxMessagesCompactionThreshold(
-      config.maxMessagesCompactionThreshold,
-    ),
+    ...restConfig,
+    ...(maxMessagesCompactionThreshold === undefined
+      ? {}
+      : {
+          maxMessagesCompactionThreshold:
+            normalizeMaxMessagesCompactionThreshold(
+              maxMessagesCompactionThreshold,
+            ),
+        }),
   }
 
   // Already migrated
