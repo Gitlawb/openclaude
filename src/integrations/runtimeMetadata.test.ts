@@ -283,6 +283,27 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
     expect(qualified.catalogEntry?.id).toBe('kimi-k2.7-code')
     expect(qualified.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
   })
+
+  it('uses Atlas Cloud catalog limits for Moonshot Kimi K2.7 Code', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'moonshotai/kimi-k2.7-code',
+        baseUrl: 'https://api.atlascloud.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
+
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'moonshotai/kimi-k2.7-code',
+      baseUrl: 'https://api.atlascloud.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+
+    expect(result.routeId).toBe('atlas-cloud')
+    expect(result.catalogEntry?.id).toBe('moonshotai/kimi-k2.7-code')
+    expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+    expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
+  })
 })
 describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
   it('uses Hicap static model limits and per-model shim overrides', () => {

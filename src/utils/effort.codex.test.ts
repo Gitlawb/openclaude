@@ -509,6 +509,7 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     controllable: true,
     source: 'metadata',
     levels: ['low', 'medium', 'high', 'xhigh'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(getAvailableEffortLevels('moonshotai/kimi-k2.5')).toEqual([
@@ -524,6 +525,7 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     controllable: true,
     source: 'metadata',
     levels: ['low', 'medium', 'high', 'xhigh'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(getAvailableEffortLevels('moonshotai/kimi-k2.6')).toEqual([
@@ -632,6 +634,7 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     controllable: true,
     source: 'metadata',
     levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(modelSupportsEffort('moonshotai/kimi-k2.7-code')).toBe(true)

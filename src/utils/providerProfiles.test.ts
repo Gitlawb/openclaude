@@ -1708,7 +1708,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.name).toBe('Moonshot AI - API')
     expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
-    expect(defaults.model).toBe('kimi-k2.5')
+    expect(defaults.model).toBe('kimi-k2.7-code')
   })
   test('deepseek preset defaults to DeepSeek V4 Pro', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
