@@ -317,6 +317,14 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
 
     expect(
       resolveModelRuntimeLimits({
+        model: 'claude-opus-4.7',
+        baseUrl: 'https://api.hicap.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: 128_000 })
+
+    expect(
+      resolveModelRuntimeLimits({
         model: 'kimi-k2.7-code',
         baseUrl: 'https://api.hicap.ai/v1',
         processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
@@ -342,6 +350,16 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
     expect(glm.openaiShimConfig.maxTokensField).toBe('max_tokens')
     expect(glm.openaiShimConfig.removeBodyFields).toContain('store')
     expect(glm.openaiShimConfig.enableToolStreaming).toBe(true)
+
+    const opus47 = resolveOpenAIShimRuntimeContext({
+      model: 'claude-opus-4.7',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(opus47.catalogEntry?.id).toBe('hicap-claude-opus-4.7')
+    expect(opus47.catalogEntry?.apiName).toBe('claude-opus-4.7')
+    expect(opus47.catalogEntry?.modelDescriptorId).toBe('claude-opus-4-7')
+    expect(opus47.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 
     const discoveredGlm = resolveOpenAIShimRuntimeContext({
       model: 'zai-org/GLM-5.2',
