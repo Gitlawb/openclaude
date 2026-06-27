@@ -5140,7 +5140,7 @@ async function loadInitialMessages(
             }
           }
         } else {
-          if (result.contentReplacements?.length) {
+          if (persistSession && result.contentReplacements?.length) {
             result.contentReplacements = filterContentReplacementsForMessages(
               result.messages,
               result.contentReplacements,
@@ -5377,7 +5377,7 @@ async function loadInitialMessages(
           await resetSessionFilePointer()
         }
       } else if (options.forkSession) {
-        if (result.contentReplacements?.length) {
+        if (persistSession && result.contentReplacements?.length) {
           result.contentReplacements = filterContentReplacementsForMessages(
             result.messages,
             result.contentReplacements,
