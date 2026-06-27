@@ -342,13 +342,11 @@ describe("redactSensitiveInfo", () => {
 
   test("redactJsonLines fallback preserves non-whitespace prefix before JSON and redacts trailing secret", () => {
     // Non-whitespace prefix like a log level must be preserved while
-    // sensitive content in both the prefix and trailing text is redacted.
+    // sensitive content in the trailing text is redacted. Exact output
+    // shape verifies ordering and no content loss.
     const line = 'WARN {"ok":true} api_key=sk-ant-trailing-key';
     const result = redactJsonLines(line);
-    expect(result).toContain("WARN");
-    expect(result).toContain('"ok":true');
-    expect(result).not.toContain("sk-ant-trailing-key");
-    expect(result).toMatch(/\[REDACTED/);
+    expect(result).toBe('WARN {"ok":true} api_key=[REDACTED]');
   });
 
   // P2: free-form text auth/x-auth coverage
