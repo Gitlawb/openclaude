@@ -227,9 +227,11 @@ export function redactSensitiveInfo(text: string): string {
   redacted = redacted.replace(
     GENERIC_HEADER_FIELD_PATTERN,
     (match, prefix: string, value: string) => {
-      // If the value starts with `[REDACTED`, an earlier pass already handled
-      // this field. Skip to preserve the specific label (e.g. `[REDACTED_TOKEN]`).
-      if (/^\[REDACTED/.test(value)) return match;
+      // Only bypass if the value is EXACTLY the canonical placeholder
+      // "[REDACTED]" produced by this generic pattern. Reject any other
+      // variation like "[REDACTED_API_KEY]" or "[REDACTED_actual_secret]"
+      // which may carry a real secret suffix.
+      if (value === "[REDACTED]") return match;
       return `${prefix}[REDACTED]`;
     },
   );

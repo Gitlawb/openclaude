@@ -264,13 +264,13 @@ describe("redactSensitiveInfo", () => {
   // closing delimiters. Same fix as GENERIC_HEADER_FIELD_PATTERN.
   test("redacts x-api-key value with trailing paren", () => {
     expect(redactSensitiveInfo("x-api-key: abc)def")).toBe(
-      "x-api-key: [REDACTED_API_KEY]",
+      "x-api-key: [REDACTED]",
     );
   });
 
   test("redacts authorization value with trailing paren", () => {
     expect(redactSensitiveInfo("Authorization: Bearer abc(def)ghi")).toBe(
-      "Authorization: Bearer [REDACTED_TOKEN]",
+      "Authorization: [REDACTED]",
     );
   });
 
@@ -278,7 +278,7 @@ describe("redactSensitiveInfo", () => {
   // excluded from value captures. Ensure they are fully consumed.
   test("redacts bracketed x-api-key value", () => {
     expect(redactSensitiveInfo("x-api-key: [secret]")).toBe(
-      "x-api-key: [REDACTED_API_KEY]",
+      "x-api-key: [REDACTED]",
     );
   });
 
@@ -294,19 +294,19 @@ describe("redactSensitiveInfo", () => {
   // value captures excluded \s. Ensure spaces inside values are consumed.
   test("redacts multi-word x-api-key value", () => {
     expect(redactSensitiveInfo("x-api-key: a b c")).toBe(
-      "x-api-key: [REDACTED_API_KEY]",
+      "x-api-key: [REDACTED]",
     );
   });
 
   test("redacts multi-word Authorization Bearer value", () => {
     expect(redactSensitiveInfo("Authorization: Bearer abc def ghi")).toBe(
-      "Authorization: Bearer [REDACTED_TOKEN]",
+      "Authorization: [REDACTED]",
     );
   });
 
   test("redacts multi-word Authorization Basic value", () => {
     expect(redactSensitiveInfo("Authorization: Basic dXNlcjpwYXNz")).toBe(
-      "Authorization: [REDACTED_TOKEN]",
+      "Authorization: [REDACTED]",
     );
   });
 
