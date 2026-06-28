@@ -294,6 +294,48 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
+  // Add regression test: when both server and plugin entries match,
+  // exact server entry should be preferred before plugin disambiguation.
+  test('exact server entry precedes plugin marketplace disambiguation', () => {
+    setAllowedChannels([
+      { kind: 'server', name: 'slack' },
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: {},
+      },
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: { pluginSource: 'plugin:slack@anthropic' },
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true // server not dev → reject
+      return true
+    })
+    // Only the plugin:slack client should be accepted (server entry rejected because dev false)
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].name).toBe('plugin:slack')
+  })
+
   // 9. End-to-end positive path.
   test('end-to-end register: capable server, allowlisted plugin, matching marketplace', () => {
     _allowlist = [{ marketplace: 'anthropic', plugin: 'slack' }]

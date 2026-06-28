@@ -182,6 +182,11 @@ export function findChannelEntry(
   if (candidates.length <= 1) {
     return candidates[0]
   }
+  // First check: when exactly one kind: 'server' candidate exists, return it
+  const serverCandidates = candidates.filter(c => c.kind === 'server')
+  if (serverCandidates.length === 1) {
+    return serverCandidates[0]
+  }
   // Multiple same-name entries — disambiguate by runtime marketplace.
   if (parts[0] === 'plugin' && pluginSource) {
     const runtimeMarketplace = parsePluginIdentifier(pluginSource).marketplace
