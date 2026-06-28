@@ -483,13 +483,25 @@ export function redactUrlForDisplay(rawUrl: string): string {
         const hostCandidate = hostEnd === -1 ? afterAt : afterAt.slice(0, hostEnd);
         const hostname = hostCandidate.split(":")[0];
 
+        // If the part before # already contains a valid host (with dot,
+        // localhost, IPv6, or port), then # is a fragment delimiter and
+        // any @ after it is fragment content, not userinfo.
+        const beforeHash = rawUrl.slice(0, hashIdx);
+        const hostPart = beforeHash.startsWith("//") ? beforeHash.slice(2) : beforeHash;
+        const hasValidHostBeforeHash =
+          hostPart.includes(".") ||
+          hostPart === "localhost" ||
+          /^\[/.test(hostPart) ||
+          /:[0-9]+$/.test(hostPart);
+
         if (
           hostname.includes(".") ||
           hostname === "localhost" ||
           /^\[/.test(hostname) ||
           hostEnd !== -1 ||
           // Bare hostname (no dot, no path) — e.g. "host" or "host:443"
-          /^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(hostCandidate)
+          // Only apply if there's no valid host before the #
+          (!hasValidHostBeforeHash && /^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(hostCandidate))
         ) {
           // @ after # followed by hostname-like → # is in password
           userinfoRedacted = rawUrl.replace(
