@@ -419,7 +419,7 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       hostname = hostname.slice(0, zoneIdIndex)
     }
 
-    if (LOCALHOST_HOSTNAMES.has(hostname) || hostname === '0.0.0.0') {
+    if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
     if (hostname.endsWith('.local')) {
@@ -561,7 +561,6 @@ export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolea
       (
         hostname === 'localhost' ||
         hostname === '::1' ||
-        hostname === '0.0.0.0' ||
         isLoopbackIpv4
       )
     )

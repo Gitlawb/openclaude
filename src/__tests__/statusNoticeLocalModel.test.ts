@@ -241,6 +241,7 @@ describe('isLoopbackOllamaEndpoint', () => {
 
   test('skips remote Ollama endpoints so local ollama ps is not misleading', () => {
     expect(isLoopbackOllamaEndpoint('http://10.0.0.5:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('http://0.0.0.0:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://ollama.lan:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('https://ollama.example.com/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://127.0.0.1.nip.io:11434/v1')).toBe(false)
