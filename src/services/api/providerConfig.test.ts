@@ -92,13 +92,16 @@ test('resolveProviderRequest canonicalizes Hicap catalog model casing', () => {
   expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
 })
 
-test('resolveProviderRequest leaves Hicap routing untouched without explicit aliases', () => {
-  const request = resolveProviderRequest({
-    model: 'claude-opus-4-7',
-    baseUrl: 'https://api.hicap.ai/v1',
-    processEnv: {},
-  })
+test('resolveProviderRequest maps both Hicap Opus 4.7 names to the API model id', () => {
+  for (const model of ['claude-opus-4-7', 'claude-opus-4.7']) {
+    const request = resolveProviderRequest({
+      model,
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: {},
+    })
 
-  expect(request.resolvedModel).toBe('claude-opus-4.7')
-  expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
+    expect(request.requestedModel).toBe(model)
+    expect(request.resolvedModel).toBe('claude-opus-4.7')
+    expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
+  }
 })
