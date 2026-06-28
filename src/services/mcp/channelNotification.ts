@@ -182,6 +182,9 @@ export function findChannelEntry(
   if (candidates.length <= 1) {
     return candidates[0]
   }
+
+  const pickBest = (opts: ChannelEntry[]) => opts.find(c => c.dev) || opts[0]
+
   // First check: when exactly one kind: 'server' candidate exists, return it
   const serverCandidates = candidates.filter(c => c.kind === 'server')
   if (serverCandidates.length === 1) {
@@ -191,15 +194,15 @@ export function findChannelEntry(
   if (parts[0] === 'plugin' && pluginSource) {
     const runtimeMarketplace = parsePluginIdentifier(pluginSource).marketplace
     if (runtimeMarketplace) {
-      const exact = candidates.find(
+      const exacts = candidates.filter(
         c => c.kind === 'plugin' && c.marketplace === runtimeMarketplace,
       )
-      if (exact) return exact
+      if (exacts.length > 0) return pickBest(exacts)
     }
   }
   // No disambiguator available — preserve prior first-match behavior so
-  // the downstream marketplace check still surfaces the issue.
-  return candidates[0]
+  // the downstream marketplace check still surfaces the issue, but prefer dev entries.
+  return pickBest(candidates)
 }
 
 /**

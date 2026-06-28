@@ -236,6 +236,12 @@ export function redactSensitiveInfo(text: string): string {
     },
   );
 
+  // URLs embedded in free-form text or serialized objects
+  redacted = redacted.replace(
+    /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
+    "//redacted@",
+  );
+
   // Post-processing: absorb any trailing brackets, parens, or braces that may
   // remain after a value capture consumed part of a bracketed value. This is a
   // safety net for edge cases where a delimiter-based match ends before a
