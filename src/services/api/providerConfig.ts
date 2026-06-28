@@ -543,6 +543,28 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
   }
 }
 
+export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    const parsed = new URL(baseUrl)
+    let hostname = parsed.hostname.toLowerCase()
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1)
+    }
+    return (
+      parsed.port === '11434' &&
+      (
+        hostname === 'localhost' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0' ||
+        hostname.startsWith('127.')
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
 export function getLocalProviderRetryBaseUrls(baseUrl: string): string[] {
   if (!isLocalProviderUrl(baseUrl)) {
     return []

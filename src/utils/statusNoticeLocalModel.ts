@@ -1,6 +1,6 @@
 import { resolveActiveRouteIdFromEnv } from '../integrations/routeMetadata.js'
 import {
-  isLikelyOllamaEndpoint,
+  isDirectLocalOllamaEndpoint,
   isLocalProviderUrl,
 } from '../services/api/providerConfig.js'
 import type { Tool, ToolPermissionContext } from '../Tool.js'
@@ -83,45 +83,26 @@ function summarizeOllamaContextWarning(
 }
 
 export function isLoopbackOllamaEndpoint(baseUrl: string | undefined): boolean {
-  if (!baseUrl) {
-    return false
-  }
-
-  if (!isLikelyOllamaEndpoint(baseUrl)) {
-    return false
-  }
-
-  try {
-    let hostname = new URL(baseUrl).hostname.toLowerCase()
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1)
-    }
-    return (
-      hostname === 'localhost' ||
-      hostname === '::1' ||
-      hostname === '0.0.0.0' ||
-      hostname.startsWith('127.')
-    )
-  } catch {
-    return false
-  }
+  return isDirectLocalOllamaEndpoint(baseUrl)
 }
 
 export function parseOllamaPsContextWarning(
   output: string,
+  activeModelName?: string,
 ): LocalModelContextContributor | null {
-  const warning = parseOllamaPsContext(output)
+  const warning = parseOllamaPsContext(output, activeModelName)
   return warning ? summarizeOllamaContextWarning(warning) : null
 }
 
 async function checkOllamaContextLength(
   baseUrl: string | undefined,
+  activeModelName?: string,
 ): Promise<LocalModelContextContributor | null> {
   if (!isLoopbackOllamaEndpoint(baseUrl)) {
     return null
   }
 
-  const warning = await checkOllamaPsContextWarning()
+  const warning = await checkOllamaPsContextWarning(activeModelName)
   if (!warning) {
     return null
   }
@@ -213,6 +194,7 @@ export async function checkLocalModelContextLoad(
   memoryFiles: MemoryFileInfo[],
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   baseUrl?: string,
+  activeModelName?: string,
 ): Promise<LocalModelContextWarning | null> {
   const resolvedBaseUrl = baseUrl ?? resolveActiveProviderBaseUrl()
   if (!isLocalProviderUrl(resolvedBaseUrl)) {
@@ -230,7 +212,7 @@ export async function checkLocalModelContextLoad(
         includeUnreachableRules: false,
       },
     ),
-    checkOllamaContextLength(resolvedBaseUrl),
+    checkOllamaContextLength(resolvedBaseUrl, activeModelName),
   ])
 
   return buildLocalModelContextLoad(

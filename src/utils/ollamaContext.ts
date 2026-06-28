@@ -34,9 +34,16 @@ function parseContextTokenValue(value: string | undefined): number | null {
   return Math.round(amount)
 }
 
+function normalizeOllamaModelName(modelName: string | undefined): string | null {
+  const normalized = modelName?.trim().toLowerCase().split('?')[0]
+  return normalized || null
+}
+
 export function parseOllamaPsContextWarning(
   output: string,
+  activeModelName?: string,
 ): OllamaContextWarning | null {
+  const normalizedActiveModel = normalizeOllamaModelName(activeModelName)
   const lines = output
     .split(/\r?\n/)
     .map(line => line.trim())
@@ -53,6 +60,14 @@ export function parseOllamaPsContextWarning(
   }
 
   for (const line of lines.slice(1)) {
+    const modelName = line.split(/\s+/)[0] ?? 'loaded model'
+    if (
+      normalizedActiveModel &&
+      normalizeOllamaModelName(modelName) !== normalizedActiveModel
+    ) {
+      continue
+    }
+
     const contextValue = line.slice(contextColumnStart).trim().split(/\s+/)[0]
     const contextTokens = parseContextTokenValue(contextValue)
     if (
@@ -60,7 +75,7 @@ export function parseOllamaPsContextWarning(
       contextTokens < MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS
     ) {
       return {
-        modelName: line.split(/\s+/)[0] ?? 'loaded model',
+        modelName,
         contextValue,
         contextTokens,
       }
@@ -70,7 +85,9 @@ export function parseOllamaPsContextWarning(
   return null
 }
 
-export async function checkOllamaPsContextWarning(): Promise<OllamaContextWarning | null> {
+export async function checkOllamaPsContextWarning(
+  activeModelName?: string,
+): Promise<OllamaContextWarning | null> {
   const result = await execFileNoThrow('ollama', ['ps'], {
     timeout: 1000,
     preserveOutputOnError: true,
@@ -80,5 +97,5 @@ export async function checkOllamaPsContextWarning(): Promise<OllamaContextWarnin
     return null
   }
 
-  return parseOllamaPsContextWarning(result.stdout)
+  return parseOllamaPsContextWarning(result.stdout, activeModelName)
 }

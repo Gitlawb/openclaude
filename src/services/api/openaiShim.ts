@@ -77,6 +77,7 @@ import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  isDirectLocalOllamaEndpoint,
   isLikelyOllamaEndpoint,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
@@ -608,12 +609,14 @@ function convertOllamaStreamingResponse(
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop() ?? ''
 
+        let emittedLine = false
         for (const line of lines) {
           if (line.trim()) {
             enqueueOllamaLineAsOpenAI(line.trim(), controller)
+            emittedLine = true
           }
         }
-        if (lines.length > 1) {
+        if (emittedLine) {
           return
         }
       }
@@ -3071,6 +3074,7 @@ class OpenAIShimMessages {
     const useNativeOllamaChat =
       effectiveTransport === 'chat_completions' &&
       !shimConfig.endpointPath &&
+      isDirectLocalOllamaEndpoint(request.baseUrl) &&
       isLikelyOllamaEndpoint(request.baseUrl)
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,

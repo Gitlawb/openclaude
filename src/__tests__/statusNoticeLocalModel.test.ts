@@ -209,6 +209,19 @@ llama3.1:8b     46e0c10c039e    6.7 GB    100% GPU     4 minutes from now 32K
     expect(result).toBeNull()
   })
 
+  test('only warns for the active model when multiple Ollama models are loaded', () => {
+    const output = `
+NAME            ID              SIZE      PROCESSOR    UNTIL              CONTEXT
+tinyllama:1b    46e0c10c039e    1.1 GB    100% GPU     4 minutes from now 4K
+llama3.1:8b     7e0c10c039e46    6.7 GB    100% GPU     4 minutes from now 32K
+`
+
+    expect(parseOllamaPsContextWarning(output, 'llama3.1:8b')).toBeNull()
+    expect(parseOllamaPsContextWarning(output, 'tinyllama:1b')).toMatchObject({
+      summary: 'Ollama CONTEXT: 4K (OpenClaude requests 32K)',
+    })
+  })
+
   test('ignores older ollama ps output without a context column', () => {
     const result = parseOllamaPsContextWarning(`
 NAME            ID              SIZE      PROCESSOR    UNTIL
@@ -230,6 +243,10 @@ describe('isLoopbackOllamaEndpoint', () => {
     expect(isLoopbackOllamaEndpoint('http://10.0.0.5:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://ollama.lan:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('https://ollama.example.com/v1')).toBe(false)
+  })
+
+  test('skips localhost proxies whose path merely contains ollama', () => {
+    expect(isLoopbackOllamaEndpoint('http://localhost:8080/ollama/v1')).toBe(false)
   })
 })
 
