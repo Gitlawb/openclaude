@@ -678,6 +678,14 @@ describe('task report generation', () => {
             status: 'error',
           }),
         ])
+        expect(report.commands).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-foreground-validation-conflict',
+            command: 'bun test src/utils/reportTask.test.ts',
+            status: 'error',
+            exitCode: 2,
+          }),
+        ])
         expect(report.validations).toEqual([
           expect.objectContaining({
             toolUseId: 'tool-foreground-validation-conflict',
