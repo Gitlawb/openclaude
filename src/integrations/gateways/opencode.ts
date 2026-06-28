@@ -28,7 +28,7 @@ function catalogEntry(spec: OpenCodeCatalogSpec) {
           },
           reasoning: {
             mode: 'levels' as ReasoningControlMode,
-            levels: ['low', 'medium', 'high', 'xhigh'] as ReasoningEffortLevel[],
+            levels: ['high', 'xhigh'] as ReasoningEffortLevel[],
             wireFormat: 'zai_compatible' as ReasoningWireFormat,
           },
         }

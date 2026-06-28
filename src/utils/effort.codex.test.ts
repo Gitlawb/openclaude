@@ -541,10 +541,10 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['low', 'medium', 'high', 'xhigh'],
+    levels: ['high', 'xhigh'],
     wireFormat: 'zai_compatible',
   })
-  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['low', 'medium', 'high', 'xhigh'])
+  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['high', 'xhigh'])
   expect(resolveAppliedEffort('glm-5.2', 'xhigh')).toBe('xhigh')
 
   const verifiedAtlasReasoningModels = [
@@ -602,10 +602,10 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
       supportsReasoning: true,
       controllable: true,
       source: 'metadata',
-      levels: ['low', 'medium', 'high', 'xhigh'],
+      levels: ['high', 'xhigh'],
       wireFormat: 'zai_compatible',
     })
-    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(getAvailableEffortLevels(model)).toEqual(['high', 'xhigh'])
     expect(resolveAppliedEffort(model, 'xhigh')).toBe('xhigh')
     expect(resolveAppliedEffort(model, 'max')).toBe('high')
   }

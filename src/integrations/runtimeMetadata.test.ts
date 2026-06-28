@@ -353,6 +353,23 @@ describe('resolveOpenAIShimRuntimeContext - GLM catalog-aware gating', () => {
     expect(result.openaiShimConfig.removeBodyFields).toEqual(['store'])
   })
 
+  it('applies the full Z.A.I GLM shim to Atlas Cloud GLM via catalog overrides', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'zai-org/glm-5.2',
+      baseUrl: 'https://api.atlascloud.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+
+    expect(result.routeId).toBe('atlas-cloud')
+    expect(result.catalogEntry?.id).toBe('zai-org/glm-5.2')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toEqual(['store'])
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
+  })
+
   it('applies the Z.A.I GLM shim to hicap GLM catalog entries', () => {
     const result = resolveOpenAIShimRuntimeContext({
       model: 'zai-org/GLM-5.2',
