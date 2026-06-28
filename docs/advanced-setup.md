@@ -140,6 +140,53 @@ export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_MODEL=llama3.3:70b
 ```
 
+#### Ollama Context Length
+
+OpenClaude sends the current conversation history to Ollama on each turn and
+uses Ollama's native chat API for Ollama endpoints. Native chat lets OpenClaude
+send `options.num_ctx` with each request, so Ollama receives a 32768-token
+context window by default instead of falling back to the smaller context often
+used by Ollama's OpenAI-compatible `/v1/chat/completions` shim.
+
+To choose a different request-level context size, set
+`OPENCLAUDE_OLLAMA_NUM_CTX` before launching OpenClaude:
+
+```bash
+export OPENCLAUDE_OLLAMA_NUM_CTX=65536
+```
+
+You can also start Ollama with a global context length:
+
+macOS / Linux:
+
+```bash
+# Stop any existing Ollama app/server first, then run:
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+```
+
+Windows PowerShell:
+
+```powershell
+# Quit any existing Ollama app/server first, then run:
+$env:OLLAMA_CONTEXT_LENGTH="32768"
+ollama serve
+```
+
+After a chat request, verify the loaded model is using the requested context:
+
+```bash
+ollama ps
+```
+
+Check the `CONTEXT` column. If it still shows a small value such as `4K` after a
+new OpenClaude request, stop the existing Ollama app/server, start it again, and
+retry the request.
+
+Use a concrete recall test after changing the setting, such as asking the model
+to repeat the first topic from the current chat. Questions like "do you remember our
+conversation?" can trigger generic local-model disclaimers even when history is
+present.
+
 ### Atomic Chat (local, Apple Silicon)
 
 ```bash
@@ -329,6 +376,7 @@ The **OpenClaude VS Code extension** can store the key in Secret Storage and set
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `OPENCLAUDE_OLLAMA_NUM_CTX` | Ollama only | Request-level Ollama context window. Defaults to `32768`; set a larger value for longer same-session history if your model and hardware can handle it. |
 | `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |

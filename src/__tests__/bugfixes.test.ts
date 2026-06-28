@@ -83,6 +83,23 @@ describe('Session timeout fix', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Fix 2b: Ollama context history preservation
+// ---------------------------------------------------------------------------
+describe('Ollama context history fix', () => {
+  test('openaiShim uses native Ollama chat with request-level num_ctx', async () => {
+    const content = await file('services/api/openaiShim.ts').text()
+
+    expect(content).toContain('buildOllamaChatUrl')
+    expect(content).toContain('/api/chat')
+    expect(content).toContain('useNativeOllamaChat')
+    expect(content).toContain('num_ctx: getOllamaNumCtx()')
+    expect(content).toContain('normalizeOllamaNativeMessages(body.messages)')
+    expect(content).toContain('convertOllamaStreamingResponse')
+    expect(content).toContain('convertOllamaNonStreamingResponse')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Fix 3: Agent loop continuation nudge
 // ---------------------------------------------------------------------------
 describe('Agent loop continuation nudge', () => {

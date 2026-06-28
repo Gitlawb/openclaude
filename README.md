@@ -198,6 +198,13 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+For Ollama, OpenClaude uses Ollama's native chat API and requests a 32768-token
+context window on each chat request so same-session history is not silently
+truncated by Ollama's OpenAI-compatible shim. Set `OPENCLAUDE_OLLAMA_NUM_CTX`
+or `OLLAMA_CONTEXT_LENGTH` if you need a different request-level context size.
+See [Advanced Setup](docs/advanced-setup.md#ollama-context-length) for
+verification with `ollama ps`.
+
 ## Setup Guides
 
 Beginner-friendly guides:
