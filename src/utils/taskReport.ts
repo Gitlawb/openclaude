@@ -188,7 +188,7 @@ const FILE_CONTENT_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
 const SHELL_COMMAND_TOOLS = new Set(['Bash', 'PowerShell'])
 
 const VALIDATION_COMMAND_PATTERNS = [
-  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:build:verified|doctor:runtime(?::json)?|hardening:(?:check|strict)|integrations:check|security:pr-scan|verify:privacy|web:(?:build|typecheck)|test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|build|check|lint|smoke)(?=$|[\s;&|)])/,
+  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:build:verified|doctor:runtime(?::json)?|hardening:(?:check|strict)|integrations:check|security:pr-scan|verify:privacy|web:(?:build|typecheck)|test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|build|check|lint|smoke)(?=$|[\s;&|)"'])/,
   /\bbun\s+test\b/,
   /\bgit\s+diff\s+--check\b/,
   /\bpython\s+-m\s+pytest\b/,

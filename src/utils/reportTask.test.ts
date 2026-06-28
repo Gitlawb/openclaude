@@ -535,6 +535,59 @@ describe('task report generation', () => {
     )
   })
 
+  test('classifies validation commands inside quoted shell wrappers', async () => {
+    const commands = [
+      "bash -lc 'bun run check'",
+      'powershell -NoProfile -Command "bun run typecheck"',
+    ]
+
+    for (const [index, command] of commands.entries()) {
+      await withTempTranscript(
+        [
+          userMessage(
+            `00000000-0000-4000-8000-${String(78 + index * 3).padStart(12, '0')}`,
+            `Run ${command}.`,
+            '2026-06-27T08:00:00.000Z',
+          ),
+          assistantToolMessage(
+            `00000000-0000-4000-8000-${String(79 + index * 3).padStart(12, '0')}`,
+            {
+              id: `tool-wrapper-validation-${index}`,
+              name: 'Bash',
+              input: {
+                command,
+              },
+            },
+            '2026-06-27T08:01:00.000Z',
+          ),
+          toolResultMessage(
+            `00000000-0000-4000-8000-${String(80 + index * 3).padStart(12, '0')}`,
+            `tool-wrapper-validation-${index}`,
+            'passed',
+            '2026-06-27T08:01:03.000Z',
+            { stdout: 'passed\n', stderr: '', exitCode: 0 },
+          ),
+        ],
+        async transcriptPath => {
+          const report = await buildTaskReport({
+            transcriptPath,
+            git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+          })
+
+          expect(report.validations).toEqual([
+            expect.objectContaining({
+              command,
+              status: 'success',
+            }),
+          ])
+          expect(report.warnings).not.toContain(
+            'No validation commands were observed in this transcript.',
+          )
+        },
+      )
+    }
+  })
+
   test('classifies documented package checks as validations', async () => {
     const commands = [
       'bun run web:typecheck',
