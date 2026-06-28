@@ -565,23 +565,31 @@ describe('Dev-channels dialog coverage', () => {
     expect(content).toContain('if (!isChannelsEnabled())')
     expect(content).toContain('DevChannelsDialog')
 
-    // Verify that dev entries are always marked with dev: true.
+    // Verify that registerDevChannels is called in exactly two sites.
     // This count is a SEMANTIC requirement, not a style preference.
-    // interactiveHelpers.tsx has exactly two sites that materialize
+    // interactiveHelpers.tsx has exactly two sites that register
     // dev entries:
     //   1. The `!isChannelsEnabled()` branch (~line 286): entries
     //      are registered directly without user interaction.
     //   2. The DevChannelsDialog `onAccept` handler (~line 303):
     //      entries are registered after the user confirms.
-    // Both sites must set `dev: true` so the allowlist bypass
-    // (which the dev flag grants in `gateChannelServer`) cannot
-    // leak to production `--channels` entries. If a refactor adds
-    // or removes a site, update this count AND verify the security
-    // invariant still holds: a dev entry is never confused with a
-    // production entry in the allowlist check.
-    const devMap = content.match(/\.map\(c => \({ \.\.\.c, dev: true }\)\)/g)
-    expect(devMap).not.toBeNull()
-    expect(devMap!.length).toBe(2)
+    // Both sites delegate to registerDevChannels() which sets
+    // `dev: true` per-entry so the allowlist bypass (granted by the
+    // dev flag in `gateChannelServer`) cannot leak to production
+    // `--channels` entries. If a refactor adds or removes a site,
+    // update this count AND verify the security invariant still
+    // holds: a dev entry is never confused with a production entry
+    // in the allowlist check.
+    const regCalls = content.match(/registerDevChannels\(devChannels\)/g)
+    expect(regCalls).not.toBeNull()
+    expect(regCalls!.length).toBe(2)
+  })
+
+  // The function that materialises dev: true per-entry lives in the
+  // importable seam, not in showSetupScreens inline.
+  test('registerDevChannels definition sets dev: true', async () => {
+    const content = await file('utils/devChannelRegistration.ts').text()
+    expect(content).toContain('dev: true')
   })
 
   // Runtime tests: exercise the same behavior paths that showSetupScreens
@@ -594,7 +602,7 @@ describe('Dev-channels dialog coverage', () => {
   // `if`/ternary — the object-literal usage there fails at parse time
   // before mock.module can intercept resolution.  The tests below
   // exercise the identical state-mutation patterns through the directly
-  // importable DevChannelsDialog component and the bootstrap/state API.
+  // importable registerDevChannels seam and DevChannelsDialog component.
   describe('isChannelsEnabled branching', async () => {
     // Re-import the real channelAllowlist module via a cache-busting
     // URL at describe-entry so the inner afterEach can re-register it
@@ -624,6 +632,13 @@ describe('Dev-channels dialog coverage', () => {
         '../services/mcp/channelAllowlist.js',
         () => _realChannelAllowlist,
       )
+      // Reset shared bootstrap state so failures don't leak into later tests.
+      const {
+        setAllowedChannels: resetAllowed,
+        setHasDevChannels: resetHasDev,
+      } = require('../bootstrap/state.js')
+      resetAllowed([])
+      resetHasDev(false)
     })
 
     const devChannels = [
@@ -631,87 +646,62 @@ describe('Dev-channels dialog coverage', () => {
     ]
 
     test(
-      'isChannelsEnabled=true: DevChannelsDialog onAccept registers dev entries via state API',
+      'isChannelsEnabled=true: DevChannelsDialog onAccept calls registerDevChannels',
       async () => {
         mock.module('../services/mcp/channelAllowlist.js', () => ({
           isChannelsEnabled: () => true,
         }))
 
+        const { registerDevChannels } = await import(
+          '../utils/devChannelRegistration.js'
+        )
         const { DevChannelsDialog } = await import(
           '../components/DevChannelsDialog.js'
         )
         const React = await import('react')
-        const {
-          setAllowedChannels,
-          getAllowedChannels,
-          setHasDevChannels,
-          getHasDevChannels,
-        } = await import('../bootstrap/state.js')
+        const { getAllowedChannels, getHasDevChannels } = await import(
+          '../bootstrap/state.js'
+        )
 
-        setAllowedChannels([])
-        setHasDevChannels(false)
-
-        // showSetupScreens passes DevChannelsDialog to showSetupDialog with
-        // an onAccept that mutates the production state (not a local array).
-        // Simulate that wiring here.
+        let onAcceptCalled = false
         const element = React.createElement(DevChannelsDialog, {
           channels: devChannels,
           onAccept: () => {
-            setAllowedChannels([
-              ...getAllowedChannels(),
-              ...devChannels.map(c => ({ ...c, dev: true })),
-            ])
-            setHasDevChannels(true)
+            registerDevChannels(devChannels)
+            onAcceptCalled = true
           },
         })
 
-        // Simulate user accepting the dialog — same as what showSetupDialog's
-        // done() callback triggers in the real flow.
         element.props.onAccept()
+        expect(onAcceptCalled).toBe(true)
 
         const all = getAllowedChannels()
         expect(all.length).toBe(1)
         expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
         expect(getHasDevChannels()).toBe(true)
-
-        setAllowedChannels([])
-        setHasDevChannels(false)
       },
     )
 
     test(
-      'isChannelsEnabled=false: entries registered directly without dialog via state API',
+      'isChannelsEnabled=false: registerDevChannels called directly without dialog',
       async () => {
         mock.module('../services/mcp/channelAllowlist.js', () => ({
           isChannelsEnabled: () => false,
         }))
 
-        const {
-          setAllowedChannels,
-          getAllowedChannels,
-          setHasDevChannels,
-          getHasDevChannels,
-        } = await import('../bootstrap/state.js')
+        const { registerDevChannels } = await import(
+          '../utils/devChannelRegistration.js'
+        )
+        const { getAllowedChannels, getHasDevChannels } = await import(
+          '../bootstrap/state.js'
+        )
 
-        setAllowedChannels([])
-        setHasDevChannels(false)
-
-        // showSetupScreens registers dev entries directly in the disabled
-        // branch (line 291-294) without showing the DevChannelsDialog.
-        // Exercise the same state mutation pattern here.
-        setAllowedChannels([
-          ...getAllowedChannels(),
-          ...devChannels.map(c => ({ ...c, dev: true })),
-        ])
-        setHasDevChannels(true)
+        registerDevChannels(devChannels)
 
         const all = getAllowedChannels()
         expect(all.length).toBe(1)
         expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
         expect(getHasDevChannels()).toBe(true)
-
-        setAllowedChannels([])
-        setHasDevChannels(false)
       },
     )
   })

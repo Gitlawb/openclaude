@@ -186,6 +186,16 @@ describe('redactUrlForDisplay', () => {
     const redacted = redactUrlForDisplay(malformed)
     expect(redacted).toBe('//api.example.com:443')
   })
+
+  // Regression: bare-host URL with # in password must not be misclassified
+  // as fragment content.  hostEnd !== -1 (a / or ? follows @) is the signal.
+  test('malformed URL fallback redacts #-in-password userinfo on bare host', () => {
+    const malformed =
+      '//alice:sec#ret@host/path?token=SECRET'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toBe('//redacted@host/path?token=redacted')
+  })
+
   // Regression: the valid-URL path must pre-redact semicolon-delimited
   // sensitive query params from the raw query before URLSearchParams
   // percent-encodes `;` as `%3B`, leaving them invisible to the

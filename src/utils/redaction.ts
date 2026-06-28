@@ -484,7 +484,8 @@ export function redactUrlForDisplay(rawUrl: string): string {
         if (
           hostname.includes(".") ||
           hostname === "localhost" ||
-          /^\[/.test(hostname)
+          /^\[/.test(hostname) ||
+          hostEnd !== -1
         ) {
           // @ after # followed by hostname-like → # is in password
           userinfoRedacted = rawUrl.replace(

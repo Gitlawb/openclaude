@@ -3,7 +3,7 @@ import { appendFileSync } from 'fs';
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdown.js';
-import { type ChannelEntry, getAllowedChannels, setAllowedChannels, setHasDevChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
+import { type ChannelEntry, getAllowedChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
 import type { Command } from './commands.js';
 import { createStatsStore, type StatsStore } from './context/stats.js';
 import { getSystemContext } from './context.js';
@@ -29,6 +29,7 @@ import { usesAnthropicAccountFlow } from './utils/model/providers.js';
 import { showDangerousModePromptIfNeeded } from './utils/permissions/dangerousModePromptFlow.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
+import { registerDevChannels } from './utils/devChannelRegistration.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
 import { hasAutoModeOptIn } from './utils/settings/settings.js';
 export function completeOnboarding(): void {
@@ -288,11 +289,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
         // them named — but do not show the dialog since acceptance
         // would be moot. This preserves the previous behavior for the
         // genuinely-disabled case.
-        setAllowedChannels([
-          ...getAllowedChannels(),
-          ...devChannels.map(c => ({ ...c, dev: true })),
-        ])
-        setHasDevChannels(true)
+        registerDevChannels(devChannels)
       } else {
         const {
           DevChannelsDialog,
@@ -305,11 +302,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
               onAccept={() => {
                 // Mark dev entries per-entry so the allowlist bypass doesn't leak
                 // to --channels entries when both flags are passed.
-                setAllowedChannels([
-                  ...getAllowedChannels(),
-                  ...devChannels.map(c => ({ ...c, dev: true })),
-                ])
-                setHasDevChannels(true)
+                registerDevChannels(devChannels)
                 void done()
               }}
             />
