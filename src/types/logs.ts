@@ -75,6 +75,7 @@ export type LogOption = {
   worktreeSession?: PersistedWorktreeSession | null // Worktree state at session end (null = exited, undefined = never entered)
   contentReplacements?: ContentReplacementRecord[] // Replacement decisions for resume reconstruction
   goal?: GoalState | null // Last session goal state, if any
+  sessionBranch?: SessionBranchEntry // Conversation-branch lineage metadata, if this session is a branch
 }
 
 export type SummaryMessage = {
@@ -216,6 +217,25 @@ export type GoalStateEntry = {
   goal: GoalState | null
 }
 
+export type SessionBranchEntry = {
+  type: 'session-branch'
+  sessionId: UUID
+  /**
+   * Immediate conversation-lineage parent. Branches of branches point to the
+   * source branch here, while rootSessionId keeps the first ancestor.
+   */
+  parentSessionId: UUID
+  rootSessionId: UUID
+  /**
+   * Session whose current transcript tail was copied for this branch. Today it
+   * matches parentSessionId; future rewind/checkpoint branches may diverge.
+   */
+  branchedFromSessionId: UUID
+  branchName?: string
+  branchedAt: string
+  branchedAtMessageId?: UUID
+}
+
 export type FileHistorySnapshotMessage = {
   type: 'file-history-snapshot'
   messageId: UUID
@@ -351,6 +371,7 @@ export type Entry =
   | WorktreeStateEntry
   | ContentReplacementEntry
   | GoalStateEntry
+  | SessionBranchEntry
   | ContextCollapseCommitEntry
   | ContextCollapseSnapshotEntry
 
