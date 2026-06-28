@@ -534,6 +534,38 @@ describe('filterPermissionRelayClients', () => {
     expect(result.kind).toBe('allowlist')
   })
 
+  // Full relay path regression: filterPermissionRelayClients with the
+  // actual gateChannelServer predicate (as used in interactiveHandler) must
+  // exclude a marketplace-matched plugin that is not on the approved
+  // allowlist. This mirrors the exact relay dispatch path so a future
+  // change that stops applying the full gate in the dispatch path is caught.
+  test('filterPermissionRelayClients with full gate rejects non-allowlisted plugin', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    _allowlist = [] // empty — slack not approved
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: { pluginSource: 'plugin:slack@anthropic' },
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      const result = gateChannelServer(name, entry.kind === 'server' ? cap() : cap(), pluginSource)
+      return result.action === 'register'
+    })
+    expect(filtered).toHaveLength(0)
+  })
+
   // Regression: the relay capability check must use truthiness like
   // gateChannelServer does, not !== undefined, so an explicit false
   // capability is treated as a miss and the client is not selected.
