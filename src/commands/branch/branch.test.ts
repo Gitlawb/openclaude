@@ -235,7 +235,7 @@ async function setupSourceTranscript(
   if (sessionProjectDir) tempDirs.push(sessionProjectDir)
 
   setClaudeConfigHomeDirForTesting(configDir)
-  getClaudeConfigHomeDir.cache.clear?.()
+  getClaudeConfigHomeDir.cache?.clear?.()
   getProjectDir.cache.clear?.()
   setOriginalCwd(projectCwd)
   switchSession(sourceSessionId as never, sessionProjectDir)
@@ -337,7 +337,7 @@ afterEach(async () => {
 
     setSessionPersistenceDisabled(originalPersistenceDisabled)
     setClaudeConfigHomeDirForTesting(originalClaudeConfigHomeDirOverride)
-    getClaudeConfigHomeDir.cache.clear?.()
+    getClaudeConfigHomeDir.cache?.clear?.()
     getProjectDir.cache.clear?.()
     setOriginalCwd(originalCwd)
     switchSession(originalSessionId as never, originalSessionProjectDir)
