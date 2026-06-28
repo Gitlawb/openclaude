@@ -99,6 +99,6 @@ test('resolveProviderRequest leaves Hicap routing untouched without explicit ali
     processEnv: {},
   })
 
-  expect(request.resolvedModel).toBe('claude-opus-4-7')
+  expect(request.resolvedModel).toBe('claude-opus-4.7')
   expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
 })
