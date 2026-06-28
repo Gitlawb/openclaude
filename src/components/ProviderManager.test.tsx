@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -11,6 +11,15 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+// Captured before any mock.module() runs so the partial stub below can spread
+// the real exports (keeping ones the tests don't override, e.g.
+// isGeminiVertexEffectiveProvider, intact) and the afterAll can re-install the
+// real module. bun's mock.restore() does NOT revert mock.module(), so without
+// this the providerProfiles.js stub would leak into every later test file in the
+// process — turning unstubbed exports into undefined and making provider
+// detection (StartupScreen.detectProvider, the logError gate, client routing)
+// order-dependent across OSes.
+import * as realProviderProfilesModule from '../utils/providerProfiles.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -177,6 +186,7 @@ function mockProviderProfilesModule(options?: {
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
   mock.module('../utils/providerProfiles.js', () => ({
+    ...realProviderProfilesModule,
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
@@ -536,6 +546,14 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+afterAll(() => {
+  // mock.restore() does not revert mock.module(), so explicitly re-install the
+  // real providerProfiles.js module to stop the partial stub installed by
+  // mockProviderProfilesModule() from leaking into later test files.
+  mock.restore()
+  mock.module('../utils/providerProfiles.js', () => realProviderProfilesModule)
 })
 
 test('ProviderManager resolves GitHub virtual provider from async storage without sync reads in render flow', async () => {
