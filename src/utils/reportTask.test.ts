@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -9,7 +9,6 @@ import {
   formatTaskReportAsJson,
   type TaskReportGitMetadata,
 } from './taskReport.js'
-import { redactHomePath } from './diagnostics/redaction.js'
 
 const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const cwd = '/workspace/openclaude'
@@ -880,7 +879,7 @@ describe('task report generation', () => {
   })
 
   test('omits dirty status when git status cannot be collected', async () => {
-    const repoDir = join(tmpdir(), 'openclaude-task-report-git-repo')
+    const repoDir = join(homedir(), 'openclaude-task-report-git-repo')
     const calls: string[] = []
 
     const metadata = await collectTaskReportGitMetadata(
@@ -919,7 +918,7 @@ describe('task report generation', () => {
     )
     expect(metadata).toEqual({
       status: 'available',
-      cwd: redactHomePath(repoDir),
+      cwd: join('~', 'openclaude-task-report-git-repo'),
       branch: 'feat/report',
       head: '13cf30afa469',
       changedFiles: [],
