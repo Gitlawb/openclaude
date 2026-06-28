@@ -243,6 +243,8 @@ describe('isLoopbackOllamaEndpoint', () => {
     expect(isLoopbackOllamaEndpoint('http://10.0.0.5:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://0.0.0.0:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://ollama.lan:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('https://localhost:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('https://127.0.0.1:11434/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('https://ollama.example.com/v1')).toBe(false)
     expect(isLoopbackOllamaEndpoint('http://127.0.0.1.nip.io:11434/v1')).toBe(false)
   })

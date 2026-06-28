@@ -5777,6 +5777,36 @@ test('keeps remote Ollama-named gateways on chat completions', async () => {
   ])
 })
 
+test('keeps HTTPS localhost Ollama-port proxies on chat completions', async () => {
+  process.env.OPENAI_BASE_URL = 'https://localhost:11434/v1'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    expect(body.max_tokens).toBe(64)
+    expect(body.options).toBeUndefined()
+
+    return makeChatCompletionResponse('llama3.1:8b')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'llama3.1:8b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls).toEqual([
+    'https://localhost:11434/v1/chat/completions',
+  ])
+})
+
 test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

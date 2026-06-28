@@ -557,6 +557,7 @@ export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolea
       ipv4Octets.every(octet => /^\d{1,3}$/.test(octet) && Number(octet) <= 255) &&
       ipv4Octets[0] === '127'
     return (
+      parsed.protocol === 'http:' &&
       parsed.port === '11434' &&
       (
         hostname === 'localhost' ||
