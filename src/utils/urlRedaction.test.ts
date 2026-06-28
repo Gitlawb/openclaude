@@ -31,6 +31,15 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toBe('https://example.com/v1?api_key=redacted')
   })
 
+  // Regression: a query-looking `?token=SECRET` fragment must not leak
+  // the credential. `parsed.hash = ""` drops the full fragment, so the
+  // entire `#debug?token=SECRET` suffix is removed.
+  test('drops fragment containing a query-like credential', () => {
+    expect(
+      redactUrlForDisplay('https://api.example.com/v1#debug?token=SECRET'),
+    ).toBe('https://api.example.com/v1')
+  })
+
   test('falls back to regex redaction for malformed URLs', () => {
     const redacted = redactUrlForDisplay(
       '//user:pass@localhost:11434?token=abc&mode=test',

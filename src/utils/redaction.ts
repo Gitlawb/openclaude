@@ -429,6 +429,8 @@ export function redactUrlForDisplay(rawUrl: string): string {
     // query string. URLSearchParams percent-encodes `;` as `%3B`, so the
     // post-process pass (redactSemicolonQueryParams) cannot find
     // `;token=SECRET` after parsed.toString() reserializes the URL.
+    // Only consider `?` that appears before any `#` — a `?` inside a
+    // fragment is not a query separator.
     const hashIdx = rawUrl.indexOf("#");
     const qsStart = rawUrl.indexOf("?");
     if (qsStart !== -1 && (hashIdx === -1 || qsStart < hashIdx)) {

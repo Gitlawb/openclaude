@@ -245,10 +245,12 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // --dangerously-load-development-channels confirmation. On accept, append
-  // dev channels to any --channels list already set in main.tsx. The OAuth
-  // and org-policy gates were removed from gateChannelServer(), so this flag
-  // is the only barrier for non-allowlisted server entries — gateChannelServer
-  // still runs the allowlist check for each entry.
+  // dev channels to any --channels list already set in main.tsx. The OAuth,
+  // org-policy, and allowlist gates in gateChannelServer() are upstream of
+  // this flag — users without a Claude.ai OAuth token or whose managed org
+  // has not set channelsEnabled: true are blocked before the allowlist
+  // check runs. This flag only skips the allowlist gate for development
+  // entries, not the auth or policy gates.
   if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
     // gateChannelServer and ChannelsNotice read tengu_harbor after this
     // function returns. A cold disk cache (fresh install, or first run after
@@ -262,13 +264,15 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       await checkGate_CACHED_OR_BLOCKING('tengu_harbor');
     }
     if (devChannels && devChannels.length > 0) {
-      // OpenClaude removed the OAuth/org-policy gates from
-      // gateChannelServer(), which means a non-OAuth session can now
-      // pass --dangerously-load-development-channels and register
-      // channels without ever seeing the warning. The dialog must
-      // always show when the flag is passed and `isChannelsEnabled()`
-      // is true — only explicit user acceptance enables the dev
-      // entries.
+      // gateChannelServer() still enforces the OAuth and org-policy gates
+      // upstream of the allowlist check. Users without a Claude.ai OAuth
+      // token or whose managed org has not set channelsEnabled: true are
+      // blocked before reaching this flag. This flag only bypasses the
+      // allowlist gate for dev entries, so a non-OAuth session passing
+      // --dangerously-load-development-channels will still fail at the
+      // auth gate with no visible error. The dialog must always show when
+      // the flag is passed and `isChannelsEnabled()` is true — only
+      // explicit user acceptance enables the dev entries.
       //
       // Skip the dialog only when the channels feature itself is
       // disabled (`isChannelsEnabled()` returns false). In that case
