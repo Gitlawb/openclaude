@@ -692,9 +692,25 @@ export function redactDiagnosticUrl(
   rawUrl: string | undefined,
 ): string | undefined {
   if (!rawUrl) return undefined;
-  return redactUrlForDisplay(rawUrl)
-    .replace(/\/+$/, "")
-    .replace(/\/\/(?:redacted(?::redacted)?)?@/g, "//");
+  const rendered = redactUrlForDisplay(rawUrl);
+
+  // Split at the first `?` so we only mutate the scheme+authority+path
+  // segment. A full-string replacement is unsafe: `//user@host` can appear
+  // legitimately inside query-param values (e.g. a redirect_uri), and
+  // trimming trailing slashes from the whole string would clip a query value
+  // that ends with `/`.
+  const qMark = rendered.indexOf("?");
+  const authority = qMark === -1 ? rendered : rendered.slice(0, qMark);
+  const rest = qMark === -1 ? "" : rendered.slice(qMark);
+
+  // Strip any remaining `//redacted@` or `//redacted:redacted@` placeholder
+  // that `redactUrlForDisplay` emitted, then trim trailing slashes — both
+  // scoped to the authority/path only.
+  const cleanedAuthority = authority
+    .replace(/\/\/(?:redacted(?::redacted)?)?@/g, "//")
+    .replace(/\/+$/, "");
+
+  return cleanedAuthority + rest;
 }
 
 export function redactHomePath(value: string, homeDir = homedir()): string {

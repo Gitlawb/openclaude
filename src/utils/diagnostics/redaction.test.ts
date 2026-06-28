@@ -197,6 +197,28 @@ describe("diagnostic redaction", () => {
       redactDiagnosticUrl("//x.test/path?mode=ok;api_key=SECRET123&x=1"),
     ).toBe("//x.test/path?mode=ok&api_key=redacted&x=1");
   });
+
+  test("does not mangle //user@host inside a query-param value", () => {
+    // The credential-strip pass must be scoped to the authority only.
+    // A redirect_uri or callback value that itself contains //something@host
+    // must survive intact (the mode=safe param value here is intentionally
+    // non-sensitive so it is not redacted by the query-param redactor).
+    expect(
+      redactDiagnosticUrl(
+        "https://proxy.example.com/v1?callback=https%3A%2F%2Fuser%40host&mode=safe",
+      ),
+    ).toBe(
+      "https://proxy.example.com/v1?callback=https%3A%2F%2Fuser%40host&mode=safe",
+    );
+  });
+
+  test("preserves trailing slash on path before query string", () => {
+    // Trailing-slash trimming must be scoped to the authority/path, not the
+    // whole rendered URL, so a query value that ends with `/` is preserved.
+    expect(
+      redactDiagnosticUrl("https://api.example.com/v1/?mode=safe&path=foo/"),
+    ).toBe("https://api.example.com/v1?mode=safe&path=foo/");
+  });
 });
 
 describe("redactSensitiveInfo", () => {
