@@ -53,7 +53,7 @@ const sessionContextWindowOverrides = new Map<string, number>()
 
 // Minimum context window to avoid auto-compact floor paradox
 // (reservedTokensForSummary + autocompactBuffer = 20k + 13k = 33k)
-const MIN_CONTEXT_WINDOW_OVERRIDE = 32_000
+const MIN_CONTEXT_WINDOW_OVERRIDE = 33_000
 
 /**
  * Normalize a model name for override lookup.

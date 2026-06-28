@@ -43,15 +43,17 @@ export const call: LocalCommandCall = async (args, context) => {
   if (parts.length === 1) {
     model = context.options.mainLoopModel
     tokensStr = parts[0]
-  } else {
+  } else if (parts.length === 2) {
     model = parts[0]
     tokensStr = parts[1]
+  } else {
+    return { type: 'text', value: `Error: expected 1 or 2 arguments, got ${parts.length}.\n\n${HELP}` }
   }
 
-  const tokens = parseInt(tokensStr, 10)
-  if (isNaN(tokens)) {
-    return { type: 'text', value: `Error: "${tokensStr}" is not a valid number.` }
+  if (!/^\d+$/.test(tokensStr)) {
+    return { type: 'text', value: `Error: "${tokensStr}" is not a valid integer.` }
   }
+  const tokens = Number(tokensStr)
 
   const previous = getSessionContextWindowOverride(model)
 
