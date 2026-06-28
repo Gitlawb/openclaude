@@ -185,9 +185,10 @@ type ObservedToolResult = {
 
 const MUTATING_FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const FILE_CONTENT_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
+const SHELL_COMMAND_TOOLS = new Set(['Bash', 'PowerShell'])
 
 const VALIDATION_COMMAND_PATTERNS = [
-  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|web:typecheck|web:build|build|smoke|check|lint|security:pr-scan)\b/,
+  /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:build:verified|doctor:runtime(?::json)?|hardening:(?:check|strict)|integrations:check|security:pr-scan|verify:privacy|web:(?:build|typecheck)|test(?::[A-Za-z0-9_-]+)?|typecheck(?::[A-Za-z0-9_-]+)?|build|check|lint|smoke)(?=$|[\s;&|)])/,
   /\bbun\s+test\b/,
   /\bgit\s+diff\s+--check\b/,
   /\bpython\s+-m\s+pytest\b/,
@@ -248,8 +249,8 @@ export async function buildTaskReport(
     if (resultSummary) toolUse.resultSummary = resultSummary
     toolUses.push(toolUse)
 
-    if (observed.name === 'Bash') {
-      const rawCommand = extractBashCommand(observed.input)
+    if (isShellCommandTool(observed.name)) {
+      const rawCommand = extractShellCommand(observed.input)
       const command = buildCommandReport(
         observed,
         result,
@@ -634,7 +635,7 @@ function buildCommandReport(
   maxPreviewChars: number,
 ): TaskReportCommand | null {
   const input = recordValue(observed.input)
-  const rawCommand = extractBashCommand(observed.input)
+  const rawCommand = extractShellCommand(observed.input)
   if (!rawCommand) return null
 
   const structuredResult = recordValue(result?.toolUseResult)
@@ -665,7 +666,7 @@ function buildCommandReport(
   return command
 }
 
-function extractBashCommand(input: unknown): string | undefined {
+function extractShellCommand(input: unknown): string | undefined {
   const inputRecord = recordValue(input)
   return stringValue(inputRecord?.command)
 }
@@ -676,6 +677,7 @@ function getObservedStatus(
   if (!result) return 'unknown'
   const structuredResult = recordValue(result.toolUseResult)
   if (structuredResult?.interrupted === true) return 'cancelled'
+  if (stringValue(structuredResult?.backgroundTaskId)) return 'unknown'
   const exitCode = extractExitCode(result)
   if (exitCode !== undefined && exitCode !== 0) return 'error'
   if (result.isError) return 'error'
@@ -746,7 +748,7 @@ function summarizeToolInput(
 ): string | undefined {
   const record = recordValue(input)
   if (!record) return undefined
-  if (toolName === 'Bash') {
+  if (isShellCommandTool(toolName)) {
     const command = stringValue(record.command)
     return command ? truncateText(redact(command), maxPreviewChars).preview : undefined
   }
@@ -971,6 +973,10 @@ function relativeWithinCwd(
 
 function isValidationCommand(command: string): boolean {
   return VALIDATION_COMMAND_PATTERNS.some(pattern => pattern.test(command))
+}
+
+function isShellCommandTool(toolName: string): boolean {
+  return SHELL_COMMAND_TOOLS.has(toolName)
 }
 
 function parseGitStatusChangedFiles(stdout: string): string[] {

@@ -213,6 +213,62 @@ describe('task report generation', () => {
     )
   })
 
+  test('captures passing validation commands from observed PowerShell results', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000045',
+          'Run the Windows checks.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000046',
+          {
+            id: 'tool-powershell-validation-pass',
+            name: 'PowerShell',
+            input: {
+              command: 'bun run typecheck',
+              description: 'Run TypeScript checks',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000047',
+          'tool-powershell-validation-pass',
+          'Typecheck passed',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: 'Typecheck passed\n', stderr: '', interrupted: false },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.commands).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-powershell-validation-pass',
+            command: 'bun run typecheck',
+            description: 'Run TypeScript checks',
+            status: 'success',
+          }),
+        ])
+        expect(report.validations).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-powershell-validation-pass',
+            command: 'bun run typecheck',
+            status: 'success',
+          }),
+        ])
+        expect(report.warnings).not.toContain(
+          'No validation commands were observed in this transcript.',
+        )
+      },
+    )
+  })
+
   test('captures failing validation commands with exit code when it is persisted', async () => {
     await withTempTranscript(
       [
@@ -368,6 +424,66 @@ describe('task report generation', () => {
     )
   })
 
+  test('reports backgrounded validation commands with unknown status', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000048',
+          'Run tests in the background.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000049',
+          {
+            id: 'tool-background-validation',
+            name: 'Bash',
+            input: {
+              command: 'bun test src/utils/reportTask.test.ts',
+              run_in_background: true,
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000050',
+          'tool-background-validation',
+          'Command running in background with ID: bg-report-tests.',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: '',
+            interrupted: false,
+            backgroundTaskId: 'bg-report-tests',
+          },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.commands).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-background-validation',
+            command: 'bun test src/utils/reportTask.test.ts',
+            status: 'unknown',
+          }),
+        ])
+        expect(report.validations).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-background-validation',
+            command: 'bun test src/utils/reportTask.test.ts',
+            status: 'unknown',
+          }),
+        ])
+        expect(report.warnings).not.toContain(
+          'No validation commands were observed in this transcript.',
+        )
+      },
+    )
+  })
+
   test('classifies validation commands from the raw Bash command before truncation', async () => {
     const longPrefix = 'echo setup && '.repeat(20)
     const rawCommand = `${longPrefix}bun test src/utils/reportTask.test.ts`
@@ -419,17 +535,29 @@ describe('task report generation', () => {
     )
   })
 
-  test('classifies documented web checks as validations', async () => {
-    for (const command of ['bun run web:typecheck', 'bun run web:build']) {
+  test('classifies documented package checks as validations', async () => {
+    const commands = [
+      'bun run web:typecheck',
+      'bun run web:build',
+      'bun run integrations:check',
+      'bun run verify:privacy',
+      'bun run doctor:runtime',
+      'bun run doctor:runtime:json',
+      'bun run build:verified',
+      'bun run hardening:check',
+      'bun run hardening:strict',
+    ]
+
+    for (const [index, command] of commands.entries()) {
       await withTempTranscript(
         [
           userMessage(
-            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000032' : '000000000031'}`,
+            `00000000-0000-4000-8000-${String(51 + index * 3).padStart(12, '0')}`,
             `Run ${command}.`,
             '2026-06-27T08:00:00.000Z',
           ),
           assistantToolMessage(
-            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000034' : '000000000033'}`,
+            `00000000-0000-4000-8000-${String(52 + index * 3).padStart(12, '0')}`,
             {
               id: `tool-${command.replaceAll(/[^A-Za-z0-9]/g, '-')}`,
               name: 'Bash',
@@ -440,7 +568,7 @@ describe('task report generation', () => {
             '2026-06-27T08:01:00.000Z',
           ),
           toolResultMessage(
-            `00000000-0000-4000-8000-${command.endsWith('build') ? '000000000036' : '000000000035'}`,
+            `00000000-0000-4000-8000-${String(53 + index * 3).padStart(12, '0')}`,
             `tool-${command.replaceAll(/[^A-Za-z0-9]/g, '-')}`,
             'passed',
             '2026-06-27T08:01:03.000Z',
