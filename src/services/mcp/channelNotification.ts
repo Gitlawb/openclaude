@@ -201,7 +201,8 @@ export function findChannelEntry(
  * Gate an MCP server's channel-notification path. Caller checks
  * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
  * elimination). Gate order: capability → runtime gate (tengu_harbor) →
- * auth (OAuth only) → org policy → session --channels → allowlist.
+ * auth (OAuth) → org policy → session --channels → marketplace →
+ * allowlist.
  * API key users are blocked at the auth layer — channels requires
  * claude.ai auth; console orgs have no admin opt-in surface yet.
  *

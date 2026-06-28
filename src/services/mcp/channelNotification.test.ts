@@ -40,6 +40,8 @@ const _realAuth = await import(
 // scenarios independent.
 let _channelsEnabled = true
 let _allowlist: ReadonlyArray<{ marketplace: string; plugin: string }> = []
+let _mockOAuthTokens: { accessToken?: string } = { accessToken: 'fake-ci-token' }
+let _mockSubscriptionType: string | null = null
 
 mock.module('./channelAllowlist.js', () => ({
   isChannelsEnabled: () => _channelsEnabled,
@@ -52,13 +54,14 @@ mock.module('./channelAllowlist.js', () => ({
   },
 }))
 
-// Mock OAuth tokens so the gate passes on CI where no real auth exists.
-// Channels tests assume the OAuth/policy gates are bypassed; keeping
-// them in upstream/main means we need a fake token and unmanaged sub.
+// Mock OAuth tokens and subscription type so specific gates can be
+// exercised per-test. Default: fake token (auth passes), null sub
+// (policy skip — unmanaged). Tests that want to exercise a gate
+// mutate the corresponding `_mock*` variable.
 mock.module('../../utils/auth.js', () => ({
   ..._realAuth,
-  getClaudeAIOAuthTokens: () => ({ accessToken: 'fake-ci-token' }),
-  getSubscriptionType: () => null,
+  getClaudeAIOAuthTokens: () => _mockOAuthTokens,
+  getSubscriptionType: () => _mockSubscriptionType,
 }))
 
 afterAll(() => {
@@ -79,6 +82,8 @@ function cap(extra: Record<string, unknown> = {}): ServerCapabilities {
 beforeEach(() => {
   _channelsEnabled = true
   _allowlist = []
+  _mockOAuthTokens = { accessToken: 'fake-ci-token' }
+  _mockSubscriptionType = null
   setAllowedChannels([])
   setHasDevChannels(false)
 })
@@ -139,7 +144,27 @@ describe('gateChannelServer', () => {
     expect(result.kind).toBe('disabled')
   })
 
-  // 3. Session allowlist gate — server not in --channels list.
+  // 3. OAuth gate — no access token blocks.
+  test('skips when no OAuth access token is present', () => {
+    _mockOAuthTokens = {} // no accessToken
+    const result = gateChannelServer('slack', cap(), undefined)
+    if (result.action !== 'skip') {
+      throw new Error(`expected skip, got ${result.action}`)
+    }
+    expect(result.kind).toBe('auth')
+  })
+
+  // 4. Org-policy gate — managed subscription without channelsEnabled.
+  test('skips on team subscription without policy opt-in', () => {
+    _mockSubscriptionType = 'team'
+    const result = gateChannelServer('slack', cap(), undefined)
+    if (result.action !== 'skip') {
+      throw new Error(`expected skip, got ${result.action}`)
+    }
+    expect(result.kind).toBe('policy')
+  })
+
+  // 5. Session allowlist gate — server not in --channels list.
   test('skips when server is not in --channels session list', () => {
     const result = gateChannelServer('slack', cap(), undefined)
     if (result.action !== 'skip') {
@@ -154,7 +179,7 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
-  // 4. Marketplace gate (plugin only) — tag and runtime source disagree.
+  // 6. Marketplace gate (plugin only) — tag and runtime source disagree.
   test('skips when plugin tag marketplace differs from installed source', () => {
     setAllowedChannels([
       { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
@@ -223,7 +248,7 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
-  // 5. Plugin allowlist gate — entry kind=plugin and not on ledger.
+  // 7. Plugin allowlist gate — entry kind=plugin and not on ledger.
   test('skips plugin not on the approved channels allowlist', () => {
     setAllowedChannels([
       { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
@@ -253,7 +278,7 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
-  // 6. Server-entry dev gate — server-kind entries always need dev.
+  // 8. Server-entry dev gate — server-kind entries always need dev.
   test('skips server-kind entry without dev flag', () => {
     setAllowedChannels([{ kind: 'server', name: 'slack' }]) // no dev
     const result = gateChannelServer('slack', cap(), undefined)
@@ -269,7 +294,7 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
-  // 7. End-to-end positive path.
+  // 9. End-to-end positive path.
   test('end-to-end register: capable server, allowlisted plugin, matching marketplace', () => {
     _allowlist = [{ marketplace: 'anthropic', plugin: 'slack' }]
     setAllowedChannels([
