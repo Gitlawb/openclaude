@@ -2,21 +2,19 @@ import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import { logForDebugging } from 'src/utils/debug.js'
-import { getAllowedChannels } from '../../../bootstrap/state.js'
 import type { BridgePermissionCallbacks } from '../../../bridge/bridgePermissionCallbacks.js'
 import { getTerminalFocused } from '../../../ink/terminal-focus-state.js'
 import {
   CHANNEL_PERMISSION_REQUEST_METHOD,
   type ChannelPermissionRequestParams,
-  findChannelEntry,
+  gateChannelServer,
 } from '../../../services/mcp/channelNotification.js'
-import { parsePluginIdentifier } from '../../../utils/plugins/pluginIdentifier.js'
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
-  filterPermissionRelayClients,
   shortRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
+import type { ConnectedMCPServer } from '../../../services/mcp/types.js'
 import { executeAsyncClassifierCheck } from '../../../tools/BashTool/bashPermissions.js'
 import { BASH_TOOL_NAME } from '../../../tools/BashTool/toolName.js'
 import {
@@ -320,32 +318,17 @@ function handleInteractivePermission(
     !ctx.tool.requiresUserInteraction?.()
   ) {
     const channelRequestId = shortRequestId(ctx.toolUseID)
-    const allowedChannels = getAllowedChannels()
-    // Marketplace-aware: pass the runtime pluginSource (stashed on
-    // the server config at addPluginScopeToServers) and reject
-    // mismatches explicitly. `findChannelEntry` alone would happily
-    // resolve a `plugin:slack@evilcorp` lookup to a
-    // `plugin:slack@anthropic` session entry when only one
-    // candidate exists, leaking permission-request previews to the
-    // unapproved plugin. Mirror the marketplace check that
-    // `gateChannelServer` performs so the relay path enforces the
-    // same boundary.
-    const channelClients = filterPermissionRelayClients(
-      ctx.toolUseContext.getAppState().mcp.clients,
-      (name, pluginSource) => {
-        const entry = findChannelEntry(name, allowedChannels, pluginSource)
-        if (!entry) return false
-        if (entry.kind === 'server') return entry.dev === true
-        // Plugin-kind: require a runtime source whose marketplace
-        // matches the session entry. A missing or mismatched
-        // `pluginSource` fails the relay filter — `gateChannelServer`
-        // would have skipped this client already, so the relay
-        // should match that decision.
-        if (!pluginSource) return false
-        const actual = parsePluginIdentifier(pluginSource).marketplace
-        return actual === entry.marketplace
-      },
-    )
+    const channelClients = ctx.toolUseContext
+      .getAppState()
+      .mcp.clients.filter(
+        (c): c is ConnectedMCPServer =>
+          c.type === 'connected' &&
+          Boolean(
+            c.capabilities?.experimental?.['claude/channel/permission'],
+          ) &&
+          gateChannelServer(c.name, c.capabilities, c.config.pluginSource)
+            .action === 'register',
+      )
 
     if (channelClients.length > 0) {
       // Outbound is structured too (Kenneth's symmetry ask) — server owns

@@ -446,6 +446,27 @@ describe('filterPermissionRelayClients', () => {
     expect(filtered).toHaveLength(1)
   })
 
+  // Full-gate regression: a marketplace-matched plugin that passes the
+  // session entry and marketplace checks but is NOT on the approved
+  // allowlist must be excluded before any permission preview is sent.
+  // The relay predicate must mirror gateChannelServer's allowlist gate,
+  // not just check session + marketplace.
+  test('gateChannelServer rejects marketplace-matched plugin not on allowlist', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    _allowlist = [] // empty — slack not approved
+    const result = gateChannelServer(
+      'plugin:slack',
+      cap(),
+      'plugin:slack@anthropic',
+    )
+    if (result.action !== 'skip') {
+      throw new Error(`expected skip, got ${result.action}`)
+    }
+    expect(result.kind).toBe('allowlist')
+  })
+
   // Regression: the relay capability check must use truthiness like
   // gateChannelServer does, not !== undefined, so an explicit false
   // capability is treated as a miss and the client is not selected.
