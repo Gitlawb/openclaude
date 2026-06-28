@@ -584,8 +584,17 @@ describe('Dev-channels dialog coverage', () => {
     expect(devMap!.length).toBe(2)
   })
 
-  // Mock-based runtime tests: mock isChannelsEnabled both true and false,
-  // then exercise the exact branching logic from showSetupScreens.
+  // Runtime tests: exercise the same behavior paths that showSetupScreens
+  // uses when --dangerously-load-development-channels is passed.
+  //
+  // NOTE: We cannot import showSetupScreens() directly in tests.  The
+  // module chain (interactiveHelpers.tsx → main.js → main.tsx) triggers
+  // Bun's compile-time `feature()` macro checker at main.tsx lines ~1494
+  // and ~1516, which require `feature()` to appear directly in an
+  // `if`/ternary — the object-literal usage there fails at parse time
+  // before mock.module can intercept resolution.  The tests below
+  // exercise the identical state-mutation patterns through the directly
+  // importable DevChannelsDialog component and the bootstrap/state API.
   describe('isChannelsEnabled branching', async () => {
     // Re-import the real channelAllowlist module via a cache-busting
     // URL at describe-entry so the inner afterEach can re-register it
@@ -622,9 +631,8 @@ describe('Dev-channels dialog coverage', () => {
     ]
 
     test(
-      'isChannelsEnabled=true: DevChannelsDialog is rendered with onAccept that marks dev: true',
+      'isChannelsEnabled=true: DevChannelsDialog onAccept registers dev entries via state API',
       async () => {
-        // Mock isChannelsEnabled → true
         mock.module('../services/mcp/channelAllowlist.js', () => ({
           isChannelsEnabled: () => true,
         }))
@@ -633,29 +641,47 @@ describe('Dev-channels dialog coverage', () => {
           '../components/DevChannelsDialog.js'
         )
         const React = await import('react')
+        const {
+          setAllowedChannels,
+          getAllowedChannels,
+          setHasDevChannels,
+          getHasDevChannels,
+        } = await import('../bootstrap/state.js')
 
-        // The dialog is shown; onAccept must append dev: true entries
-        const entries: Array<{ dev?: boolean }> = []
+        setAllowedChannels([])
+        setHasDevChannels(false)
+
+        // showSetupScreens passes DevChannelsDialog to showSetupDialog with
+        // an onAccept that mutates the production state (not a local array).
+        // Simulate that wiring here.
         const element = React.createElement(DevChannelsDialog, {
           channels: devChannels,
           onAccept: () => {
-            entries.push(
+            setAllowedChannels([
+              ...getAllowedChannels(),
               ...devChannels.map(c => ({ ...c, dev: true })),
-            )
+            ])
+            setHasDevChannels(true)
           },
         })
-        expect(element.type).toBe(DevChannelsDialog)
-        // The onAccept internally does what we test here: push dev:true entries
+
+        // Simulate user accepting the dialog — same as what showSetupDialog's
+        // done() callback triggers in the real flow.
         element.props.onAccept()
-        expect(entries.length).toBe(1)
-        expect(entries[0]).toHaveProperty('dev', true)
+
+        const all = getAllowedChannels()
+        expect(all.length).toBe(1)
+        expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
+        expect(getHasDevChannels()).toBe(true)
+
+        setAllowedChannels([])
+        setHasDevChannels(false)
       },
     )
 
     test(
-      'isChannelsEnabled=false: entries registered directly without dialog',
+      'isChannelsEnabled=false: entries registered directly without dialog via state API',
       async () => {
-        // Mock isChannelsEnabled → false
         mock.module('../services/mcp/channelAllowlist.js', () => ({
           isChannelsEnabled: () => false,
         }))
@@ -670,8 +696,9 @@ describe('Dev-channels dialog coverage', () => {
         setAllowedChannels([])
         setHasDevChannels(false)
 
-        // This is the exact disabled-branch logic from showSetupScreens (line 286-290):
-        // no dialog shown, entries registered directly with dev: true.
+        // showSetupScreens registers dev entries directly in the disabled
+        // branch (line 291-294) without showing the DevChannelsDialog.
+        // Exercise the same state mutation pattern here.
         setAllowedChannels([
           ...getAllowedChannels(),
           ...devChannels.map(c => ({ ...c, dev: true })),
@@ -683,7 +710,6 @@ describe('Dev-channels dialog coverage', () => {
         expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
         expect(getHasDevChannels()).toBe(true)
 
-        // Cleanup
         setAllowedChannels([])
         setHasDevChannels(false)
       },

@@ -177,6 +177,15 @@ describe('redactUrlForDisplay', () => {
     // Fragment is dropped to match the valid-URL path.
     expect(redacted).toBe('//api.example.com')
   })
+
+  test('malformed URL fallback userinfo regex respects fragment delimiter with port', () => {
+    // Same as above but with :port before # — the loose regex would
+    // greedily consume :443#frag@ as password and @illegal as host.
+    const malformed =
+      '//api.example.com:443#frag@illegal'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toBe('//api.example.com:443')
+  })
   // Regression: the valid-URL path must pre-redact semicolon-delimited
   // sensitive query params from the raw query before URLSearchParams
   // percent-encodes `;` as `%3B`, leaving them invisible to the

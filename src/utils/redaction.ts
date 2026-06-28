@@ -468,10 +468,51 @@ export function redactUrlForDisplay(rawUrl: string): string {
     parsed.hash = "";
     return parsed.toString();
   } catch {
-    const userinfoRedacted = rawUrl.replace(
-      /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
-      "//redacted@",
-    );
+    const hashIdx = rawUrl.indexOf("#");
+    let userinfoRedacted: string;
+
+    if (hashIdx !== -1) {
+      const afterHash = rawUrl.slice(hashIdx + 1);
+      const atInFragment = afterHash.indexOf("@");
+
+      if (atInFragment !== -1) {
+        const afterAt = afterHash.slice(atInFragment + 1);
+        const hostEnd = afterAt.search(/[/?#]/);
+        const hostCandidate = hostEnd === -1 ? afterAt : afterAt.slice(0, hostEnd);
+        const hostname = hostCandidate.split(":")[0];
+
+        if (
+          hostname.includes(".") ||
+          hostname === "localhost" ||
+          /^\[/.test(hostname)
+        ) {
+          // @ after # followed by hostname-like → # is in password
+          userinfoRedacted = rawUrl.replace(
+            /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
+            "//redacted@",
+          );
+        } else {
+          // @ is fragment content → strip fragment first
+          const noFragment = rawUrl.slice(0, hashIdx);
+          userinfoRedacted = noFragment.replace(
+            /\/\/[^/@\s?#]+(?::[^/@\s?#]*)?@/g,
+            "//redacted@",
+          );
+        }
+      } else {
+        const noFragment = rawUrl.slice(0, hashIdx);
+        userinfoRedacted = noFragment.replace(
+          /\/\/[^/@\s?#]+(?::[^/@\s?#]*)?@/g,
+          "//redacted@",
+        );
+      }
+    } else {
+      userinfoRedacted = rawUrl.replace(
+        /\/\/[^/@\s?#]+(?::[^/@\s?#]*)?@/g,
+        "//redacted@",
+      );
+    }
+
     return redactSemicolonQueryParams(redactMalformedQuery(userinfoRedacted));
   }
 }
