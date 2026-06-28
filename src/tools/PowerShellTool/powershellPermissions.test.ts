@@ -256,6 +256,35 @@ describe('PowerShell git commit governance policy', () => {
     )
   })
 
+  test('asks for uninspectable commit message sources when commit-message policy is active', async () => {
+    await withProjectSettings(
+      { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
+      checkPowerShellCommitMessagePolicy => {
+        const reuseShort = checkPowerShellCommitMessagePolicy(
+          'git commit -C HEAD',
+        )
+        const reuseLong = checkPowerShellCommitMessagePolicy(
+          'git commit --reuse-message=HEAD',
+        )
+        const reeditShort = checkPowerShellCommitMessagePolicy(
+          'git commit -c HEAD',
+        )
+        const reeditLong = checkPowerShellCommitMessagePolicy(
+          'git commit --reedit-message HEAD',
+        )
+        const editor = checkPowerShellCommitMessagePolicy(
+          'git commit --amend',
+        )
+
+        expectPowerShellAskMessage(reuseShort, 'cannot be checked')
+        expectPowerShellAskMessage(reuseLong, 'cannot be checked')
+        expectPowerShellAskMessage(reeditShort, 'cannot be checked')
+        expectPowerShellAskMessage(reeditLong, 'cannot be checked')
+        expectPowerShellAskMessage(editor, 'cannot be checked')
+      },
+    )
+  })
+
   test('uses the commit-specific attribution blocker', async () => {
     await withProjectSettings(
       { git: { addGeneratedWithFooter: false } },

@@ -83,7 +83,9 @@ function restoredGovernancePolicyModule() {
       sourceHasGitFlag('addGeneratedWithFooter', false),
     getForbiddenCommitMessagePatterns,
     findForbiddenCommitMessagePattern,
-    isMemoryWriteApprovalRequired: () => true,
+    isMemoryWriteApprovalRequired: () =>
+      actualSettings.getInitialSettings().memory?.requireApprovalBeforeWrite !==
+      false,
   }
 }
 

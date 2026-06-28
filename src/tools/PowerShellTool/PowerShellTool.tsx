@@ -342,11 +342,21 @@ function splitPowerShellStatements(command: string): string[] {
 }
 
 function checkPowerShellCommitMessagePolicyForStatement(command: string): PermissionResult | null {
-  if (powerShellGitCommitUsesFileMessage(command) && hasCommitMessagePolicyRestrictions()) {
+  const normalizedCommand = normalizePowerShellGitCommitCommand(command);
+  if (!normalizedCommand) return null;
+
+  const hasPolicyRestrictions = hasCommitMessagePolicyRestrictions();
+
+  if (powerShellGitCommitUsesFileMessage(command) && hasPolicyRestrictions) {
     return commitPolicyAsk('Git commit message is loaded from a file and cannot be checked against commit-message policy');
   }
 
-  for (const message of extractPowerShellGitCommitMessages(command)) {
+  const messages = extractPowerShellGitCommitMessages(command);
+  if (messages.length === 0 && hasPolicyRestrictions) {
+    return commitPolicyAsk('Git commit message source cannot be checked against commit-message policy');
+  }
+
+  for (const message of messages) {
     const forbiddenPattern = findForbiddenCommitMessagePattern(message);
     if (forbiddenPattern) {
       return commitPolicyAsk(`Git commit message contains forbidden pattern: ${forbiddenPattern}`);

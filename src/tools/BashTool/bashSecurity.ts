@@ -846,15 +846,25 @@ function commitPolicyAsk(message: string): PermissionResult {
 export function checkBashCommitMessagePolicy(
   command: string,
 ): PermissionResult | null {
-  if (!normalizeGitCommitCommand(command)) return null
+  const normalizedCommand = normalizeGitCommitCommand(command)
+  if (!normalizedCommand) return null
 
-  if (gitCommitUsesFileMessage(command) && hasCommitMessagePolicyRestrictions()) {
+  const hasPolicyRestrictions = hasCommitMessagePolicyRestrictions()
+
+  if (gitCommitUsesFileMessage(command) && hasPolicyRestrictions) {
     return commitPolicyAsk(
       'Git commit message is loaded from a file and cannot be checked against commit-message policy',
     )
   }
 
-  for (const message of extractGitCommitMessages(command)) {
+  const messages = extractGitCommitMessages(command)
+  if (messages.length === 0 && hasPolicyRestrictions) {
+    return commitPolicyAsk(
+      'Git commit message source cannot be checked against commit-message policy',
+    )
+  }
+
+  for (const message of messages) {
     const forbiddenPattern = findForbiddenCommitMessagePattern(message)
     if (forbiddenPattern) {
       return commitPolicyAsk(

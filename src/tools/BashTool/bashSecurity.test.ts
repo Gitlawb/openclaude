@@ -277,6 +277,29 @@ describe('git commit governance policy (#1326)', () => {
     )
   })
 
+  test('asks for uninspectable commit message sources when commit-message policy is active', async () => {
+    await withProjectSettings(
+      { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
+      () => {
+        const reuseShort = bashCommandIsSafe_DEPRECATED('git commit -C HEAD')
+        const reuseLong = bashCommandIsSafe_DEPRECATED(
+          'git commit --reuse-message=HEAD',
+        )
+        const reeditShort = bashCommandIsSafe_DEPRECATED('git commit -c HEAD')
+        const reeditLong = bashCommandIsSafe_DEPRECATED(
+          'git commit --reedit-message HEAD',
+        )
+        const editor = bashCommandIsSafe_DEPRECATED('git commit --amend')
+
+        expectAskMessage(reuseShort, 'cannot be checked')
+        expectAskMessage(reuseLong, 'cannot be checked')
+        expectAskMessage(reeditShort, 'cannot be checked')
+        expectAskMessage(reeditLong, 'cannot be checked')
+        expectAskMessage(editor, 'cannot be checked')
+      },
+    )
+  })
+
   test('does not treat PR footer opt-out as a generated commit attribution block', async () => {
     await withProjectSettings(
       { git: { addGeneratedWithFooter: false } },

@@ -16,7 +16,10 @@ export function setGovernancePolicySettingsForSourceForTesting(
 function getGovernanceSettingsForSource(
   source: SettingSource,
 ): SettingsJson | null {
-  return getSettingsForSourceForTesting?.(source) ?? getSettingsForSource(source)
+  if (getSettingsForSourceForTesting) {
+    return getSettingsForSourceForTesting(source)
+  }
+  return getSettingsForSource(source)
 }
 
 export function isMemoryWriteApprovalRequired(): boolean {
