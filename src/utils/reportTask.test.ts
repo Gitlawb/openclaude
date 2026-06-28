@@ -623,6 +623,73 @@ describe('task report generation', () => {
     )
   })
 
+  test('does not let task notifications override resolved foreground shell results', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000092',
+          'Run a foreground validation command.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000093',
+          {
+            id: 'tool-foreground-validation-conflict',
+            name: 'Bash',
+            input: {
+              command: 'bun test src/utils/reportTask.test.ts',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000094',
+          'tool-foreground-validation-conflict',
+          'Command failed with exit code 2.',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: 'failure',
+            interrupted: false,
+            exitCode: 2,
+          },
+        ),
+        userMessage(
+          '00000000-0000-4000-8000-000000000095',
+          `<task-notification>
+<task-id>unrelated-stale-task</task-id>
+<tool-use-id>tool-foreground-validation-conflict</tool-use-id>
+<output-file>/tmp/unrelated-stale-task.txt</output-file>
+<status>completed</status>
+<summary>Background command "bun test src/utils/reportTask.test.ts" completed (exit code 0)</summary>
+</task-notification>`,
+          '2026-06-27T08:02:03.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.toolUses).toEqual([
+          expect.objectContaining({
+            id: 'tool-foreground-validation-conflict',
+            status: 'error',
+          }),
+        ])
+        expect(report.validations).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-foreground-validation-conflict',
+            command: 'bun test src/utils/reportTask.test.ts',
+            status: 'error',
+            exitCode: 2,
+          }),
+        ])
+      },
+    )
+  })
+
   test('classifies validation commands from the raw Bash command before truncation', async () => {
     const longPrefix = 'echo setup && '.repeat(20)
     const rawCommand = `${longPrefix}bun test src/utils/reportTask.test.ts`

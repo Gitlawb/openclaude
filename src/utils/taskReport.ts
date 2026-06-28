@@ -231,7 +231,10 @@ export async function buildTaskReport(
     const result = toolResults.get(observed.id)
     const observedStatus = getObservedStatus(result)
     const status = isShellCommandTool(observed.name)
-      ? (taskNotificationStatuses.get(observed.id) ?? observedStatus)
+      ? reconcileShellStatus(
+          observedStatus,
+          taskNotificationStatuses.get(observed.id),
+        )
       : observedStatus
     const files = extractToolFiles(observed.name, observed.input, result)
     const changedFiles = extractChangedFiles(observed.name, observed.input, result)
@@ -676,6 +679,15 @@ function taskNotificationStatusToReportStatus(
   }
 }
 
+function reconcileShellStatus(
+  observedStatus: TaskReportStatus,
+  notificationStatus: TaskReportStatus | undefined,
+): TaskReportStatus {
+  return observedStatus === 'unknown'
+    ? (notificationStatus ?? observedStatus)
+    : observedStatus
+}
+
 function buildCommandReport(
   observed: ObservedToolUse,
   result: ObservedToolResult | undefined,
@@ -906,11 +918,16 @@ function extractMessageText(message: JsonRecord | null | undefined): string | un
 }
 
 function extractXmlTag(text: string, tagName: string): string | undefined {
-  const escapedTagName = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(
-    `<${escapedTagName}>([\\s\\S]*?)</${escapedTagName}>`,
-  ).exec(text)
-  const value = match?.[1]?.trim()
+  const openingTag = `<${tagName}>`
+  const closingTag = `</${tagName}>`
+  const valueStart = text.indexOf(openingTag)
+  if (valueStart === -1) return undefined
+
+  const contentStart = valueStart + openingTag.length
+  const valueEnd = text.indexOf(closingTag, contentStart)
+  if (valueEnd === -1) return undefined
+
+  const value = text.slice(contentStart, valueEnd).trim()
   return value || undefined
 }
 
