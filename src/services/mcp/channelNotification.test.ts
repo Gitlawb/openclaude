@@ -30,6 +30,11 @@ const _realChannelAllowlist = await import(
   `./channelAllowlist.js?real=${Date.now()}-${Math.random()}`
 )
 
+// Real auth module — captured before mocking so afterAll can restore it.
+const _realAuth = await import(
+  `../../utils/auth.js?real=${Date.now()}-${Math.random()}`
+)
+
 // Module-level mocks for the GrowthBook-backed helpers. The gate
 // reads these on every call; resetting between tests keeps the
 // scenarios independent.
@@ -47,9 +52,19 @@ mock.module('./channelAllowlist.js', () => ({
   },
 }))
 
+// Mock OAuth tokens so the gate passes on CI where no real auth exists.
+// Channels tests assume the OAuth/policy gates are bypassed; keeping
+// them in upstream/main means we need a fake token and unmanaged sub.
+mock.module('../../utils/auth.js', () => ({
+  ..._realAuth,
+  getClaudeAIOAuthTokens: () => ({ accessToken: 'fake-ci-token' }),
+  getSubscriptionType: () => null,
+}))
+
 afterAll(() => {
   mock.restore()
   mock.module('./channelAllowlist.js', () => _realChannelAllowlist)
+  mock.module('../../utils/auth.js', () => _realAuth)
 })
 
 function cap(extra: Record<string, unknown> = {}): ServerCapabilities {
@@ -189,6 +204,25 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
+  // Regression: when evilcorp (non-matching) sorts before anthropic
+  // (matching), findChannelEntry must disambiguate by runtime
+  // pluginSource rather than returning the first match. Previously
+  // the first-match behavior would lock onto evilcorp and reject
+  // a valid anthropic installation as a marketplace mismatch.
+  test('multi-candidate disambiguation: non-matching marketplace first', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'evilcorp' },
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    _allowlist = [{ marketplace: 'anthropic', plugin: 'slack' }]
+    const result = gateChannelServer(
+      'plugin:slack',
+      cap(),
+      'plugin:slack@anthropic',
+    )
+    expect(result.action).toBe('register')
+  })
+
   // 5. Plugin allowlist gate — entry kind=plugin and not on ledger.
   test('skips plugin not on the approved channels allowlist', () => {
     setAllowedChannels([
@@ -267,7 +301,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       return true
@@ -291,7 +325,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       return true
@@ -317,7 +351,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -345,7 +379,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -373,7 +407,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -402,7 +436,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels())
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false

@@ -11,15 +11,18 @@ import { type ChannelEntry, getAllowedChannels, getHasDevChannels } from '../../
 import { Box, Text } from '../../ink.js';
 import { isChannelsEnabled } from '../../services/mcp/channelAllowlist.js';
 import { getEffectiveChannelAllowlist } from '../../services/mcp/channelNotification.js';
-import { getSubscriptionType } from '../../utils/auth.js';
 import { getMcpConfigsByScope } from '../../services/mcp/config.js';
+import { getClaudeAIOAuthTokens, getSubscriptionType } from '../../utils/auth.js';
 import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsManager.js';
+import { getSettingsForSource } from '../../utils/settings/settings.js';
 export function ChannelsNotice() {
-  const $ = _c(16);
+  const $ = _c(32);
   const [t0] = useState(_temp);
   const {
     channels,
     disabled,
+    noAuth,
+    policyBlocked,
     list,
     unmatched
   } = t0;
@@ -55,44 +58,114 @@ export function ChannelsNotice() {
     }
     return t3;
   }
+  if (noAuth) {
+    let t1;
+    if ($[6] !== flag || $[7] !== list) {
+      t1 = <Text color="error">{flag} ignored ({list})</Text>;
+      $[6] = flag;
+      $[7] = list;
+      $[8] = t1;
+    } else {
+      t1 = $[8];
+    }
+    let t2;
+    if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
+      t2 = <Text dimColor={true}>Channels require claude.ai authentication · run /login, then restart</Text>;
+      $[9] = t2;
+    } else {
+      t2 = $[9];
+    }
+    let t3;
+    if ($[10] !== t1) {
+      t3 = <Box paddingLeft={2} flexDirection="column">{t1}{t2}</Box>;
+      $[10] = t1;
+      $[11] = t3;
+    } else {
+      t3 = $[11];
+    }
+    return t3;
+  }
+  if (policyBlocked) {
+    let t1;
+    if ($[12] !== flag || $[13] !== list) {
+      t1 = <Text color="error">{flag} blocked by org policy ({list})</Text>;
+      $[12] = flag;
+      $[13] = list;
+      $[14] = t1;
+    } else {
+      t1 = $[14];
+    }
+    let t2;
+    let t3;
+    if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
+      t2 = <Text dimColor={true}>Inbound messages will be silently dropped</Text>;
+      t3 = <Text dimColor={true}>Have an administrator set channelsEnabled: true in managed settings to enable</Text>;
+      $[15] = t2;
+      $[16] = t3;
+    } else {
+      t2 = $[15];
+      t3 = $[16];
+    }
+    let t4;
+    if ($[17] !== unmatched) {
+      t4 = unmatched.map(_temp3);
+      $[17] = unmatched;
+      $[18] = t4;
+    } else {
+      t4 = $[18];
+    }
+    let t5;
+    if ($[19] !== t1 || $[20] !== t4) {
+      t5 = <Box paddingLeft={2} flexDirection="column">{t1}{t2}{t3}{t4}</Box>;
+      $[19] = t1;
+      $[20] = t4;
+      $[21] = t5;
+    } else {
+      t5 = $[21];
+    }
+    return t5;
+  }
   let t1;
-  if ($[6] !== list) {
+  if ($[22] !== list) {
     t1 = <Text color="error">Listening for channel messages from: {list}</Text>;
-    $[6] = list;
-    $[7] = t1;
+    $[22] = list;
+    $[23] = t1;
   } else {
-    t1 = $[7];
+    t1 = $[23];
   }
   let t2;
-  if ($[8] !== flag) {
+  if ($[24] !== flag) {
     t2 = <Text dimColor={true}>Experimental · inbound messages will be pushed into this session, this carries prompt injection risks. Restart OpenClaude without {flag} to disable.</Text>;
-    $[8] = flag;
-    $[9] = t2;
+    $[24] = flag;
+    $[25] = t2;
   } else {
-    t2 = $[9];
+    t2 = $[25];
   }
   let t3;
-  if ($[10] !== unmatched) {
+  if ($[26] !== unmatched) {
     t3 = unmatched.map(_temp4);
-    $[10] = unmatched;
-    $[11] = t3;
+    $[26] = unmatched;
+    $[27] = t3;
   } else {
-    t3 = $[11];
+    t3 = $[27];
   }
   let t4;
-  if ($[12] !== t1 || $[13] !== t2 || $[14] !== t3) {
+  if ($[28] !== t1 || $[29] !== t2 || $[30] !== t3) {
     t4 = <Box paddingLeft={2} flexDirection="column">{t1}{t2}{t3}</Box>;
-    $[12] = t1;
-    $[13] = t2;
-    $[14] = t3;
-    $[15] = t4;
+    $[28] = t1;
+    $[29] = t2;
+    $[30] = t3;
+    $[31] = t4;
   } else {
-    t4 = $[15];
+    t4 = $[31];
   }
   return t4;
 }
 function _temp4(u_0) {
   return <Text key={`${formatEntry(u_0.entry)}:${u_0.why}`} color="warning">{formatEntry(u_0.entry)} · {u_0.why}</Text>;
+}
+function _temp3(u) {
+  return <Text key={`${formatEntry(u.entry)}:${u.why}`} color="warning">{formatEntry(u.entry)} · {u.why}</Text>;
 }
 function _temp2(c) {
   return !c.dev;
@@ -103,15 +176,22 @@ function _temp() {
     return {
       channels: ch,
       disabled: false,
+      noAuth: false,
+      policyBlocked: false,
       list: "",
       unmatched: [] as Unmatched[]
     };
   }
   const l = ch.map(formatEntry).join(", ");
-  const allowlist = getEffectiveChannelAllowlist(getSubscriptionType(), undefined);
+  const sub = getSubscriptionType();
+  const managed = sub === "team" || sub === "enterprise";
+  const policy = getSettingsForSource("policySettings");
+  const allowlist = getEffectiveChannelAllowlist(sub, policy?.allowedChannelPlugins);
   return {
     channels: ch,
     disabled: !isChannelsEnabled(),
+    noAuth: !getClaudeAIOAuthTokens()?.accessToken,
+    policyBlocked: managed && policy?.channelsEnabled !== true,
     list: l,
     unmatched: findUnmatched(ch, allowlist)
   };
@@ -177,7 +257,7 @@ function findUnmatched(entries: readonly ChannelEntry[], allowlist: ReturnType<t
     if (!entry.dev && !allowed.some(e => e.plugin === entry.name && e.marketplace === entry.marketplace)) {
       out.push({
         entry,
-        why: 'not on the approved channels allowlist'
+        why: source === 'org' ? "not on your org's approved channels list" : 'not on the approved channels allowlist'
       });
     }
   }
