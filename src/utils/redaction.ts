@@ -495,13 +495,14 @@ export function redactUrlForDisplay(rawUrl: string): string {
           /:[0-9]+$/.test(hostPart);
 
         if (
-          hostname.includes(".") ||
-          hostname === "localhost" ||
-          /^\[/.test(hostname) ||
-          hostEnd !== -1 ||
-          // Bare hostname (no dot, no path) — e.g. "host" or "host:443"
-          // Only apply if there's no valid host before the #
-          (!hasValidHostBeforeHash && /^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(hostCandidate))
+          !hasValidHostBeforeHash &&
+          (hostname.includes(".") ||
+            hostname === "localhost" ||
+            /^\[/.test(hostname) ||
+            hostEnd !== -1 ||
+            // Bare hostname (no dot, no path) — e.g. "host" or "host:443"
+            // Only apply if there's no valid host before the #
+            /^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(hostCandidate))
         ) {
           // @ after # followed by hostname-like → # is in password
           userinfoRedacted = rawUrl.replace(
