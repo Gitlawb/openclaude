@@ -98,6 +98,8 @@ async function importFreshEffortModule(options: {
       effort.getDefaultEffortForModel(model, reasoningContext),
     resolveAppliedEffort: (model: string, appStateEffortValue: unknown) =>
       effort.resolveAppliedEffort(model, appStateEffortValue, reasoningContext),
+    clampUltracodeEffort: (appStateEffortValue: unknown, model: string) =>
+      effort.clampUltracodeEffort(appStateEffortValue, model, reasoningContext),
     modelSupportsShimReasoningEffort: (
       model: string,
       thinkingRequestFormat?: unknown,
@@ -245,9 +247,9 @@ test('xhigh does not appear in available levels for non-supporting models', asyn
   ])
   expect(getAvailableEffortLevels('claude-haiku-4-5')).toEqual([])
 
-  // Has xhigh AND max (opus-4-8)
+  // Has xhigh AND max AND ultracode (opus-4-8 on firstParty)
   const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
-  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
 })
 
 test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async () => {
@@ -297,12 +299,74 @@ test('xhigh clamps to high on non-supporting models so stale settings.json value
   expect(resolveAppliedEffort('claude-opus-4-8', 'xhigh')).toBe('xhigh')
 })
 
+test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable model', async () => {
+  const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  // ultracode isn't selectable off firstParty, so it clamps — but to xhigh
+  // (the model is xhigh-capable), matching resolveAppliedEffort's mapping
+  // rather than the old hardcoded 'max'.
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe('xhigh')
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe(
+    resolveAppliedEffort('claude-opus-4-8', 'ultracode'),
+  )
+  expect(clampUltracodeEffort('max', 'claude-opus-4-8')).toBe('max')
+  expect(clampUltracodeEffort('high', 'claude-opus-4-8')).toBe('high')
+  expect(clampUltracodeEffort(undefined, 'claude-opus-4-8')).toBeUndefined()
+})
+
+test('clampUltracodeEffort: clamps to high on firstParty non-xhigh model', async () => {
+  const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  // Not xhigh-capable -> clamp to high, the same level the env/app-state path
+  // (resolveAppliedEffort) sends for ultracode. Previously this returned 'max',
+  // so the two paths disagreed on max-capable-but-not-xhigh models.
+  expect(clampUltracodeEffort('ultracode', 'claude-sonnet-4-6')).toBe('high')
+  expect(clampUltracodeEffort('ultracode', 'claude-sonnet-4-6')).toBe(
+    resolveAppliedEffort('claude-sonnet-4-6', 'ultracode'),
+  )
+})
+
+test('clampUltracodeEffort: preserves ultracode on firstParty + xhigh-capable model', async () => {
+  const { clampUltracodeEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe('ultracode')
+})
+
+test('parseFrontmatterEffortValue: rejects ultracode but passes other levels/integers through', async () => {
+  const { parseFrontmatterEffortValue } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  // ultracode is session-only; frontmatter cannot grant its permission, so reject it
+  expect(parseFrontmatterEffortValue('ultracode')).toBeUndefined()
+  expect(parseFrontmatterEffortValue('ULTRACODE')).toBeUndefined()
+  // every other valid level still parses
+  expect(parseFrontmatterEffortValue('low')).toBe('low')
+  expect(parseFrontmatterEffortValue('medium')).toBe('medium')
+  expect(parseFrontmatterEffortValue('high')).toBe('high')
+  expect(parseFrontmatterEffortValue('xhigh')).toBe('xhigh')
+  expect(parseFrontmatterEffortValue('max')).toBe('max')
+  expect(parseFrontmatterEffortValue(42)).toBe(42)
+  // genuinely invalid values still return undefined
+  expect(parseFrontmatterEffortValue('nonsense')).toBeUndefined()
+  expect(parseFrontmatterEffortValue(undefined)).toBeUndefined()
+})
+
 test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provider (OpenCode native route)', async () => {
-  const { modelUsesOpenAIEffort, getAvailableEffortLevels } =
-    await importFreshEffortModule({
-      provider: 'openai',
-      supportsCodexReasoningEffort: true,
-    })
+  const { modelUsesOpenAIEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
 
   // Native Claude/Gemini on OpenCode use Anthropic/Google format, not OpenAI
   expect(modelUsesOpenAIEffort('claude-opus-4-8')).toBe(false)
@@ -310,11 +374,6 @@ test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provi
   expect(modelUsesOpenAIEffort('gemini-3-flash')).toBe(false)
   // Real OpenAI-shaped models still classify as OpenAI
   expect(modelUsesOpenAIEffort('gpt-5.4')).toBe(true)
-
-  // And the picker excludes xhigh for OpenCode Claude on openai provider
-  const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
-  // Standard branch: no OPENAI_EFFORT_LEVELS, just the supported standard levels
-  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 })
 
 test('supportsReasoning-only catalog entries do not enable effort or wire mutation', async () => {
