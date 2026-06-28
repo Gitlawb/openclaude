@@ -178,6 +178,13 @@ describe("diagnostic redaction", () => {
     ).toBe("https://redacted@example.com/v1?token=redacted");
   });
 
+  test("redacts userinfo with # in password for bare host (no path)", () => {
+    expect(redactDiagnosticUrl("//alice:sec#ret@host")).toBe("//redacted@host");
+    expect(redactDiagnosticUrl("//alice:sec#ret@host:443")).toBe(
+      "//redacted@host:443",
+    );
+  });
+
   test("redacts semicolon-delimited sensitive query params", () => {
     // The `;` separator is normalized to `&` during redaction.
     expect(
