@@ -168,6 +168,35 @@ describe('redactUrlForDisplay', () => {
     // Fragment is dropped to match the valid-URL path.
     expect(redacted).toBe('//api.example.com')
   })
+  // Regression: the valid-URL path must pre-redact semicolon-delimited
+  // sensitive query params from the raw query before URLSearchParams
+  // percent-encodes `;` as `%3B`, leaving them invisible to the
+  // post-process pass.  Previously `model=ok;token=SECRET` leaked the
+  // token value because parsed.toString() reserialized it as
+  // `model=ok%3Btoken%3DSECRET` before redactSemicolonQueryParams ran.
+  test('redacts semicolon-delimited token alongside &-delimited api_key', () => {
+    expect(
+      redactUrlForDisplay(
+        'https://api.example.com/v1?model=ok;token=SECRET&api_key=KEY',
+      ),
+    ).toBe(
+      'https://api.example.com/v1?model=ok&token=redacted&api_key=redacted',
+    )
+  })
+
+  test('redacts semicolon-delimited token without &-delimited params', () => {
+    expect(
+      redactUrlForDisplay('https://api.example.com/v1?mode=ok;token=SECRET'),
+    ).toBe('https://api.example.com/v1?mode=ok&token=redacted')
+  })
+
+  test('redacts semicolon-delimited api_key in mixed-separator query', () => {
+    expect(
+      redactUrlForDisplay(
+        'https://api.example.com/v1?mode=ok;api_key=KEY&model=llama',
+      ),
+    ).toBe('https://api.example.com/v1?mode=ok&api_key=redacted&model=llama')
+  })
 })
 
 describe('shouldRedactUrlQueryParam', () => {

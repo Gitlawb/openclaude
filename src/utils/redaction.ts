@@ -425,6 +425,38 @@ export function redactUrlForDisplay(rawUrl: string): string {
       parsed.password = "redacted";
     }
 
+    // Pre-redact semicolon-delimited sensitive query params from the raw
+    // query string. URLSearchParams percent-encodes `;` as `%3B`, so the
+    // post-process pass (redactSemicolonQueryParams) cannot find
+    // `;token=SECRET` after parsed.toString() reserializes the URL.
+    const qsStart = rawUrl.indexOf("?");
+    if (qsStart !== -1) {
+      const hashIdx = rawUrl.indexOf("#", qsStart);
+      const rawQuery =
+        hashIdx === -1
+          ? rawUrl.slice(qsStart + 1)
+          : rawUrl.slice(qsStart + 1, hashIdx);
+      const cleaned = rawQuery
+        .split(/[&;]/)
+        .map((pair) => {
+          const eqIdx = pair.indexOf("=");
+          if (eqIdx === -1) return pair;
+          const rawKey = pair.slice(0, eqIdx);
+          let key: string;
+          try {
+            key = decodeURIComponent(rawKey);
+          } catch {
+            key = rawKey;
+          }
+          if (shouldRedactUrlQueryParam(key)) {
+            return `${rawKey}=redacted`;
+          }
+          return pair;
+        })
+        .join("&");
+      parsed.search = cleaned;
+    }
+
     for (const key of parsed.searchParams.keys()) {
       if (shouldRedactUrlQueryParam(key)) {
         parsed.searchParams.set(key, "redacted");
@@ -432,7 +464,7 @@ export function redactUrlForDisplay(rawUrl: string): string {
     }
 
     parsed.hash = "";
-    return redactSemicolonQueryParams(parsed.toString());
+    return parsed.toString();
   } catch {
     const userinfoRedacted = rawUrl.replace(
       /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
