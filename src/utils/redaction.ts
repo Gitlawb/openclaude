@@ -704,11 +704,18 @@ export function redactDiagnosticUrl(
   const rest = qMark === -1 ? "" : rendered.slice(qMark);
 
   // Strip any remaining `//redacted@` or `//redacted:redacted@` placeholder
-  // that `redactUrlForDisplay` emitted, then trim trailing slashes — both
-  // scoped to the authority/path only.
+  // that `redactUrlForDisplay` emitted. Scoped to the authority/path portion
+  // only — the query string (`rest`) is left completely untouched.
+  //
+  // Trailing-slash trimming is intentionally narrow: only remove the bare
+  // root slash appended by URL serialization when the URL has no path
+  // (e.g. `https://host/` → `https://host`). A path like `/v1/` is
+  // meaningful and must be preserved.
   const cleanedAuthority = authority
     .replace(/\/\/(?:redacted(?::redacted)?)?@/g, "//")
-    .replace(/\/+$/, "");
+    // Match `//host/` or `//host:port/` at end-of-string only — the slash
+    // immediately follows the host with no intervening path segment.
+    .replace(/(\/\/[^/]+)\/+$/, "$1");
 
   return cleanedAuthority + rest;
 }

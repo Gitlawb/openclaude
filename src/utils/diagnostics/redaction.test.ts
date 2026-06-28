@@ -213,11 +213,16 @@ describe("diagnostic redaction", () => {
   });
 
   test("preserves trailing slash on path before query string", () => {
-    // Trailing-slash trimming must be scoped to the authority/path, not the
-    // whole rendered URL, so a query value that ends with `/` is preserved.
+    // Trailing-slash trimming must only strip the bare root slash that the
+    // URL serializer appends when there is no path (e.g. `https://host/`).
+    // A meaningful path segment like `/v1/` must be left intact.
     expect(
       redactDiagnosticUrl("https://api.example.com/v1/?mode=safe&path=foo/"),
-    ).toBe("https://api.example.com/v1?mode=safe&path=foo/");
+    ).toBe("https://api.example.com/v1/?mode=safe&path=foo/");
+    // Bare root slash (no path) IS trimmed.
+    expect(redactDiagnosticUrl("https://api.example.com/")).toBe(
+      "https://api.example.com",
+    );
   });
 });
 
