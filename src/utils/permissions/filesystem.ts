@@ -1651,25 +1651,24 @@ export function checkEditableInternalPath(
     }
   }
 
-  // Memdir directory (persistent memory for cross-session learning)
-  // This pre-safety-check carve-out exists because the default path is under
-  // ~/.claude/, which is in DANGEROUS_DIRECTORIES. The CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
-  // override is an arbitrary caller-designated directory with no such conflict,
-  // so it gets NO special permission treatment here — writes go through normal
-  // permission flow (step 5 → ask). SDK callers who want silent memory should
-  // pass an allow rule for the override path.
-  if (!hasAutoMemPathOverride() && isAutoMemPath(normalizedPath)) {
-    if (isMemoryWriteApprovalRequired()) {
-      return {
-        behavior: 'ask',
-        message: `${PRODUCT_DISPLAY_NAME} wants to save persistent memory. Approve this memory write?`,
-        decisionReason: {
-          type: 'safetyCheck',
-          reason: 'Persistent memory writes require explicit approval',
-          classifierApprovable: false,
-        },
-      }
+  // Memdir directory (persistent memory for cross-session learning).
+  // Explicit memory-write approval applies even when the env override points
+  // memory at a caller-designated directory. The silent pre-safety-check
+  // carve-out below exists only for the default/settings-backed path because
+  // it can live under ~/.claude/, which is in DANGEROUS_DIRECTORIES.
+  if (isAutoMemPath(normalizedPath) && isMemoryWriteApprovalRequired()) {
+    return {
+      behavior: 'ask',
+      message: `${PRODUCT_DISPLAY_NAME} wants to save persistent memory. Approve this memory write?`,
+      decisionReason: {
+        type: 'safetyCheck',
+        reason: 'Persistent memory writes require explicit approval',
+        classifierApprovable: false,
+      },
     }
+  }
+
+  if (!hasAutoMemPathOverride() && isAutoMemPath(normalizedPath)) {
     return {
       behavior: 'allow',
       updatedInput: input,
