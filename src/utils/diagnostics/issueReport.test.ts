@@ -59,8 +59,9 @@ describe("diagnostic issue report", () => {
     expect(report.provider.credential.present).toBe(true);
     expect(report.provider.credential.sources).toEqual(["OPENAI_API_KEY"]);
     expect(report.provider.baseUrl).toBe(
-      "https://redacted@api.openai.com/v1?api_key=[REDACTED]&mode=test",
+      "https://api.openai.com/v1?api_key=[REDACTED]&mode=test",
     );
+    expect(serialized).not.toMatch(/\/\/[^/]*@/);
     expect(report.mcp.transports).toEqual({ stdio: 1, http: 1 });
     expect(report.errors.recent).toEqual([{ category: "Error", count: 1 }]);
     expect(report.redaction.secretsIncluded).toBe(false);

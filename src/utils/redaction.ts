@@ -692,7 +692,9 @@ export function redactDiagnosticUrl(
   rawUrl: string | undefined,
 ): string | undefined {
   if (!rawUrl) return undefined;
-  return redactUrlForDisplay(rawUrl).replace(/\/+$/, "");
+  return redactUrlForDisplay(rawUrl)
+    .replace(/\/+$/, "")
+    .replace(/\/\/(?:redacted(?::redacted)?)?@/g, "//");
 }
 
 export function redactHomePath(value: string, homeDir = homedir()): string {

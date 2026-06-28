@@ -165,7 +165,7 @@ describe("diagnostic redaction", () => {
         "https://user:pass@example.com/v1?api_key=secret&mode=test&token=abc",
       ),
     ).toBe(
-      "https://redacted:redacted@example.com/v1?api_key=redacted&mode=test&token=redacted",
+      "https://example.com/v1?api_key=redacted&mode=test&token=redacted",
     );
   });
 
@@ -175,13 +175,13 @@ describe("diagnostic redaction", () => {
     // regex replaces the whole `//user:pass@` span at once.
     expect(
       redactDiagnosticUrl("https://alice:pa#ss@example.com/v1?token=abc"),
-    ).toBe("https://redacted@example.com/v1?token=redacted");
+    ).toBe("https://example.com/v1?token=redacted");
   });
 
   test("redacts userinfo with # in password for bare host (no path)", () => {
-    expect(redactDiagnosticUrl("//alice:sec#ret@host")).toBe("//redacted@host");
+    expect(redactDiagnosticUrl("//alice:sec#ret@host")).toBe("//host");
     expect(redactDiagnosticUrl("//alice:sec#ret@host:443")).toBe(
-      "//redacted@host:443",
+      "//host:443",
     );
   });
 
