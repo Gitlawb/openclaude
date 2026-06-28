@@ -267,7 +267,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       return true
@@ -291,7 +291,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       return true
@@ -317,7 +317,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -345,7 +345,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -373,7 +373,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false
@@ -402,7 +402,7 @@ describe('filterPermissionRelayClients', () => {
       },
     ]
     const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
-      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      const entry = findChannelEntry(name, getAllowedChannels())
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       if (!pluginSource) return false

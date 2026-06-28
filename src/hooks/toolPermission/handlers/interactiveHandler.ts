@@ -333,7 +333,7 @@ function handleInteractivePermission(
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
       (name, pluginSource) => {
-        const entry = findChannelEntry(name, allowedChannels, pluginSource)
+        const entry = findChannelEntry(name, allowedChannels)
         if (!entry) return false
         if (entry.kind === 'server') return entry.dev === true
         // Plugin-kind: require a runtime source whose marketplace

@@ -11,6 +11,7 @@ import { type ChannelEntry, getAllowedChannels, getHasDevChannels } from '../../
 import { Box, Text } from '../../ink.js';
 import { isChannelsEnabled } from '../../services/mcp/channelAllowlist.js';
 import { getEffectiveChannelAllowlist } from '../../services/mcp/channelNotification.js';
+import { getSubscriptionType } from '../../utils/auth.js';
 import { getMcpConfigsByScope } from '../../services/mcp/config.js';
 import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsManager.js';
 export function ChannelsNotice() {
@@ -107,7 +108,7 @@ function _temp() {
     };
   }
   const l = ch.map(formatEntry).join(", ");
-  const allowlist = getEffectiveChannelAllowlist();
+  const allowlist = getEffectiveChannelAllowlist(getSubscriptionType(), undefined);
   return {
     channels: ch,
     disabled: !isChannelsEnabled(),
