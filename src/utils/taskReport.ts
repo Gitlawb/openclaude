@@ -12,6 +12,11 @@ import {
 import { execa } from 'execa'
 
 import {
+  STATUS_TAG,
+  TASK_NOTIFICATION_TAG,
+  TOOL_USE_ID_TAG,
+} from '../constants/xml.js'
+import {
   redactDiagnosticObject,
   redactHomePath,
   redactLikelySecrets,
@@ -208,6 +213,7 @@ export async function buildTaskReport(
     findSessionId(entries) ?? basenameWithoutExtension(transcriptPath)
   const metadata = collectSessionMetadata(entries, maxPreviewChars)
   const toolResults = collectToolResults(entries)
+  const taskNotificationStatuses = collectTaskNotificationStatuses(entries)
   const observedToolUses = collectToolUses(entries)
   const changedFileSources = new Map<string, Set<'tool' | 'git'>>()
   const errors: TaskReportError[] = []
@@ -223,7 +229,10 @@ export async function buildTaskReport(
 
   for (const observed of observedToolUses) {
     const result = toolResults.get(observed.id)
-    const status = getObservedStatus(result)
+    const observedStatus = getObservedStatus(result)
+    const status = isShellCommandTool(observed.name)
+      ? (taskNotificationStatuses.get(observed.id) ?? observedStatus)
+      : observedStatus
     const files = extractToolFiles(observed.name, observed.input, result)
     const changedFiles = extractChangedFiles(observed.name, observed.input, result)
     for (const file of changedFiles) {
@@ -628,6 +637,45 @@ function collectToolResults(entries: JsonRecord[]): Map<string, ObservedToolResu
   return results
 }
 
+function collectTaskNotificationStatuses(
+  entries: JsonRecord[],
+): Map<string, TaskReportStatus> {
+  const statuses = new Map<string, TaskReportStatus>()
+  for (const entry of entries) {
+    if (isToolResultEntry(entry)) continue
+
+    const text = extractRawMessageText(recordValue(entry.message))
+    if (!text?.includes(`<${TASK_NOTIFICATION_TAG}`)) continue
+
+    const toolUseId = extractXmlTag(text, TOOL_USE_ID_TAG)
+    if (!toolUseId) continue
+
+    const status = taskNotificationStatusToReportStatus(
+      extractXmlTag(text, STATUS_TAG),
+    )
+    if (status) {
+      statuses.set(toolUseId, status)
+    }
+  }
+  return statuses
+}
+
+function taskNotificationStatusToReportStatus(
+  status: string | undefined,
+): TaskReportStatus | undefined {
+  switch (status) {
+    case 'completed':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'killed':
+    case 'stopped':
+      return 'cancelled'
+    default:
+      return undefined
+  }
+}
+
 function buildCommandReport(
   observed: ObservedToolUse,
   result: ObservedToolResult | undefined,
@@ -816,6 +864,26 @@ function unknownToString(value: unknown): string | undefined {
   return undefined
 }
 
+function extractRawMessageText(
+  message: JsonRecord | null | undefined,
+): string | undefined {
+  if (!message) return undefined
+  const content = message.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return undefined
+  const parts = content
+    .map(block => {
+      if (typeof block === 'string') return block
+      if (!isRecord(block)) return undefined
+      if (block.type === 'text' && typeof block.text === 'string') {
+        return block.text
+      }
+      return undefined
+    })
+    .filter((part): part is string => Boolean(part?.trim()))
+  return parts.length > 0 ? parts.join('\n') : undefined
+}
+
 function extractMessageText(message: JsonRecord | null | undefined): string | undefined {
   if (!message) return undefined
   const content = message.content
@@ -835,6 +903,15 @@ function extractMessageText(message: JsonRecord | null | undefined): string | un
     })
     .filter((part): part is string => Boolean(part?.trim()))
   return parts.length > 0 ? redact(parts.join('\n')) : undefined
+}
+
+function extractXmlTag(text: string, tagName: string): string | undefined {
+  const escapedTagName = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(
+    `<${escapedTagName}>([\\s\\S]*?)</${escapedTagName}>`,
+  ).exec(text)
+  const value = match?.[1]?.trim()
+  return value || undefined
 }
 
 function collectLinkedReferences(

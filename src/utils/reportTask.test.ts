@@ -484,6 +484,145 @@ describe('task report generation', () => {
     )
   })
 
+  test('reconciles completed backgrounded validation notifications', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000084',
+          'Run tests in the background.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000085',
+          {
+            id: 'tool-background-validation-complete',
+            name: 'Bash',
+            input: {
+              command: 'bun test src/utils/reportTask.test.ts',
+              run_in_background: true,
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000086',
+          'tool-background-validation-complete',
+          'Command running in background with ID: bg-report-tests.',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: '',
+            interrupted: false,
+            backgroundTaskId: 'bg-report-tests',
+          },
+        ),
+        userMessage(
+          '00000000-0000-4000-8000-000000000087',
+          [
+            {
+              type: 'text',
+              text: `<task-notification>
+<task-id>bg-report-tests</task-id>
+<tool-use-id>tool-background-validation-complete</tool-use-id>
+<output-file>/tmp/bg-report-tests.txt</output-file>
+<status>completed</status>
+<summary>Background command "bun test src/utils/reportTask.test.ts" completed (exit code 0)</summary>
+</task-notification>`,
+            },
+          ],
+          '2026-06-27T08:02:03.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.toolUses).toEqual([
+          expect.objectContaining({
+            id: 'tool-background-validation-complete',
+            status: 'success',
+          }),
+        ])
+        expect(report.validations).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-background-validation-complete',
+            command: 'bun test src/utils/reportTask.test.ts',
+            status: 'success',
+          }),
+        ])
+      },
+    )
+  })
+
+  test('reconciles failed backgrounded validation notifications', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000088',
+          'Run checks in the background.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000089',
+          {
+            id: 'tool-background-validation-fail',
+            name: 'PowerShell',
+            input: {
+              command: 'bun run typecheck',
+              run_in_background: true,
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000090',
+          'tool-background-validation-fail',
+          'Command running in background with ID: bg-typecheck.',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: '',
+            interrupted: false,
+            backgroundTaskId: 'bg-typecheck',
+          },
+        ),
+        userMessage(
+          '00000000-0000-4000-8000-000000000091',
+          `<task-notification>
+<task-id>bg-typecheck</task-id>
+<tool-use-id>tool-background-validation-fail</tool-use-id>
+<output-file>/tmp/bg-typecheck.txt</output-file>
+<status>failed</status>
+<summary>Background command "bun run typecheck" failed with exit code 2</summary>
+</task-notification>`,
+          '2026-06-27T08:02:03.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+
+        expect(report.toolUses).toEqual([
+          expect.objectContaining({
+            id: 'tool-background-validation-fail',
+            status: 'error',
+          }),
+        ])
+        expect(report.validations).toEqual([
+          expect.objectContaining({
+            toolUseId: 'tool-background-validation-fail',
+            command: 'bun run typecheck',
+            status: 'error',
+          }),
+        ])
+      },
+    )
+  })
+
   test('classifies validation commands from the raw Bash command before truncation', async () => {
     const longPrefix = 'echo setup && '.repeat(20)
     const rawCommand = `${longPrefix}bun test src/utils/reportTask.test.ts`
