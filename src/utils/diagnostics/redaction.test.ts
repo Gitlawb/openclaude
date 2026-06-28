@@ -224,6 +224,21 @@ describe("diagnostic redaction", () => {
       "https://api.example.com",
     );
   });
+
+  test("does not mangle //redacted@ literal inside a path segment", () => {
+    // A proxy route whose path contains the literal text `//redacted@other`
+    // must survive the credential-strip pass unchanged. Previously the
+    // full-string regex would corrupt this path content.
+    expect(
+      redactDiagnosticUrl("https://host/path//redacted@other?x=1"),
+    ).toBe("https://host/path//redacted@other?x=1");
+  });
+
+  test("preserves double-slash path https://host//", () => {
+    // A URL with `//` in the path must not be collapsed to `https://host` by
+    // the trailing-slash trim, which is now scoped to bare-root only.
+    expect(redactDiagnosticUrl("https://host//")).toBe("https://host//");
+  });
 });
 
 describe("redactSensitiveInfo", () => {

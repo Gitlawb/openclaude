@@ -694,30 +694,67 @@ export function redactDiagnosticUrl(
   if (!rawUrl) return undefined;
   const rendered = redactUrlForDisplay(rawUrl);
 
-  // Split at the first `?` so we only mutate the scheme+authority+path
-  // segment. A full-string replacement is unsafe: `//user@host` can appear
-  // legitimately inside query-param values (e.g. a redirect_uri), and
-  // trimming trailing slashes from the whole string would clip a query value
-  // that ends with `/`.
-  const qMark = rendered.indexOf("?");
-  const authority = qMark === -1 ? rendered : rendered.slice(0, qMark);
-  const rest = qMark === -1 ? "" : rendered.slice(qMark);
-
-  // Strip any remaining `//redacted@` or `//redacted:redacted@` placeholder
-  // that `redactUrlForDisplay` emitted. Scoped to the authority/path portion
-  // only — the query string (`rest`) is left completely untouched.
+  // Use the URL parser on the already-redacted output to locate the precise
+  // authority boundary. Both mutations are scoped exactly:
   //
-  // Trailing-slash trimming is intentionally narrow: only remove the bare
-  // root slash appended by URL serialization when the URL has no path
-  // (e.g. `https://host/` → `https://host`). A path like `/v1/` is
-  // meaningful and must be preserved.
-  const cleanedAuthority = authority
-    .replace(/\/\/(?:redacted(?::redacted)?)?@/g, "//")
-    // Match `//host/` or `//host:port/` at end-of-string only — the slash
-    // immediately follows the host with no intervening path segment.
-    .replace(/(\/\/[^/]+)\/+$/, "$1");
+  //   1. Userinfo strip — only the `scheme://[userinfo@]host:port` prefix.
+  //      Path content (including any literal `//redacted@` in a proxy route)
+  //      is never touched.
+  //
+  //   2. Trailing-slash trim — only when pathname === "/" (the bare root
+  //      slash URL serialization appends when there is no real path).
+  //      Meaningful paths like `/v1/` or `//proxy` are preserved as-is.
+  try {
+    const parsed = new URL(rendered);
+    let result = rendered;
 
-  return cleanedAuthority + rest;
+    // 1. Strip userinfo: find the `@` that belongs to the authority by
+    //    searching backwards from just before the pathname starts. This
+    //    avoids matching `@` characters that appear in path segments.
+    if (parsed.username || parsed.password) {
+      const schemeLen = parsed.protocol.length + 2; // "https://".length
+      const pathStart = result.indexOf(parsed.pathname, schemeLen);
+      if (pathStart !== -1) {
+        const atIdx = result.lastIndexOf("@", pathStart - 1);
+        if (atIdx >= schemeLen) {
+          result = result.slice(0, schemeLen) + result.slice(atIdx + 1);
+        }
+      }
+    }
+
+    // 2. Trim the bare root slash only when pathname is exactly "/".
+    //    Re-parse after the userinfo strip to get an accurate pathStart.
+    if (parsed.pathname === "/") {
+      const schemeLen = parsed.protocol.length + 2;
+      const reparsed = new URL(result);
+      const pathIdx = result.indexOf(reparsed.pathname, schemeLen);
+      if (pathIdx !== -1) {
+        const nextChar = result[pathIdx + 1];
+        if (nextChar === undefined || nextChar === "?" || nextChar === "#") {
+          result = result.slice(0, pathIdx) + result.slice(pathIdx + 1);
+        }
+      }
+    }
+
+    return result;
+  } catch {
+    // Fallback for protocol-relative and other URLs the parser rejects.
+    // Scope the userinfo strip to the first `//…@host` segment only.
+    const schemeEnd = rendered.indexOf("//");
+    if (schemeEnd === -1) return rendered;
+    const afterSlashes = rendered.slice(schemeEnd + 2);
+    const slashAfterHost = afterSlashes.search(/[/?#]/);
+    const hostPart =
+      slashAfterHost === -1 ? afterSlashes : afterSlashes.slice(0, slashAfterHost);
+    const atInHost = hostPart.indexOf("@");
+    let result =
+      atInHost === -1
+        ? rendered
+        : rendered.slice(0, schemeEnd + 2) + afterSlashes.slice(atInHost + 1);
+    // Trim bare root slash for `//host/` form (no real path).
+    result = result.replace(/(\/\/[^/]+)\/+$/, "$1");
+    return result;
+  }
 }
 
 export function redactHomePath(value: string, homeDir = homedir()): string {
