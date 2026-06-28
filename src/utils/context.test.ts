@@ -4,6 +4,7 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sh
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata.ts'
 import {
+  calculateContextPercentages,
   getContextWindowForModel,
   getModelMaxOutputTokens,
   modelSupports1M,
@@ -114,6 +115,22 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+test('calculateContextPercentages preserves tiny nonzero usage', () => {
+  expect(
+    calculateContextPercentages(
+      {
+        input_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      1_000_000,
+    ),
+  ).toEqual({
+    used: 0.01,
+    remaining: 99.99,
+  })
 })
 
 test('deepseek-v4-flash uses the gateway-safe output cap by default', () => {

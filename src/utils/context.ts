@@ -235,14 +235,16 @@ export function calculateContextPercentages(
     currentUsage.cache_creation_input_tokens +
     currentUsage.cache_read_input_tokens
 
-  const usedPercentage = Math.round(
-    (totalInputTokens / contextWindowSize) * 100,
-  )
+  const rawUsedPercentage = (totalInputTokens / contextWindowSize) * 100
+  const usedPercentage =
+    rawUsedPercentage > 0 && rawUsedPercentage < 0.01
+      ? 0.01
+      : Math.round(rawUsedPercentage * 100) / 100
   const clampedUsed = Math.min(100, Math.max(0, usedPercentage))
 
   return {
     used: clampedUsed,
-    remaining: 100 - clampedUsed,
+    remaining: Math.max(0, Math.round((100 - clampedUsed) * 100) / 100),
   }
 }
 

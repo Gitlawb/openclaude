@@ -58,6 +58,25 @@ describe('buildBuiltinStatusSegments', () => {
     expect(at(90)).toBe('error')
   })
 
+  it('colors context by the displayed rounded percentage', () => {
+    const at = (pct: number) =>
+      buildBuiltinStatusSegments({ ...fullData, contextUsedPercent: pct }).find(
+        s => s.key === 'context',
+      )
+
+    expect(at(69.6)).toMatchObject({ text: 'ctx 70%', color: 'warning' })
+    expect(at(89.6)).toMatchObject({ text: 'ctx 90%', color: 'error' })
+  })
+
+  it('shows sub-one-percent context usage as nonzero', () => {
+    const context = buildBuiltinStatusSegments({
+      ...fullData,
+      contextUsedPercent: 0.01,
+    }).find(s => s.key === 'context')
+
+    expect(context?.text).toBe('ctx <1%')
+  })
+
   it('colors rate limit by usage thresholds', () => {
     const at = (pct: number) =>
       buildBuiltinStatusSegments({
