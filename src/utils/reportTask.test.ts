@@ -9,6 +9,7 @@ import {
   formatTaskReportAsJson,
   type TaskReportGitMetadata,
 } from './taskReport.js'
+import { redactHomePath } from './diagnostics/redaction.js'
 
 const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const cwd = '/workspace/openclaude'
@@ -918,7 +919,7 @@ describe('task report generation', () => {
     )
     expect(metadata).toEqual({
       status: 'available',
-      cwd: repoDir,
+      cwd: redactHomePath(repoDir),
       branch: 'feat/report',
       head: '13cf30afa469',
       changedFiles: [],
