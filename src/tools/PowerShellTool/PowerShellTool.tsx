@@ -17,6 +17,7 @@ import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { errorMessage as getErrorMessage, ShellError } from '../../utils/errors.js';
 import { truncate } from '../../utils/format.js';
+import { findForbiddenCommitMessagePattern, getForbiddenCommitMessagePatterns, isGeneratedCommitAttributionBlocked } from '../../utils/governancePolicy.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { logError } from '../../utils/log.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
@@ -204,6 +205,167 @@ export function detectBlockedSleepPattern(command: string): string | null {
   return rest ? `Start-Sleep ${secs} followed by: ${rest}` : `standalone Start-Sleep ${secs}`;
 }
 
+function takePowerShellToken(input: string): string | null {
+  const match = input.match(/^(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;|&()]+)/);
+  return match?.[0] ?? null;
+}
+
+function normalizePowerShellGitCommitCommand(command: string): string | null {
+  const normalizedInput = command
+    .trimStart()
+    .replace(/^&\s*(?=(?:"git(?:\.exe)?"|'git(?:\.exe)?'|git(?:\.exe)?\s+))/i, '');
+  const gitMatch = normalizedInput.match(/^(?:"git(?:\.exe)?"|'git(?:\.exe)?'|git(?:\.exe)?)\s+/i);
+  if (!gitMatch) return null;
+
+  let rest = normalizedInput.slice(gitMatch[0].length);
+  for (;;) {
+    const commitMatch = rest.match(/^commit(?=\s)/i);
+    if (commitMatch) {
+      return `git commit${rest.slice(commitMatch[0].length)}`;
+    }
+
+    const flag = takePowerShellToken(rest);
+    if (!flag?.startsWith('-')) return null;
+    rest = rest.slice(flag.length).replace(/^\s+/, '');
+
+    const hasInlineValue = flag.includes('=');
+    const needsValue =
+      flag.toLowerCase() === '-c' ||
+      [
+        '--git-dir',
+        '--work-tree',
+        '--namespace',
+        '--super-prefix',
+        '--config-env',
+        '--exec-path'
+      ].includes(flag.toLowerCase());
+
+    if (needsValue && !hasInlineValue) {
+      const value = takePowerShellToken(rest);
+      if (!value) return null;
+      rest = rest.slice(value.length).replace(/^\s+/, '');
+    }
+  }
+}
+
+function extractPowerShellGitCommitMessages(command: string): string[] {
+  const normalizedCommand = normalizePowerShellGitCommitCommand(command);
+  if (!normalizedCommand) return [];
+
+  const messages: string[] = [];
+  const quotedPattern = /(?:^|\s)(?:-m|--message)\s+(["'])([\s\S]*?)\1|(?:^|\s)--message=(["'])([\s\S]*?)\3/g;
+  for (const match of normalizedCommand.matchAll(quotedPattern)) {
+    messages.push(match[2] ?? match[4] ?? '');
+  }
+
+  const unquotedPattern = /(?:^|\s)(?:-m|--message)\s+([^"'\s;|&()]+)|(?:^|\s)--message=([^"'\s;|&()]+)/g;
+  for (const match of normalizedCommand.matchAll(unquotedPattern)) {
+    messages.push(match[1] ?? match[2] ?? '');
+  }
+
+  const hereStringPattern = /(?:^|\s)(?:-m|--message)\s+@'\r?\n([\s\S]*?)\r?\n'@|(?:^|\s)--message=@'\r?\n([\s\S]*?)\r?\n'@/g;
+  for (const match of normalizedCommand.matchAll(hereStringPattern)) {
+    messages.push(match[1] ?? match[2] ?? '');
+  }
+
+  return messages;
+}
+
+function powerShellGitCommitUsesFileMessage(command: string): boolean {
+  const normalizedCommand = normalizePowerShellGitCommitCommand(command);
+  if (!normalizedCommand) return false;
+
+  return /(?:^|\s)(?:-F|--file)\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;|&()]+)|(?:^|\s)--file=(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;|&()]+)/i.test(normalizedCommand);
+}
+
+function hasCommitMessagePolicyRestrictions(): boolean {
+  return getForbiddenCommitMessagePatterns().length > 0 || isGeneratedCommitAttributionBlocked();
+}
+
+function commitPolicyAsk(message: string): PermissionResult {
+  return {
+    behavior: 'ask',
+    message,
+    decisionReason: {
+      type: 'safetyCheck',
+      reason: message,
+      classifierApprovable: false
+    }
+  };
+}
+
+function splitPowerShellStatements(command: string): string[] {
+  const statements: string[] = [];
+  let start = 0;
+  let quote: '"' | "'" | null = null;
+  let hereStringTerminator: '"@' | "'@" | null = null;
+
+  for (let i = 0; i < command.length; i++) {
+    if (hereStringTerminator) {
+      if (
+        command.startsWith(hereStringTerminator, i) &&
+        (i === 0 || command[i - 1] === '\n' || command[i - 1] === '\r')
+      ) {
+        i += hereStringTerminator.length - 1;
+        hereStringTerminator = null;
+      }
+      continue;
+    }
+
+    const char = command[i];
+    const next = command[i + 1];
+    if (!quote && char === '@' && (next === "'" || next === '"')) {
+      hereStringTerminator = next === "'" ? "'@" : '"@';
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ';' || char === '|' || char === '\n' || char === '\r' || (char === '&' && next === '&')) {
+      const statement = command.slice(start, i).trim();
+      if (statement) statements.push(statement);
+      if (char === '&') i++;
+      if (char === '\r' && next === '\n') i++;
+      start = i + 1;
+    }
+  }
+
+  const statement = command.slice(start).trim();
+  if (statement) statements.push(statement);
+  return statements.length > 0 ? statements : [command];
+}
+
+function checkPowerShellCommitMessagePolicyForStatement(command: string): PermissionResult | null {
+  if (powerShellGitCommitUsesFileMessage(command) && hasCommitMessagePolicyRestrictions()) {
+    return commitPolicyAsk('Git commit message is loaded from a file and cannot be checked against commit-message policy');
+  }
+
+  for (const message of extractPowerShellGitCommitMessages(command)) {
+    const forbiddenPattern = findForbiddenCommitMessagePattern(message);
+    if (forbiddenPattern) {
+      return commitPolicyAsk(`Git commit message contains forbidden pattern: ${forbiddenPattern}`);
+    }
+    if (isGeneratedCommitAttributionBlocked() && /Co-Authored-By:|Generated with/i.test(message)) {
+      return commitPolicyAsk('Git commit message contains AI attribution that is disabled by policy');
+    }
+  }
+  return null;
+}
+
+export function checkPowerShellCommitMessagePolicy(command: string): PermissionResult | null {
+  for (const statement of splitPowerShellStatements(command)) {
+    const result = checkPowerShellCommitMessagePolicyForStatement(statement);
+    if (result) return result;
+  }
+  return null;
+}
+
 /**
  * On Windows native, sandbox is unavailable (bwrap/sandbox-exec are
  * POSIX-only). If enterprise policy has sandbox.enabled AND forbids
@@ -380,6 +542,8 @@ export const PowerShellTool = buildTool({
     };
   },
   async checkPermissions(input: PowerShellToolInput, context: Parameters<Tool['checkPermissions']>[1]): Promise<PermissionResult> {
+    const policyResult = checkPowerShellCommitMessagePolicy(input.command);
+    if (policyResult) return policyResult;
     return await powershellToolHasPermission(input, context);
   },
   renderToolUseMessage,

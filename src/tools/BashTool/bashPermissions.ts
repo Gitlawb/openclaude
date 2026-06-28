@@ -71,6 +71,7 @@ import { BashTool } from './BashTool.js'
 import { checkCommandOperatorPermissions } from './bashCommandHelpers.js'
 import {
   bashCommandIsSafeAsync_DEPRECATED,
+  checkBashCommitMessagePolicy,
   stripSafeHeredocSubstitutions,
 } from './bashSecurity.js'
 import { checkPermissionMode } from './modeValidation.js'
@@ -1708,6 +1709,26 @@ export async function bashToolHasPermission(
 ): Promise<PermissionResult> {
   let appState = context.getAppState()
 
+  const commitPolicyResult = checkBashCommitMessagePolicy(input.command)
+  if (commitPolicyResult) {
+    if (
+      commitPolicyResult.behavior !== 'ask' &&
+      commitPolicyResult.behavior !== 'deny'
+    ) {
+      return commitPolicyResult
+    }
+    return {
+      ...commitPolicyResult,
+      message: createPermissionRequestMessage(
+        BashTool.name,
+        commitPolicyResult.decisionReason ?? {
+          type: 'other',
+          reason: 'Git commit policy violation',
+        },
+      ),
+    }
+  }
+
   // 0. AST-based security parse. This replaces both tryParseShellCommand
   // (the shell-quote pre-check) and the bashCommandIsSafe misparsing gate.
   // tree-sitter produces either a clean SimpleCommand[] (quotes resolved,
@@ -2200,6 +2221,29 @@ export async function bashToolHasPermission(
     cwd,
     cwdMingw,
   )
+
+  for (const subcommand of subcommands) {
+    const subcommandCommitPolicyResult =
+      checkBashCommitMessagePolicy(subcommand)
+    if (subcommandCommitPolicyResult) {
+      if (
+        subcommandCommitPolicyResult.behavior !== 'ask' &&
+        subcommandCommitPolicyResult.behavior !== 'deny'
+      ) {
+        return subcommandCommitPolicyResult
+      }
+      return {
+        ...subcommandCommitPolicyResult,
+        message: createPermissionRequestMessage(
+          BashTool.name,
+          subcommandCommitPolicyResult.decisionReason ?? {
+            type: 'other',
+            reason: 'Git commit policy violation',
+          },
+        ),
+      }
+    }
+  }
 
   // CC-643: Cap subcommand fanout. Only the legacy splitCommand path can
   // explode — the AST path returns a bounded list (astSubcommands !== null)

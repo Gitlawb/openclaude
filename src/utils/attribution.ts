@@ -23,6 +23,11 @@ import { parseJSONL } from './json.js'
 import { logError } from './log.js'
 import { getAPIProvider } from './model/providers.js'
 import {
+  getGitAttributionOptIns,
+  isGeneratedCommitAttributionBlocked,
+  isGeneratedPrAttributionBlocked,
+} from './governancePolicy.js'
+import {
   getCanonicalName,
   getMainLoopModel,
   getPublicModelDisplayName,
@@ -137,7 +142,15 @@ export function getAttributionTexts(): AttributionTexts {
     }
   }
 
-  if (settings.includeCoAuthoredBy !== true) {
+  const optIns = getGitAttributionOptIns()
+  const includeGeneratedCommit =
+    (settings.includeCoAuthoredBy === true || optIns.addAICoAuthor) &&
+    !isGeneratedCommitAttributionBlocked()
+  const includeGeneratedPr =
+    (settings.includeCoAuthoredBy === true || optIns.addGeneratedWithFooter) &&
+    !isGeneratedPrAttributionBlocked()
+
+  if (!includeGeneratedCommit && !includeGeneratedPr) {
     return { commit: '', pr: '' }
   }
 
@@ -157,7 +170,10 @@ export function getAttributionTexts(): AttributionTexts {
     ? ''
     : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
-  return { commit: defaultCommit, pr: DEFAULT_PR_ATTRIBUTION }
+  return {
+    commit: includeGeneratedCommit ? defaultCommit : '',
+    pr: includeGeneratedPr ? DEFAULT_PR_ATTRIBUTION : '',
+  }
 }
 
 /**

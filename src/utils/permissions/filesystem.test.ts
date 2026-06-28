@@ -4,12 +4,48 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../types/permissions.js'
-import { getOriginalCwd, setOriginalCwd } from '../../bootstrap/state.js'
+import {
+  getOriginalCwd,
+  getProjectRoot,
+  setOriginalCwd,
+  setProjectRoot,
+} from '../../bootstrap/state.js'
+import { getAutoMemPath } from '../../memdir/paths.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
 import { checkWritePermissionForTool } from './filesystem.js'
 
 const writeInputSchema = z.object({
   file_path: z.string(),
+})
+
+describe('auto-memory write permissions', () => {
+  let originalProjectRoot: string
+  let projectDir: string
+
+  beforeEach(async () => {
+    originalProjectRoot = getProjectRoot()
+    projectDir = await mkdtemp(join(tmpdir(), 'openclaude-memory-perms-'))
+    setProjectRoot(projectDir)
+  })
+
+  afterEach(async () => {
+    setProjectRoot(originalProjectRoot)
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
+  test('requires approval for default auto-memory writes', () => {
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(getAutoMemPath(), 'user_role.md') },
+      permissionContext('bypassPermissions'),
+    )
+
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Persistent memory writes require explicit approval',
+    })
+  })
 })
 
 const writeTool = createToolFixture(writeInputSchema, {

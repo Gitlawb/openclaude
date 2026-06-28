@@ -12,6 +12,12 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type SettingsModule = typeof import('../utils/settings/settings.js')
+
+const actualSettingsModule = (await import(
+  `../utils/settings/settings.ts?providerManagerSettingsActual=${Date.now()}-${Math.random()}`
+)) as SettingsModule
+
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -411,6 +417,7 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../utils/settings/settings.js', () => ({
+    ...actualSettingsModule,
     updateSettingsForSource: () => ({ error: null }),
   }))
 
@@ -524,6 +531,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    mock.module('../utils/settings/settings.js', () => actualSettingsModule)
 
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
       if (value === undefined) {

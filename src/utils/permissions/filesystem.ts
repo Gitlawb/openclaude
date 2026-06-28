@@ -22,6 +22,7 @@ import { getCwd } from '../cwd.js'
 import { logForDebugging } from '../debug.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
 import { isFsInaccessible } from '../errors.js'
+import { isMemoryWriteApprovalRequired } from '../governancePolicy.js'
 import {
   getFsImplementation,
   getPathsForPermissionCheck,
@@ -1658,6 +1659,17 @@ export function checkEditableInternalPath(
   // permission flow (step 5 → ask). SDK callers who want silent memory should
   // pass an allow rule for the override path.
   if (!hasAutoMemPathOverride() && isAutoMemPath(normalizedPath)) {
+    if (isMemoryWriteApprovalRequired()) {
+      return {
+        behavior: 'ask',
+        message: `${PRODUCT_DISPLAY_NAME} wants to save persistent memory. Approve this memory write?`,
+        decisionReason: {
+          type: 'safetyCheck',
+          reason: 'Persistent memory writes require explicit approval',
+          classifierApprovable: false,
+        },
+      }
+    }
     return {
       behavior: 'allow',
       updatedInput: input,
