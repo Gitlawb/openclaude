@@ -290,7 +290,7 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
         baseUrl: 'https://api.atlascloud.ai/v1',
         processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
       }),
-    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 262_144 })
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
 
     const result = resolveOpenAIShimRuntimeContext({
       model: 'moonshotai/kimi-k2.7-code',
@@ -329,6 +329,22 @@ describe('resolveOpenAIShimRuntimeContext - GLM catalog-aware gating', () => {
     })
 
     expect(result.routeId).toBe('opencode-go')
+    expect(result.catalogEntry?.apiName).toBe('glm-5.1')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toEqual(['store'])
+  })
+
+  it('applies the full Z.A.I GLM shim to opencode (Zen) GLM via catalog overrides', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'glm-5.1',
+      baseUrl: 'https://opencode.ai/zen/v1',
+      processEnv: {},
+    })
+
+    expect(result.routeId).toBe('opencode')
     expect(result.catalogEntry?.apiName).toBe('glm-5.1')
     expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)

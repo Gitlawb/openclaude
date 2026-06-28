@@ -1,6 +1,6 @@
 import { defineGateway } from '../define.js'
 import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
-import type { ReasoningControlMode, ReasoningEffortLevel, ReasoningWireFormat } from '../descriptors.js'
+import type { ReasoningControlMode, ReasoningEffortLevel, ReasoningWireFormat, OpenAIShimTransportConfig } from '../descriptors.js'
 
 type OpenCodeCatalogSpec = {
   id: string
@@ -10,12 +10,9 @@ type OpenCodeCatalogSpec = {
 }
 
 function catalogEntry(spec: OpenCodeCatalogSpec) {
-  const openaiShim: Record<string, unknown> = {}
-  if (spec.endpointPath) {
-    openaiShim.endpointPath = spec.endpointPath
-  }
-  if (spec.zaiGlm) {
-    Object.assign(openaiShim, ZAI_GLM_OPENAI_SHIM)
+  const openaiShim: Partial<OpenAIShimTransportConfig> = {
+    ...(spec.zaiGlm ? ZAI_GLM_OPENAI_SHIM : {}),
+    ...(spec.endpointPath ? { endpointPath: spec.endpointPath } : {}),
   }
   return {
     id: spec.id,
