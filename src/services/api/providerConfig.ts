@@ -551,13 +551,18 @@ export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolea
     if (hostname.startsWith('[') && hostname.endsWith(']')) {
       hostname = hostname.slice(1, -1)
     }
+    const ipv4Octets = hostname.split('.')
+    const isLoopbackIpv4 =
+      ipv4Octets.length === 4 &&
+      ipv4Octets.every(octet => /^\d{1,3}$/.test(octet) && Number(octet) <= 255) &&
+      ipv4Octets[0] === '127'
     return (
       parsed.port === '11434' &&
       (
         hostname === 'localhost' ||
         hostname === '::1' ||
         hostname === '0.0.0.0' ||
-        hostname.startsWith('127.')
+        isLoopbackIpv4
       )
     )
   } catch {
