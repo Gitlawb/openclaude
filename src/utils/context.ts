@@ -76,8 +76,8 @@ export function setSessionContextWindowOverride(
   model: string,
   tokens: number,
 ): { ok: true; normalizedModel: string } | { ok: false; error: string } {
-  if (!Number.isFinite(tokens) || tokens <= 0) {
-    return { ok: false, error: 'Context window must be a positive number' }
+  if (!Number.isFinite(tokens) || !Number.isInteger(tokens) || tokens <= 0) {
+    return { ok: false, error: 'Context window must be a positive integer' }
   }
   if (tokens < MIN_CONTEXT_WINDOW_OVERRIDE) {
     return {

@@ -30,6 +30,7 @@ const originalEnv = {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('context.test.ts')
+  clearSessionContextWindowOverride()
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
@@ -112,6 +113,7 @@ afterEach(() => {
       process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
     }
   } finally {
+    clearSessionContextWindowOverride()
     releaseSharedMutationLock()
   }
 })
@@ -942,14 +944,12 @@ test('setSessionContextWindowOverride sets and gets override', () => {
   expect(result.ok).toBe(true)
   if (result.ok) expect(result.normalizedModel).toBe('gpt-4o')
   expect(getSessionContextWindowOverride('gpt-4o')).toBe(256_000)
-  clearSessionContextWindowOverride()
 })
 
 test('setSessionContextWindowOverride normalizes provider prefix', () => {
   setSessionContextWindowOverride('openai/gpt-4o', 200_000)
   expect(getSessionContextWindowOverride('gpt-4o')).toBe(200_000)
   expect(getSessionContextWindowOverride('openai/gpt-4o')).toBe(200_000)
-  clearSessionContextWindowOverride()
 })
 
 test('setSessionContextWindowOverride rejects below minimum', () => {
@@ -959,10 +959,11 @@ test('setSessionContextWindowOverride rejects below minimum', () => {
   expect(getSessionContextWindowOverride('gpt-4o')).toBeUndefined()
 })
 
-test('setSessionContextWindowOverride rejects non-finite values', () => {
+test('setSessionContextWindowOverride rejects non-integer values', () => {
   expect(setSessionContextWindowOverride('gpt-4o', NaN).ok).toBe(false)
   expect(setSessionContextWindowOverride('gpt-4o', Infinity).ok).toBe(false)
   expect(setSessionContextWindowOverride('gpt-4o', -1).ok).toBe(false)
+  expect(setSessionContextWindowOverride('gpt-4o', 64_000.5).ok).toBe(false)
 })
 
 test('clearSessionContextWindowOverride clears specific model', () => {
@@ -971,7 +972,6 @@ test('clearSessionContextWindowOverride clears specific model', () => {
   clearSessionContextWindowOverride('gpt-4o')
   expect(getSessionContextWindowOverride('gpt-4o')).toBeUndefined()
   expect(getSessionContextWindowOverride('claude-sonnet-4')).toBe(200_000)
-  clearSessionContextWindowOverride()
 })
 
 test('clearSessionContextWindowOverride clears all when no model specified', () => {
@@ -986,10 +986,19 @@ test('getSessionContextWindowOverrides returns a copy', () => {
   const copy = getSessionContextWindowOverrides()
   copy.delete('gpt-4o')
   expect(getSessionContextWindowOverride('gpt-4o')).toBe(256_000)
-  clearSessionContextWindowOverride()
 })
 
-test('session override takes precedence over fallback in getContextWindowForModel', () => {
+test('session override takes precedence over env override for OpenAI-compatible model', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({ 'custom-model': 64_000 })
+  expect(getContextWindowForModel('custom-model')).toBe(64_000)
+  setSessionContextWindowOverride('custom-model', 256_000)
+  expect(getContextWindowForModel('custom-model')).toBe(256_000)
+  clearSessionContextWindowOverride()
+  expect(getContextWindowForModel('custom-model')).toBe(64_000)
+})
+
+test('session override takes precedence over unknown model fallback', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   setSessionContextWindowOverride('unknown-model', 200_000)
   expect(getContextWindowForModel('unknown-model')).toBe(200_000)
