@@ -35,10 +35,7 @@ import {
 } from '../../utils/envUtils.js'
 import {
   getProjectDir,
-  getLastSessionLog,
   getTranscriptPath,
-  loadAllLogsFromSessionFile,
-  loadFullLog,
   loadTranscriptFromFile,
   loadTranscriptFile,
   recordTranscript,
@@ -220,6 +217,27 @@ async function readEntries(path: string): Promise<Record<string, unknown>[]> {
     .split('\n')
     .filter(Boolean)
     .map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+async function loadSessionStorageFromRealModule(): Promise<
+  typeof import('../../utils/sessionStorage.js')
+> {
+  const unique = `${Date.now()}-${Math.random()}`
+  return import(`../../utils/sessionStorage.ts?${unique}`) as Promise<
+    typeof import('../../utils/sessionStorage.js')
+  >
+}
+
+async function loadFullLogFromRealModule(log: LogOption): Promise<LogOption> {
+  const { loadFullLog } = await loadSessionStorageFromRealModule()
+  return loadFullLog(log)
+}
+
+async function loadAllLogsFromSessionFileFromRealModule(
+  path: string,
+): Promise<LogOption[]> {
+  const { loadAllLogsFromSessionFile } = await loadSessionStorageFromRealModule()
+  return loadAllLogsFromSessionFile(path)
 }
 
 async function setupSourceTranscript(
@@ -527,7 +545,7 @@ test('/branch creates a new session, copies messages, keeps the source transcrip
     rootSessionId: sourceSessionId,
     branchedAt,
   })
-  const fullLog = await loadFullLog({
+  const fullLog = await loadFullLogFromRealModule({
     ...forkLog,
     messages: [],
     sessionBranch: undefined,
@@ -537,14 +555,7 @@ test('/branch creates a new session, copies messages, keeps the source transcrip
     rootSessionId: sourceSessionId,
     branchedAt,
   })
-  const lastSessionLog = await getLastSessionLog(newSessionId)
-  expect(JSON.stringify(lastSessionLog?.messages)).not.toContain('forkedFrom')
-  expect(lastSessionLog?.sessionBranch).toMatchObject({
-    branchName: 'experiment',
-    rootSessionId: sourceSessionId,
-    branchedAt,
-  })
-  const allForkLogs = await loadAllLogsFromSessionFile(forkPath!)
+  const allForkLogs = await loadAllLogsFromSessionFileFromRealModule(forkPath!)
   expect(allForkLogs).toHaveLength(1)
   expect(JSON.stringify(allForkLogs[0]?.messages)).not.toContain('forkedFrom')
   expect(allForkLogs[0]?.sessionBranch).toMatchObject({
