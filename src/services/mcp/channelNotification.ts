@@ -198,6 +198,7 @@ export function findChannelEntry(
         c => c.kind === 'plugin' && c.marketplace === runtimeMarketplace,
       )
       if (exacts.length > 0) return pickBest(exacts)
+      return undefined
     }
   }
   // No disambiguator available — preserve prior first-match behavior so
