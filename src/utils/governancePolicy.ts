@@ -1,11 +1,29 @@
 import { getEnabledSettingSources } from './settings/constants.js'
 import { getInitialSettings, getSettingsForSource } from './settings/settings.js'
+import type { SettingSource } from './settings/constants.js'
+import type { SettingsJson } from './settings/types.js'
+
+let getSettingsForSourceForTesting:
+  | ((source: SettingSource) => SettingsJson | null)
+  | null = null
+
+export function setGovernancePolicySettingsForSourceForTesting(
+  getter: ((source: SettingSource) => SettingsJson | null) | null,
+): void {
+  getSettingsForSourceForTesting = getter
+}
+
+function getGovernanceSettingsForSource(
+  source: SettingSource,
+): SettingsJson | null {
+  return getSettingsForSourceForTesting?.(source) ?? getSettingsForSource(source)
+}
 
 export function isMemoryWriteApprovalRequired(): boolean {
   let explicitlyDisabled = false
   for (const source of getEnabledSettingSources()) {
     const value =
-      getSettingsForSource(source)?.memory?.requireApprovalBeforeWrite
+      getGovernanceSettingsForSource(source)?.memory?.requireApprovalBeforeWrite
     if (value === true) {
       return true
     }
@@ -24,7 +42,7 @@ export function isGitAttributionBlocked(): boolean {
 
 export function isGeneratedCommitAttributionBlocked(): boolean {
   for (const source of getEnabledSettingSources()) {
-    const git = getSettingsForSource(source)?.git
+    const git = getGovernanceSettingsForSource(source)?.git
     if (git?.addAICoAuthor === false) {
       return true
     }
@@ -34,7 +52,7 @@ export function isGeneratedCommitAttributionBlocked(): boolean {
 
 export function isGeneratedPrAttributionBlocked(): boolean {
   for (const source of getEnabledSettingSources()) {
-    const git = getSettingsForSource(source)?.git
+    const git = getGovernanceSettingsForSource(source)?.git
     if (git?.addGeneratedWithFooter === false) {
       return true
     }
@@ -57,7 +75,8 @@ export function getForbiddenCommitMessagePatterns(): string[] {
   const patterns: string[] = []
   for (const source of getEnabledSettingSources()) {
     const sourcePatterns =
-      getSettingsForSource(source)?.git?.forbiddenCommitMessagePatterns ?? []
+      getGovernanceSettingsForSource(source)?.git
+        ?.forbiddenCommitMessagePatterns ?? []
     for (const pattern of sourcePatterns) {
       if (!patterns.includes(pattern)) {
         patterns.push(pattern)

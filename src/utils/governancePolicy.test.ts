@@ -1,94 +1,87 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import {
-  getOriginalCwd,
+  getAllowedSettingSources,
   setAllowedSettingSources,
-  setOriginalCwd,
 } from '../bootstrap/state.js'
-import { SETTING_SOURCES } from './settings/constants.js'
+import {
+  SETTING_SOURCES,
+  type SettingSource,
+} from './settings/constants.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
+import type { SettingsJson } from './settings/types.js'
+type GovernancePolicyModule = typeof import('./governancePolicy.js')
 
-let originalCwd: string
-let projectDir: string
+let originalAllowedSettingSources: ReturnType<typeof getAllowedSettingSources>
+let settingsBySource = new Map<SettingSource, SettingsJson>()
+let governancePolicy: GovernancePolicyModule
 
-async function writeSettings(
-  filename: 'settings.json' | 'settings.local.json',
-  settings: Record<string, unknown>,
-): Promise<void> {
-  await mkdir(join(projectDir, '.openclaude'), { recursive: true })
-  await writeFile(
-    join(projectDir, '.openclaude', filename),
-    JSON.stringify(settings),
-  )
-  resetSettingsCache()
+function setSourceSettings(
+  source: SettingSource,
+  settings: SettingsJson,
+): void {
+  settingsBySource.set(source, settings)
 }
 
 beforeEach(async () => {
-  originalCwd = getOriginalCwd()
-  projectDir = await mkdtemp(join(tmpdir(), 'openclaude-governance-'))
-  setOriginalCwd(projectDir)
+  originalAllowedSettingSources = [...getAllowedSettingSources()]
+  settingsBySource = new Map()
   setAllowedSettingSources([...SETTING_SOURCES])
+  governancePolicy = (await import(
+    `./governancePolicy.ts?governancePolicyTest=${Date.now()}-${Math.random()}`
+  )) as GovernancePolicyModule
+  governancePolicy.setGovernancePolicySettingsForSourceForTesting(
+    source => settingsBySource.get(source) ?? null,
+  )
   resetSettingsCache()
 })
 
-afterEach(async () => {
-  setOriginalCwd(originalCwd)
-  setAllowedSettingSources([...SETTING_SOURCES])
+afterEach(() => {
+  governancePolicy.setGovernancePolicySettingsForSourceForTesting(null)
+  setAllowedSettingSources(originalAllowedSettingSources)
+  settingsBySource = new Map()
   resetSettingsCache()
-  await rm(projectDir, { recursive: true, force: true })
 })
 
-test('memory approval is required when any settings source opts in', async () => {
-  await writeSettings('settings.json', {
+test('memory approval is required when any settings source opts in', () => {
+  setSourceSettings('projectSettings', {
     memory: { requireApprovalBeforeWrite: true },
   })
 
-  const { isMemoryWriteApprovalRequired } = await import('./governancePolicy.js')
-  expect(isMemoryWriteApprovalRequired()).toBe(true)
+  expect(governancePolicy.isMemoryWriteApprovalRequired()).toBe(true)
 })
 
-test('memory approval is required by default', async () => {
-  const { isMemoryWriteApprovalRequired } = await import('./governancePolicy.js')
-  expect(isMemoryWriteApprovalRequired()).toBe(true)
+test('memory approval is required by default', () => {
+  expect(governancePolicy.isMemoryWriteApprovalRequired()).toBe(true)
 })
 
-test('memory approval can be explicitly disabled when no source requires it', async () => {
-  await writeSettings('settings.json', {
+test('memory approval can be explicitly disabled when no source requires it', () => {
+  setAllowedSettingSources(['projectSettings', 'localSettings'])
+  setSourceSettings('projectSettings', {
     memory: { requireApprovalBeforeWrite: false },
   })
 
-  const { isMemoryWriteApprovalRequired } = await import('./governancePolicy.js')
-  expect(isMemoryWriteApprovalRequired()).toBe(false)
+  expect(governancePolicy.isMemoryWriteApprovalRequired()).toBe(false)
 })
 
-test('generated attribution block settings are evaluated independently', async () => {
-  await writeSettings('settings.json', {
+test('generated attribution block settings are evaluated independently', () => {
+  setSourceSettings('projectSettings', {
     git: { addAICoAuthor: false },
   })
 
-  const {
-    isGeneratedCommitAttributionBlocked,
-    isGeneratedPrAttributionBlocked,
-  } = await import('./governancePolicy.js')
-  expect(isGeneratedCommitAttributionBlocked()).toBe(true)
-  expect(isGeneratedPrAttributionBlocked()).toBe(false)
+  expect(governancePolicy.isGeneratedCommitAttributionBlocked()).toBe(true)
+  expect(governancePolicy.isGeneratedPrAttributionBlocked()).toBe(false)
 })
 
-test('forbidden commit message patterns are combined across settings sources', async () => {
-  await writeSettings('settings.json', {
+test('forbidden commit message patterns are combined across settings sources', () => {
+  setSourceSettings('projectSettings', {
     git: { forbiddenCommitMessagePatterns: ['Generated with'] },
   })
-  await writeSettings('settings.local.json', {
+  setSourceSettings('localSettings', {
     git: { forbiddenCommitMessagePatterns: ['Co-Authored-By:'] },
   })
 
-  const { findForbiddenCommitMessagePattern } = await import(
-    './governancePolicy.js'
-  )
   expect(
-    findForbiddenCommitMessagePattern(
+    governancePolicy.findForbiddenCommitMessagePattern(
       'fix: policy\n\nco-authored-by: OpenClaude <x@y.z>',
     ),
   ).toBe('Co-Authored-By:')
