@@ -2,10 +2,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import type { ProviderProfile } from './config.js'
+// Captured before any mock.module() runs, so this namespace keeps the real
+// config implementation and can be re-installed when this file is done (see the
+// afterAll below). Mirrors the restore pattern in user.test.ts.
+import * as realConfigModule from './config.js'
 
 async function importFreshProvidersModule() {
   return import(`./model/providers.ts?ts=${Date.now()}-${Math.random()}`)
@@ -136,6 +140,18 @@ afterEach(() => {
   } finally {
     releaseEnvMutex()
   }
+})
+
+afterAll(() => {
+  // bun's mock.restore() does NOT revert mock.module(), so the './config.js'
+  // replacement installed by importFreshProviderProfileModules() would otherwise
+  // leak into every later test file in the same process — silently turning their
+  // saveGlobalConfig/getGlobalConfig (and the provider-detection and
+  // error-reporting gates that read the active profile through them) into no-ops
+  // against a dead mock state, which is order-dependent across OSes. Re-install
+  // the real module so the full suite stays isolation-/order-independent.
+  mock.restore()
+  mock.module('./config.js', () => realConfigModule)
 })
 
 async function importFreshProviderProfileModules() {
