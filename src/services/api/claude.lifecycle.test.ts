@@ -230,6 +230,26 @@ async function drainGenerator<T>(
   }
 }
 
+async function waitForPromise<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(timeoutMessage))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
+
 function makeParams(context: { model: string }): BetaMessageStreamParams {
   return {
     model: context.model,
@@ -497,9 +517,19 @@ describe('Claude API lifecycle tracking', () => {
       }
     })()
 
-    await fallbackRequestStarted
-    expect(Date.now() - startedAt).toBeLessThan(400)
-    await drain
+    try {
+      await waitForPromise(
+        fallbackRequestStarted,
+        400,
+        'non-streaming fallback did not start promptly after stream idle timeout',
+      )
+      expect(Date.now() - startedAt).toBeLessThan(400)
+      await drain
+    } catch (error) {
+      parent.abort()
+      await drain.catch(() => {})
+      throw error
+    }
     if (drainError) throw drainError
 
     const streamingRequests = requests.filter(request => request.stream === true)
