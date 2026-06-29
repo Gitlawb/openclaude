@@ -278,6 +278,7 @@ export function Usage(): React.ReactNode {
   const activeProfile = getActiveProviderProfile();
   const usageDescriptor = getUsageDescriptor(resolveActiveUsageId(process.env, {
     activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
     providerCategory: provider,
   }));
   if (provider === 'codex') {

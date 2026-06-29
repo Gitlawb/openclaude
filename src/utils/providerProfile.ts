@@ -106,6 +106,7 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
+  'CLINE_API_KEY',
   'OPENCODE_API_KEY',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
@@ -136,6 +137,7 @@ export type ProviderProfile =
   | 'vertex'
   | 'xai'
   | 'opencode'
+  | 'clinepass'
 
 export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string

@@ -19,6 +19,9 @@ import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
+import {
+  DEFAULT_CLINEPASS_BASE_URL,
+} from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
   openAIShimSupportsApiFormatForModel,
@@ -30,6 +33,7 @@ export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1'
 export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+export const DEFAULT_CLINEPASS_API_BASE_URL = `${DEFAULT_CLINEPASS_BASE_URL}/api/v1`
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
@@ -797,14 +801,16 @@ export function resolveProviderRequest(options?: {
   const isGithubMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? processEnv.MISTRAL_MODEL?.trim()
-      : processEnv.OPENAI_MODEL?.trim()) ||
-    (isGeminiMode
-      ? processEnv.GEMINI_MODEL?.trim()
-      : processEnv.OPENAI_MODEL?.trim()) ||
+      : isGeminiMode
+        ? processEnv.GEMINI_MODEL?.trim()
+        : isClinePassMode
+          ? processEnv.CLINE_API_MODEL?.trim() ?? processEnv.OPENAI_MODEL?.trim()
+          : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
@@ -845,7 +851,8 @@ export function resolveProviderRequest(options?: {
   const envBaseUrlRaw =
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
-    fallbackEnvBaseUrl
+    fallbackEnvBaseUrl ??
+    (isClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,

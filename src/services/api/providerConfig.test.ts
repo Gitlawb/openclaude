@@ -102,3 +102,40 @@ test('resolveProviderRequest leaves Hicap routing untouched without explicit ali
   expect(request.resolvedModel).toBe('claude-opus-4-7')
   expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
 })
+
+test('resolveProviderRequest uses CLINE_API_MODEL when CLINE_API_KEY is present', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
+test('resolveProviderRequest falls back to OPENAI_MODEL for ClinePass when CLINE_API_MODEL is unset', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      OPENAI_MODEL: 'cline-pass/deepseek-v4-flash',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/deepseek-v4-flash')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
+test('resolveProviderRequest ignores CLINE_API_MODEL without CLINE_API_KEY', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})

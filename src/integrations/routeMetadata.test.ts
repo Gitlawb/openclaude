@@ -206,6 +206,23 @@ test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => 
   ).toBe('xai')
 })
 
+test('resolveActiveRouteIdFromEnv treats ClinePass credential-only env as ClinePass', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLINE_API_KEY: 'cline-key',
+    }),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv prefers ClinePass key over Fireworks env-only intent', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLINE_API_KEY: 'cline-key',
+      FIREWORKS_API_KEY: 'fw-key',
+    }),
+  ).toBe('clinepass')
+})
+
 test('resolveActiveRouteIdFromEnv prefers xAI when env-only keys compete', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -338,6 +355,32 @@ test('resolveActiveRouteIdFromEnv does not resolve custom profile provider as a 
       { activeProfileProvider: 'custom' },
     ),
   ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv resolves custom profile provider via ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      {
+        activeProfileProvider: 'custom',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves openai profile provider via ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+      },
+      {
+        activeProfileProvider: 'openai',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('clinepass')
 })
 
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {

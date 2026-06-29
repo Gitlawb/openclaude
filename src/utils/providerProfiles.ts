@@ -696,6 +696,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
+    (profile.baseUrl?.toLowerCase().includes('api.cline.bot')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
+      : true) &&
     (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
@@ -1121,6 +1125,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (activeProfile.baseUrl?.toLowerCase().includes('api.cline.bot')) {
+        strictEnv.CLINE_API_KEY = activeProfile.apiKey
+      }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
@@ -1147,35 +1154,38 @@ function buildOpenAICompatibleStartupEnv(
       : {}),
   }
 
-  if (activeProfile.apiKey) {
-    env.OPENAI_API_KEY = activeProfile.apiKey
-    if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
-      env.BNKR_API_KEY = activeProfile.apiKey
+    if (activeProfile.apiKey) {
+      env.OPENAI_API_KEY = activeProfile.apiKey
+      if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
+        env.BNKR_API_KEY = activeProfile.apiKey
+      }
+      if (isXaiBaseUrl(activeProfile.baseUrl)) {
+        env.XAI_API_KEY = activeProfile.apiKey
+      }
+      if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
+        env.VENICE_API_KEY = activeProfile.apiKey
+      }
+      if (
+        activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
+        activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
+      ) {
+        env.MIMO_API_KEY = activeProfile.apiKey
+      }
+      if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+        env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+      }
+      if (activeProfile.baseUrl?.toLowerCase().includes('api.cline.bot')) {
+        env.CLINE_API_KEY = activeProfile.apiKey
+      }
+      if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+        env.NEARAI_API_KEY = activeProfile.apiKey
+      }
+      if (isFireworksBaseUrl(activeProfile.baseUrl)) {
+        env.FIREWORKS_API_KEY = activeProfile.apiKey
+      }
+    } else {
+      delete env.OPENAI_API_KEY
     }
-    if (isXaiBaseUrl(activeProfile.baseUrl)) {
-      env.XAI_API_KEY = activeProfile.apiKey
-    }
-    if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
-      env.VENICE_API_KEY = activeProfile.apiKey
-    }
-    if (
-      activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
-      activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
-    ) {
-      env.MIMO_API_KEY = activeProfile.apiKey
-    }
-    if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
-      env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
-    }
-    if (isNearaiBaseUrl(activeProfile.baseUrl)) {
-      env.NEARAI_API_KEY = activeProfile.apiKey
-    }
-    if (isFireworksBaseUrl(activeProfile.baseUrl)) {
-      env.FIREWORKS_API_KEY = activeProfile.apiKey
-    }
-  } else {
-    delete env.OPENAI_API_KEY
-  }
   return applySupportedProfileCustomHeaders(activeProfile, env)
 }
 

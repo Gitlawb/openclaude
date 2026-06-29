@@ -35,7 +35,7 @@ function clampPercent(value: number): number {
 function toIsoDate(value: unknown): string | undefined {
   if (typeof value === 'string') {
     const parsed = Date.parse(value)
-    return Number.isNaN(parsed) ? value : new Date(parsed).toISOString()
+    return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString()
   }
   return undefined
 }
