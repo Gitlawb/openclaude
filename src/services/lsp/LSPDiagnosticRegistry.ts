@@ -21,6 +21,11 @@ export type PendingLSPDiagnostic = {
   attachmentSent: boolean
 }
 
+export type LSPDiagnosticSet = {
+  serverName: string
+  files: DiagnosticFile[]
+}
+
 /**
  * LSP Diagnostic Registry
  *
@@ -407,7 +412,8 @@ function createDiagnosticKey(diag: {
 
 /**
  * Deduplicates diagnostics by file URI and diagnostic content.
- * Also filters out diagnostics that were already delivered in previous turns.
+ * When filterPreviouslyDelivered is true, also filters out diagnostics that
+ * were already delivered in previous turns.
  * Two diagnostics are considered duplicates if they have the same:
  * - File URI
  * - Range (start/end line and character)
@@ -417,6 +423,9 @@ function createDiagnosticKey(diag: {
  */
 function deduplicateDiagnosticFiles(
   allFiles: DiagnosticFile[],
+  options: { filterPreviouslyDelivered?: boolean } = {
+    filterPreviouslyDelivered: true,
+  },
 ): DeduplicationResult {
   // Group diagnostics by file URI
   const fileMap = new Map<string, Set<string>>()
@@ -438,7 +447,9 @@ function deduplicateDiagnosticFiles(
 
     // Get previously delivered diagnostics for this file (for cross-turn dedup)
     const previouslyDelivered =
-      deliveredDiagnostics.get(normalizedUri) || new Set()
+      options.filterPreviouslyDelivered === false
+        ? new Set<string>()
+        : deliveredDiagnostics.get(normalizedUri) || new Set()
 
     for (const diag of file.diagnostics) {
       try {
@@ -569,23 +580,10 @@ function trackDeliveredDiagnostics(files: DiagnosticFile[]): void {
   }
 }
 
-/**
- * Get all pending LSP diagnostics that haven't been delivered yet.
- * Deduplicates diagnostics to prevent sending the same diagnostic multiple times.
- * Marks diagnostics as sent to prevent duplicate delivery.
- *
- * @returns Array of pending diagnostics ready for delivery (deduplicated)
- */
-export function checkForLSPDiagnostics(): Array<{
-  serverName: string
-  files: DiagnosticFile[]
-}> {
-  const now = Date.now()
-  logForDebugging(
-    `LSP Diagnostics: Checking registry - ${pendingDiagnostics.size} pending`,
-  )
-
-  // Collect pending diagnostic files by server so storm stats remain per-server.
+function collectUndeliveredDiagnosticFiles(): {
+  filesByServer: Map<string, DiagnosticFile[]>
+  diagnosticsToMark: PendingLSPDiagnostic[]
+} {
   const filesByServer = new Map<string, DiagnosticFile[]>()
   const diagnosticsToMark: PendingLSPDiagnostic[] = []
 
@@ -598,6 +596,88 @@ export function checkForLSPDiagnostics(): Array<{
       diagnosticsToMark.push(diagnostic)
     }
   }
+
+  return { filesByServer, diagnosticsToMark }
+}
+
+/**
+ * Read pending LSP diagnostics without marking them delivered.
+ * Used by user-facing inspection surfaces that must not drain passive
+ * diagnostic feedback attachments.
+ */
+export function getPendingLSPDiagnosticsSnapshot(): LSPDiagnosticSet[] {
+  const now = Date.now()
+  logForDebugging(
+    `LSP Diagnostics: Snapshotting registry - ${pendingDiagnostics.size} pending`,
+  )
+
+  const { filesByServer } = collectUndeliveredDiagnosticFiles()
+  if (filesByServer.size === 0) {
+    return []
+  }
+
+  const snapshotSets: LSPDiagnosticSet[] = []
+  let remainingCapacity = MAX_TOTAL_DIAGNOSTICS
+
+  for (const [serverName, files] of filesByServer) {
+    let deduplicationResult: DeduplicationResult
+    try {
+      deduplicationResult = deduplicateDiagnosticFiles(files, {
+        filterPreviouslyDelivered: false,
+      })
+    } catch (error: unknown) {
+      const err = toError(error)
+      logError(
+        new Error(`Failed to deduplicate LSP diagnostics: ${err.message}`),
+      )
+      deduplicationResult = { files, duplicateCount: 0 }
+    }
+
+    const prioritizedFiles = prioritizeDiagnosticFiles(
+      deduplicationResult.files,
+      now,
+    )
+    const limitResult = limitDiagnosticFiles(prioritizedFiles, remainingCapacity)
+    if (limitResult.files.length > 0) {
+      snapshotSets.push({
+        serverName,
+        files: limitResult.files.map(cloneDiagnosticFile),
+      })
+    }
+    remainingCapacity -= limitResult.deliveredCount
+  }
+
+  return snapshotSets
+}
+
+function cloneDiagnosticFile(file: DiagnosticFile): DiagnosticFile {
+  return {
+    uri: file.uri,
+    diagnostics: file.diagnostics.map(diagnostic => ({
+      ...diagnostic,
+      range: {
+        start: { ...diagnostic.range.start },
+        end: { ...diagnostic.range.end },
+      },
+    })),
+  }
+}
+
+/**
+ * Get all pending LSP diagnostics that haven't been delivered yet.
+ * Deduplicates diagnostics to prevent sending the same diagnostic multiple times.
+ * Marks diagnostics as sent to prevent duplicate delivery.
+ *
+ * @returns Array of pending diagnostics ready for delivery (deduplicated)
+ */
+export function checkForLSPDiagnostics(): LSPDiagnosticSet[] {
+  const now = Date.now()
+  logForDebugging(
+    `LSP Diagnostics: Checking registry - ${pendingDiagnostics.size} pending`,
+  )
+
+  const { filesByServer, diagnosticsToMark } =
+    collectUndeliveredDiagnosticFiles()
 
   if (filesByServer.size === 0) {
     return []
