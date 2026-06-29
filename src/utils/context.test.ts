@@ -982,6 +982,14 @@ test('clearSessionContextWindowOverride clears specific model', () => {
   expect(getSessionContextWindowOverride('claude-sonnet-4')).toBe(200_000)
 })
 
+test('clearSessionContextWindowOverride clears stripped fallback when clearing qualified name', () => {
+  setSessionContextWindowOverride('gpt-4o', 256_000)
+  expect(getSessionContextWindowOverride('openai/gpt-4o')).toBe(256_000)
+  clearSessionContextWindowOverride('openai/gpt-4o')
+  expect(getSessionContextWindowOverride('gpt-4o')).toBeUndefined()
+  expect(getSessionContextWindowOverride('openai/gpt-4o')).toBeUndefined()
+})
+
 test('clearSessionContextWindowOverride clears all when no model specified', () => {
   setSessionContextWindowOverride('gpt-4o', 256_000)
   setSessionContextWindowOverride('claude-sonnet-4', 200_000)

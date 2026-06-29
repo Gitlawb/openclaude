@@ -4,7 +4,6 @@ import {
   getSessionContextWindowOverride,
   getSessionContextWindowOverrides,
 } from '../../utils/context.js'
-import { getMainLoopModel } from '../../utils/model/model.js'
 
 const HELP = `Usage: /set-context-window [model] <tokens>
 
@@ -42,7 +41,7 @@ export const call: LocalCommandCall = async (args, context) => {
   let tokensStr: string
 
   if (parts.length === 1) {
-    model = getMainLoopModel()
+    model = context.options.mainLoopModel
     tokensStr = parts[0]
   } else if (parts.length === 2) {
     model = parts[0]

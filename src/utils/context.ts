@@ -99,13 +99,18 @@ export function setSessionContextWindowOverride(
 
 /**
  * Clear session-scoped context window overrides.
- * If model is provided, clears only that model's override.
+ * If model is provided, clears both the exact key and any stripped-prefix
+ * fallback key to stay consistent with getSessionContextWindowOverride lookup.
  * If model is omitted, clears all overrides.
  */
 export function clearSessionContextWindowOverride(model?: string): void {
   if (model) {
     const normalized = normalizeModelName(model)
     sessionContextWindowOverrides.delete(normalized)
+    const stripped = stripProviderPrefix(normalized)
+    if (stripped !== undefined) {
+      sessionContextWindowOverrides.delete(stripped)
+    }
   } else {
     sessionContextWindowOverrides.clear()
   }
