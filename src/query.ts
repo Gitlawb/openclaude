@@ -834,8 +834,13 @@ async function* queryLoop(
             : ''
         const { getArcSummary } = await import('./utils/conversationArc.js')
         const arcSummary = await getArcSummary(userQueryText)
-        if (arcSummary) {
-          promptWithArc = [...systemPrompt, arcSummary]
+        const { getOrchestratedMemory } = await import('./utils/knowledgeGraph.js')
+        const orchMem = await getOrchestratedMemory(userQueryText)
+        if (arcSummary || orchMem) {
+          const parts: string[] = []
+          if (arcSummary) parts.push(arcSummary)
+          if (orchMem) parts.push(orchMem)
+          promptWithArc = [...systemPrompt, ...parts]
         }
       }
     }
