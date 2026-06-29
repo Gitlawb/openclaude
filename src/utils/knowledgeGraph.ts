@@ -7,10 +7,11 @@
  * structured .md files in the auto-memory directory.
  */
 
-import { readFileSync, existsSync, readdirSync, rmSync, statSync, mkdirSync } from 'fs'
+import { readFileSync, existsSync, readdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { getAutoMemPath } from '../memdir/paths.js'
-import { initMemdirIndex, searchMemdirIndex } from '../memdir/vectorIndex.js'
+import { initMemdirIndex, searchMemdirIndex, clearIndex } from '../memdir/vectorIndex.js'
+import { parseFrontmatter } from './frontmatterParser.js'
 
 export interface Entity {
   id: string
@@ -107,17 +108,18 @@ export function getGlobalGraph(): KnowledgeGraph {
         if (!file.endsWith('.md')) continue
         const filePath = join(factsDir, file)
         try {
-          const content = readFileSync(filePath, 'utf-8')
-          const nameMatch = content.match(/^title: (.+)$/m)
-          const typeMatch = content.match(/^factType: (.+)$/m)
-          const descMatch = content.match(/^description: (.+)$/m)
-          if (nameMatch) {
+          const raw = readFileSync(filePath, 'utf-8')
+          const parsed = parseFrontmatter(raw)
+          const fm = parsed?.frontmatter
+          if (fm?.title && typeof fm.title === 'string') {
             const id = `fact_${file}`
             entities[id] = {
               id,
-              type: typeMatch?.[1] || 'fact',
-              name: nameMatch[1],
-              attributes: descMatch ? { description: descMatch[1] } : {},
+              type: typeof fm.factType === 'string' ? fm.factType : 'fact',
+              name: fm.title,
+              attributes: fm.description && typeof fm.description === 'string'
+                ? { description: fm.description }
+                : {},
             }
           }
         } catch {
@@ -204,6 +206,7 @@ export function resetGlobalGraph(): void {
       // not accessible
     }
   }
+  clearIndex()
 }
 
 export function clearMemoryOnly(): void {

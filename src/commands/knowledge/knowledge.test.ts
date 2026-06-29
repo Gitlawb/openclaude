@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { call as knowledgeCall } from './knowledge.js'
@@ -7,6 +7,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getArc, resetArc } from '../../utils/conversationArc.js'
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
+import { getAutoMemPath } from '../../memdir/paths.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -92,12 +93,28 @@ describe('knowledge command', () => {
   })
 
   it('clears the knowledge graph', async () => {
+    // Seed a fact file so we have state to clear
+    const memDir = getAutoMemPath()
+    const factsDir = join(memDir, '.facts')
+    mkdirSync(factsDir, { recursive: true })
+    writeFileSync(join(factsDir, 'test-fact.md'), `---
+title: Test Fact
+type: reference
+factType: test
+description: A seeded fact
+---
+
+Test content
+`)
+
     const graph = getGlobalGraph()
     const countBefore = Object.keys(graph.entities).length
+    expect(countBefore).toBeGreaterThan(0)
 
     const res = await knowledgeCallWithCapture('clear')
     const graphAfter = getGlobalGraph()
     expect(res.toLowerCase()).toContain('cleared')
+    expect(Object.keys(graphAfter.entities).length).toBe(0)
   })
 
   it('shows error on unknown subcommand', async () => {

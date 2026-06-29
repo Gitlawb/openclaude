@@ -29,6 +29,11 @@ function slugify(text: string): string {
     .slice(0, 80)
 }
 
+function yamlQuote(val: string): string {
+  const escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
+  return `"${escaped}"`
+}
+
 function writeFactMemory(
   memoryDir: string,
   factType: string,
@@ -43,16 +48,16 @@ function writeFactMemory(
 
   const now = new Date().toISOString()
   const attrLines = Object.entries(attributes)
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${k}: ${yamlQuote(v)}`)
     .join('\n')
 
   const content = `---
 type: reference
-title: ${name}
-description: ${description}
-factType: ${factType}
+title: ${yamlQuote(name)}
+description: ${yamlQuote(description)}
+factType: ${yamlQuote(factType)}
 detectedAt: ${now}
-${attrLines ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${v}`).join('\n')}` : ''}
+${attrLines ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${yamlQuote(v)}`).join('\n')}` : ''}
 ---
 
 Auto-detected fact: **${name}**
@@ -77,7 +82,7 @@ export async function extractFactsIntoMemdir(
   // 1. Detect Environment Variables (KEY=VALUE)
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
-    writeFactMemory(dir, 'env', match[1], `${match[1]} environment variable`, { value: match[2] })
+    writeFactMemory(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
   }
 
   // 2. Detect Absolute Paths
