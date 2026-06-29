@@ -303,30 +303,6 @@ export function saveMarketplaceToSettings(
 }
 
 /**
- * Load known marketplaces configuration from disk
- *
- * Reads the configuration file at ~/.claude/plugins/known_marketplaces.json
- * which contains a mapping of marketplace names to their sources and metadata.
- *
- * Example configuration file content:
- * ```json
- * {
- *   "official-marketplace": {
- *     "source": { "source": "url", "url": "https://example.com/marketplace.json" },
- *     "installLocation": "/Users/me/.claude/plugins/marketplaces/official-marketplace.json",
- *     "lastUpdated": "2024-01-15T10:30:00.000Z"
- *   },
- *   "company-plugins": {
- *     "source": { "source": "github", "repo": "mycompany/plugins" },
- *     "installLocation": "/Users/me/.claude/plugins/marketplaces/company-plugins",
- *     "lastUpdated": "2024-01-14T15:45:00.000Z"
- *   }
- * }
- * ```
- *
- * @returns Configuration object mapping marketplace names to their metadata
- */
-/**
  * Marketplace names are user-supplied and are used directly as object keys for
  * membership and lookup (`config[name]`) all over this module. On a normal
  * object, a name that shadows an `Object.prototype` member — `constructor`,
@@ -346,6 +322,32 @@ function toNullProtoConfig(
   )
 }
 
+/**
+ * Load known marketplaces configuration from disk
+ *
+ * Reads the configuration file at ~/.claude/plugins/known_marketplaces.json
+ * which contains a mapping of marketplace names to their sources and metadata.
+ * The returned config is null-prototype (see {@link toNullProtoConfig}) so that
+ * lookups by user-supplied marketplace name are own-property-exact.
+ *
+ * Example configuration file content:
+ * ```json
+ * {
+ *   "official-marketplace": {
+ *     "source": { "source": "url", "url": "https://example.com/marketplace.json" },
+ *     "installLocation": "/Users/me/.claude/plugins/marketplaces/official-marketplace.json",
+ *     "lastUpdated": "2024-01-15T10:30:00.000Z"
+ *   },
+ *   "company-plugins": {
+ *     "source": { "source": "github", "repo": "mycompany/plugins" },
+ *     "installLocation": "/Users/me/.claude/plugins/marketplaces/company-plugins",
+ *     "lastUpdated": "2024-01-14T15:45:00.000Z"
+ *   }
+ * }
+ * ```
+ *
+ * @returns Configuration object mapping marketplace names to their metadata
+ */
 export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesConfig> {
   const fs = getFsImplementation()
   const configFile = getKnownMarketplacesFile()
