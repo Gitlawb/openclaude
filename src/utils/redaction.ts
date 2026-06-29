@@ -454,12 +454,15 @@ export function redactUrlForDisplay(rawUrl: string): string {
         // any @ after it is fragment content, not userinfo.
         const beforeHash = rawUrl.slice(0, hashIdx);
         const hostPart = beforeHash.startsWith("//") ? beforeHash.slice(2) : beforeHash;
+        const fragmentBeforeAt = afterHash.slice(0, atInFragment);
         const hasValidHostBeforeHash =
           hostPart.includes(".") ||
           hostPart === "localhost" ||
           /^\[/.test(hostPart) ||
           /:[0-9]+$/.test(hostPart) ||
-          (!hostPart.includes(":") && hostPart.length > 0);
+          (!hostPart.includes(":") &&
+            hostPart.length > 0 &&
+            /[=/?&]/.test(fragmentBeforeAt));
 
         if (
           !hasValidHostBeforeHash &&
@@ -471,9 +474,9 @@ export function redactUrlForDisplay(rawUrl: string): string {
             // Only apply if there's no valid host before the #
             /^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(hostCandidate))
         ) {
-          // @ after # followed by hostname-like → # is in password
+          // @ after # followed by hostname-like → # is in password or username
           userinfoRedacted = rawUrl.replace(
-            /\/\/[^/@\s?#]+(?::[^/@\s?]*)?@/g,
+            /\/\/[^/@\s?]+@/g,
             "//redacted@",
           );
         } else {

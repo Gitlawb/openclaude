@@ -196,6 +196,14 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toBe('//redacted@host/path?token=redacted')
   })
 
+  // Regression: username-only userinfo with # must still be redacted.
+  // It lacks typical payload signals (like =) in the fragment side.
+  test('malformed URL fallback redacts username-only userinfo with #', () => {
+    const malformed = '//alice#part@example.com/path'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toBe('//redacted@example.com/path')
+  })
+
   // Regression: bare hosts shouldn't be mistakenly matched as userinfo.
   // A fragment that happens to contain userinfo (e.g. an access token)
   // should be completely stripped rather than applied across fragments.
