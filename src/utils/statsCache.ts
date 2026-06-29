@@ -9,7 +9,7 @@ import { errorMessage } from './errors.js'
 import { getFsImplementation } from './fsOperations.js'
 import { logError } from './log.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
-import type { DailyActivity, DailyModelTokens, SessionStats } from './stats.js'
+import type { DailyActivity, DailyModelTokens, SessionStats } from './statsTypes.js'
 
 export const STATS_CACHE_VERSION = 3
 const MIN_MIGRATABLE_VERSION = 1

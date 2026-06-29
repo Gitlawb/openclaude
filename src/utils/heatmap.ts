@@ -1,5 +1,5 @@
 import chalk from 'chalk'
-import type { DailyActivity } from './stats.js'
+import type { DailyActivity } from './statsTypes.js'
 import { toDateString } from './statsCache.js'
 
 export type HeatmapOptions = {
