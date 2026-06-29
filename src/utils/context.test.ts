@@ -946,10 +946,18 @@ test('setSessionContextWindowOverride sets and gets override', () => {
   expect(getSessionContextWindowOverride('gpt-4o')).toBe(256_000)
 })
 
-test('setSessionContextWindowOverride normalizes provider prefix', () => {
-  setSessionContextWindowOverride('openai/gpt-4o', 200_000)
-  expect(getSessionContextWindowOverride('gpt-4o')).toBe(200_000)
+test('setSessionContextWindowOverride normalizes case only, preserves provider prefix', () => {
+  setSessionContextWindowOverride('OpenAI/GPT-4o', 200_000)
   expect(getSessionContextWindowOverride('openai/gpt-4o')).toBe(200_000)
+  expect(getSessionContextWindowOverride('OpenAI/GPT-4o')).toBe(200_000)
+})
+
+test('provider-qualified and unqualified model names are distinct', () => {
+  setSessionContextWindowOverride('zai-org/glm-5.2', 256_000)
+  setSessionContextWindowOverride('glm-5.2', 128_000)
+  expect(getSessionContextWindowOverride('zai-org/glm-5.2')).toBe(256_000)
+  expect(getSessionContextWindowOverride('glm-5.2')).toBe(128_000)
+  expect(getSessionContextWindowOverrides().size).toBe(2)
 })
 
 test('setSessionContextWindowOverride rejects below minimum', () => {
@@ -1004,4 +1012,26 @@ test('session override takes precedence over unknown model fallback', () => {
   expect(getContextWindowForModel('unknown-model')).toBe(200_000)
   clearSessionContextWindowOverride()
   expect(getContextWindowForModel('unknown-model')).toBe(128_000)
+})
+
+test('session override takes precedence over known model catalog metadata', () => {
+  const defaultWindow = getContextWindowForModel('gpt-4o')
+  setSessionContextWindowOverride('gpt-4o', 500_000)
+  expect(getContextWindowForModel('gpt-4o')).toBe(500_000)
+  clearSessionContextWindowOverride()
+  expect(getContextWindowForModel('gpt-4o')).toBe(defaultWindow)
+})
+
+test('provider-qualified override does not bleed into unqualified lookup', () => {
+  setSessionContextWindowOverride('zai-org/glm-5.2', 256_000)
+  expect(getContextWindowForModel('zai-org/glm-5.2')).toBe(256_000)
+  expect(getSessionContextWindowOverride('glm-5.2')).toBeUndefined()
+})
+
+test('clearSessionContextWindowOverride resets state for session isolation', () => {
+  setSessionContextWindowOverride('gpt-4o', 256_000)
+  expect(getSessionContextWindowOverride('gpt-4o')).toBe(256_000)
+  clearSessionContextWindowOverride()
+  expect(getSessionContextWindowOverride('gpt-4o')).toBeUndefined()
+  expect(getContextWindowForModel('gpt-4o')).not.toBe(256_000)
 })

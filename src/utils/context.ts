@@ -57,12 +57,19 @@ const MIN_CONTEXT_WINDOW_OVERRIDE = 33_000
 
 /**
  * Normalize a model name for override lookup.
- * Strips provider prefixes (openai/, anthropic/, copilot/, etc.) and lowercases.
+ * Lowercases only — preserves provider-qualified names like zai-org/glm-5.2
+ * so they don't collide with unqualified glm-5.2.
  */
 function normalizeModelName(model: string): string {
-  return model
-    .toLowerCase()
-    .replace(/^[a-z][\w-]*\//, '')
+  return model.toLowerCase()
+}
+
+/**
+ * Strip a leading provider prefix (e.g. openai/, anthropic/) for fallback lookup.
+ */
+function stripProviderPrefix(model: string): string | undefined {
+  const stripped = model.replace(/^[a-z][\w-]*\//, '')
+  return stripped !== model ? stripped : undefined
 }
 
 /**
@@ -106,12 +113,17 @@ export function clearSessionContextWindowOverride(model?: string): void {
 
 /**
  * Get the current session-scoped context window override for a model, if any.
+ * Tries the full normalized name first, then falls back to the stripped prefix
+ * variant (e.g. openai/gpt-4o → gpt-4o) for convenience.
  */
 export function getSessionContextWindowOverride(
   model: string,
 ): number | undefined {
   const normalized = normalizeModelName(model)
-  return sessionContextWindowOverrides.get(normalized)
+  const exact = sessionContextWindowOverrides.get(normalized)
+  if (exact !== undefined) return exact
+  const stripped = stripProviderPrefix(normalized)
+  return stripped !== undefined ? sessionContextWindowOverrides.get(stripped) : undefined
 }
 
 /**
