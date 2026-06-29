@@ -477,7 +477,7 @@ describe('Claude API lifecycle tracking', () => {
       })
 
       if (body.stream === true) {
-        return makeStallingOpenAIStreamResponse()
+        return makeRoleOnlyStallingOpenAIStreamResponse(() => {})
       }
 
       return makeOpenAIChatCompletionResponse()
