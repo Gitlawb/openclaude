@@ -5,7 +5,7 @@
 
 import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { join, relative } from 'path'
-import { create, insert, search, type Orama, remove } from '@orama/orama'
+import { create, insert, search, remove } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
 import { parseFrontmatter } from '../utils/frontmatterParser.js'
 
@@ -18,7 +18,7 @@ const ORAMA_SCHEMA = {
   content: 'string',
 } as const
 
-let indexDb: Orama<typeof ORAMA_SCHEMA> | null = null
+let indexDb: any = null
 let indexDir: string | null = null
 
 const INDEX_FILENAME = '.vector-index'
@@ -52,15 +52,16 @@ async function scanMdFiles(
         walk(fullPath, depth + 1)
       } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
         try {
-          const content = readFileSync(fullPath, 'utf-8')
-          const fm = parseFrontmatter(content)
-          const body = content.replace(/^---[\s\S]*?---\n*/, '').trim()
+          const raw = readFileSync(fullPath, 'utf-8')
+          const parsed = parseFrontmatter(raw)
+          const body = raw.replace(/^---[\s\S]*?---\n*/, '').trim()
+          const fm = parsed?.frontmatter
           results.push({
             filename: entry,
             path: relative(memoryDir, fullPath),
-            title: (fm?.title as string) || entry.replace(/\.md$/, ''),
-            type: (fm?.type as string) || 'reference',
-            description: (fm?.description as string) || '',
+            title: typeof fm?.title === 'string' ? fm.title : entry.replace(/\.md$/, ''),
+            type: typeof fm?.type === 'string' ? fm.type : 'reference',
+            description: typeof fm?.description === 'string' ? fm.description : '',
             content: body,
           })
         } catch {

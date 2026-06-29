@@ -1,0 +1,86 @@
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { extractFactsIntoMemdir } from './autoExtractFacts.js'
+
+describe('autoExtractFacts', () => {
+  let memDir: string
+
+  beforeEach(() => {
+    memDir = mkdtempSync(join(tmpdir(), 'auto-extract-facts-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(memDir, { recursive: true, force: true })
+  })
+
+  function factsDir(): string {
+    return join(memDir, '.facts')
+  }
+
+  function countFactFiles(): number {
+    const dir = factsDir()
+    if (!existsSync(dir)) return 0
+    return readdirSync(dir).filter(f => f.endsWith('.md')).length
+  }
+
+  it('extracts environment variables', async () => {
+    await extractFactsIntoMemdir('export DATABASE_URL=postgres://localhost:5432/mydb', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+    const files = readdirSync(factsDir())
+    expect(files.some(f => f.includes('database-url'))).toBe(true)
+  })
+
+  it('extracts absolute paths', async () => {
+    await extractFactsIntoMemdir('the config is at /opt/app/config/settings.json', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts versions', async () => {
+    await extractFactsIntoMemdir('upgrade to v2.1.3 and use node v18', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts URLs', async () => {
+    await extractFactsIntoMemdir('deployed at https://api.example.com/v1/users', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts backtick concepts', async () => {
+    await extractFactsIntoMemdir('call the `PaymentProcessor` service', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts technical terms with PascalCase', async () => {
+    await extractFactsIntoMemdir('the UserAuthentication flow handles login', memDir)
+    const files = readdirSync(factsDir())
+    expect(files.some(f => f.includes('userauthentication'))).toBe(true)
+  })
+
+  it('detects React and Redux mentions', async () => {
+    await extractFactsIntoMemdir('we use React with Redux', memDir)
+    const files = readdirSync(factsDir()).map(f => f.toLowerCase())
+    expect(files.some(f => f.includes('react'))).toBe(true)
+    expect(files.some(f => f.includes('redux'))).toBe(true)
+  })
+
+  it('extracts project file signatures', async () => {
+    await extractFactsIntoMemdir('check build.gradle and pom.xml', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('writes files with proper frontmatter', async () => {
+    await extractFactsIntoMemdir('DATABASE_HOST=prod-db-1.internal', memDir)
+    const files = readdirSync(factsDir())
+    expect(files.length).toBeGreaterThan(0)
+    const content = readFileSync(join(factsDir(), files[0]), 'utf-8')
+    expect(content).toContain('---')
+    expect(content).toContain('type: reference')
+  })
+
+  it('handles empty content gracefully', async () => {
+    await extractFactsIntoMemdir('', memDir)
+    expect(countFactFiles()).toBe(0)
+  })
+})
