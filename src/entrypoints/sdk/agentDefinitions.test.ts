@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { buildSdkUserAgents } from './agentDefinitions.js'
+import {
+  buildSdkUserAgents,
+  mergeSdkUserAgents,
+} from './agentDefinitions.js'
 
 describe('buildSdkUserAgents', () => {
   test('preserves valid maxSteps, ignores invalid maxSteps, and rejects malformed SDK agents safely', () => {
@@ -133,5 +136,69 @@ describe('buildSdkUserAgents', () => {
       'Agent definition must be an object',
       'Agent definition must be an object',
     ])
+  })
+
+  test('mergeSdkUserAgents gives SDK agents deterministic active-agent precedence', () => {
+    const existingHelper = {
+      agentType: 'helper',
+      whenToUse: 'Use filesystem helper',
+      getSystemPrompt: () => 'filesystem helper prompt',
+      source: 'projectSettings',
+    }
+    const filesystemOnly = {
+      agentType: 'filesystem',
+      whenToUse: 'Use filesystem-only agent',
+      getSystemPrompt: () => 'filesystem-only prompt',
+      source: 'projectSettings',
+    }
+    const sdkHelper = {
+      agentType: 'helper',
+      whenToUse: 'Use SDK helper',
+      getSystemPrompt: () => 'sdk helper prompt',
+      source: 'sdk' as const,
+      maxSteps: 2,
+    }
+
+    const merged = mergeSdkUserAgents(
+      {
+        activeAgents: [filesystemOnly, existingHelper],
+        allAgents: [filesystemOnly, existingHelper],
+      },
+      [sdkHelper],
+    )
+
+    expect(merged.activeAgents).toEqual([filesystemOnly, sdkHelper])
+    expect(merged.allAgents).toEqual([
+      filesystemOnly,
+      existingHelper,
+      sdkHelper,
+    ])
+  })
+
+  test('mergeSdkUserAgents does not let SDK agents override managed policy agents', () => {
+    const managedHelper = {
+      agentType: 'helper',
+      whenToUse: 'Use managed helper',
+      getSystemPrompt: () => 'managed helper prompt',
+      source: 'policySettings',
+    }
+    const sdkHelper = {
+      agentType: 'helper',
+      whenToUse: 'Use SDK helper',
+      getSystemPrompt: () => 'sdk helper prompt',
+      source: 'sdk' as const,
+      maxSteps: 2,
+    }
+
+    const merged = mergeSdkUserAgents(
+      {
+        activeAgents: [managedHelper],
+        allAgents: [managedHelper],
+      },
+      [sdkHelper],
+    )
+
+    expect(merged.activeAgents).toEqual([managedHelper])
+    expect(merged.allAgents).toEqual([managedHelper, sdkHelper])
   })
 })

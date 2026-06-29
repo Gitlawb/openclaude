@@ -13,7 +13,7 @@ type WithAgent = { agent: AgentDefinition }
 // Simplified state type using intersection types
 export type ModeState =
   | { mode: 'main-menu' }
-  | { mode: 'list-agents'; source: SettingSource | 'all' | 'built-in' }
+  | { mode: 'list-agents'; source: SettingSource | 'all' | 'built-in' | 'plugin' | 'sdk' }
   | ({ mode: 'agent-menu' } & WithAgent & WithPreviousMode)
   | ({ mode: 'view-agent' } & WithAgent & WithPreviousMode)
   | { mode: 'create-agent' }

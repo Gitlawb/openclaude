@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { MockQueryEngine } from './helpers/mock-engine.js'
-import { query } from '../../src/entrypoints/sdk/index.js'
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+} from '../../src/entrypoints/sdk/index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -244,6 +248,55 @@ describe('Query happy-path — full lifecycle', () => {
           (agent: any) => agent?.agentType === 'leaky',
         ),
     ).toBe(false)
+  })
+
+  test('denied SDK MCP tools are filtered before engine updateTools', async () => {
+    const mockEngine = new MockQueryEngine()
+    const deniedBash = tool(
+      'Bash',
+      'Denied MCP duplicate of Bash',
+      { type: 'object', properties: {} },
+      async () => ({ content: [{ type: 'text', text: 'denied' }] }),
+    )
+    const allowedSdkTool = tool(
+      'sdkAllowed',
+      'Allowed SDK MCP tool',
+      { type: 'object', properties: {} },
+      async () => ({ content: [{ type: 'text', text: 'allowed' }] }),
+    )
+    const q = query({
+      prompt: 'mcp deny filtering',
+      options: {
+        cwd: process.cwd(),
+        disallowedTools: ['Bash'],
+        mcpServers: {
+          'sdk-tools': createSdkMcpServer({
+            type: 'sdk',
+            name: 'sdk-tools',
+            tools: [deniedBash, allowedSdkTool],
+          }),
+        },
+      },
+    })
+    const initialToolNames = (q as any).engine.config.tools.map(
+      (entry: any) => entry?.name,
+    )
+    expect(initialToolNames.length).toBeGreaterThan(0)
+    mockEngine.config.tools = [...(q as any).engine.config.tools]
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    const toolNames = mockEngine.config.tools.map((entry: any) => entry?.name)
+    for (const initialToolName of initialToolNames) {
+      expect(toolNames).toContain(initialToolName)
+    }
+    expect(toolNames).toContain('sdkAllowed')
+    expect(toolNames).not.toContain('Bash')
+    expect(messages.some(message => message?.type === 'assistant')).toBe(true)
   })
 })
 

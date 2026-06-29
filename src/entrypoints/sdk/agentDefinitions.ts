@@ -1,9 +1,16 @@
 import { AgentDefinitionSchema } from './coreSchemas.js'
 
-type SdkAgentDefinitionInput = {
-  description: string
+export type SdkAgentDefinitionInput = {
+  description?: string
   prompt: string
+  /**
+   * Tool allowlist for this agent. If omitted or set to ['*'], the agent can use
+   * all tools available to subagents after disallowedTools is applied.
+   */
   tools?: string[]
+  /**
+   * Tool denylist for this agent. Deny entries always override tools entries.
+   */
   disallowedTools?: string[]
   model?: string
   maxTurns?: number
@@ -14,11 +21,24 @@ export type SdkInjectedAgentDefinition = {
   agentType: string
   whenToUse: string
   getSystemPrompt: () => string
+  source: 'sdk'
   tools?: string[]
   disallowedTools?: string[]
   model?: string
   maxTurns?: number
   maxSteps?: number
+}
+
+export type SdkMergeableAgentDefinition = {
+  agentType: string
+  source: string
+}
+
+export type SdkAgentDefinitionSet<
+  TAgent extends SdkMergeableAgentDefinition = SdkMergeableAgentDefinition,
+> = {
+  activeAgents: TAgent[]
+  allAgents: TAgent[]
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {
@@ -75,6 +95,7 @@ export function buildSdkUserAgents(
         agentType: name,
         whenToUse: data.description,
         getSystemPrompt: () => data.prompt,
+        source: 'sdk',
         ...(data.tools ? { tools: data.tools } : {}),
         ...(data.disallowedTools
           ? { disallowedTools: data.disallowedTools }
@@ -85,4 +106,35 @@ export function buildSdkUserAgents(
       },
     ]
   })
+}
+
+export function mergeSdkUserAgents<TAgent extends SdkMergeableAgentDefinition>(
+  agentDefs: SdkAgentDefinitionSet<TAgent>,
+  userAgents: SdkInjectedAgentDefinition[],
+): SdkAgentDefinitionSet<TAgent | SdkInjectedAgentDefinition> {
+  if (userAgents.length === 0) {
+    return agentDefs
+  }
+
+  const protectedAgentTypes = new Set(
+    agentDefs.activeAgents
+      .filter(agent => agent.source === 'policySettings')
+      .map(agent => agent.agentType),
+  )
+  const activeUserAgents = userAgents.filter(
+    agent => !protectedAgentTypes.has(agent.agentType),
+  )
+  const activeUserAgentTypes = new Set(
+    activeUserAgents.map(agent => agent.agentType),
+  )
+  return {
+    ...agentDefs,
+    activeAgents: [
+      ...agentDefs.activeAgents.filter(
+        agent => !activeUserAgentTypes.has(agent.agentType),
+      ),
+      ...activeUserAgents,
+    ],
+    allAgents: [...agentDefs.allAgents, ...userAgents],
+  }
 }
