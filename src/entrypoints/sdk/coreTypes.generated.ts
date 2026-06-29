@@ -1532,6 +1532,7 @@ export type AgentDefinition = {
   skills?: string[]
   initialPrompt?: string
   maxTurns?: number
+  maxSteps?: number
   background?: boolean
   memory?: "user" | "project" | "local"
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | number

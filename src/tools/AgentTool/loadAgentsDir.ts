@@ -86,6 +86,7 @@ const AgentJsonSchema = lazySchema(() =>
     mcpServers: z.array(AgentMcpServerSpecSchema()).optional(),
     hooks: HooksSchema().optional(),
     maxTurns: z.number().int().positive().optional(),
+    maxSteps: z.number().int().positive().optional(),
     skills: z.array(z.string()).optional(),
     initialPrompt: z.string().optional(),
     memory: z.enum(['user', 'project', 'local']).optional(),
@@ -112,6 +113,7 @@ export type BaseAgentDefinition = {
   effort?: EffortValue
   permissionMode?: PermissionMode
   maxTurns?: number // Maximum number of agentic turns before stopping
+  maxSteps?: number // Maximum number of tool-use steps before forcing a final summary
   filename?: string // Original filename without .md extension (for user/project/managed agents)
   baseDir?: string
   criticalSystemReminder_EXPERIMENTAL?: string // Short message re-injected at every user turn
@@ -484,6 +486,7 @@ export function parseAgentFromJson(
         : {}),
       ...(parsed.hooks ? { hooks: parsed.hooks } : {}),
       ...(parsed.maxTurns !== undefined ? { maxTurns: parsed.maxTurns } : {}),
+      ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
       ...(parsed.skills && parsed.skills.length > 0
         ? { skills: parsed.skills }
         : {}),
@@ -639,6 +642,15 @@ export function parseAgentFromMarkdown(
       )
     }
 
+    // Parse maxSteps from frontmatter
+    const maxStepsRaw = frontmatter['maxSteps']
+    const maxSteps = parsePositiveIntFromFrontmatter(maxStepsRaw)
+    if (maxStepsRaw !== undefined && maxSteps === undefined) {
+      logForDebugging(
+        `Agent file ${filePath} has invalid maxSteps '${maxStepsRaw}'. Must be a positive integer.`,
+      )
+    }
+
     // Extract filename without extension
     const filename = basename(filePath, '.md')
 
@@ -727,6 +739,7 @@ export function parseAgentFromMarkdown(
         ? { permissionMode: permissionModeRaw as PermissionMode }
         : {}),
       ...(maxTurns !== undefined ? { maxTurns } : {}),
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
       ...(background ? { background } : {}),
       ...(memory ? { memory } : {}),
       ...(isolation ? { isolation } : {}),

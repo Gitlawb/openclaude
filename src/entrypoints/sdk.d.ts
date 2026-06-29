@@ -294,6 +294,7 @@ export type QueryOptions = {
     disallowedTools?: string[]
     model?: string
     maxTurns?: number
+    maxSteps?: number
   }>
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */

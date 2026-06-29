@@ -277,6 +277,20 @@ The `is_async` field reported in the `tengu_agent_tool_selected` event and the a
 
 For best results, use models with strong tool/function calling support.
 
+### Agent step limits
+
+Custom agents can define `maxSteps` to cap how many tool-use steps a sub-agent may execute. When the limit is reached, OpenClaude stops additional tool calls and asks the sub-agent for a concise final summary covering completed work, findings, remaining tasks, and whether another run is needed. Omitting `maxSteps` preserves the default unlimited behavior.
+
+```markdown
+---
+name: bounded-researcher
+description: Use for focused research with bounded tool use
+maxSteps: 8
+---
+
+You are a focused research agent.
+```
+
 ## Agent Routing
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.

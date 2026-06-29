@@ -1177,6 +1177,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .describe(
           'Maximum number of agentic turns (API round-trips) before stopping',
         ),
+      maxSteps: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Maximum number of subagent tool-use steps before forcing a concise final summary',
+        ),
       background: z
         .boolean()
         .optional()

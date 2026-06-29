@@ -157,6 +157,7 @@ export type QueryOptions = {
     disallowedTools?: string[]
     model?: string
     maxTurns?: number
+    maxSteps?: number
   }>
   /** Setting sources to load. */
   settingSources?: string[]
@@ -550,6 +551,7 @@ class QueryImpl implements Query {
               disallowedTools?: string[]
               model?: string
               maxTurns?: number
+              maxSteps?: number
             }> = Object.entries(self.userAgents).map(([name, def]) => ({
               agentType: name,
               whenToUse: def.description ?? name,
@@ -558,6 +560,7 @@ class QueryImpl implements Query {
               ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
               ...(def.model ? { model: def.model } : {}),
               ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
+              ...(def.maxSteps ? { maxSteps: def.maxSteps } : {}),
             }))
             agentDefs.activeAgents.push(...userAgents)
           }

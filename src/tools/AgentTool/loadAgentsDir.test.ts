@@ -5,6 +5,7 @@ import { dirname, join } from 'path'
 import {
   clearAgentDefinitionsCache,
   getAgentDefinitionsWithOverrides,
+  parseAgentFromJson,
 } from './loadAgentsDir.js'
 import { loadMarkdownFilesForSubdir } from '../../utils/markdownConfigLoader.js'
 import {
@@ -156,5 +157,87 @@ describe('agent definition loading', () => {
 
     expect(agent).toBeDefined()
     expect(agent?.isolation).toBeUndefined()
+  })
+
+  test('loads maxSteps from markdown agent frontmatter', async () => {
+    const projectDir = join(tempDir, 'project')
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'limited-agent.md'),
+      'limited-agent',
+      'limited prompt',
+      'maxSteps: 3\n',
+    )
+
+    const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
+    const agent = activeAgents.find(agent => agent.agentType === 'limited-agent')
+
+    expect(agent?.maxSteps).toBe(3)
+  })
+
+  test('ignores invalid maxSteps in markdown agent frontmatter', async () => {
+    const projectDir = join(tempDir, 'project')
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'invalid-steps-agent.md'),
+      'invalid-steps-agent',
+      'invalid steps prompt',
+      'maxSteps: 0\n',
+    )
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'malformed-steps-agent.md'),
+      'malformed-steps-agent',
+      'malformed steps prompt',
+      'maxSteps: 2abc\n',
+    )
+
+    const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
+    const agent = activeAgents.find(
+      agent => agent.agentType === 'invalid-steps-agent',
+    )
+    const malformed = activeAgents.find(
+      agent => agent.agentType === 'malformed-steps-agent',
+    )
+
+    expect(agent).toBeDefined()
+    expect(agent?.maxSteps).toBeUndefined()
+    expect(malformed).toBeDefined()
+    expect(malformed?.maxSteps).toBeUndefined()
+  })
+
+  test('project agent maxSteps overrides user agent maxSteps for the same name', async () => {
+    const projectDir = join(tempDir, 'project')
+    await writeAgent(
+      join(process.env.CLAUDE_CONFIG_DIR!, 'agents', 'shared-limited.md'),
+      'shared-limited',
+      'user prompt',
+      'maxSteps: 1\n',
+    )
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'shared-limited.md'),
+      'shared-limited',
+      'project prompt',
+      'maxSteps: 5\n',
+    )
+
+    const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
+    const agent = activeAgents.find(agent => agent.agentType === 'shared-limited')
+
+    expect(agent?.source).toBe('projectSettings')
+    expect(agent?.maxSteps).toBe(5)
+  })
+
+  test('loads maxSteps from JSON agent definitions and rejects invalid values safely', () => {
+    const valid = parseAgentFromJson('json-limited', {
+      description: 'Use for JSON maxSteps coverage',
+      prompt: 'JSON prompt',
+      maxSteps: 2,
+    })
+    const invalid = parseAgentFromJson('json-invalid', {
+      description: 'Use for invalid JSON maxSteps coverage',
+      prompt: 'JSON prompt',
+      maxSteps: 0,
+    })
+
+    expect(valid?.maxSteps).toBe(2)
+    expect(invalid).toBeNull()
   })
 })

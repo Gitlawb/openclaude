@@ -112,6 +112,7 @@ import {
   createToolFailureLoopGuardState,
   updateToolFailureLoopGuard,
 } from './query/toolFailureLoopGuard.js'
+import { AGENT_STEP_LIMIT_TOOL_RESULT_PREFIX } from './query/agentStepLimit.js'
 import { buildQueryConfig } from './query/config.js'
 import {
   getGlobalConfig,
@@ -180,6 +181,85 @@ function* yieldMissingToolResultBlocks(
 const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
 const MAX_CONTINUATION_NUDGES = 20
 
+type AgentStepLimitConfig = {
+  maxSteps: number
+  agentType?: string
+}
+
+type AgentStepLimitState = AgentStepLimitConfig & {
+  stepsUsed: number
+  summaryRequested: boolean
+}
+
+function normalizeAgentStepLimit(
+  limit: AgentStepLimitConfig | undefined,
+): AgentStepLimitState | undefined {
+  if (
+    !limit ||
+    !Number.isInteger(limit.maxSteps) ||
+    limit.maxSteps <= 0
+  ) {
+    return undefined
+  }
+  return {
+    maxSteps: limit.maxSteps,
+    agentType: limit.agentType,
+    stepsUsed: 0,
+    summaryRequested: false,
+  }
+}
+
+function findAssistantMessageForToolUse(
+  assistantMessages: AssistantMessage[],
+  toolUseId: string,
+): AssistantMessage | undefined {
+  return assistantMessages.find(message =>
+    message.message.content.some(
+      content => content.type === 'tool_use' && content.id === toolUseId,
+    ),
+  )
+}
+
+function createAgentStepLimitToolResult(
+  toolUse: ToolUseBlock,
+  assistantMessage: AssistantMessage | undefined,
+  limit: AgentStepLimitState,
+): UserMessage {
+  const content =
+    `${AGENT_STEP_LIMIT_TOOL_RESULT_PREFIX} for '${limit.agentType ?? 'subagent'}' ` +
+    `(${limit.stepsUsed}/${limit.maxSteps} tool uses). This tool call was not executed. ` +
+    'Do not call more tools; provide the final summary requested next.'
+
+  return createUserMessage({
+    content: [
+      {
+        type: 'tool_result',
+        content: `<tool_use_error>${content}</tool_use_error>`,
+        is_error: true,
+        tool_use_id: toolUse.id,
+      },
+    ],
+    toolUseResult: content,
+    isAgentStepLimitToolResult: true,
+    ...(assistantMessage
+      ? { sourceToolAssistantUUID: assistantMessage.uuid }
+      : {}),
+  })
+}
+
+function createAgentStepLimitSummaryRequest(
+  limit: AgentStepLimitState,
+): UserMessage {
+  return createUserMessage({
+    content:
+      `Agent '${limit.agentType ?? 'subagent'}' reached its configured step limit ` +
+      `after ${limit.stepsUsed}/${limit.maxSteps} tool uses. Stop using tools now. ` +
+      'Provide a concise final summary with these sections: completed work, findings, ' +
+      'remaining tasks, and whether another run is needed.',
+    isMeta: true,
+  })
+}
+
 function formatAutoCompactRetryDelay(delayMs: number): string {
   const totalSeconds = Math.max(1, Math.ceil(delayMs / 1000))
   if (totalSeconds < 60) {
@@ -234,6 +314,7 @@ export type QueryParams = {
   // budget for the whole agentic turn; `remaining` is computed per iteration
   // from cumulative API usage. See configureTaskBudgetParams in claude.ts.
   taskBudget?: { total: number }
+  agentStepLimit?: AgentStepLimitConfig
   deps?: QueryDeps
 }
 
@@ -263,6 +344,7 @@ type State = {
   // Why the previous iteration continued. Undefined on first iteration.
   // Lets tests assert recovery paths fired without inspecting message contents.
   transition: Continue | undefined
+  agentStepLimit: AgentStepLimitState | undefined
 }
 
 export async function* query(
@@ -337,6 +419,7 @@ async function* queryLoop(
     continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
     transition: undefined,
+    agentStepLimit: normalizeAgentStepLimit(params.agentStepLimit),
   }
   const budgetTracker = feature('TOKEN_BUDGET') ? createBudgetTracker() : null
 
@@ -388,6 +471,7 @@ async function* queryLoop(
       pendingToolUseSummary,
       stopHookActive,
       turnCount,
+      agentStepLimit,
     } = state
     const effectiveMaxOutputTokensOverride =
       maxOutputTokensOverride === undefined
@@ -737,7 +821,8 @@ async function* queryLoop(
     let needsFollowUp = false
 
     queryCheckpoint('query_setup_start')
-    const useStreamingToolExecution = config.gates.streamingToolExecution
+    const useStreamingToolExecution =
+      config.gates.streamingToolExecution && agentStepLimit === undefined
     let streamingToolExecutor = useStreamingToolExecution
       ? new StreamingToolExecutor(
           toolUseContext.options.tools,
@@ -877,6 +962,9 @@ async function* queryLoop(
     }
 
     let attemptWithFallback = true
+    const toolsForModel = agentStepLimit?.summaryRequested
+      ? []
+      : toolUseContext.options.tools
 
     queryCheckpoint('query_api_loop_start')
     try {
@@ -889,7 +977,7 @@ async function* queryLoop(
             messages: prependUserContext(messagesForQuery, userContext),
             systemPrompt: fullSystemPrompt,
             thinkingConfig: toolUseContext.options.thinkingConfig,
-            tools: toolUseContext.options.tools,
+            tools: toolsForModel,
             signal: toolUseContext.abortController.signal,
             options: {
               async getToolPermissionContext() {
@@ -927,6 +1015,9 @@ async function* queryLoop(
               agentId: toolUseContext.agentId,
               addNotification: toolUseContext.addNotification,
               providerOverride: toolUseContext.options.providerOverride,
+              ...(toolsForModel !== toolUseContext.options.tools && {
+                messageNormalizationTools: toolUseContext.options.tools,
+              }),
               ...(params.taskBudget && {
                 taskBudget: {
                   total: params.taskBudget.total,
@@ -1359,6 +1450,7 @@ async function* queryLoop(
               stopHookActive: undefined,
               turnCount,
               continuationNudgeCount: state.continuationNudgeCount,
+              agentStepLimit,
               transition: {
                 reason: 'collapse_drain_retry',
                 committed: drained.committed,
@@ -1416,6 +1508,7 @@ async function* queryLoop(
             stopHookActive: undefined,
             turnCount,
             continuationNudgeCount: state.continuationNudgeCount,
+            agentStepLimit,
             transition: { reason: 'reactive_compact_retry' },
           }
           state = next
@@ -1477,6 +1570,7 @@ async function* queryLoop(
             stopHookActive: undefined,
             turnCount,
             continuationNudgeCount: state.continuationNudgeCount,
+            agentStepLimit,
             transition: {
               reason: 'provider_max_tokens_retry',
               cap: providerMaxTokensCap,
@@ -1524,6 +1618,7 @@ async function* queryLoop(
             stopHookActive: undefined,
             turnCount,
             continuationNudgeCount: state.continuationNudgeCount,
+            agentStepLimit,
             transition: { reason: 'max_output_tokens_escalate' },
           }
           state = next
@@ -1555,6 +1650,7 @@ async function* queryLoop(
             stopHookActive: undefined,
             turnCount,
             continuationNudgeCount: state.continuationNudgeCount,
+            agentStepLimit,
             transition: {
               reason: 'max_output_tokens_recovery',
               attempt: maxOutputTokensRecoveryCount + 1,
@@ -1634,6 +1730,7 @@ async function* queryLoop(
               stopHookActive: undefined,
               turnCount,
               continuationNudgeCount: state.continuationNudgeCount,
+              agentStepLimit,
               transition: { reason: 'provider_fallback_retry' },
             }
             state = next
@@ -1700,6 +1797,7 @@ async function* queryLoop(
           stopHookActive: stopHookResult.stopHookActive,
           turnCount,
           continuationNudgeCount: state.continuationNudgeCount,
+          agentStepLimit,
           transition: { reason: 'stop_hook_blocking' },
         }
         state = next
@@ -1739,6 +1837,7 @@ async function* queryLoop(
             stopHookActive: undefined,
             turnCount,
             continuationNudgeCount: state.continuationNudgeCount,
+            agentStepLimit,
             transition: { reason: 'token_budget_continuation' },
           }
           continue
@@ -1766,6 +1865,7 @@ async function* queryLoop(
       // when the model keeps matching signals without ever calling tools.
       if (
         assistantMessages.length > 0 &&
+        !agentStepLimit?.summaryRequested &&
         turnCount < (maxTurns ?? Infinity) &&
         state.continuationNudgeCount < MAX_CONTINUATION_NUDGES
       ) {
@@ -1806,11 +1906,21 @@ async function* queryLoop(
               stopHookActive: undefined,
               turnCount,
               continuationNudgeCount: state.continuationNudgeCount + 1,
+              agentStepLimit,
               transition: { reason: 'continuation_nudge' },
             }
             state = next
             continue
           }
+        }
+      }
+
+      if (agentStepLimit?.summaryRequested) {
+        return {
+          reason: 'agent_step_limit',
+          turnCount,
+          stepsUsed: agentStepLimit.stepsUsed,
+          maxSteps: agentStepLimit.maxSteps,
         }
       }
 
@@ -1822,6 +1932,38 @@ async function* queryLoop(
 
     queryCheckpoint('query_tool_execution_start')
 
+    let toolUseBlocksToExecute = toolUseBlocks
+    let blockedToolUseBlocks: ToolUseBlock[] = []
+    let nextAgentStepLimit = agentStepLimit
+    let shouldRequestAgentStepSummary = false
+    const shouldTerminateAgentStepSummary =
+      agentStepLimit?.summaryRequested === true && toolUseBlocks.length > 0
+
+    if (agentStepLimit) {
+      if (agentStepLimit.summaryRequested) {
+        toolUseBlocksToExecute = []
+        blockedToolUseBlocks = toolUseBlocks
+      } else {
+        const remainingSteps = Math.max(
+          0,
+          agentStepLimit.maxSteps - agentStepLimit.stepsUsed,
+        )
+        toolUseBlocksToExecute = toolUseBlocks.slice(0, remainingSteps)
+        blockedToolUseBlocks = toolUseBlocks.slice(remainingSteps)
+        const stepsUsed =
+          agentStepLimit.stepsUsed + toolUseBlocksToExecute.length
+        const summaryRequested =
+          stepsUsed >= agentStepLimit.maxSteps ||
+          blockedToolUseBlocks.length > 0
+
+        nextAgentStepLimit = {
+          ...agentStepLimit,
+          stepsUsed,
+          summaryRequested,
+        }
+        shouldRequestAgentStepSummary = summaryRequested
+      }
+    }
 
     if (streamingToolExecutor) {
       logEvent('tengu_streaming_tool_execution_used', {
@@ -1839,7 +1981,12 @@ async function* queryLoop(
 
     const toolUpdates = streamingToolExecutor
       ? streamingToolExecutor.getRemainingResults()
-      : runTools(toolUseBlocks, assistantMessages, canUseTool, toolUseContext)
+      : runTools(
+          toolUseBlocksToExecute,
+          assistantMessages,
+          canUseTool,
+          toolUseContext,
+        )
 
     for await (const update of toolUpdates) {
       if (update.message) {
@@ -1866,6 +2013,28 @@ async function* queryLoop(
         }
       }
     }
+
+    if (nextAgentStepLimit && blockedToolUseBlocks.length > 0) {
+      for (const toolUse of blockedToolUseBlocks) {
+        const message = createAgentStepLimitToolResult(
+          toolUse,
+          findAssistantMessageForToolUse(assistantMessages, toolUse.id),
+          nextAgentStepLimit,
+        )
+        yield message
+        toolResults.push(message)
+      }
+    }
+
+    if (shouldTerminateAgentStepSummary && nextAgentStepLimit) {
+      return {
+        reason: 'agent_step_limit',
+        turnCount,
+        stepsUsed: nextAgentStepLimit.stepsUsed,
+        maxSteps: nextAgentStepLimit.maxSteps,
+      }
+    }
+
     queryCheckpoint('query_tool_execution_end')
 
     // Track multi-turn context after tool execution
@@ -1968,6 +2137,24 @@ async function* queryLoop(
         content: toolFailureLoopDecision.message,
       })
       return { reason: 'tool_failure_loop' }
+    }
+
+    if (shouldRequestAgentStepSummary && nextAgentStepLimit) {
+      const summaryRequest =
+        createAgentStepLimitSummaryRequest(nextAgentStepLimit)
+      yield summaryRequest
+      toolResults.push(summaryRequest)
+      logForDebugging(
+        `[Agent: ${nextAgentStepLimit.agentType ?? 'subagent'}] Reached maxSteps limit (${nextAgentStepLimit.stepsUsed}/${nextAgentStepLimit.maxSteps}); requesting final summary`,
+      )
+      logEvent('tengu_agent_step_limit_reached', {
+        agent_type:
+          (nextAgentStepLimit.agentType ??
+            'subagent') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        steps_used: nextAgentStepLimit.stepsUsed,
+        max_steps: nextAgentStepLimit.maxSteps,
+        blocked_tool_uses: blockedToolUseBlocks.length,
+      })
     }
 
     // Generate tool use summary after tool batch completes — passed to next recursive call
@@ -2229,7 +2416,11 @@ async function* queryLoop(
     }
 
     // Check if we've reached the max turns limit
-    if (maxTurns && nextTurnCount > maxTurns) {
+    if (
+      maxTurns &&
+      nextTurnCount > maxTurns &&
+      !nextAgentStepLimit?.summaryRequested
+    ) {
       yield createAttachmentMessage({
         type: 'max_turns_reached',
         maxTurns,
@@ -2253,6 +2444,7 @@ async function* queryLoop(
       maxOutputTokensOverride: undefined,
       providerMaxOutputTokensCap,
       stopHookActive,
+      agentStepLimit: nextAgentStepLimit,
       transition: { reason: 'next_turn' },
     }
     state = next

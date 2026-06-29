@@ -718,6 +718,7 @@ export type Options = {
   taskBudget?: { total: number; remaining?: number }
   providerOverride?: { model: string; baseURL: string; apiKey: string }
   queryLifecycle?: QueryLifecycleOperationTracker
+  messageNormalizationTools?: Tools
 }
 
 export async function queryModelWithoutStreaming({
@@ -1294,7 +1295,10 @@ async function* queryModel(
   })
 
   queryCheckpoint('query_message_normalization_start')
-  let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
+  let messagesForAPI = normalizeMessagesForAPI(
+    messages,
+    options.messageNormalizationTools ?? filteredTools,
+  )
   queryCheckpoint('query_message_normalization_end')
 
   // Apply hybrid context strategy for optimal cache/fresh balance
