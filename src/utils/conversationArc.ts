@@ -364,10 +364,7 @@ export async function getArcSummary(query?: string): Promise<string> {
       if (results.length > 0) {
         summary += '\nRelevant Knowledge:\n'
         for (const r of results.slice(0, 5)) {
-          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}`
-          const snippet = r.content?.trim().slice(0, 300)
-          if (snippet) summary += ` [${snippet.replace(/\n+/g, ' ').slice(0, 120)}]`
-          summary += '\n'
+          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}\n`
         }
       }
     } catch {

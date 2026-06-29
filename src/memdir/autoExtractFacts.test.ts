@@ -56,6 +56,33 @@ describe('autoExtractFacts', () => {
     expect(content).not.toContain('#section')
   })
 
+  it('extracts absolute paths', async () => {
+    await extractFactsIntoMemdir('the config is at /opt/app/config/settings.json', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts backtick concepts', async () => {
+    await extractFactsIntoMemdir('call the `PaymentProcessor` service', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts technical terms with PascalCase', async () => {
+    await extractFactsIntoMemdir('the UserAuthentication flow handles login', memDir)
+    const files = readdirSync(factsDir())
+    expect(files.some(f => f.includes('userauthentication'))).toBe(true)
+  })
+
+  it('extracts project file signatures', async () => {
+    await extractFactsIntoMemdir('check build.gradle and pom.xml', memDir)
+    expect(countFactFiles()).toBeGreaterThan(0)
+  })
+
+  it('extracts IP addresses', async () => {
+    await extractFactsIntoMemdir('connect to 192.168.1.100 or 10.0.0.1', memDir)
+    const files = readdirSync(factsDir())
+    expect(files.some(f => f.includes('192' ) || f.includes('10'))).toBe(true)
+  })
+
   it('detects React and Redux mentions', async () => {
     await extractFactsIntoMemdir('we use React with Redux', memDir)
     const files = readdirSync(factsDir()).map(f => f.toLowerCase())

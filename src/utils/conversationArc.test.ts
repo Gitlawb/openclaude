@@ -14,6 +14,7 @@ import {
   resetArc,
   getArcStats,
   finalizeArcTurn,
+  clearArcArtifacts,
 } from './conversationArc.js'
 import { resetGlobalGraph } from './knowledgeGraph.js'
 import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
@@ -220,6 +221,38 @@ describe('conversationArc', () => {
       await finalizeArcTurn()
       const files = readdirSync(memDir).filter(f => f.startsWith('session-summary-'))
       expect(files.length).toBe(0)
+    })
+  })
+
+  describe('clearArcArtifacts', () => {
+    it('removes .arc.json and session-summary-* files', async () => {
+      initializeArc(memDir)
+      addGoal('Cleanup test')
+      addDecision('Use cleanup', 'Testing')
+      const goal = getArc()!.goals[0]
+      updateGoalStatus(goal.id, 'completed')
+      await finalizeArcTurn()
+
+      const arcPath = join(memDir, '.arc.json')
+      expect(existsSync(arcPath)).toBe(true)
+
+      clearArcArtifacts(memDir)
+
+      expect(existsSync(arcPath)).toBe(false)
+      const remaining = readdirSync(memDir).filter(
+        f => f.startsWith('session-summary-') || f === '.arc.json',
+      )
+      expect(remaining.length).toBe(0)
+    })
+
+    it('leaves unrelated files untouched', () => {
+      initializeArc(memDir)
+      const unrelatedPath = join(memDir, 'keep-me.md')
+      writeFileSync(unrelatedPath, 'content', 'utf-8')
+
+      clearArcArtifacts(memDir)
+
+      expect(existsSync(unrelatedPath)).toBe(true)
     })
   })
 

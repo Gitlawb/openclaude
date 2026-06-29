@@ -133,7 +133,6 @@ import {
   isValidMaxMessagesCompactionThreshold,
   normalizeMaxMessagesCompactionThreshold,
 } from './utils/config.js'
-import { isAutoMemoryEnabled } from './memdir/paths.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
 import type { Terminal, Continue } from './query/transitions.js'
 import { feature } from 'bun:bundle'
@@ -716,7 +715,6 @@ async function* queryLoop(
     if (
       feature('CONVERSATION_ARC') &&
       getGlobalConfig().knowledgeGraphEnabled &&
-      isAutoMemoryEnabled() &&
       messagesForQuery.length > 0
     ) {
       const { updateArcPhase } = await import('./utils/conversationArc.js')
