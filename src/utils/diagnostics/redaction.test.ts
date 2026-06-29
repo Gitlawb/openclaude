@@ -100,6 +100,24 @@ describe("diagnostic redaction", () => {
     });
   });
 
+  // Regression: false/absent env-presence values must be preserved as-is
+  // rather than collapsed to "[set]" which would misrepresent the value.
+  test("preserves absent and falsey env-presence values", () => {
+    const redacted = redactDiagnosticObject({
+      OPENAI_API_KEY: false,
+      ANTHROPIC_API_KEY: "",
+      GITHUB_TOKEN: 0,
+      MISTRAL_API_KEY: null,
+    });
+
+    expect(redacted).toEqual({
+      OPENAI_API_KEY: false,
+      ANTHROPIC_API_KEY: "",
+      GITHUB_TOKEN: 0,
+      MISTRAL_API_KEY: null,
+    });
+  });
+
   test("redacts secret-looking values even under harmless field names", () => {
     const home = homedir();
     const redacted = redactDiagnosticObject({

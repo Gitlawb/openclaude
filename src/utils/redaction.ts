@@ -772,7 +772,11 @@ function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
   // If the parent key is a credential-sensitive name, collapse the entire
   // value regardless of its type — an object under { auth: { ... } } would
   // otherwise descend and leak the inner keys.
+  // Preserve absent/falsey values: null and undefined are already returned
+  // above; false, 0, and "" indicate the value is unset and should not be
+  // misrepresented as "[set]" or "[redacted]".
   if (key && isDiagnosticSecretKey(key)) {
+    if (value === false || value === "" || value === 0) return value;
     return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
   }
 
