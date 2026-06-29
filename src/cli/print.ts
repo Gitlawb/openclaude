@@ -1092,6 +1092,9 @@ export function createHeadlessHeartbeatStructuredEmitter(
 ): (message: HeadlessHeartbeatEvent) => void | Promise<void> {
   return message => {
     if (!hasDrainStarted()) {
+      // Before drain starts, write directly so startup signals in
+      // stream-json mode are not silently dropped.
+      structuredIO.write(message)
       return
     }
     structuredIO.outbound.enqueue(message)

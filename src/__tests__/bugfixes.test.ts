@@ -18,6 +18,13 @@ import { getMatchingHooks } from '../utils/hooks.js'
 import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
+
+// Real channelAllowlist module — captured before mocking so describe-block
+// afterEach can re-register it. Must be at module scope so describe() is
+// synchronous (Bun registers tests synchronously from describe callbacks).
+const _realChannelAllowlist = await import(
+  `../services/mcp/channelAllowlist.js?real=${Date.now()}-${Math.random()}`
+)
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
 
 // ---------------------------------------------------------------------------
@@ -603,29 +610,13 @@ describe('Dev-channels dialog coverage', () => {
   // before mock.module can intercept resolution.  The tests below
   // exercise the identical state-mutation patterns through the directly
   // importable registerDevChannels seam and DevChannelsDialog component.
-  describe('isChannelsEnabled branching', async () => {
-    // Re-import the real channelAllowlist module via a cache-busting
-    // URL at describe-entry so the inner afterEach can re-register it
-    // after each test mocks the module. Without this, adjacent test
-    // files that import the real `channelAllowlist.js` (e.g.
-    // channelNotification.test.ts) fail with "Export named
-    // 'getChannelAllowlist' not found".
-    const _realChannelAllowlist = await import(
-      `../services/mcp/channelAllowlist.js?real=${Date.now()}-${Math.random()}`
-    )
-
-    // Each test calls mock.module('./services/mcp/channelAllowlist.js', …)
-    // with a different factory. Subsequent calls for the same module replace
-    // the previous registration, so sequential tests within this describe
-    // work correctly.
-    //
-    // mock.restore() does NOT clear module-level mock.module() overrides
-    // in bun (the registry is process-global). If we don't restore the
-    // real `channelAllowlist.js` module here, any test that imports the
-    // real module after this describe block (e.g. neighboring
-    // channelNotification.test.ts) fails with "Export named
-    // 'getChannelAllowlist' not found". Re-register the real module
-    // from the cache-busted reference captured at describe-entry.
+  describe('isChannelsEnabled branching', () => {
+    // afterEach re-registers the real module so neighboring test files
+    // (e.g. channelNotification.test.ts) don't fail with "Export named
+    // 'getChannelAllowlist' not found". mock.restore() does NOT clear
+    // module-level mock.module() overrides in bun (registry is
+    // process-global), so we must re-register from the cache-busted
+    // reference captured at module scope.
     afterEach(() => {
       mock.restore()
       mock.module(

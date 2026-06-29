@@ -3527,6 +3527,10 @@ class OpenAIShimMessages {
         }
       }
 
+      for (const field of shimConfig.removeBodyFields ?? []) {
+        delete responsesBody[field]
+      }
+
       return responsesBody
     }
 

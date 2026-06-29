@@ -18,9 +18,13 @@ import {
  *   2. When `isChannelsEnabled()` is false — called directly (no dialog).
  */
 export function registerDevChannels(devChannels: ChannelEntry[]): void {
+  // Prepend so dev-tagged entries take precedence in order-sensitive lookups
+  // (e.g. findChannelEntry returns the first match). Without this, an existing
+  // non-dev entry for the same server/plugin would match first and bypass the
+  // dev privilege.
   setAllowedChannels([
-    ...getAllowedChannels(),
     ...devChannels.map(c => ({ ...c, dev: true })),
+    ...getAllowedChannels(),
   ]);
   setHasDevChannels(true);
 }
