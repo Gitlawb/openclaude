@@ -20,7 +20,6 @@ import {
   queryModelWithStreaming,
 } from './claude.js'
 import { EMPTY_USAGE } from './emptyUsage.js'
-import { __test as openAIShimTest } from './openaiShim.js'
 
 const envKeys = [
   'ANTHROPIC_AUTH_TOKEN',
@@ -166,25 +165,6 @@ function makeStallingOpenAIStreamResponse(
           clearTimeout(closeTimer)
         }
         onCancel?.(reason)
-      },
-    }),
-    {
-      headers: {
-        'content-type': 'text/event-stream',
-      },
-    },
-  )
-}
-
-function makeIdleTimeoutOpenAIStreamResponse(timeoutMs: number): Response {
-  let readCount = 0
-
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      pull(controller) {
-        readCount++
-        if (readCount === 1) return
-        controller.error(new openAIShimTest.StreamIdleTimeoutError(timeoutMs))
       },
     }),
     {
@@ -493,7 +473,7 @@ describe('Claude API lifecycle tracking', () => {
       })
 
       if (body.stream === true) {
-        return makeIdleTimeoutOpenAIStreamResponse(25)
+        return makeStallingOpenAIStreamResponse()
       }
 
       resolveFallbackRequestStarted()
