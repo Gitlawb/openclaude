@@ -5,7 +5,7 @@
 
 import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { join, relative } from 'path'
-import { create, insert, search, remove } from '@orama/orama'
+import { create, insert, search } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
 import { parseFrontmatter } from '../utils/frontmatterParser.js'
 
@@ -54,7 +54,6 @@ async function scanMdFiles(
         try {
           const raw = readFileSync(fullPath, 'utf-8')
           const parsed = parseFrontmatter(raw)
-          const body = raw.replace(/^---[\s\S]*?---\n*/, '').trim()
           const fm = parsed?.frontmatter
           results.push({
             filename: entry,
@@ -62,7 +61,7 @@ async function scanMdFiles(
             title: typeof fm?.title === 'string' ? fm.title : entry.replace(/\.md$/, ''),
             type: typeof fm?.type === 'string' ? fm.type : 'reference',
             description: typeof fm?.description === 'string' ? fm.description : '',
-            content: body,
+            content: parsed?.content ?? '',
           })
         } catch {
           // skip unreadable files
@@ -75,17 +74,50 @@ async function scanMdFiles(
   return results
 }
 
+function getLatestMdMtime(memoryDir: string): number {
+  let latest = 0
+  function walk(dir: string, depth: number) {
+    if (depth > 4) return
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry)
+      let stat: ReturnType<typeof statSync>
+      try {
+        stat = statSync(fullPath)
+      } catch {
+        continue
+      }
+      if (stat.isDirectory()) {
+        walk(fullPath, depth + 1)
+      } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
+        if (stat.mtimeMs > latest) latest = stat.mtimeMs
+      }
+    }
+  }
+  walk(memoryDir, 0)
+  return latest
+}
+
 export async function initMemdirIndex(memoryDir: string): Promise<void> {
   const indexPath = getIndexPath(memoryDir)
 
   if (existsSync(indexPath)) {
-    try {
-      const data = readFileSync(indexPath)
-      indexDb = await restore('binary', data)
-      indexDir = memoryDir
-      return
-    } catch {
-      // Corrupted index — rebuild
+    const indexMtime = statSync(indexPath).mtimeMs
+    const latestMtime = getLatestMdMtime(memoryDir)
+    if (latestMtime <= indexMtime) {
+      try {
+        const data = readFileSync(indexPath)
+        indexDb = await restore('binary', data)
+        indexDir = memoryDir
+        return
+      } catch {
+        // Corrupted index — rebuild
+      }
     }
   }
 
@@ -95,19 +127,12 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
 }
 
 export async function rebuildIndex(memoryDir: string): Promise<void> {
-  if (!indexDb) {
-    indexDb = await create({ schema: ORAMA_SCHEMA })
-    indexDir = memoryDir
-  }
+  indexDb = await create({ schema: ORAMA_SCHEMA })
+  indexDir = memoryDir
 
   const docs = await scanMdFiles(memoryDir)
 
   for (const doc of docs) {
-    try {
-      await remove(indexDb, doc.path)
-    } catch {
-      // not found — ok
-    }
     await insert(indexDb, {
       filename: doc.filename,
       path: doc.path,
