@@ -285,6 +285,61 @@ test.each([
   },
 )
 
+test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+        OPENAI_MODEL: 'cline-pass/deepseek-v4-flash',
+      },
+      { activeProfileProvider: 'openai' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves ClinePass profile provider without env applied flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'clinepass' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves ClinePass profile provider without CLAUDE_CODE_USE_OPENAI', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLINE_API_KEY: 'cp-key',
+      },
+      { activeProfileProvider: 'clinepass' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv still returns anthropic when no env flags and no profile provider', () => {
+  expect(resolveActiveRouteIdFromEnv({})).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv resolves Atlas Cloud profile provider without env applied flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'atlas-cloud' },
+    ),
+  ).toBe('atlas-cloud')
+})
+
+test('resolveActiveRouteIdFromEnv does not resolve custom profile provider as a known route', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'custom' },
+    ),
+  ).toBe('anthropic')
+})
+
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {
   expect(
     resolveActiveRouteIdFromEnv({

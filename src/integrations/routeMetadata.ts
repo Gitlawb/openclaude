@@ -820,10 +820,7 @@ export function resolveActiveRouteIdFromEnv(
       processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
     const matchedRoute = resolveRouteIdFromBaseUrl(baseUrl)
 
-    if (
-      processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
-      options?.activeProfileProvider
-    ) {
+    if (options?.activeProfileProvider) {
       const route = resolveProfileRoute(options.activeProfileProvider)
       if (
         route.routeId !== 'unknown-fallback' &&
@@ -848,6 +845,17 @@ export function resolveActiveRouteIdFromEnv(
     }
 
     return 'custom'
+  }
+
+  if (options?.activeProfileProvider) {
+    const route = resolveProfileRoute(options.activeProfileProvider)
+    if (
+      route.routeId !== 'unknown-fallback' &&
+      route.routeId !== 'openai' &&
+      route.routeId !== 'custom'
+    ) {
+      return route.routeId
+    }
   }
 
   return 'anthropic'

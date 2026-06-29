@@ -853,6 +853,9 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
+      if (route.routeId === 'clinepass' || profile.baseUrl.toLowerCase().includes('api.cline.bot')) {
+        openAIProfileEnv.CLINE_API_KEY = profile.apiKey
+      }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }

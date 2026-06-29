@@ -181,6 +181,7 @@ export type ProfileEnv = {
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
   ATLAS_CLOUD_API_KEY?: string
+  CLINE_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
   OPENCODE_API_KEY?: string
