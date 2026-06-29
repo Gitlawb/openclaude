@@ -77,11 +77,11 @@ const GITHUB_TOKEN_PATTERN =
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g;
 
 // Generic x-api-key header redaction
-const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n&]+/gi;
+const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n]+/gi;
 
 // Authorization header / Bearer token redaction
 const AUTHORIZATION_PATTERN =
-  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n&]+/gi;
+  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n]+/gi;
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
@@ -91,14 +91,14 @@ const PROVIDER_PREFIXED_ENV_PATTERN =
 // with strict negative lookarounds so we don't redact normal text that
 // happens to contain "API_KEY=" mid-sentence.
 const GENERIC_CREDENTIAL_ENV_PATTERN =
-  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n&]+["']?/gi;
+  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n]+["']?/gi;
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
 // access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&]+)/gi;
+  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n]+)/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -271,6 +271,7 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   const EXCLUDED_KEYS = [
     "inputtokens",
     "outputtokens",
+    "tokens",
     "cachereadinputtokens",
     "cachecreationinputtokens",
     "maxtokens",
@@ -730,8 +731,11 @@ export function redactHomePath(value: string, homeDir = homedir()): string {
   if (!value || !homeDir) return value;
   const normalizedHome = homeDir.replace(/[/\\]+$/, "");
   if (!normalizedHome) return value;
+  const isWindowsLike =
+    /^[a-zA-Z]:[\\/]/.test(value) || value.includes("\\");
+  const flags = isWindowsLike ? "gi" : "g";
   return value.replace(
-    new RegExp(`${escapeRegExp(normalizedHome)}(?=$|[/\\\\])`, "gi"),
+    new RegExp(`${escapeRegExp(normalizedHome)}(?=$|[/\\\\])`, flags),
     "~",
   );
 }
