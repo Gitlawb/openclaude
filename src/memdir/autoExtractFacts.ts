@@ -95,7 +95,16 @@ export async function extractFactsIntoMemdir(
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
   }
 
-  // 2. Detect Versions
+  // 2. Detect Absolute Paths
+  const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
+  for (const match of pathMatches) {
+    const path = match[1]
+    if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
+      cappedWrite(dir, 'path', path, `Project path: ${path}`, { type: 'absolute' })
+    }
+  }
+
+  // 3. Detect Versions
   const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
     cappedWrite(dir, 'version', match[0].toLowerCase(), `Version ${match[1]}`, { semver: match[1] })
@@ -115,10 +124,51 @@ export async function extractFactsIntoMemdir(
     }
   }
 
-  // 5. Specific tech detection
+  // 5. Detect IPv4
+  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
+  for (const match of ipMatches) {
+    const ip = match[1]
+    const context = content.toLowerCase()
+    const tags: Record<string, string> = { type: 'ipv4' }
+    if (context.includes('database') || context.includes('db')) tags.role = 'database'
+    if (context.includes('prod')) tags.env = 'production'
+    if (context.includes('worker')) tags.role = 'worker'
+    cappedWrite(dir, 'ip', ip, `Server IP: ${ip}`, tags)
+  }
+
+  // 6. Detect backtick symbols
+  const backtickMatches = content.matchAll(/`([^`]+)`/g)
+  for (const match of backtickMatches) {
+    const symbol = match[1]
+    if (symbol.length > 2 && symbol.length < 60) {
+      cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
+    }
+  }
+
+  // 7. Detect Technical Concepts (PascalCase, camelCase, hyphenated)
+  const technicalMatches = content.matchAll(
+    /\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g,
+  )
+  const seen = new Set<string>()
+  for (const match of technicalMatches) {
+    const word = match[1]
+    if (seen.has(word)) continue
+    seen.add(word)
+    if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
+      cappedWrite(dir, 'concept', word, `Technical term: ${word}`, { source: 'auto_discovery' })
+    }
+  }
+
+  // 8. Specific tech detection
   if (content.toLowerCase().includes('redux'))
     cappedWrite(dir, 'tech', 'Redux', 'Redux state management', { category: 'state_management' })
   if (content.toLowerCase().includes('react'))
     cappedWrite(dir, 'tech', 'React', 'React frontend library', { category: 'frontend' })
+
+  // 9. Project File Signatures
+  const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+  for (const match of fileMatches) {
+    cappedWrite(dir, 'file', match[1].toLowerCase(), `Project file: ${match[1]}`, { category: 'configuration' })
+  }
 
 }
