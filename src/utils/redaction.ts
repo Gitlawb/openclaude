@@ -294,7 +294,12 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   }
 
   if (typeof value === "string") {
-    return redactSensitiveInfo(value);
+    // Route URL-shaped strings through the URL redaction helper first so
+    // signed-URL query params (signature, sig, etc.) that redactSensitiveInfo
+    // doesn't cover are still masked. Safe on non-URL strings — the fallback
+    // path returns the input with just userinfo/query redaction applied.
+    const urlRedacted = redactUrlForDisplay(value);
+    return redactSensitiveInfo(urlRedacted);
   }
 
   return value;
@@ -764,10 +769,14 @@ export function redactDiagnosticObject(value: unknown): unknown {
 function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
   if (value === null || value === undefined) return value;
 
+  // If the parent key is a credential-sensitive name, collapse the entire
+  // value regardless of its type — an object under { auth: { ... } } would
+  // otherwise descend and leak the inner keys.
+  if (key && isDiagnosticSecretKey(key)) {
+    return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
+  }
+
   if (typeof value === "string") {
-    if (key && isDiagnosticSecretKey(key)) {
-      return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
-    }
     return redactLikelySecrets(redactHomePath(value));
   }
 

@@ -21,7 +21,7 @@ import type { EffortLevel } from 'src/utils/effort.js'
 import { logError } from 'src/utils/log.js'
 import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
-import { redactSensitiveInfo } from 'src/utils/redaction.js'
+import { redactSensitiveInfo, redactUrlForDisplay } from 'src/utils/redaction.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import type { NonNullableUsage } from '../../entrypoints/sdk/sdkUtilityTypes.js'
 import { consumeInvokingRequestId } from '../../utils/agentContext.js'
@@ -137,8 +137,10 @@ function getAnthropicEnvMetadata() {
   return {
     ...(process.env.ANTHROPIC_BASE_URL
       ? {
-          baseUrl: process.env
-            .ANTHROPIC_BASE_URL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          baseUrl: redactUrlForDisplay(
+            process.env
+              .ANTHROPIC_BASE_URL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
     ...(process.env.ANTHROPIC_MODEL

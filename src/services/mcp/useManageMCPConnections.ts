@@ -476,7 +476,7 @@ export function useManageMCPConnections(
               client.capabilities,
               client.config.pluginSource,
             )
-            const entry = findChannelEntry(client.name, getAllowedChannels())
+            const entry = findChannelEntry(client.name, getAllowedChannels(), client.config.pluginSource)
             // Plugin identifier for telemetry — log name@marketplace for any
             // plugin-kind entry (same tier as tengu_plugin_installed, which
             // logs arbitrary plugin_id+marketplace_name ungated). server-kind

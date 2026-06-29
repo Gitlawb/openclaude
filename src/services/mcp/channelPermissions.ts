@@ -23,7 +23,7 @@
  * See PR discussion 2956440848.
  */
 
-import { redactSensitiveInfo } from '../../utils/redaction.js'
+import { jsonRedactor, redactSensitiveInfo } from '../../utils/redaction.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 
@@ -160,7 +160,12 @@ export function shortRequestId(toolUseID: string): string {
  */
 export function truncateForPreview(input: unknown): string {
   try {
-    const s = jsonStringify(input)
+    // jsonRedactor collapses credential-shaped keys (token, auth, password)
+    // and URL-query redacts string values before the free-text pass.
+    const structurallyRedacted = JSON.parse(
+      JSON.stringify(input, jsonRedactor),
+    )
+    const s = jsonStringify(structurallyRedacted)
     const redacted = redactSensitiveInfo(s)
     return redacted.length > 200 ? redacted.slice(0, 200) + '…' : redacted
   } catch {
