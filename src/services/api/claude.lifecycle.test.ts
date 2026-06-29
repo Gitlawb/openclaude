@@ -10,6 +10,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { resetGrowthBook } from '../analytics/growthbook.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { QueryLifecycleOperationTracker } from '../../utils/queryLifecycle.js'
@@ -37,6 +38,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
+  'CLAUDE_FEATURE_FLAGS_FILE',
   'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
   'GEMINI_API_KEY',
   'OPENAI_API_KEY',
@@ -294,7 +296,12 @@ function setClientTestEnv(): void {
   }
   process.env.ANTHROPIC_API_KEY = 'sk-test-lifecycle'
   process.env.CLAUDE_CODE_TEST_FIXTURES_ROOT = fixturesRoot
+  process.env.CLAUDE_FEATURE_FLAGS_FILE = join(
+    fixturesRoot,
+    'feature-flags.json',
+  )
   process.env.VCR_RECORD = '1'
+  resetGrowthBook()
 }
 
 beforeEach(async () => {
@@ -316,6 +323,7 @@ afterEach(() => {
       delete (globalThis as Record<string, unknown>).MACRO
     }
     globalThis.fetch = originalFetch
+    resetGrowthBook()
     if (fixturesRoot) {
       rmSync(fixturesRoot, { force: true, recursive: true })
       fixturesRoot = undefined
