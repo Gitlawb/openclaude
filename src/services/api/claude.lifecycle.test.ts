@@ -177,19 +177,10 @@ function makeStallingOpenAIStreamResponse(
 }
 
 function makeIdleTimeoutOpenAIStreamResponse(timeoutMs: number): Response {
-  const encoder = new TextEncoder()
-
   return new Response(
     new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(
-          encoder.encode(
-            makeOpenAIStreamChunk({ role: 'assistant', content: 'partial' }),
-          ),
-        )
-        queueMicrotask(() => {
-          controller.error(new openAIShimTest.StreamIdleTimeoutError(timeoutMs))
-        })
+      pull(controller) {
+        controller.error(new openAIShimTest.StreamIdleTimeoutError(timeoutMs))
       },
     }),
     {
