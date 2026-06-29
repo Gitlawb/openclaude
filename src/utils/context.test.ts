@@ -960,6 +960,12 @@ test('provider-qualified and unqualified model names are distinct', () => {
   expect(getSessionContextWindowOverrides().size).toBe(2)
 })
 
+test('writing openai/gpt-4o is readable via gpt-4o', () => {
+  setSessionContextWindowOverride('openai/gpt-4o', 256_000)
+  expect(getSessionContextWindowOverride('gpt-4o')).toBe(256_000)
+  expect(getSessionContextWindowOverride('openai/gpt-4o')).toBe(256_000)
+})
+
 test('setSessionContextWindowOverride rejects below minimum', () => {
   const result = setSessionContextWindowOverride('gpt-4o', 10_000)
   expect(result.ok).toBe(false)
@@ -1030,10 +1036,11 @@ test('session override takes precedence over known model catalog metadata', () =
   expect(getContextWindowForModel('gpt-4o')).toBe(defaultWindow)
 })
 
-test('provider-qualified override does not bleed into unqualified lookup', () => {
+test('provider-qualified override stores both qualified and stripped keys', () => {
   setSessionContextWindowOverride('zai-org/glm-5.2', 256_000)
-  expect(getContextWindowForModel('zai-org/glm-5.2')).toBe(256_000)
-  expect(getSessionContextWindowOverride('glm-5.2')).toBeUndefined()
+  expect(getSessionContextWindowOverride('zai-org/glm-5.2')).toBe(256_000)
+  expect(getSessionContextWindowOverride('glm-5.2')).toBe(256_000)
+  expect(getSessionContextWindowOverrides().size).toBe(2)
 })
 
 test('clearSessionContextWindowOverride resets state for session isolation', () => {

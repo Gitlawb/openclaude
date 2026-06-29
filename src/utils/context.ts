@@ -94,6 +94,10 @@ export function setSessionContextWindowOverride(
   }
   const normalized = normalizeModelName(model)
   sessionContextWindowOverrides.set(normalized, tokens)
+  const stripped = stripProviderPrefix(normalized)
+  if (stripped !== undefined) {
+    sessionContextWindowOverrides.set(stripped, tokens)
+  }
   return { ok: true, normalizedModel: normalized }
 }
 
