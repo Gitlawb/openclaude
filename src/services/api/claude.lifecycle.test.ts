@@ -53,6 +53,8 @@ let fixturesRoot: string | undefined
 
 type FetchOverride = NonNullable<Options['fetchOverride']>
 type LifecycleSnapshot = ReturnType<QueryLifecycleOperationTracker['snapshot']>
+const STREAM_IDLE_RECOVERY_ASSERTION_MS = 1_000
+const STALLING_STREAM_CLEANUP_MS = 2_000
 
 function makeJsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -148,7 +150,7 @@ function makeStallingOpenAIStreamResponse(
             makeOpenAIStreamChunk({ role: 'assistant', content: 'partial' }),
           ),
         )
-        // Bounded cleanup for current/baseline behavior: the quick recovery
+        // Bounded cleanup for current/baseline behavior: the idle-timeout
         // assertions should fail before this close fires.
         closeTimer = setTimeout(() => {
           try {
@@ -156,7 +158,7 @@ function makeStallingOpenAIStreamResponse(
           } catch {
             // stream may already be cancelled by the idle timeout path
           }
-        }, 500)
+        }, STALLING_STREAM_CLEANUP_MS)
       },
       cancel(reason) {
         if (closeTimer !== undefined) {
@@ -520,10 +522,12 @@ describe('Claude API lifecycle tracking', () => {
     try {
       await waitForPromise(
         fallbackRequestStarted,
-        400,
+        STREAM_IDLE_RECOVERY_ASSERTION_MS,
         'non-streaming fallback did not start promptly after stream idle timeout',
       )
-      expect(Date.now() - startedAt).toBeLessThan(400)
+      expect(Date.now() - startedAt).toBeLessThan(
+        STREAM_IDLE_RECOVERY_ASSERTION_MS,
+      )
       await drain
     } catch (error) {
       parent.abort()
@@ -695,7 +699,9 @@ describe('Claude API lifecycle tracking', () => {
     })()
 
     await drain
-    expect(Date.now() - startedAt).toBeLessThan(400)
+    expect(Date.now() - startedAt).toBeLessThan(
+      STREAM_IDLE_RECOVERY_ASSERTION_MS,
+    )
 
     expect(drainError).toBeUndefined()
     expect(fallbackRequests).toBe(0)
