@@ -56,12 +56,13 @@ const sessionContextWindowOverrides = new Map<string, number>()
 const MIN_CONTEXT_WINDOW_OVERRIDE = 33_000
 
 /**
- * Normalize a model name for override lookup.
- * Lowercases only — preserves provider-qualified names like zai-org/glm-5.2
- * so they don't collide with unqualified glm-5.2.
+ * Normalize a model name for override lookup to get a single canonical key
+ * for the model family (lowercase, prefix stripped).
  */
 function normalizeModelName(model: string): string {
-  return model.toLowerCase()
+  const lowered = model.toLowerCase()
+  const stripped = stripProviderPrefix(lowered)
+  return stripped !== undefined ? stripped : lowered
 }
 
 /**
@@ -94,27 +95,18 @@ export function setSessionContextWindowOverride(
   }
   const normalized = normalizeModelName(model)
   sessionContextWindowOverrides.set(normalized, tokens)
-  const stripped = stripProviderPrefix(normalized)
-  if (stripped !== undefined) {
-    sessionContextWindowOverrides.set(stripped, tokens)
-  }
   return { ok: true, normalizedModel: normalized }
 }
 
 /**
  * Clear session-scoped context window overrides.
- * If model is provided, clears both the exact key and any stripped-prefix
- * fallback key to stay consistent with getSessionContextWindowOverride lookup.
+ * If model is provided, clears the canonical key for the model family.
  * If model is omitted, clears all overrides.
  */
 export function clearSessionContextWindowOverride(model?: string): void {
   if (model) {
     const normalized = normalizeModelName(model)
     sessionContextWindowOverrides.delete(normalized)
-    const stripped = stripProviderPrefix(normalized)
-    if (stripped !== undefined) {
-      sessionContextWindowOverrides.delete(stripped)
-    }
   } else {
     sessionContextWindowOverrides.clear()
   }
@@ -122,17 +114,13 @@ export function clearSessionContextWindowOverride(model?: string): void {
 
 /**
  * Get the current session-scoped context window override for a model, if any.
- * Tries the full normalized name first, then falls back to the stripped prefix
- * variant (e.g. openai/gpt-4o → gpt-4o) for convenience.
+ * Resolves to the canonical key for the model family.
  */
 export function getSessionContextWindowOverride(
   model: string,
 ): number | undefined {
   const normalized = normalizeModelName(model)
-  const exact = sessionContextWindowOverrides.get(normalized)
-  if (exact !== undefined) return exact
-  const stripped = stripProviderPrefix(normalized)
-  return stripped !== undefined ? sessionContextWindowOverrides.get(stripped) : undefined
+  return sessionContextWindowOverrides.get(normalized)
 }
 
 /**
