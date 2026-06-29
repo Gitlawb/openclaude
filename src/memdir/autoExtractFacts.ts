@@ -77,8 +77,6 @@ export async function extractFactsIntoMemdir(
   const dir = memoryDir || getAutoMemPath()
   if (!dir) return
 
-  const promises: Promise<void>[] = []
-
   // 1. Detect Environment Variables (KEY=VALUE)
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
@@ -160,6 +158,4 @@ export async function extractFactsIntoMemdir(
   for (const match of fileMatches) {
     writeFactMemory(dir, 'file', match[1].toLowerCase(), `Project file: ${match[1]}`, { category: 'configuration' })
   }
-
-  await Promise.all(promises)
 }
