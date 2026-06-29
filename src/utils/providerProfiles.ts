@@ -46,6 +46,7 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  isClinePassBaseUrl,
   isFireworksBaseUrl,
   isNearaiBaseUrl,
   isXaiBaseUrl,
@@ -138,7 +139,7 @@ function resolveProfileCompatibility(provider: string): {
 
 function isClinePassProfile(profile: ProviderProfile): boolean {
   const { route } = resolveProfileCompatibility(profile.provider)
-  return route.routeId === 'clinepass' || profile.baseUrl?.toLowerCase().includes('api.cline.bot')
+  return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
