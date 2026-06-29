@@ -1,0 +1,159 @@
+/**
+ * Auto-extract facts from message content into memdir memory files.
+ *
+ * Ported from the knowledgeGraph-based fact extraction in conversationArc.ts.
+ * Instead of calling addGlobalEntity(), this writes structured .md files
+ * into the auto-memory directory with proper frontmatter.
+ */
+
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { sanitizePath } from '../utils/path.js'
+import { getAutoMemPath } from './paths.js'
+
+const FACTS_SUBDIR = '.facts'
+
+function ensureFactsDir(memoryDir: string): string {
+  const dir = join(memoryDir, FACTS_SUBDIR)
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80)
+}
+
+function writeFactMemory(
+  memoryDir: string,
+  factType: string,
+  name: string,
+  description: string,
+  attributes: Record<string, string> = {},
+): void {
+  const factsDir = ensureFactsDir(memoryDir)
+  const slug = slugify(name)
+  const filename = `fact-${factType}-${slug}.md`
+  const filePath = join(factsDir, filename)
+
+  const now = new Date().toISOString()
+  const attrLines = Object.entries(attributes)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
+
+  const content = `---
+type: reference
+title: ${name}
+description: ${description}
+factType: ${factType}
+detectedAt: ${now}
+${attrLines ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${v}`).join('\n')}` : ''}
+---
+
+Auto-detected fact: **${name}**
+
+${description}
+
+${Object.entries(attributes).length > 0 ? `**Details:**\n${Object.entries(attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
+`
+
+  writeFileSync(filePath, content, 'utf-8')
+}
+
+export async function extractFactsIntoMemdir(
+  content: string,
+  memoryDir?: string,
+): Promise<void> {
+  const dir = memoryDir || getAutoMemPath()
+  if (!dir) return
+
+  const promises: Promise<void>[] = []
+
+  // 1. Detect Environment Variables (KEY=VALUE)
+  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
+  for (const match of envMatches) {
+    writeFactMemory(dir, 'env', match[1], `${match[1]} environment variable`, { value: match[2] })
+  }
+
+  // 2. Detect Absolute Paths
+  const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
+  for (const match of pathMatches) {
+    const path = match[1]
+    if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
+      writeFactMemory(dir, 'path', path, `Project path: ${path}`, { type: 'absolute' })
+    }
+  }
+
+  // 3. Detect Versions
+  const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
+  for (const match of versionMatches) {
+    writeFactMemory(dir, 'version', match[0].toLowerCase(), `Version ${match[1]}`, { semver: match[1] })
+  }
+
+  // 4. Detect Hostnames/URLs
+  const urlMatches = content.matchAll(/(https?:\/\/[^\s\n"']+)/g)
+  for (const match of urlMatches) {
+    try {
+      const url = new URL(match[1])
+      if (url.hostname.includes('.')) {
+        writeFactMemory(dir, 'endpoint', url.hostname, `Endpoint: ${url.hostname}`, { url: url.toString() })
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 5. Detect IPv4
+  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
+  for (const match of ipMatches) {
+    const ip = match[1]
+    const context = content.toLowerCase()
+    const tags: Record<string, string> = { type: 'ipv4' }
+    if (context.includes('database') || context.includes('db')) tags.role = 'database'
+    if (context.includes('prod')) tags.env = 'production'
+    if (context.includes('worker')) tags.role = 'worker'
+    writeFactMemory(dir, 'ip', ip, `Server IP: ${ip}`, tags)
+  }
+
+  // 6. Detect backtick symbols
+  const backtickMatches = content.matchAll(/`([^`]+)`/g)
+  for (const match of backtickMatches) {
+    const symbol = match[1]
+    if (symbol.length > 2 && symbol.length < 60) {
+      writeFactMemory(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
+    }
+  }
+
+  // 7. Detect Technical Concepts (PascalCase, camelCase, hyphenated)
+  const technicalMatches = content.matchAll(
+    /\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g,
+  )
+  const seen = new Set<string>()
+  for (const match of technicalMatches) {
+    const word = match[1]
+    if (seen.has(word)) continue
+    seen.add(word)
+    if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
+      writeFactMemory(dir, 'concept', word, `Technical term: ${word}`, { source: 'auto_discovery' })
+    }
+  }
+
+  // 8. Specific tech detection
+  if (content.toLowerCase().includes('redux'))
+    writeFactMemory(dir, 'tech', 'Redux', 'Redux state management', { category: 'state_management' })
+  if (content.toLowerCase().includes('react'))
+    writeFactMemory(dir, 'tech', 'React', 'React frontend library', { category: 'frontend' })
+
+  // 9. Project File Signatures
+  const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+  for (const match of fileMatches) {
+    writeFactMemory(dir, 'file', match[1].toLowerCase(), `Project file: ${match[1]}`, { category: 'configuration' })
+  }
+
+  await Promise.all(promises)
+}

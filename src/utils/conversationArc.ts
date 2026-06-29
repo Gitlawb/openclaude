@@ -3,54 +3,19 @@
  *
  * Remembers conversation goals and key decisions.
  * High-level abstraction of conversation progress.
+ * Uses memdir sidecar file (.arc.json) instead of knowledge graph storage.
  */
 
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
 import type { Message } from '../types/message.js'
+import { getAutoMemPath } from '../memdir/paths.js'
+import { extractFactsIntoMemdir } from '../memdir/autoExtractFacts.js'
 import {
-  addGlobalEntity,
-  addGlobalRelation,
-  addGlobalSummary,
-  addGlobalRule,
-  getGlobalGraph,
-  getGlobalGraphSummary,
-  getOrchestratedMemory,
-  extractKeywords
-} from './knowledgeGraph.js'
-
-// ... (Goal, Decision, Milestone interfaces)
-
-export async function finalizeArcTurn(): Promise<void> {
-  const arc = getArc()
-  if (!arc) return
-
-  const completedGoals = arc.goals.filter(g => g.status === 'completed')
-  const graph = getGlobalGraph()
-  // Heuristic to detect new facts: entities added after arc start
-  const newFacts = Object.values(graph.entities).filter(e =>
-    e.id.includes(String(arc.id.split('_')[1])) ||
-    graph.lastUpdateTime > arc.startTime
-  )
-
-  if (completedGoals.length === 0 && arc.decisions.length === 0 && newFacts.length === 0) return
-
-  // Generate a concise summary of what was learned/done
-  let summaryContent = `In session ${arc.id}: `
-  if (completedGoals.length > 0) {
-    summaryContent += `Completed goals: ${completedGoals.map(g => g.description).join(', ')}. `
-  }
-  if (arc.decisions.length > 0) {
-    summaryContent += `Made decisions: ${arc.decisions.map(d => d.description).join(', ')}. `
-  }
-  if (newFacts.length > 0) {
-    const uniqueFactNames = Array.from(new Set(newFacts.map(f => f.name)))
-    summaryContent += `Learned about: ${uniqueFactNames.join(', ')}. `
-  }
-
-  const keywords = extractKeywords(summaryContent)
-  if (keywords.length > 0) {
-    await addGlobalSummary(summaryContent, keywords)
-  }
-}
+  searchMemdirIndex,
+  initMemdirIndex,
+} from '../memdir/vectorIndex.js'
+import { extractKeywords } from './knowledgeGraph.js'
 
 export interface Goal {
   id: string
@@ -91,9 +56,56 @@ const ARC_KEYWORDS = {
   completed: ['done', 'complete', 'finished', 'ready', 'good'],
 }
 
-let conversationArc: ConversationArc | null = null
+const ARC_FILENAME = '.arc.json'
 
-export function initializeArc(): ConversationArc {
+let conversationArc: ConversationArc | null = null
+let arcMemoryDir: string | null = null
+
+function getArcPath(memoryDir: string): string {
+  return join(memoryDir, ARC_FILENAME)
+}
+
+function loadArcFromDisk(memoryDir: string): ConversationArc | null {
+  const path = getArcPath(memoryDir)
+  if (!existsSync(path)) return null
+  try {
+    const data = readFileSync(path, 'utf-8')
+    return JSON.parse(data) as ConversationArc
+  } catch {
+    return null
+  }
+}
+
+function saveArcToDisk(memoryDir: string, arc: ConversationArc): void {
+  if (!existsSync(memoryDir)) {
+    mkdirSync(memoryDir, { recursive: true })
+  }
+  arc.lastUpdateTime = Date.now()
+  writeFileSync(getArcPath(memoryDir), JSON.stringify(arc, null, 2), 'utf-8')
+}
+
+export function initializeArc(memoryDir?: string): ConversationArc {
+  const dir = memoryDir || getAutoMemPath()
+  if (!dir) {
+    conversationArc = {
+      id: `arc_${Date.now()}`,
+      goals: [],
+      decisions: [],
+      milestones: [],
+      currentPhase: 'init',
+      startTime: Date.now(),
+      lastUpdateTime: Date.now(),
+    }
+    return conversationArc
+  }
+
+  const existing = loadArcFromDisk(dir)
+  if (existing) {
+    conversationArc = existing
+    arcMemoryDir = dir
+    return existing
+  }
+
   conversationArc = {
     id: `arc_${Date.now()}`,
     goals: [],
@@ -103,14 +115,23 @@ export function initializeArc(): ConversationArc {
     startTime: Date.now(),
     lastUpdateTime: Date.now(),
   }
+  arcMemoryDir = dir
+  saveArcToDisk(dir, conversationArc)
   return conversationArc
 }
 
 export function getArc(): ConversationArc | null {
   if (!conversationArc) {
-    initializeArc()
-    // Trigger global graph load
-    getGlobalGraph()
+    const dir = getAutoMemPath()
+    if (dir) {
+      const existing = loadArcFromDisk(dir)
+      if (existing) {
+        conversationArc = existing
+        arcMemoryDir = dir
+        return conversationArc
+      }
+    }
+    initializeArc(dir || undefined)
   }
   return conversationArc
 }
@@ -140,117 +161,9 @@ function detectPhase(content: string): ConversationArc['currentPhase'] | null {
 }
 
 async function extractFactsAutomatically(content: string): Promise<void> {
-  const arc = getArc()
-  if (!arc) return
-
-  const promises: Promise<any>[] = []
-
-  // 1. Detect Environment Variables (KEY=VALUE)
-  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
-  for (const match of envMatches) {
-    promises.push(addGlobalEntity('environment_variable', match[1], { value: match[2] }))
-  }
-
-  // 2. Detect Absolute Paths
-  const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
-  for (const match of pathMatches) {
-    const path = match[1]
-    if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
-      promises.push(addGlobalEntity('path', path, { type: 'absolute' }))
-    }
-  }
-
-  // 3. Detect Versions
-  const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
-  for (const match of versionMatches) {
-    promises.push(addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] }))
-  }
-
-  // 4. Detect Hostnames/URLs
-  const urlMatches = content.matchAll(/(https?:\/\/[^\s\n"']+)/g)
-  for (const match of urlMatches) {
-    try {
-      const url = new URL(match[1])
-      if (url.hostname.includes('.')) {
-        promises.push(addGlobalEntity('endpoint', url.hostname, { url: url.toString() }))
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // 5. Detect IPv4
-  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
-  for (const match of ipMatches) {
-    const ip = match[1]
-    const context = content.toLowerCase()
-    const tags: Record<string, string> = { type: 'ipv4' }
-
-    // Contextual tagging: if 'database' or 'prod' is nearby, tag the IP
-    if (context.includes('database') || context.includes('db')) tags.role = 'database'
-    if (context.includes('prod')) tags.env = 'production'
-    if (context.includes('worker')) tags.role = 'worker'
-
-    promises.push(addGlobalEntity('server_ip', ip, tags))
-  }
-
-  // 6. DYNAMIC CONCEPT DISCOVERY (Improved for Doctoral precision)
-
-  // A. Detect symbols in backticks (High confidence symbols)
-  const backtickMatches = content.matchAll(/`([^`]+)`/g)
-  for (const match of backtickMatches) {
-    const symbol = match[1]
-    if (symbol.length > 2 && symbol.length < 60) {
-      promises.push(addGlobalEntity('concept', symbol, { source: 'backticks' }))
-    }
-  }
-
-  // B. Detect Technical Concepts (Hyphenated-Terms, PascalCase, camelCase)
-  // Now also capturing lowercase hyphenated terms (worker-node-49)
-  const technicalMatches = content.matchAll(
-    /\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g,
-  )
-  for (const match of technicalMatches) {
-    const word = match[1]
-    if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
-      promises.push(addGlobalEntity('concept', word, { source: 'auto_discovery' }))
-    }
-  }
-
-  // C. Specific pattern for availability/percentages
-  const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
-  for (const match of metricMatches) {
-    promises.push(addGlobalEntity('metric', match[1], { type: 'availability' }))
-  }
-
-  // D. Project Rule Detection (Passive Learning)
-  const rulePatterns = [
-    /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
-    /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
-    /\b(?:prefer)\b\s+([^.!?]+)/gi,
-  ]
-  for (const pattern of rulePatterns) {
-    const ruleMatches = content.matchAll(pattern)
-    for (const match of ruleMatches) {
-      promises.push(addGlobalRule(match[0].trim()))
-    }
-  }
-
-  // E. Direct Tech detection for UI/State
-  if (content.toLowerCase().includes('redux'))
-    promises.push(addGlobalEntity('technology', 'Redux', { category: 'state_management' }))
-  if (content.toLowerCase().includes('react'))
-    promises.push(addGlobalEntity('technology', 'React', { category: 'frontend' }))
-
-  // F. Project File Signatures
-  if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
-    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
-    for (const match of fileMatches) {
-      promises.push(addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' }))
-    }
-  }
-
-  await Promise.all(promises)
+  const dir = arcMemoryDir || getAutoMemPath()
+  if (!dir) return
+  await extractFactsIntoMemdir(content, dir)
 }
 
 export async function updateArcPhase(messages: Message[]): Promise<void> {
@@ -261,7 +174,6 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
     const content = extractTextFromContent(msg.message?.content)
     if (!content) continue
 
-    // Phase detection
     const detected = detectPhase(content)
     if (detected && detected !== arc.currentPhase) {
       const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
@@ -274,8 +186,65 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       }
     }
 
-    // Passive fact extraction (Automatic Learning)
     await extractFactsAutomatically(content)
+  }
+
+  if (arcMemoryDir) {
+    saveArcToDisk(arcMemoryDir, arc)
+  }
+}
+
+export async function finalizeArcTurn(): Promise<void> {
+  const arc = getArc()
+  if (!arc) return
+
+  const completedGoals = arc.goals.filter(g => g.status === 'completed')
+  const dir = arcMemoryDir
+
+  if (completedGoals.length === 0 && arc.decisions.length === 0) return
+
+  let summaryContent = `Session ${arc.id}: `
+  if (completedGoals.length > 0) {
+    summaryContent += `Completed goals: ${completedGoals.map(g => g.description).join(', ')}. `
+  }
+  if (arc.decisions.length > 0) {
+    summaryContent += `Decisions: ${arc.decisions.map(d => d.description).join(', ')}. `
+  }
+
+  // Write summary as a memory file in the memdir
+  if (dir) {
+    const filename = `session-summary-${arc.id.replace(/[^a-z0-9]/gi, '-')}.md`
+    const filePath = join(dir, filename)
+    const now = new Date().toISOString()
+    const content = `---
+type: reference
+title: Session Summary - ${arc.id}
+description: ${summaryContent}
+sessionId: ${arc.id}
+detectedAt: ${now}
+phase: ${arc.currentPhase}
+goalsCompleted: ${completedGoals.length}
+decisionsMade: ${arc.decisions.length}
+---
+
+**Session Summary**
+
+Phase: ${arc.currentPhase}
+
+**Goals Completed:**
+${completedGoals.map(g => `- ${g.description}`).join('\n')}
+
+**Decisions Made:**
+${arc.decisions.map(d => `- ${d.description}${d.rationale ? ` — ${d.rationale}` : ''}`).join('\n')}
+
+**Milestones:**
+${arc.milestones.map(m => `- ${m.description}`).join('\n')}
+`
+    try {
+      writeFileSync(filePath, content, 'utf-8')
+    } catch {
+      // non-fatal
+    }
   }
 }
 
@@ -297,6 +266,10 @@ export function addGoal(description: string): Goal {
     arc.currentPhase = 'exploring'
   }
 
+  if (arcMemoryDir) {
+    saveArcToDisk(arcMemoryDir, arc)
+  }
+
   return goal
 }
 
@@ -314,6 +287,9 @@ export function updateGoalStatus(goalId: string, status: Goal['status']): void {
   }
 
   arc.lastUpdateTime = Date.now()
+  if (arcMemoryDir) {
+    saveArcToDisk(arcMemoryDir, arc)
+  }
 }
 
 export function addDecision(description: string, rationale?: string): Decision {
@@ -329,6 +305,10 @@ export function addDecision(description: string, rationale?: string): Decision {
 
   arc.decisions.push(decision)
   arc.lastUpdateTime = Date.now()
+
+  if (arcMemoryDir) {
+    saveArcToDisk(arcMemoryDir, arc)
+  }
 
   return decision
 }
@@ -346,6 +326,10 @@ export function addMilestone(description: string): Milestone {
   arc.milestones.push(milestone)
   arc.lastUpdateTime = Date.now()
 
+  if (arcMemoryDir) {
+    saveArcToDisk(arcMemoryDir, arc)
+  }
+
   return milestone
 }
 
@@ -356,29 +340,27 @@ export async function getArcSummary(query?: string): Promise<string> {
   const activeGoals = arc.goals.filter(g => g.status === 'active' || g.status === 'pending')
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
 
-  let summary = `Phase: ${arc.currentPhase}\\n`
-  summary += `Goals: ${completedGoals.length}/${arc.goals.length} completed\\n`
+  let summary = `Phase: ${arc.currentPhase}\n`
+  summary += `Goals: ${completedGoals.length}/${arc.goals.length} completed\n`
 
   if (activeGoals.length > 0) {
-    summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\\n`
+    summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\n`
   }
 
-  // 1. Primary: Targeted RAG Search (High volume context)
-  summary += await getOrchestratedMemory(query || '')
-
-  // 2. Secondary: Global Snapshot (Full Graph for small/medium projects)
-  const graph = getGlobalGraph()
-  const entities = Object.values(graph.entities)
-  if (entities.length < 100) {
-    summary += '\\n--- Full Project Knowledge Graph ---\\n'
-    for (const e of entities) {
-      summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(', ')}\\n`
-    }
-    if (graph.rules.length > 0) {
-      summary += '\\nActive Project Rules:\\n'
-      graph.rules.forEach(r => (summary += `- ${r}\\n`))
+  // Search the memdir vector index
+  const dir = arcMemoryDir || getAutoMemPath()
+  if (dir && query) {
+    try {
+      await initMemdirIndex(dir)
+      const results = await searchMemdirIndex(query, dir, 8)
+      if (results.length > 0) {
+        summary += '\nRelevant Knowledge:\n'
+        for (const r of results.slice(0, 5)) {
+          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}\n`
+        }
+      }
+    } catch {
+      // vector search is optional
     }
   }
 
@@ -387,6 +369,26 @@ export async function getArcSummary(query?: string): Promise<string> {
 
 export function resetArc(): void {
   conversationArc = null
+  if (arcMemoryDir) {
+    const path = getArcPath(arcMemoryDir)
+    try {
+      // Clear by writing empty state
+      const empty: ConversationArc = {
+        id: `arc_${Date.now()}`,
+        goals: [],
+        decisions: [],
+        milestones: [],
+        currentPhase: 'init',
+        startTime: Date.now(),
+        lastUpdateTime: Date.now(),
+      }
+      writeFileSync(path, JSON.stringify(empty, null, 2), 'utf-8')
+      conversationArc = empty
+    } catch {
+      // non-fatal
+    }
+  }
+  arcMemoryDir = null
 }
 
 export function getArcStats() {
@@ -402,8 +404,3 @@ export function getArcStats() {
     durationMs: arc.lastUpdateTime - arc.startTime,
   }
 }
-
-// Re-export Knowledge Graph management through the Arc for convenience
-export const addEntity = addGlobalEntity
-export const addRelation = addGlobalRelation
-export const getGraphSummary = getGlobalGraphSummary
