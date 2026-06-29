@@ -429,7 +429,7 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       hostname = hostname.slice(0, zoneIdIndex)
     }
 
-    if (LOCALHOST_HOSTNAMES.has(hostname) || hostname === '0.0.0.0') {
+    if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
     if (hostname.endsWith('.local')) {
@@ -547,6 +547,33 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
     return (
       hostname.includes('ollama') ||
       pathname.includes('ollama')
+    )
+  } catch {
+    return false
+  }
+}
+
+export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    const parsed = new URL(baseUrl)
+    let hostname = parsed.hostname.toLowerCase()
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1)
+    }
+    const ipv4Octets = hostname.split('.')
+    const isLoopbackIpv4 =
+      ipv4Octets.length === 4 &&
+      ipv4Octets.every(octet => /^\d{1,3}$/.test(octet) && Number(octet) <= 255) &&
+      ipv4Octets[0] === '127'
+    return (
+      parsed.protocol === 'http:' &&
+      parsed.port === '11434' &&
+      (
+        hostname === 'localhost' ||
+        hostname === '::1' ||
+        isLoopbackIpv4
+      )
     )
   } catch {
     return false

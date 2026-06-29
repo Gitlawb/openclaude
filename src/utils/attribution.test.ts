@@ -194,7 +194,7 @@ describe('getDefaultCommitCoAuthorName', () => {
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),
-    ).toBe('Claude Opus 4.6')
+    ).toBe('Claude Opus 4.8')
   })
 
   it('sanitizes unknown internal Claude co-author names', () => {
@@ -208,9 +208,13 @@ describe('getDefaultCommitCoAuthorName', () => {
   })
 
   it('does not duplicate the Claude prefix for Claude model names', () => {
+    // Use a model the public-name map recognizes (it keys on dot form) so this
+    // exercises the real de-dup path — getPublicModelDisplayName already returns
+    // a "Claude …"-prefixed name — rather than coincidentally hitting the
+    // unknown-model fallback.
     expect(
       getDefaultCommitCoAuthorName({
-        model: 'claude-opus-4-6',
+        model: 'claude-opus-4.6',
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),

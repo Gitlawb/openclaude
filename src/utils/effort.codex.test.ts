@@ -375,11 +375,7 @@ test('explicit reasoning metadata enables model-level effort without provider-wi
       {
         id: 'xai/grok-build-0.1',
         apiName: 'xai/grok-build-0.1',
-        capabilities: { supportsReasoning: true },
-        reasoning: {
-          mode: 'always-on',
-          wireFormat: 'none',
-        },
+        capabilities: { supportsReasoning: false },
       },
     ],
   })
@@ -404,16 +400,95 @@ test('explicit reasoning metadata enables model-level effort without provider-wi
   expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'xhigh')).toBe('high')
 
   expect(resolveModelReasoningControl('xai/grok-build-0.1')).toMatchObject({
-    supportsReasoning: true,
+    supportsReasoning: false,
     controllable: false,
-    source: 'metadata',
-    wireFormat: 'none',
+    source: 'capability',
   })
   expect(modelSupportsEffort('xai/grok-build-0.1')).toBe(false)
   expect(modelSupportsWireEffort('xai/grok-build-0.1')).toBe(false)
   expect(resolveAppliedEffort('xai/grok-build-0.1', 'high')).toBeUndefined()
 })
 
+test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls', async () => {
+  const moonshotVendor = (await import('../integrations/vendors/moonshot.js')).default
+  const kimiCodeGateway = (await import('../integrations/gateways/kimi-code.js')).default
+
+  expect(moonshotVendor.catalog?.models?.map(model => model.id)).toEqual([
+    'kimi-k2.7-code',
+    'kimi-k2.6',
+    'kimi-k2.5',
+  ])
+
+  for (const { routeId, model, entries } of [
+    { routeId: 'moonshot', model: 'kimi-k2.6', entries: moonshotVendor.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'kimi-for-coding', entries: kimiCodeGateway.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'kimi-k2.7-code', entries: kimiCodeGateway.catalog?.models ?? [] },
+    { routeId: 'kimi-code', model: 'moonshotai/kimi-k2.7-code', entries: kimiCodeGateway.catalog?.models ?? [] },
+  ]) {
+    const {
+      getAvailableEffortLevels,
+      getDefaultEffortForModel,
+      modelSupportsEffort,
+      modelSupportsWireEffort,
+      resolveAppliedEffort,
+      resolveModelReasoningControl,
+    } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+      routeId,
+      catalogEntries: entries,
+    })
+
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high'],
+      defaultLevel: 'medium',
+      wireFormat: 'reasoning_effort',
+    })
+    expect(modelSupportsEffort(model)).toBe(true)
+    expect(modelSupportsWireEffort(model)).toBe(true)
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high'])
+    expect(getDefaultEffortForModel(model)).toBe('medium')
+    expect(resolveAppliedEffort(model, undefined)).toBe('medium')
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('high')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  const {
+    getAvailableEffortLevels,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'moonshot',
+    catalogEntries: moonshotVendor.catalog?.models ?? [],
+  })
+
+  expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('kimi-k2.7-code')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('kimi-k2.7-code', 'xhigh')).toBe('high')
+  expect(resolveAppliedEffort('kimi-k2.7-code', 'max')).toBe('high')
+  expect(resolveModelReasoningControl('moonshotai/kimi-k2.7-code')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('moonshotai/kimi-k2.7-code')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.7-code', 'xhigh')).toBe('high')
+})
 test('Atlas Cloud catalog exposes only verified reasoning controls for exact models', async () => {
   const atlasGateway = (await import('../integrations/gateways/atlas-cloud.js')).default
   const {
@@ -434,6 +509,7 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     controllable: true,
     source: 'metadata',
     levels: ['low', 'medium', 'high', 'xhigh'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(getAvailableEffortLevels('moonshotai/kimi-k2.5')).toEqual([
@@ -449,6 +525,7 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     controllable: true,
     source: 'metadata',
     levels: ['low', 'medium', 'high', 'xhigh'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(getAvailableEffortLevels('moonshotai/kimi-k2.6')).toEqual([
@@ -484,7 +561,6 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     'openai/gpt-5.4',
     'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
-    'xai/grok-4.3',
     'zai-org/glm-5.2',
     'zai-org/glm-5.1',
     'zai-org/glm-5',
@@ -519,6 +595,17 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     expect(resolveAppliedEffort(model, 'max')).toBe('high')
   }
 
+  expect(resolveModelReasoningControl('xai/grok-4.3')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('xai/grok-4.3')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('xai/grok-4.3', 'xhigh')).toBe('high')
+  expect(resolveAppliedEffort('xai/grok-4.3', 'max')).toBe('high')
+
   const verifiedAtlasHighOnlyReasoningModels = [
     'bytedance/doubao-seed-2.0-pro-260215',
     'bytedance/doubao-seed-2.0-code-preview-260215',
@@ -546,22 +633,74 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['low', 'medium', 'high', 'xhigh'],
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
     wireFormat: 'reasoning_effort',
   })
   expect(modelSupportsEffort('moonshotai/kimi-k2.7-code')).toBe(true)
   expect(modelSupportsWireEffort('moonshotai/kimi-k2.7-code')).toBe(true)
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.7-code', 'xhigh')).toBe('high')
 
   expect(resolveModelReasoningControl('xai/grok-build-0.1')).toMatchObject({
-    supportsReasoning: true,
+    supportsReasoning: false,
     controllable: false,
-    source: 'metadata',
-    wireFormat: 'none',
+    source: 'capability',
   })
   expect(modelSupportsEffort('xai/grok-build-0.1')).toBe(false)
   expect(modelSupportsWireEffort('xai/grok-build-0.1')).toBe(false)
   expect(resolveAppliedEffort('xai/grok-build-0.1', 'high')).toBeUndefined()
 })
+
+test('xAI catalog exposes live-verified reasoning controls for direct Grok models', async () => {
+  const xaiVendor = (await import('../integrations/vendors/xai.js')).default
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'xai',
+    catalogEntries: xaiVendor.catalog?.models ?? [],
+  })
+
+  for (const model of ['grok-4.3', 'grok-4.3-latest', 'grok-latest', 'grok-4', 'grok-3']) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high'],
+      wireFormat: 'reasoning_effort',
+    })
+    expect(modelSupportsEffort(model)).toBe(true)
+    expect(modelSupportsWireEffort(model)).toBe(true)
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high'])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('high')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  for (const model of ['grok-4.20-0309-reasoning', 'grok-4.20']) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: false,
+      source: 'metadata',
+      wireFormat: 'none',
+    })
+    expect(modelSupportsEffort(model)).toBe(false)
+    expect(modelSupportsWireEffort(model)).toBe(false)
+    expect(resolveAppliedEffort(model, 'xhigh')).toBeUndefined()
+  }
+
+  expect(resolveModelReasoningControl('grok-4.20-0309-non-reasoning')).toMatchObject({
+    supportsReasoning: false,
+    controllable: false,
+    source: 'capability',
+  })
+  expect(modelSupportsEffort('grok-4.20-0309-non-reasoning')).toBe(false)
+})
+
 test('explicit non-controllable metadata opts out even when the model matches legacy rules', async () => {
   const {
     getAvailableEffortLevels,

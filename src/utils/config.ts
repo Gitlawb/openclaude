@@ -475,7 +475,7 @@ export type GlobalConfig = {
   modelSwitchCalloutLastShown?: number // Timestamp of last shown (don't show for 24h)
   modelSwitchCalloutVersion?: string
 
-  // Effort callout tracking - shown once for Opus 4.6 users
+  // Effort callout tracking - shown once for recent Opus users (4.8/4.7/4.6)
   effortCalloutDismissed?: boolean // v1 - legacy, read to suppress v2 for Pro users who already saw it
   effortCalloutV2Dismissed?: boolean
 
@@ -740,7 +740,9 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
-    maxMessagesCompactionThreshold: 'off',
+    // Omitted by default so callers can distinguish "unset" from an explicit
+    // persisted "off"; normalizeMaxMessagesCompactionThreshold keeps the
+    // effective default disabled.
   }
   return config
 }
@@ -1150,11 +1152,17 @@ registerCleanup(async () => {
  * @internal
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  const { maxMessagesCompactionThreshold, ...restConfig } = config
   const normalizedConfig = {
-    ...config,
-    maxMessagesCompactionThreshold: normalizeMaxMessagesCompactionThreshold(
-      config.maxMessagesCompactionThreshold,
-    ),
+    ...restConfig,
+    ...(maxMessagesCompactionThreshold === undefined
+      ? {}
+      : {
+          maxMessagesCompactionThreshold:
+            normalizeMaxMessagesCompactionThreshold(
+              maxMessagesCompactionThreshold,
+            ),
+        }),
   }
 
   // Already migrated

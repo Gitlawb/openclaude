@@ -154,7 +154,15 @@ export function formatOutput(content: string): {
   }
 
   const truncatedPart = content.slice(0, maxOutputLength)
-  const remainingLines = countCharInString(content, '\n', maxOutputLength) + 1
+  // Count the lines fully omitted after the cut. Newlines from `maxOutputLength`
+  // onward count each fully-omitted line that follows a `\n`. When the cut lands
+  // mid-line, that line's head is shown in `truncatedPart`, so excluding it is
+  // correct. But when the cut lands exactly on a line boundary (the char before
+  // it is `\n`), the first omitted line has no preceding newline in the suffix
+  // and would be missed, so add it back.
+  const omittedNewlines = countCharInString(content, '\n', maxOutputLength)
+  const cutAtLineBoundary = maxOutputLength > 0 && content[maxOutputLength - 1] === '\n'
+  const remainingLines = omittedNewlines + (cutAtLineBoundary ? 1 : 0)
   const truncated = `${truncatedPart}\n\n... [${remainingLines} lines truncated] ...`
 
   return {

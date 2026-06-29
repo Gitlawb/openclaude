@@ -107,6 +107,27 @@ Inside OpenClaude:
 
 > **Note:** OpenClaude does not automatically load project `.env` files. We recommend using the `/provider` command for setup, which saves provider profiles and credentials in `.openclaude-profile.json`. If you prefer environment variables, export them explicitly or run `openclaude --provider-env-file .env` for provider/setup variables. Export runtime/debug knobs from your shell or launcher.
 
+### Resume or fork a conversation
+
+Resume an existing conversation by session ID, or continue the most recent
+conversation in the current directory:
+
+```bash
+openclaude --resume <session-id>
+openclaude --continue
+```
+
+Add `--fork-session` to branch the conversation history into a new session ID
+instead of reusing the original transcript:
+
+```bash
+openclaude --resume <session-id> --fork-session
+openclaude --continue --fork-session
+```
+
+Forking is conversation branching only. It does not create filesystem isolation,
+copy your working tree, or create a git worktree branch.
+
 ### Background sessions
 
 Run long non-interactive prompts detached from the current terminal:
@@ -176,6 +197,13 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 
 openclaude
 ```
+
+For Ollama, OpenClaude uses Ollama's native chat API and requests a 32768-token
+context window on each chat request so same-session history is not silently
+truncated by Ollama's OpenAI-compatible shim. Set `OPENCLAUDE_OLLAMA_NUM_CTX`
+or `OLLAMA_CONTEXT_LENGTH` if you need a different request-level context size.
+See [Advanced Setup](docs/advanced-setup.md#ollama-context-length) for
+verification with `ollama ps`.
 
 ## Setup Guides
 

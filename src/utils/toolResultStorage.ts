@@ -1015,6 +1015,28 @@ export function reconstructContentReplacementState(
   return state
 }
 
+export function filterContentReplacementsForMessages(
+  messages: Message[],
+  records: ContentReplacementRecord[],
+): ContentReplacementRecord[] {
+  const retainedToolResultIds = new Set<string>()
+  for (const message of messages) {
+    if (message.type !== 'user' || !Array.isArray(message.message.content)) {
+      continue
+    }
+    for (const block of message.message.content) {
+      if (block.type === 'tool_result') {
+        retainedToolResultIds.add(block.tool_use_id)
+      }
+    }
+  }
+  return records.filter(
+    record =>
+      record.kind === 'tool-result' &&
+      retainedToolResultIds.has(record.toolUseId),
+  )
+}
+
 /**
  * AgentTool-resume variant: encapsulates the feature-flag gate + parent
  * gap-fill so both AgentTool.call and resumeAgentBackground share one

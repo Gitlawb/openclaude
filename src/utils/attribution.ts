@@ -89,7 +89,7 @@ export function getDefaultCommitCoAuthorName({
   // actual configured model instead of claiming Claude Opus.
   if (apiProvider === 'firstParty') {
     // @[MODEL LAUNCH]: Update this fallback when the default public Claude model changes.
-    return 'Claude Opus 4.6'
+    return 'Claude Opus 4.8'
   }
 
   const sanitizedModel = sanitizeCoAuthorNamePart(model)

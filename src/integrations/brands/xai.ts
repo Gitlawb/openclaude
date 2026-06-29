@@ -14,7 +14,8 @@ export default defineBrand({
   },
   modelIds: [
     'grok-4.3',
-    'grok-4',
-    'grok-3',
+    'xai/grok-build-0.1',
+    'grok-4.20-0309-reasoning',
+    'grok-4.20-0309-non-reasoning',
   ],
 })

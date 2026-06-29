@@ -5,7 +5,7 @@ export default defineVendor({
   label: 'Moonshot AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.moonshot.ai/v1',
-  defaultModel: 'kimi-k2.5',
+  defaultModel: 'kimi-k2.7-code',
   requiredEnvVars: ['MOONSHOT_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -34,8 +34,9 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
-      { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5' },
-      { id: 'kimi-k2.6', apiName: 'kimi-k2.6', label: 'Kimi K2.6' },
+      { id: 'kimi-k2.7-code', apiName: 'kimi-k2.7-code', aliases: ['moonshotai/kimi-k2.7-code'], label: 'Kimi K2.7 Code', modelDescriptorId: 'kimi-k2.7-code', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { supportsVision: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high'], defaultLevel: 'medium', wireFormat: 'reasoning_effort' } },
+      { id: 'kimi-k2.6', apiName: 'kimi-k2.6', aliases: ['moonshotai/kimi-k2.6'], label: 'Kimi K2.6', modelDescriptorId: 'kimi-k2.6', contextWindow: 262_144, maxOutputTokens: 262_144, capabilities: { supportsVision: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high'], defaultLevel: 'medium', wireFormat: 'reasoning_effort' } },
+      { id: 'kimi-k2.5', apiName: 'kimi-k2.5', aliases: ['moonshotai/kimi-k2.5'], label: 'Kimi K2.5', modelDescriptorId: 'kimi-k2.5', contextWindow: 262_144, maxOutputTokens: 262_144, capabilities: { supportsVision: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high'], defaultLevel: 'medium', wireFormat: 'reasoning_effort' } },
     ],
   },
   usage: { supported: false },

@@ -70,7 +70,8 @@ export function modelSupports1M(model: string): boolean {
   return (
     canonical.includes('claude-sonnet-4') ||
     canonical.includes('opus-4-6') ||
-    canonical.includes('opus-4-7')
+    canonical.includes('opus-4-7') ||
+    canonical.includes('opus-4-8')
   )
 }
 
@@ -235,14 +236,16 @@ export function calculateContextPercentages(
     currentUsage.cache_creation_input_tokens +
     currentUsage.cache_read_input_tokens
 
-  const usedPercentage = Math.round(
-    (totalInputTokens / contextWindowSize) * 100,
-  )
+  const rawUsedPercentage = (totalInputTokens / contextWindowSize) * 100
+  const usedPercentage =
+    rawUsedPercentage > 0 && rawUsedPercentage < 0.01
+      ? 0.01
+      : Math.round(rawUsedPercentage * 100) / 100
   const clampedUsed = Math.min(100, Math.max(0, usedPercentage))
 
   return {
     used: clampedUsed,
-    remaining: 100 - clampedUsed,
+    remaining: Math.max(0, Math.round((100 - clampedUsed) * 100) / 100),
   }
 }
 
@@ -291,7 +294,11 @@ export function getModelMaxOutputTokens(model: string): {
 
   const m = getCanonicalName(model)
 
-  if (m.includes('opus-4-6')) {
+  if (
+    m.includes('opus-4-8') ||
+    m.includes('opus-4-7') ||
+    m.includes('opus-4-6')
+  ) {
     defaultTokens = 64_000
     upperLimit = 128_000
   } else if (m.includes('sonnet-4-6')) {
