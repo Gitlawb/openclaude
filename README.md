@@ -279,7 +279,7 @@ For best results, use models with strong tool/function calling support.
 
 ### Agent step limits
 
-Custom agents can define `maxSteps` to cap how many tool-use steps a sub-agent may execute. When the limit is reached, OpenClaude stops additional tool calls and asks the sub-agent for a concise final summary covering completed work, findings, remaining tasks, and whether another run is needed. Omitting `maxSteps` preserves the default unlimited behavior.
+Custom agents can define `maxSteps` as a positive integer to cap how many tool-use steps a sub-agent may execute. When the limit is reached, OpenClaude stops additional tool calls and asks the sub-agent for a concise final summary covering completed work, findings, remaining tasks, and whether another run is needed. Omitting `maxSteps`, or setting it to an invalid value such as `0` or malformed input, preserves the default unlimited behavior.
 
 ```markdown
 ---

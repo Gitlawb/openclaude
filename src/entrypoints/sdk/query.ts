@@ -81,6 +81,7 @@ import {
   buildConversationChain,
   stripExtraFields,
 } from './transcript.js'
+import { buildSdkUserAgents } from './agentDefinitions.js'
 
 // ============================================================================
 // QueryOptions type
@@ -542,31 +543,33 @@ class QueryImpl implements Query {
           }))
 
           // Inject agents into the engine
-          if (self.userAgents && Object.keys(self.userAgents).length > 0) {
-            const userAgents: Array<{
-              agentType: string
-              whenToUse: string
-              getSystemPrompt: () => string
-              tools?: string[]
-              disallowedTools?: string[]
-              model?: string
-              maxTurns?: number
-              maxSteps?: number
-            }> = Object.entries(self.userAgents).map(([name, def]) => ({
-              agentType: name,
-              whenToUse: def.description ?? name,
-              getSystemPrompt: () => def.prompt ?? '',
-              ...(def.tools ? { tools: def.tools } : {}),
-              ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
-              ...(def.model ? { model: def.model } : {}),
-              ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
-              ...(def.maxSteps ? { maxSteps: def.maxSteps } : {}),
-            }))
-            agentDefs.activeAgents.push(...userAgents)
-          }
-          if (agentDefs.activeAgents.length > 0) {
+          const userAgents = buildSdkUserAgents(
+            self.userAgents,
+            (name, errorMessage) => {
+              self.pushAgentFailure({
+                type: 'agent_load_failure',
+                stage: 'injection',
+                error_message: `Invalid SDK agent '${name}': ${errorMessage}`,
+              })
+            },
+          )
+          const activeAgentsForInjection =
+            userAgents.length > 0
+              ? [...agentDefs.activeAgents, ...userAgents]
+              : agentDefs.activeAgents
+          if (activeAgentsForInjection.length > 0) {
             try {
-              self.engine.injectAgents(agentDefs.activeAgents)
+              self.engine.injectAgents(activeAgentsForInjection)
+              if (userAgents.length > 0) {
+                self.appStateStore.setState(prev => ({
+                  ...prev,
+                  agentDefinitions: {
+                    ...agentDefs,
+                    activeAgents: activeAgentsForInjection,
+                    allAgents: [...agentDefs.allAgents, ...userAgents],
+                  },
+                }))
+              }
             } catch (err) {
               // Agent injection failed — continue without agents but emit failure event
               const errorMessage = err instanceof Error ? err.message : String(err)
@@ -670,6 +673,7 @@ class QueryImpl implements Query {
             self._sessionId = effectiveSessionId
             sdkContext.sessionId = effectiveSessionId as SessionId
             sdkContext.sessionProjectDir = resolvedTranscriptDir
+            yield* self.drainAgentFailureQueue()
 
             // Submit to engine
             if (typeof self.prompt === 'string') {

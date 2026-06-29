@@ -130,6 +130,121 @@ describe('Query happy-path — full lifecycle', () => {
     )
     expect(textContent?.text).toContain(prompt)
   })
+
+  test('invalid SDK agent definitions are emitted before engine output', async () => {
+    const mockEngine = new MockQueryEngine()
+    const q = query({
+      prompt: 'agent failure visibility',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          broken: {
+            description: 'Use for broken SDK agent coverage',
+            prompt: 2 as unknown as string,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    expect(messages[0]).toMatchObject({
+      type: 'agent_load_failure',
+      stage: 'injection',
+    })
+    expect(messages[0].error_message).toContain("Invalid SDK agent 'broken'")
+    expect(messages.some(message => message?.type === 'assistant')).toBe(true)
+  })
+
+  test('valid SDK agents are exposed after successful engine injection', async () => {
+    const mockEngine = new MockQueryEngine()
+    const q = query({
+      prompt: 'agent injection success',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          helper: {
+            description: 'Use for successful SDK agent injection coverage',
+            prompt: 'Help with SDK agent injection coverage',
+            maxSteps: 2,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: unknown[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    expect(messages.some((message: any) => message?.type === 'assistant')).toBe(
+      true,
+    )
+    expect(
+      mockEngine.config.agents.some(
+        (agent: any) => agent?.agentType === 'helper' && agent?.maxSteps === 2,
+      ),
+    ).toBe(true)
+    expect(
+      (q as any).appStateStore
+        .getState()
+        .agentDefinitions.allAgents.some(
+          (agent: any) => agent?.agentType === 'helper',
+        ),
+    ).toBe(true)
+    expect(q.supportedAgents()).toContain('helper')
+  })
+
+  test('failed SDK agent injection does not expose uninjected user agents', async () => {
+    const mockEngine = new MockQueryEngine()
+    mockEngine.injectAgents = () => {
+      throw new Error('injection rejected')
+    }
+    const q = query({
+      prompt: 'agent injection failure',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          leaky: {
+            description: 'Use for failed SDK agent injection coverage',
+            prompt: 'Help with SDK agent injection failure coverage',
+            maxSteps: 2,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    const failureIndex = messages.findIndex(
+      message =>
+        message?.type === 'agent_load_failure' &&
+        message?.stage === 'injection' &&
+        message?.error_message === 'injection rejected',
+    )
+    const assistantIndex = messages.findIndex(
+      message => message?.type === 'assistant',
+    )
+    expect(failureIndex).toBeGreaterThanOrEqual(0)
+    expect(failureIndex).toBeLessThan(assistantIndex)
+    expect(q.supportedAgents()).not.toContain('leaky')
+    expect(
+      (q as any).appStateStore
+        .getState()
+        .agentDefinitions.allAgents.some(
+          (agent: any) => agent?.agentType === 'leaky',
+        ),
+    ).toBe(false)
+  })
 })
 
 describe('mcpServerStatus() reads from engine.config.mcpClients', () => {

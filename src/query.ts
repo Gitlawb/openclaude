@@ -49,6 +49,7 @@ import {
 } from './services/api/errors.js'
 import { logAntError, logForDebugging } from './utils/debug.js'
 import {
+  createAssistantMessage,
   createUserMessage,
   createUserInterruptionMessage,
   normalizeMessagesForAPI,
@@ -258,6 +259,44 @@ function createAgentStepLimitSummaryRequest(
       'remaining tasks, and whether another run is needed.',
     isMeta: true,
   })
+}
+
+function createAgentStepLimitForcedSummary(
+  limit: AgentStepLimitState,
+  blockedToolUseCount: number,
+): AssistantMessage {
+  const blockedCallText =
+    blockedToolUseCount === 1
+      ? '1 additional tool call was blocked'
+      : `${blockedToolUseCount} additional tool calls were blocked`
+
+  return createAssistantMessage({
+    content:
+      `Completed work: Agent '${limit.agentType ?? 'subagent'}' reached its configured step limit ` +
+      `after ${limit.stepsUsed}/${limit.maxSteps} tool uses. ` +
+      `Findings: ${blockedCallText} during the forced summary step and no more tools were run. ` +
+      'Remaining tasks: continue any unfinished work in another run if more tool access is needed. ' +
+      'Another run needed: yes, if the requested task is not complete.',
+  })
+}
+
+function hasAssistantSummaryText(
+  assistantMessage: AssistantMessage | undefined,
+): boolean {
+  const text = (assistantMessage?.message.content ?? [])
+    .map(part =>
+      part.type === 'text' && typeof part.text === 'string'
+        ? part.text.toLowerCase()
+        : '',
+    )
+    .join('\n')
+
+  return (
+    text.includes('completed') &&
+    text.includes('findings') &&
+    text.includes('remaining tasks') &&
+    text.includes('another run')
+  )
 }
 
 function formatAutoCompactRetryDelay(delayMs: number): string {
@@ -2027,6 +2066,12 @@ async function* queryLoop(
     }
 
     if (shouldTerminateAgentStepSummary && nextAgentStepLimit) {
+      if (!hasAssistantSummaryText(assistantMessages.at(-1))) {
+        yield createAgentStepLimitForcedSummary(
+          nextAgentStepLimit,
+          blockedToolUseBlocks.length,
+        )
+      }
       return {
         reason: 'agent_step_limit',
         turnCount,

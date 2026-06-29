@@ -263,7 +263,12 @@ describe('agent step limits', () => {
       ),
     )
 
-    expect(returned.reason).toBe('agent_step_limit')
+    expect(returned).toMatchObject({
+      reason: 'agent_step_limit',
+      turnCount: 2,
+      stepsUsed: 1,
+      maxSteps: 1,
+    })
     expect(modelCalls).toBe(2)
     expect(requestToolCounts).toEqual([1, 0])
     expect(requestMessageNormalizationToolCounts).toEqual([0, 1])
@@ -400,7 +405,12 @@ describe('agent step limits', () => {
       ),
     )
 
-    expect(returned.reason).toBe('agent_step_limit')
+    expect(returned).toMatchObject({
+      reason: 'agent_step_limit',
+      turnCount: 3,
+      stepsUsed: 2,
+      maxSteps: 2,
+    })
     expect(modelCalls).toBe(3)
     expect(requestToolCounts).toEqual([1, 1, 0])
     expect(requestMessageNormalizationToolCounts).toEqual([0, 0, 1])
@@ -471,7 +481,12 @@ describe('agent step limits', () => {
       ),
     )
 
-    expect(returned.reason).toBe('agent_step_limit')
+    expect(returned).toMatchObject({
+      reason: 'agent_step_limit',
+      turnCount: 2,
+      stepsUsed: 1,
+      maxSteps: 1,
+    })
     expect(modelCalls).toBe(2)
     expect(echoCalls).toEqual(['allowed'])
   })
@@ -501,7 +516,7 @@ describe('agent step limits', () => {
             content: [
               {
                 type: 'text',
-                text: 'Completed work: one step. Findings: the limit was reached. Remaining tasks: continue later. Another run needed: yes.',
+                text: 'I should inspect one more thing first.',
                 citations: null,
               },
               {
@@ -518,7 +533,12 @@ describe('agent step limits', () => {
       ),
     )
 
-    expect(returned.reason).toBe('agent_step_limit')
+    expect(returned).toMatchObject({
+      reason: 'agent_step_limit',
+      turnCount: 2,
+      stepsUsed: 1,
+      maxSteps: 1,
+    })
     expect(modelCalls).toBe(2)
     expect(echoCalls).toEqual(['allowed'])
     expect(countToolUses(yielded)).toBe(1)
@@ -536,6 +556,110 @@ describe('agent step limits', () => {
           ),
       ),
     ).toBe(true)
+
+    const finalAssistantMessage = yielded
+      .filter(message => message?.type === 'assistant')
+      .at(-1)
+    expect(
+      finalAssistantMessage?.message.content.some(
+        part =>
+          part.type === 'text' &&
+          part.text.includes('Completed work: Agent') &&
+          part.text.includes(
+            'Findings: 1 additional tool call was blocked',
+          ) &&
+          part.text.includes('Another run needed: yes'),
+      ),
+    ).toBe(true)
+  })
+
+  test('forced summary turn does not add a duplicate synthetic summary after a valid model summary', async () => {
+    echoCalls.length = 0
+    let modelCalls = 0
+
+    const { yielded, returned } = await drain(
+      makeParams(
+        async function* () {
+          modelCalls++
+          if (modelCalls === 1) {
+            yield createAssistantMessage({
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'toolu_echo_1',
+                  name: 'Echo',
+                  input: { text: 'allowed' },
+                },
+              ],
+            })
+            return
+          }
+          yield createAssistantMessage({
+            content: [
+              {
+                type: 'text',
+                text: 'Completed work: one step.',
+                citations: null,
+              },
+              {
+                type: 'text',
+                text: 'Findings: the limit was reached.',
+                citations: null,
+              },
+              {
+                type: 'text',
+                text: 'Remaining tasks: continue later.',
+                citations: null,
+              },
+              {
+                type: 'text',
+                text: 'Another run needed: yes.',
+                citations: null,
+              },
+              {
+                type: 'tool_use',
+                id: 'toolu_echo_summary',
+                name: 'Echo',
+                input: { text: 'must-not-run' },
+              },
+            ],
+          })
+        },
+        [echoTool],
+        { maxSteps: 1, agentType: 'general-purpose' },
+      ),
+    )
+
+    expect(returned).toMatchObject({
+      reason: 'agent_step_limit',
+      turnCount: 2,
+      stepsUsed: 1,
+      maxSteps: 1,
+    })
+    expect(modelCalls).toBe(2)
+    expect(echoCalls).toEqual(['allowed'])
+    expect(countToolUses(yielded)).toBe(1)
+
+    const assistantMessages = yielded.filter(
+      message => message?.type === 'assistant',
+    )
+    expect(assistantMessages).toHaveLength(2)
+    const finalAssistantText = assistantMessages
+      .at(-1)
+      ?.message.content.filter(part => part.type === 'text')
+      .map(part => part.text)
+      .join('\n')
+    expect(finalAssistantText).toContain('Completed work: one step')
+    expect(finalAssistantText).toContain('Another run needed: yes')
+    expect(
+      assistantMessages.some(message =>
+        message.message.content.some(
+          part =>
+            part.type === 'text' &&
+            part.text.includes("Agent 'general-purpose' reached"),
+        ),
+      ),
+    ).toBe(false)
   })
 
   test('real tool output with the readable limit prefix still counts as a tool use', () => {
