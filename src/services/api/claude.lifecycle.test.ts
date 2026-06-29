@@ -177,9 +177,13 @@ function makeStallingOpenAIStreamResponse(
 }
 
 function makeIdleTimeoutOpenAIStreamResponse(timeoutMs: number): Response {
+  let readCount = 0
+
   return new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
+        readCount++
+        if (readCount === 1) return
         controller.error(new openAIShimTest.StreamIdleTimeoutError(timeoutMs))
       },
     }),
