@@ -19,6 +19,7 @@ import {
   getAllVendors,
   getGateway,
   getVendor,
+  isCloudflareBaseUrl,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
@@ -537,10 +538,19 @@ export function applyProviderFlag(
       }
       if (model) process.env.OPENAI_MODEL = model
       // The Cloudflare transport reads the generic OpenAI-compatible auth
-      // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same
-      // way nearai/fireworks mirror their dedicated keys. Without this a user
-      // who only sets CLOUDFLARE_API_TOKEN sends an unauthenticated request.
-      if (process.env.CLOUDFLARE_API_TOKEN) {
+      // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same way
+      // nearai/fireworks mirror their dedicated keys. Gate it on the configured
+      // base URL actually resolving to the Cloudflare Workers AI endpoint
+      // (api.cloudflare.com): the descriptor default carries an unresolved
+      // `<ACCOUNT_ID>` placeholder and is never seeded, so until the user
+      // exports a real account-scoped OPENAI_BASE_URL the endpoint is unknown.
+      // Mirroring then would copy the token onto whatever stale OPENAI_BASE_URL
+      // is set (a previous OpenAI-compatible provider, or none), leaking it to
+      // the wrong host. Fail fast and leave OPENAI_API_KEY unset instead.
+      if (
+        process.env.CLOUDFLARE_API_TOKEN &&
+        isCloudflareBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
         process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
       } else {
         delete process.env.OPENAI_API_KEY

@@ -186,13 +186,49 @@ describe('applyProviderFlag - cloudflare', () => {
     )
   })
 
-  test('mirrors CLOUDFLARE_API_TOKEN into OPENAI_API_KEY', () => {
+  test('mirrors CLOUDFLARE_API_TOKEN into OPENAI_API_KEY once a real Cloudflare endpoint is configured', () => {
     process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL =
+      'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1'
     delete process.env.OPENAI_API_KEY
     applyProviderFlag('cloudflare', [])
     // The Cloudflare transport authenticates via the generic OpenAI-compatible
-    // header, so the dedicated token must be copied into OPENAI_API_KEY.
+    // header, so the dedicated token is copied into OPENAI_API_KEY — but only
+    // once the configured base URL resolves to api.cloudflare.com.
     expect(String(process.env.OPENAI_API_KEY)).toBe('cf-token')
+  })
+
+  test('does NOT mirror the token while no Cloudflare endpoint is configured', () => {
+    // The descriptor default is an unresolved `<ACCOUNT_ID>` placeholder that is
+    // never seeded, so with OPENAI_BASE_URL unset the endpoint is unknown.
+    // Mirroring here would leave the token attached to no real host.
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('does NOT leak the token onto a stale non-Cloudflare base URL', () => {
+    // Regression: a previous OpenAI-compatible provider left OPENAI_BASE_URL
+    // pointing elsewhere. The Cloudflare token must not be copied onto it.
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('does NOT mirror the token onto the shared AI Gateway host', () => {
+    // The AI Gateway host (gateway.ai.cloudflare.com) is not the Workers AI
+    // endpoint isCloudflareBaseUrl keys on (api.cloudflare.com), so the token
+    // must not be mirrored there either.
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL =
+      'https://gateway.ai.cloudflare.com/v1/acc/gw/workers-ai/v1'
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   test('clears a stale OPENAI_API_KEY when no CLOUDFLARE_API_TOKEN is set', () => {
