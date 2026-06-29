@@ -77,11 +77,11 @@ const GITHUB_TOKEN_PATTERN =
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g;
 
 // Generic x-api-key header redaction
-const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n&]+/gi;
+const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n]+/gi;
 
 // Authorization header / Bearer token redaction
 const AUTHORIZATION_PATTERN =
-  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n&]+/gi;
+  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n]+/gi;
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
@@ -91,14 +91,14 @@ const PROVIDER_PREFIXED_ENV_PATTERN =
 // with strict negative lookarounds so we don't redact normal text that
 // happens to contain "API_KEY=" mid-sentence.
 const GENERIC_CREDENTIAL_ENV_PATTERN =
-  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n&]+["']?/gi;
+  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n]+["']?/gi;
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
 // access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&]+)/gi;
+  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n]+)/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -249,17 +249,6 @@ export function redactSensitiveInfo(text: string): string {
   redacted = redacted.replace(
     /\[REDACTED\](?:\[[^\]]*\]|[)\]}])+/g,
     "[REDACTED]",
-  );
-
-  // Post-processing: absorb `&<text>` that trails a redacted placeholder but
-  // does NOT contain `=` — such text is likely a continuation of the value
-  // rather than a subsequent URL query parameter. This prevents partial
-  // leakage when a credential value contains literal `&` (e.g. a compound
-  // API token like `abc&def`).
-  redacted = redacted.replace(
-    /(\[REDACTED(?:_[A-Z_]+)?\])(&[^\s"',)\]}]+)/g,
-    (_, placeholder, ampTail) =>
-      ampTail.includes("=") ? placeholder + ampTail : placeholder,
   );
 
   return redacted;
@@ -616,7 +605,7 @@ export function redactPathForStatus(rawPath: string): string {
 // `SENSITIVE_FIELD_SUBSTRINGS` — re-exported under the diagnostics alias
 // for the existing test surface.
 const DIAGNOSTIC_SECRET_KEY_PATTERN =
-  /(?:api[_-]?key|auth(?:orization)?|bearer|cookie|credential|password|passwd|pwd|private[_-]?key|refresh[_-]?token|secret|token)/i;
+  /(?:api[_-]?key|auth(?:orization)?|bearer|cookie|password|passwd|pwd|private[_-]?key|refresh[_-]?token|secret|token)/i;
 
 type SecretValuePattern = {
   pattern: RegExp;
@@ -784,11 +773,19 @@ export function redactDiagnosticObject(value: unknown): unknown {
 function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
   if (value === null || value === undefined) return value;
 
+  // If the parent key is a credential-sensitive name, mask the entire value
+  // regardless of its type — an object under { auth: { ... } } would
+  // otherwise descend and leak the inner keys. Objects under non-sensitive
+  // keys (e.g. "credential" metadata in issue reports) are recursed into.
+  // Preserve absent/falsey values: null and undefined are already returned
+  // above; false, 0, and "" indicate the value is unset and should not be
+  // misrepresented as "[set]" or "[redacted]".
+  if (key && isDiagnosticSecretKey(key)) {
+    if (value === false || value === "" || value === 0) return value;
+    return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
+  }
+
   if (typeof value === "string") {
-    if (key && isDiagnosticSecretKey(key)) {
-      if (value === "") return value;
-      return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
-    }
     return redactLikelySecrets(redactHomePath(value));
   }
 
@@ -797,10 +794,6 @@ function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
     typeof value === "boolean" ||
     typeof value === "bigint"
   ) {
-    if (key && isDiagnosticSecretKey(key)) {
-      if (value === false || value === 0) return value;
-      return isEnvPresenceKey(key) ? "[set]" : "[redacted]";
-    }
     return value;
   }
 
