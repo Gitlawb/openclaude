@@ -2242,6 +2242,9 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
       return true
     })
     const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
+    // Seed a stored GitHub Models token so the switch-back path has a real
+    // token to forward into the cleanup helper (rather than `undefined`).
+    const storedToken = 'ghp_stored_secure_storage_token'
 
     mock.module('../utils/providerProfiles.js', () => ({
       ...realProviderProfiles,
@@ -2256,8 +2259,8 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
       clearHydratedGithubModelsTokenFromEnv,
       GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
       hydrateGithubModelsTokenFromSecureStorage: () => {},
-      readGithubModelsToken: () => undefined,
-      readGithubModelsTokenAsync: async () => undefined,
+      readGithubModelsToken: () => storedToken,
+      readGithubModelsTokenAsync: async () => storedToken,
     }))
     mock.module('../utils/providerStartupOverrides.js', () => ({
       clearStartupProviderOverrides: () => null,
@@ -2308,9 +2311,11 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
       Object.keys(process.env).some(key => key.startsWith('CLAUDE_CODE_USE_')),
     ).toBe(false)
     expect(clearActiveProviderProfile).toHaveBeenCalled()
-    // The switch-back must also drop a hydrated GitHub Models token; assert the
-    // cleanup is wired so removing that call cannot pass unnoticed.
-    expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalled()
+    // The switch-back must forward the stored token into the cleanup helper so
+    // it clears only the hydrated secure-storage token and preserves a
+    // user-supplied GITHUB_TOKEN. Asserting the argument (not just the call)
+    // means the test fails if the branch stops forwarding the stored token.
+    expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
   } finally {
     if (mounted) {
       await mounted.dispose()
