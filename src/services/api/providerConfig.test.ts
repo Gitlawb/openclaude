@@ -127,6 +127,30 @@ test('resolveProviderRequest falls back to OPENAI_MODEL for ClinePass when CLINE
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
 
+test('resolveProviderRequest treats blank CLINE_API_MODEL as unset for ClinePass', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: '   ',
+      OPENAI_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
+test('resolveProviderRequest uses the ClinePass route default when no model env is set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/deepseek-v4-flash')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
 test('resolveProviderRequest ignores CLINE_API_MODEL without CLINE_API_KEY', () => {
   const request = resolveProviderRequest({
     processEnv: {

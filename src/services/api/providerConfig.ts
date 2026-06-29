@@ -23,7 +23,10 @@ import {
   DEFAULT_CLINEPASS_BASE_URL,
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
-import { isClinePassBaseUrl } from '../../integrations/routeMetadata.js'
+import {
+  getRouteDefaultModel,
+  isClinePassBaseUrl,
+} from '../../integrations/routeMetadata.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -846,6 +849,9 @@ export function resolveProviderRequest(options?: {
     Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
   const effectiveClinePassMode =
     isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
+  const clinePassDefaultModel = effectiveClinePassMode
+    ? getRouteDefaultModel('clinepass')
+    : undefined
 
   const requestedModel =
     options?.model?.trim() ||
@@ -854,10 +860,12 @@ export function resolveProviderRequest(options?: {
       : isGeminiMode
         ? processEnv.GEMINI_MODEL?.trim()
         : effectiveClinePassMode
-          ? processEnv.CLINE_API_MODEL?.trim() ?? processEnv.OPENAI_MODEL?.trim()
+          ? processEnv.CLINE_API_MODEL?.trim() ||
+            processEnv.OPENAI_MODEL?.trim()
           : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
+    clinePassDefaultModel ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
 
