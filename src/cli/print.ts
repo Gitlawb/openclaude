@@ -277,6 +277,7 @@ import {
 import {
   getModelOptions,
   parseSwitchProfileValue,
+  type ModelOption,
 } from 'src/utils/model/modelOptions.js'
 import {
   modelSupportsEffort,
@@ -385,6 +386,18 @@ const extractMemoriesModule = feature('EXTRACT_MEMORIES')
   ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * Select the model options that are safe to expose through the SDK `models`
+ * response. `getModelOptions()` also returns inactive-provider-profile entries
+ * whose `value` is an encoded `__switch_profile__:<id>:<model>` string (issue
+ * #1119). Those are UI-only affordances for the interactive `/model` switcher —
+ * they are not real, selectable model ids — so they must never reach SDK
+ * consumers. Exported so the exclusion is unit-testable.
+ */
+export function selectSdkModelOptions(options: ModelOption[]): ModelOption[] {
+  return options.filter(option => parseSwitchProfileValue(option.value) === null)
+}
 
 const SHUTDOWN_TEAM_PROMPT = `<system-reminder>
 You are running in non-interactive mode and cannot return a response to the user until your team is shut down.
@@ -1359,14 +1372,7 @@ function runHeadlessStreaming(
     })
   }
 
-  // getModelOptions() now also returns inactive-provider-profile entries whose
-  // `value` is an encoded `__switch_profile__:<id>:<model>` string. Those are
-  // UI-only affordances for the interactive `/model` switcher — they are not
-  // real, selectable model ids, so they must not leak into the SDK `models`
-  // response. Drop them before building ModelInfo.
-  const modelOptions = getModelOptions().filter(
-    option => parseSwitchProfileValue(option.value) === null,
-  )
+  const modelOptions = selectSdkModelOptions(getModelOptions())
   const modelInfos: ModelInfo[] = modelOptions.map((option): ModelInfo => {
     const modelId = option.value === null ? 'default' : option.value
     const resolvedModel =
