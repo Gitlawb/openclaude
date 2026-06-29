@@ -134,3 +134,31 @@ test('resolveModelRuntimeLimits lets an env override win over settings modelLimi
 
   expect(limits.contextWindow).toBe(111_111)
 })
+
+test('resolveModelRuntimeLimits lets a broad env-prefix override win over an exact settings key', async () => {
+  // Regression for the env/settings precedence drift: a broad env-prefix
+  // override (`my-custom`) must not be silently overtaken by a more specific
+  // settings entry (`my-custom-deployment`). Covers both contextWindow and
+  // maxOutputTokens.
+  mockSettings = {
+    modelLimits: {
+      'my-custom-deployment': { contextWindow: 999, maxOutputTokens: 111 },
+    },
+  }
+  const { resolveModelRuntimeLimits } = await importFresh()
+
+  const limits = resolveModelRuntimeLimits({
+    model: 'my-custom-deployment',
+    processEnv: {
+      CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+        'my-custom': 111_111,
+      }),
+      CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS: JSON.stringify({
+        'my-custom': 4_096,
+      }),
+    },
+  })
+
+  expect(limits.contextWindow).toBe(111_111)
+  expect(limits.maxOutputTokens).toBe(4_096)
+})

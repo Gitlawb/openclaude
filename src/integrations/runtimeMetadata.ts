@@ -462,20 +462,28 @@ export function resolveModelRuntimeLimits(options: {
     runtimeEnv,
   )
 
+  // Precedence: env overrides (exact, then prefix) are the highest-priority
+  // user overrides and must win over everything — mirroring the scalar
+  // getOpenAIContextWindow (`env(exact ?? prefix) ?? settings`). The settings.json
+  // `modelLimits` override then takes precedence over the built-in catalog /
+  // discovery-cache values (#478 is an override mechanism), which in turn beat
+  // the descriptor default. Keeping `settings` below `prefix` is the fix for the
+  // env/settings drift: a broad env-prefix override must not be silently
+  // overtaken by a settings entry.
   return {
     contextWindow:
       externalContextWindow.exact ??
+      externalContextWindow.prefix ??
       externalContextWindow.settings ??
       catalogEntry?.contextWindow ??
       cachedCatalogEntry?.contextWindow ??
-      externalContextWindow.prefix ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
+      externalMaxOutputTokens.prefix ??
       externalMaxOutputTokens.settings ??
       catalogEntry?.maxOutputTokens ??
       cachedCatalogEntry?.maxOutputTokens ??
-      externalMaxOutputTokens.prefix ??
       modelDescriptor?.maxOutputTokens,
   }
 }
