@@ -7,6 +7,7 @@ import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
   modelSupports1M,
+  clearSessionContextWindowOverride,
 } from './context.ts'
 
 const originalEnv = {
@@ -26,6 +27,8 @@ const originalEnv = {
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+  USER_TYPE: process.env.USER_TYPE,
 }
 
 beforeEach(async () => {
@@ -43,6 +46,8 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  delete process.env.USER_TYPE
 })
 
 afterEach(() => {
@@ -111,6 +116,16 @@ afterEach(() => {
       delete process.env.XAI_API_KEY
     } else {
       process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+    }
+    if (originalEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined) {
+      delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    } else {
+      process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = originalEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    }
+    if (originalEnv.USER_TYPE === undefined) {
+      delete process.env.USER_TYPE
+    } else {
+      process.env.USER_TYPE = originalEnv.USER_TYPE
     }
   } finally {
     clearSessionContextWindowOverride()
@@ -934,7 +949,6 @@ test('modelSupports1M honors the 1M disable switch even for Opus 4.7', () => {
 
 import {
   setSessionContextWindowOverride,
-  clearSessionContextWindowOverride,
   getSessionContextWindowOverride,
   getSessionContextWindowOverrides,
 } from './context.ts'
@@ -1065,6 +1079,13 @@ test('session override takes precedence over known model catalog metadata', () =
   expect(getContextWindowForModel('gpt-4o')).toBe(500_000)
   clearSessionContextWindowOverride()
   expect(getContextWindowForModel('gpt-4o')).toBe(defaultWindow)
+})
+
+test('CLAUDE_CODE_MAX_CONTEXT_TOKENS takes precedence over session override', () => {
+  process.env.USER_TYPE = 'ant'
+  process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = '50000'
+  setSessionContextWindowOverride('gpt-4o', 200_000)
+  expect(getContextWindowForModel('gpt-4o')).toBe(50_000)
 })
 
 test('provider-qualified override maps to canonical key', () => {
