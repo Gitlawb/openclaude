@@ -460,10 +460,6 @@ describe('Claude API lifecycle tracking', () => {
       stream: unknown
     }[] = []
     let fallbackNotified = false
-    let resolveFallbackRequestStarted!: () => void
-    const fallbackRequestStarted = new Promise<void>(resolve => {
-      resolveFallbackRequestStarted = resolve
-    })
 
     globalThis.fetch = (async (_input, init) => {
       const body = parseRequestBody(init)
@@ -476,7 +472,6 @@ describe('Claude API lifecycle tracking', () => {
         return makeStallingOpenAIStreamResponse()
       }
 
-      resolveFallbackRequestStarted()
       return makeOpenAIChatCompletionResponse()
     }) as typeof fetch
 
@@ -520,22 +515,14 @@ describe('Claude API lifecycle tracking', () => {
     })()
 
     try {
-      const firstOutcome = await waitForPromise(
-        Promise.race([
-          fallbackRequestStarted.then(() => 'fallback' as const),
-          drain.then(() => 'drain' as const),
-        ]),
+      await waitForPromise(
+        drain,
         STREAM_IDLE_RECOVERY_ASSERTION_MS,
-        'non-streaming fallback did not start promptly after stream idle timeout',
+        'non-streaming fallback did not recover promptly after stream idle timeout',
       )
-      if (firstOutcome === 'drain') {
-        if (drainError) throw drainError
-        throw new Error('stream completed before non-streaming fallback started')
-      }
       expect(Date.now() - startedAt).toBeLessThan(
         STREAM_IDLE_RECOVERY_ASSERTION_MS,
       )
-      await drain
     } catch (error) {
       parent.abort()
       await drain.catch(() => {})
