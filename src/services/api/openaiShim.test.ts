@@ -50,6 +50,7 @@ const originalEnv = {
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  CLAUDE_STREAM_IDLE_TIMEOUT_MS: process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS,
 }
 
 const originalFetch = globalThis.fetch
@@ -94,11 +95,49 @@ function makeSseResponse(lines: string[]): Response {
   )
 }
 
+function withResponseUrl(response: Response, url: string): Response {
+  Object.defineProperty(response, 'url', {
+    value: url,
+    configurable: true,
+  })
+  return response
+}
+
+function makeStallingSseResponse(url: string): Response {
+  return withResponseUrl(
+    new Response(new ReadableStream<Uint8Array>(), {
+      headers: {
+        'Content-Type': 'text/event-stream',
+      },
+    }),
+    url,
+  )
+}
+
 function makeStreamChunks(chunks: unknown[]): string[] {
   return [
     ...chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`),
     'data: [DONE]\n\n',
   ]
+}
+
+type StreamIdleTestApi = {
+  StreamIdleTimeoutError: new (timeoutMs: number) => Error
+  getStreamIdleTimeoutMs: () => number
+  readWithIdleTimeout: (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    timeoutMs: number,
+    options?: { signal?: AbortSignal; onTimeout?: () => void },
+  ) => Promise<ReadableStreamReadResult<Uint8Array>>
+}
+
+async function getStreamIdleTestApi(cacheKey: string): Promise<StreamIdleTestApi> {
+  const mod = await importFreshOpenAIShim(cacheKey)
+  const testApi = mod.__test as unknown as Partial<StreamIdleTestApi>
+  expect(typeof testApi.StreamIdleTimeoutError).toBe('function')
+  expect(typeof testApi.getStreamIdleTimeoutMs).toBe('function')
+  expect(typeof testApi.readWithIdleTimeout).toBe('function')
+  return testApi as StreamIdleTestApi
 }
 
 function importFreshOpenAIShim(
@@ -196,6 +235,7 @@ beforeEach(async () => {
   delete process.env.OPENCODE_API_KEY
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
 })
 
 afterEach(() => {
@@ -238,6 +278,7 @@ afterEach(() => {
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
+    restoreEnv('CLAUDE_STREAM_IDLE_TIMEOUT_MS', originalEnv.CLAUDE_STREAM_IDLE_TIMEOUT_MS)
     globalThis.fetch = originalFetch
     _clearRegistryForTesting()
     ensureIntegrationsLoaded()
@@ -1224,6 +1265,325 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent).toBeDefined()
   expect(usageEvent?.usage?.input_tokens).toBe(123)
   expect(usageEvent?.usage?.output_tokens).toBe(45)
+})
+
+test('readWithIdleTimeout rejects quickly and cancels a stalled reader', async () => {
+  const testApi = await getStreamIdleTestApi('stream-idle-helper')
+  const cancelReasons: unknown[] = []
+  const reader = new ReadableStream<Uint8Array>({
+    cancel(reason) {
+      cancelReasons.push(reason)
+    },
+  }).getReader()
+
+  const startedAt = Date.now()
+  let caught: unknown
+  try {
+    await testApi.readWithIdleTimeout(reader, 20)
+  } catch (error) {
+    caught = error
+  }
+
+  expect(Date.now() - startedAt).toBeLessThan(500)
+  expect(caught).toBeInstanceOf(testApi.StreamIdleTimeoutError)
+  expect((caught as Error).name).toBe('StreamIdleTimeoutError')
+  expect(cancelReasons).toHaveLength(1)
+  expect(cancelReasons[0]).toBeInstanceOf(testApi.StreamIdleTimeoutError)
+})
+
+test('readWithIdleTimeout preserves parent abort instead of reporting idle timeout', async () => {
+  const testApi = await getStreamIdleTestApi('stream-idle-user-abort')
+  const parent = new AbortController()
+  const cancelReasons: unknown[] = []
+  const reader = new ReadableStream<Uint8Array>({
+    cancel(reason) {
+      cancelReasons.push(reason)
+    },
+  }).getReader()
+
+  const read = testApi.readWithIdleTimeout(reader, 1_000, {
+    signal: parent.signal,
+  })
+  parent.abort()
+
+  let caught: unknown
+  try {
+    await read
+  } catch (error) {
+    caught = error
+  }
+
+  expect(caught).toBeInstanceOf(DOMException)
+  expect((caught as DOMException).name).toBe('AbortError')
+  expect(cancelReasons).toHaveLength(1)
+  expect(cancelReasons[0]).toBeInstanceOf(DOMException)
+  expect((cancelReasons[0] as DOMException).name).toBe('AbortError')
+})
+
+test('stream idle timeout env parser parses and bounds overrides', async () => {
+  const testApi = await getStreamIdleTestApi('stream-idle-env-parser')
+
+  delete process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(25)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = ' 25 '
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(25)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '3000000000'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(2_147_483_647)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '9007199254740993'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25ms'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '0'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
+
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '-5'
+  expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
+})
+
+test('Anthropic-compatible passthrough stream rejects with idle timeout when it stalls', async () => {
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+
+  globalThis.fetch = asMockFetch(mock(async () =>
+    makeStallingSseResponse(
+      'https://api.anthropic-shaped.example.com/v1/messages',
+    )))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'passthrough-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  let caught: unknown
+  try {
+    for await (const _event of result.data) {
+      // drain
+    }
+  } catch (error) {
+    caught = error
+  }
+
+  expect((caught as Error).name).toBe('StreamIdleTimeoutError')
+})
+
+test('Gemini SSE stream rejects with idle timeout when it stalls', async () => {
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+
+  globalThis.fetch = asMockFetch(mock(async () =>
+    makeStallingSseResponse(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent',
+    )))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gemini-2.5-pro',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  let caught: unknown
+  try {
+    for await (const _event of result.data) {
+      // drain
+    }
+  } catch (error) {
+    caught = error
+  }
+
+  expect((caught as Error).name).toBe('StreamIdleTimeoutError')
+})
+
+test('OpenAI-compatible stream rejects with idle timeout when it stalls after a chunk', async () => {
+  // Fresh import validates the test-only timeout helpers after env setup.
+  await getStreamIdleTestApi('stream-idle-openai-stall')
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+  let cancelReason: unknown
+  const encoder = new TextEncoder()
+
+  globalThis.fetch = asMockFetch(mock(async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(makeStreamChunks([
+            {
+              id: 'chatcmpl-stall',
+              object: 'chat.completion.chunk',
+              model: 'glm-5.2',
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: 'assistant', content: 'hello' },
+                  finish_reason: null,
+                },
+              ],
+            },
+          ])[0]!))
+        },
+        cancel(reason) {
+          cancelReason = reason
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+        },
+      },
+    )))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'glm-5.2',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  const startedAt = Date.now()
+  let caught: unknown
+  try {
+    for await (const event of result.data) {
+      events.push(event)
+    }
+  } catch (error) {
+    caught = error
+  }
+
+  expect(Date.now() - startedAt).toBeLessThan(500)
+  expect((caught as Error).name).toBe('StreamIdleTimeoutError')
+  expect((cancelReason as Error).name).toBe('StreamIdleTimeoutError')
+  const textDeltas = events.flatMap(event => {
+    const eventDelta = event.delta as { type?: string; text?: string } | undefined
+    return event.type === 'content_block_delta' &&
+      eventDelta?.type === 'text_delta' &&
+      typeof eventDelta.text === 'string'
+      ? [eventDelta.text]
+      : []
+  })
+  expect(textDeltas).toEqual(['hello'])
+})
+
+test('OpenAI-compatible stream keeps slow active chunks alive under the idle timeout', async () => {
+  // Fresh import validates the test-only timeout helpers after env setup.
+  await getStreamIdleTestApi('stream-idle-openai-active')
+  process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '500'
+  const startedAt = Date.now()
+  const encoder = new TextEncoder()
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-active',
+      object: 'chat.completion.chunk',
+      model: 'glm-5.2',
+      choices: [
+        {
+          index: 0,
+          delta: { role: 'assistant', content: 'hel' },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      id: 'chatcmpl-active',
+      object: 'chat.completion.chunk',
+      model: 'glm-5.2',
+      choices: [
+        {
+          index: 0,
+          delta: { content: 'lo' },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      id: 'chatcmpl-active',
+      object: 'chat.completion.chunk',
+      model: 'glm-5.2',
+      choices: [
+        {
+          index: 0,
+          delta: {},
+          finish_reason: 'stop',
+        },
+      ],
+    },
+  ])
+  let emitTimer: ReturnType<typeof setTimeout> | undefined
+
+  globalThis.fetch = asMockFetch(mock(async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          let index = 0
+          const emit = () => {
+            emitTimer = undefined
+            const chunk = chunks[index++]
+            if (chunk === undefined) {
+              controller.close()
+              return
+            }
+            controller.enqueue(encoder.encode(chunk))
+            emitTimer = setTimeout(emit, 200)
+          }
+          emit()
+        },
+        cancel() {
+          if (emitTimer !== undefined) {
+            clearTimeout(emitTimer)
+            emitTimer = undefined
+          }
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+        },
+      },
+    )))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'glm-5.2',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const streamDelta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (
+      streamDelta?.type === 'text_delta' &&
+      typeof streamDelta.text === 'string'
+    ) {
+      textDeltas.push(streamDelta.text)
+    }
+  }
+
+  expect(Date.now() - startedAt).toBeGreaterThan(500)
+  expect(textDeltas.join('')).toBe('hello')
 })
 
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {

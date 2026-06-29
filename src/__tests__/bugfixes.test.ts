@@ -59,8 +59,6 @@ describe('Session timeout fix', () => {
     const content = await file('services/api/openaiShim.ts').text()
 
     expect(content).toContain('STREAM_IDLE_TIMEOUT_MS')
-    expect(content).toContain('readWithTimeout')
-    expect(content).toMatch(/readWithTimeout\(\)/)
   })
 
   test('codexShim has idle timeout for SSE streams', async () => {

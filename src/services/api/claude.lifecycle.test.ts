@@ -36,6 +36,8 @@ const envKeys = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
+  'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
   'GEMINI_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
@@ -117,6 +119,98 @@ function makeOpenAIChatCompletionResponse(): Response {
       total_tokens: 2,
     },
   })
+}
+
+function makeOpenAIStreamChunk(
+  delta: Record<string, unknown>,
+  finishReason: string | null = null,
+): string {
+  return `data: ${JSON.stringify({
+    id: 'chatcmpl-lifecycle-stream',
+    object: 'chat.completion.chunk',
+    created: 1_771_264_800,
+    model: 'glm-5.2',
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  })}\n\n`
+}
+
+function makeStallingOpenAIStreamResponse(
+  onCancel?: (reason: unknown) => void,
+): Response {
+  const encoder = new TextEncoder()
+  let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            makeOpenAIStreamChunk({ role: 'assistant', content: 'partial' }),
+          ),
+        )
+        // Bounded cleanup for current/baseline behavior: the quick recovery
+        // assertions should fail before this close fires.
+        closeTimer = setTimeout(() => {
+          try {
+            controller.close()
+          } catch {
+            // stream may already be cancelled by the idle timeout path
+          }
+        }, 500)
+      },
+      cancel(reason) {
+        if (closeTimer !== undefined) {
+          clearTimeout(closeTimer)
+        }
+        onCancel?.(reason)
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream',
+      },
+    },
+  )
+}
+
+function makeRoleOnlyStallingOpenAIStreamResponse(
+  onInitialChunk: () => void,
+  onCancel?: (reason: unknown) => void,
+): Response {
+  const encoder = new TextEncoder()
+  let closeTimer: ReturnType<typeof setTimeout> | undefined
+  let sentInitialChunk = false
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sentInitialChunk) return
+        sentInitialChunk = true
+        controller.enqueue(
+          encoder.encode(makeOpenAIStreamChunk({ role: 'assistant' })),
+        )
+        onInitialChunk()
+        closeTimer = setTimeout(() => {
+          try {
+            controller.close()
+          } catch {
+            // stream may already be cancelled by the abort path
+          }
+        }, 500)
+      },
+      cancel(reason) {
+        if (closeTimer !== undefined) {
+          clearTimeout(closeTimer)
+        }
+        onCancel?.(reason)
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream',
+      },
+    },
+  )
 }
 
 function parseRequestBody(init: RequestInit | undefined): Record<string, unknown> {
@@ -331,6 +425,259 @@ describe('Claude API lifecycle tracking', () => {
       querySource: 'sdk',
     })
     expect(queryLifecycle.snapshot().apiCalls).toEqual([])
+  })
+
+  test('recovers with non-streaming fallback after OpenAI-compatible stream idle timeout', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const parent = new AbortController()
+    const requests: {
+      signalAborted: boolean
+      stream: unknown
+    }[] = []
+    let fallbackNotified = false
+    let resolveFallbackRequestStarted!: () => void
+    const fallbackRequestStarted = new Promise<void>(resolve => {
+      resolveFallbackRequestStarted = resolve
+    })
+
+    globalThis.fetch = (async (_input, init) => {
+      const body = parseRequestBody(init)
+      requests.push({
+        signalAborted: (init?.signal as AbortSignal | undefined)?.aborted ?? false,
+        stream: body.stream,
+      })
+
+      if (body.stream === true) {
+        return makeStallingOpenAIStreamResponse()
+      }
+
+      resolveFallbackRequestStarted()
+      return makeOpenAIChatCompletionResponse()
+    }) as typeof fetch
+
+    const messages: unknown[] = []
+    let drainError: unknown
+    const startedAt = Date.now()
+    const drain = (async () => {
+      try {
+        const generator = queryModelWithStreaming({
+          messages: [
+            {
+              type: 'user',
+              uuid: '00000000-0000-0000-0000-000000000005',
+              timestamp: '2026-06-17T00:00:00.000Z',
+              message: { role: 'user', content: 'hello' },
+            } as Message,
+          ],
+          systemPrompt: asSystemPrompt([]),
+          thinkingConfig: { type: 'disabled' },
+          tools: [],
+          signal: parent.signal,
+          options: {
+            ...makeOptions(queryLifecycle),
+            providerOverride: {
+              model: 'glm-5.2',
+              baseURL: 'https://provider.example/v1',
+              apiKey: 'provider-test-key',
+            },
+            onStreamingFallback: () => {
+              fallbackNotified = true
+            },
+          },
+        })
+
+        for await (const message of generator) {
+          messages.push(message)
+        }
+      } catch (error) {
+        drainError = error
+      }
+    })()
+
+    await fallbackRequestStarted
+    expect(Date.now() - startedAt).toBeLessThan(400)
+    await drain
+    if (drainError) throw drainError
+
+    const streamingRequests = requests.filter(request => request.stream === true)
+    const fallbackRequests = requests.filter(request => request.stream === false)
+    const assistant = messages.find(
+      (message): message is { message?: { content?: unknown } } =>
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { type?: unknown }).type === 'assistant',
+    )
+
+    expect(streamingRequests).toHaveLength(1)
+    expect(fallbackRequests).toHaveLength(1)
+    expect(fallbackRequests[0]?.signalAborted).toBe(false)
+    expect(fallbackNotified).toBe(true)
+    expect(JSON.stringify(assistant?.message?.content)).toContain('fallback ok')
+  })
+
+  test('parent abort during OpenAI-compatible stream does not start non-streaming fallback', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '1000'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const parent = new AbortController()
+    let fallbackRequests = 0
+    let fallbackNotifications = 0
+    let streamCancelled = false
+    const messages: unknown[] = []
+    let resolveStreamingRequestStarted!: () => void
+    const streamingRequestStarted = new Promise<void>(resolve => {
+      resolveStreamingRequestStarted = resolve
+    })
+    let resolveInitialStreamChunk!: () => void
+    const initialStreamChunk = new Promise<void>(resolve => {
+      resolveInitialStreamChunk = resolve
+    })
+
+    globalThis.fetch = (async (_input, init) => {
+      const body = parseRequestBody(init)
+      if (body.stream === true) {
+        resolveStreamingRequestStarted()
+        return makeRoleOnlyStallingOpenAIStreamResponse(
+          resolveInitialStreamChunk,
+          () => {
+            streamCancelled = true
+          },
+        )
+      }
+      fallbackRequests++
+      return makeOpenAIChatCompletionResponse()
+    }) as typeof fetch
+
+    let drainError: unknown
+    const drain = (async () => {
+      try {
+        const generator = queryModelWithStreaming({
+          messages: [
+            {
+              type: 'user',
+              uuid: '00000000-0000-0000-0000-000000000006',
+              timestamp: '2026-06-17T00:00:00.000Z',
+              message: { role: 'user', content: 'hello' },
+            } as Message,
+          ],
+          systemPrompt: asSystemPrompt([]),
+          thinkingConfig: { type: 'disabled' },
+          tools: [],
+          signal: parent.signal,
+          options: {
+            ...makeOptions(queryLifecycle),
+            providerOverride: {
+              model: 'glm-5.2',
+              baseURL: 'https://provider.example/v1',
+              apiKey: 'provider-test-key',
+            },
+            onStreamingFallback: () => {
+              fallbackNotifications++
+            },
+          },
+        })
+
+        for await (const message of generator) {
+          messages.push(message)
+        }
+      } catch (error) {
+        drainError = error
+      }
+    })()
+
+    await streamingRequestStarted
+    await initialStreamChunk
+    await Promise.resolve()
+    parent.abort()
+
+    await drain
+
+    expect(drainError).toBeUndefined()
+    expect(fallbackRequests).toBe(0)
+    expect(fallbackNotifications).toBe(0)
+    expect(streamCancelled).toBe(true)
+    expect(
+      messages.some(
+        message =>
+          typeof message === 'object' &&
+          message !== null &&
+          (message as { type?: unknown }).type === 'assistant',
+      ),
+    ).toBe(false)
+  })
+
+  test('stream idle timeout respects disabled non-streaming fallback guard', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+    process.env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = '1'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const parent = new AbortController()
+    let fallbackRequests = 0
+    const messages: unknown[] = []
+    const startedAt = Date.now()
+
+    globalThis.fetch = (async (_input, init) => {
+      const body = parseRequestBody(init)
+      if (body.stream === true) {
+        return makeStallingOpenAIStreamResponse()
+      }
+      fallbackRequests++
+      return makeOpenAIChatCompletionResponse()
+    }) as typeof fetch
+
+    let drainError: unknown
+    const drain = (async () => {
+      try {
+        const generator = queryModelWithStreaming({
+          messages: [
+            {
+              type: 'user',
+              uuid: '00000000-0000-0000-0000-000000000007',
+              timestamp: '2026-06-17T00:00:00.000Z',
+              message: { role: 'user', content: 'hello' },
+            } as Message,
+          ],
+          systemPrompt: asSystemPrompt([]),
+          thinkingConfig: { type: 'disabled' },
+          tools: [],
+          signal: parent.signal,
+          options: {
+            ...makeOptions(queryLifecycle),
+            providerOverride: {
+              model: 'glm-5.2',
+              baseURL: 'https://provider.example/v1',
+              apiKey: 'provider-test-key',
+            },
+          },
+        })
+
+        for await (const message of generator) {
+          messages.push(message)
+        }
+      } catch (error) {
+        drainError = error
+      }
+    })()
+
+    await drain
+    expect(Date.now() - startedAt).toBeLessThan(400)
+
+    expect(drainError).toBeUndefined()
+    expect(fallbackRequests).toBe(0)
+    expect(
+      messages.some(
+        message =>
+          typeof message === 'object' &&
+          message !== null &&
+          (message as { type?: unknown }).type === 'assistant' &&
+          JSON.stringify((message as { message?: { content?: unknown } }).message?.content).includes('Stream idle timeout'),
+      ),
+    ).toBe(true)
   })
 
   test('tracks each non-streaming fallback request and clears it on success', async () => {
