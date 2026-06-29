@@ -369,25 +369,6 @@ export async function getArcSummary(query?: string): Promise<string> {
 
 export function resetArc(): void {
   conversationArc = null
-  if (arcMemoryDir) {
-    const path = getArcPath(arcMemoryDir)
-    try {
-      // Clear by writing empty state
-      const empty: ConversationArc = {
-        id: `arc_${Date.now()}`,
-        goals: [],
-        decisions: [],
-        milestones: [],
-        currentPhase: 'init',
-        startTime: Date.now(),
-        lastUpdateTime: Date.now(),
-      }
-      writeFileSync(path, JSON.stringify(empty, null, 2), 'utf-8')
-      conversationArc = empty
-    } catch {
-      // non-fatal
-    }
-  }
   arcMemoryDir = null
 }
 

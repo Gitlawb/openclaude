@@ -126,6 +126,16 @@ else
   fail "query.ts builds (verifies full import chain)"
 fi
 
+# ── 11. Test suite ──────────────────────────────────────────────────
+echo ""
+echo "── 11. Test suite ──"
+
+if bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/commands/knowledge/knowledge.test.ts &>/dev/null; then
+  pass "All 33 tests pass"
+else
+  fail "All 33 tests pass"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Results: $PASS passed, $FAIL failed"
