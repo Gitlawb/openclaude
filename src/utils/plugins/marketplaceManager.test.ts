@@ -572,21 +572,28 @@ describe('removeMarketplaceSource — prototype-shadowing names', () => {
 describe('cache-only lookups — prototype-shadowing names', () => {
   let originalFs: FsOperations
   let configReads: number
+  let readPaths: string[]
+  const SENTINEL_INSTALL_LOCATION = '/__bogus_inherited_install_location__'
 
   beforeEach(() => {
     originalFs = getFsImplementation()
     configReads = 0
+    readPaths = []
+    // Sentinel installLocation on Object.prototype so that *if* the hardening
+    // is removed, the inherited entry (`config['constructor']`, etc.) carries a
+    // real string installLocation and the reader proceeds to read a marketplace
+    // cache path derived from it — which we can then detect. With the
+    // null-prototype guard in place, the lookup resolves to `undefined`, the
+    // "not found" guard short-circuits, and this path is never touched.
+    ;(Object.prototype as Record<string, unknown>).installLocation =
+      SENTINEL_INSTALL_LOCATION
     // A *valid* (but empty) config file exists on disk, so the cache-only
     // readers reach the `config[name]` lookup instead of bailing on ENOENT.
-    // With the null-prototype hardening, a name that shadows an
-    // Object.prototype member resolves to `undefined` and the "not found"
-    // guard short-circuits; without it, `config['constructor']` is the
-    // inherited Object function and the reader takes a bogus path on a
-    // non-marketplace entry.
     setFsImplementation({
       ...originalFs,
-      readFile: async () => {
+      readFile: async (path: string) => {
         configReads++
+        readPaths.push(String(path))
         return '{}'
       },
     })
@@ -594,21 +601,32 @@ describe('cache-only lookups — prototype-shadowing names', () => {
 
   afterEach(() => {
     setFsImplementation(originalFs)
+    delete (Object.prototype as Record<string, unknown>).installLocation
   })
 
+  // Direct regression signal for getMarketplaceCacheOnly: the missing-marketplace
+  // lookup must short-circuit BEFORE attempting to read a marketplace cache path.
+  // Without the null-prototype guard, `config[name]` is the inherited Object
+  // member; its (sentinel) installLocation drives readCachedMarketplace into
+  // reading a cache path, which this asserts never happens.
   test.each(PROTO_NAMES)(
-    'getMarketplaceCacheOnly returns null for shadowing name %p',
+    'getMarketplaceCacheOnly returns null and never reads a cache path for shadowing name %p',
     async name => {
       await expect(getMarketplaceCacheOnly(name)).resolves.toBeNull()
+      // The only read is the config file itself; no cache path derived from a
+      // bogus inherited installLocation is ever touched.
+      expect(
+        readPaths.some(p => p.includes(SENTINEL_INSTALL_LOCATION)),
+      ).toBe(false)
+      expect(configReads).toBe(1)
     },
   )
 
-  // The strong regression signal: without the null-prototype guard,
+  // The strong regression signal for the plugin path: without the guard,
   // `config[name]` resolves to the inherited Object member, the "not found"
-  // check passes, and the reader re-enters `getMarketplaceCacheOnly(name)` —
+  // check passes, and the reader re-enters `getMarketplaceCacheOnly(name)`,
   // re-reading the config file a *second* time before failing. The hardened
-  // path short-circuits on the first lookup, so the config is read exactly
-  // once.
+  // path short-circuits on the first lookup, so the config is read exactly once.
   test.each(PROTO_NAMES)(
     'getPluginByIdCacheOnly returns null and does not re-resolve a shadowing marketplace %p',
     async name => {
