@@ -1,5 +1,6 @@
 import type { LocalCommandCall } from '../../types/command.js';
-import { getArcSummary, resetArc, getArcStats } from '../../utils/conversationArc.js';
+import { getArcSummary, resetArc, getArcStats, clearArcArtifacts } from '../../utils/conversationArc.js';
+import { getAutoMemPath } from '../../memdir/paths.js';
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import chalk from 'chalk';
@@ -46,6 +47,10 @@ export const call: LocalCommandCall = async (args, _context) => {
   if (subCommand === 'clear') {
     resetArc();
     resetGlobalGraph();
+    const memDir = getAutoMemPath();
+    if (memDir) {
+      clearArcArtifacts(memDir);
+    }
     return { 
       type: 'text', 
       value: '🗑️ Knowledge graph memory has been cleared for this session.' 
