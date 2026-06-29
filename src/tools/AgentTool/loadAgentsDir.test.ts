@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
+import { setAllowedSettingSources } from '../../bootstrap/state.js'
 import {
   clearAgentDefinitionsCache,
   getAgentDefinitionsWithOverrides,
   parseAgentFromJson,
 } from './loadAgentsDir.js'
 import { loadMarkdownFilesForSubdir } from '../../utils/markdownConfigLoader.js'
+import { SETTING_SOURCES } from '../../utils/settings/constants.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 
 const originalEnv = {
+  OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
   CLAUDE_CODE_USE_NATIVE_FILE_SEARCH:
@@ -26,9 +29,12 @@ let tempDir: string
 beforeEach(async () => {
   await acquireSharedMutationLock('loadAgentsDir.test.ts')
   tempDir = await mkdtemp(join(tmpdir(), 'openclaude-agents-test-'))
-  process.env.CLAUDE_CONFIG_DIR = join(tempDir, '.openclaude')
+  const configDir = join(tempDir, 'user-config')
+  process.env.OPENCLAUDE_CONFIG_DIR = configDir
+  process.env.CLAUDE_CONFIG_DIR = configDir
   process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH = '1'
   delete process.env.CLAUDE_CODE_SIMPLE
+  setAllowedSettingSources([...SETTING_SOURCES])
   clearAgentDefinitionsCache()
   loadMarkdownFilesForSubdir.cache.clear?.()
 })
@@ -36,10 +42,12 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     await rm(tempDir, { recursive: true, force: true })
+    restoreEnv('OPENCLAUDE_CONFIG_DIR')
     restoreEnv('CLAUDE_CONFIG_DIR')
     restoreEnv('CLAUDE_CODE_SIMPLE')
     restoreEnv('CLAUDE_CODE_USE_NATIVE_FILE_SEARCH')
     restoreEnv('USER_TYPE')
+    setAllowedSettingSources([...SETTING_SOURCES])
     clearAgentDefinitionsCache()
     loadMarkdownFilesForSubdir.cache.clear?.()
   } finally {
