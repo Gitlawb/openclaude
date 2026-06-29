@@ -152,3 +152,42 @@ test('resolveProviderRequest ignores ClinePass model when GitHub mode is active'
   expect(request.requestedModel).toBe('github:copilot')
   expect(request.baseUrl).not.toContain('cline.bot')
 })
+
+test('resolveProviderRequest ignores ClinePass model when explicit OPENAI_BASE_URL points elsewhere', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
+test('resolveProviderRequest ignores ClinePass model when explicit baseUrl option points elsewhere', () => {
+  const request = resolveProviderRequest({
+    baseUrl: 'https://openrouter.ai/api/v1',
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('codexplan')
+  expect(request.baseUrl).toBe('https://openrouter.ai/api/v1')
+})
+
+test('resolveProviderRequest uses ClinePass model when no explicit base URL is set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})

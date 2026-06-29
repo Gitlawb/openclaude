@@ -23,6 +23,7 @@ import {
   DEFAULT_CLINEPASS_BASE_URL,
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
+import { isClinePassBaseUrl } from '../../integrations/routeMetadata.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -802,20 +803,6 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
-  const effectiveClinePassMode = isClinePassMode && !isGithubMode
-  const requestedModel =
-    options?.model?.trim() ||
-    (isMistralMode
-      ? processEnv.MISTRAL_MODEL?.trim()
-      : isGeminiMode
-        ? processEnv.GEMINI_MODEL?.trim()
-        : effectiveClinePassMode
-          ? processEnv.CLINE_API_MODEL?.trim() ?? processEnv.OPENAI_MODEL?.trim()
-          : processEnv.OPENAI_MODEL?.trim()) ||
-    options?.fallbackModel?.trim() ||
-    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
-    (isGithubMode ? 'github:copilot' : 'codexplan')
-  const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -848,6 +835,31 @@ export function resolveProviderRequest(options?: {
     : (primaryEnvBaseUrl === undefined
       ? asNamedEnvUrl(processEnv.OPENAI_API_BASE, 'OPENAI_API_BASE')
       : undefined)
+
+  // ClinePass model selection is only valid when no concrete non-ClinePass
+  // base URL is explicitly provided via options or env. This prevents stale
+  // CLINE_API_KEY/CLINE_API_MODEL from overriding an explicit OPENAI_BASE_URL
+  // pointing at a different provider.
+  const concreteBaseUrlBeforeDefault =
+    explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
+  const hasConcreteNonClinePassBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
+  const effectiveClinePassMode =
+    isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
+
+  const requestedModel =
+    options?.model?.trim() ||
+    (isMistralMode
+      ? processEnv.MISTRAL_MODEL?.trim()
+      : isGeminiMode
+        ? processEnv.GEMINI_MODEL?.trim()
+        : effectiveClinePassMode
+          ? processEnv.CLINE_API_MODEL?.trim() ?? processEnv.OPENAI_MODEL?.trim()
+          : processEnv.OPENAI_MODEL?.trim()) ||
+    options?.fallbackModel?.trim() ||
+    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
+    (isGithubMode ? 'github:copilot' : 'codexplan')
+  const descriptor = parseModelDescriptor(requestedModel)
 
   const envBaseUrlRaw =
     explicitBaseUrl ??
