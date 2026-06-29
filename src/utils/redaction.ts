@@ -458,7 +458,8 @@ export function redactUrlForDisplay(rawUrl: string): string {
           hostPart.includes(".") ||
           hostPart === "localhost" ||
           /^\[/.test(hostPart) ||
-          /:[0-9]+$/.test(hostPart);
+          /:[0-9]+$/.test(hostPart) ||
+          (!hostPart.includes(":") && hostPart.length > 0);
 
         if (
           !hasValidHostBeforeHash &&

@@ -196,6 +196,15 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toBe('//redacted@host/path?token=redacted')
   })
 
+  // Regression: bare hosts shouldn't be mistakenly matched as userinfo.
+  // A fragment that happens to contain userinfo (e.g. an access token)
+  // should be completely stripped rather than applied across fragments.
+  test('malformed URL fallback redacts fragment completely when bare host is valid', () => {
+    const malformed = '//host#access_token=SECRET@example.com/path'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toBe('//host')
+  })
+
   // Regression: the valid-URL path must pre-redact semicolon-delimited
   // sensitive query params from the raw query before URLSearchParams
   // percent-encodes `;` as `%3B`, leaving them invisible to the
