@@ -14,6 +14,7 @@ import { extractFactsIntoMemdir } from '../memdir/autoExtractFacts.js'
 import {
   searchMemdirIndex,
   initMemdirIndex,
+  rebuildIndex,
 } from '../memdir/vectorIndex.js'
 import { extractKeywords } from './knowledgeGraph.js'
 
@@ -191,7 +192,13 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
 
   if (arcMemoryDir) {
     saveArcToDisk(arcMemoryDir, arc)
+    await rebuildIndex(arcMemoryDir).catch(() => {})
   }
+}
+
+function yamlQuote(val: string): string {
+  const escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
+  return `"${escaped}"`
 }
 
 export async function finalizeArcTurn(): Promise<void> {
@@ -218,8 +225,8 @@ export async function finalizeArcTurn(): Promise<void> {
     const now = new Date().toISOString()
     const content = `---
 type: reference
-title: Session Summary - ${arc.id}
-description: ${summaryContent}
+title: ${yamlQuote(`Session Summary - ${arc.id}`)}
+description: ${yamlQuote(summaryContent)}
 sessionId: ${arc.id}
 detectedAt: ${now}
 phase: ${arc.currentPhase}
@@ -242,6 +249,7 @@ ${arc.milestones.map(m => `- ${m.description}`).join('\n')}
 `
     try {
       writeFileSync(filePath, content, 'utf-8')
+      await rebuildIndex(dir).catch(() => {})
     } catch {
       // non-fatal
     }
