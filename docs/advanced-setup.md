@@ -402,6 +402,34 @@ Model env vars are provider-scoped: first-party Anthropic sessions read
 `GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
 or Foundry launches, select the model with `--model`.
 
+### Per-model limit overrides (`settings.json`)
+
+When a custom OpenAI-compatible provider does not expose context metadata from
+`/v1/models`, you can pin a model's context window and max output tokens. In
+addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
+`CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS` env vars above, you can set a
+`modelLimits` map in your `settings.json` (the same file `/config` writes, e.g.
+`~/.openclaude/settings.json`):
+
+```json
+{
+  "modelLimits": {
+    "my-custom-deployment": { "contextWindow": 262144, "maxOutputTokens": 32768 },
+    "api.private-llm.test:my-custom-deployment": { "contextWindow": 1000000 }
+  }
+}
+```
+
+- **Key matching** — keys match the model api-name exactly, or by prefix (e.g.
+  `my-custom` matches `my-custom-deployment-v2`). A host-qualified key
+  (`<host>:<model>`, where `<host>` is the `OPENAI_BASE_URL` hostname) wins over
+  a bare model key, so the same model name on two endpoints can carry different
+  limits. Either field may be omitted to override only one limit.
+- **Precedence** — env-var overrides (exact, then prefix) win over `modelLimits`,
+  which in turn wins over the built-in catalog / discovery-cache values, which
+  win over the descriptor default. So an env override always takes priority, and
+  `modelLimits` only applies where no env override is set.
+
 ## Runtime Hardening
 
 Use these commands to validate your setup and catch mistakes early:
