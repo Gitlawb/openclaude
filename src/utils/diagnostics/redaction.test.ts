@@ -186,16 +186,24 @@ describe("diagnostic redaction", () => {
   });
 
   test("redacts semicolon-delimited sensitive query params", () => {
-    // The `;` separator is normalized to `&` during redaction.
+    // The `;` separator is preserved while the sensitive value is redacted.
     expect(
       redactDiagnosticUrl("https://x.test/path?mode=ok;token=SECRET123&x=1"),
-    ).toBe("https://x.test/path?mode=ok&token=redacted&x=1");
+    ).toBe("https://x.test/path?mode=ok;token=redacted&x=1");
   });
 
   test("redacts semicolon-delimited api_key query params via fallback path", () => {
     expect(
       redactDiagnosticUrl("//x.test/path?mode=ok;api_key=SECRET123&x=1"),
-    ).toBe("//x.test/path?mode=ok&api_key=redacted&x=1");
+    ).toBe("//x.test/path?mode=ok;api_key=redacted&x=1");
+  });
+
+  test("preserves harmless semicolons in query params", () => {
+    // A semicolon that is not preceding a sensitive key=value segment must
+    // not be altered. Previously the pre-pass normalized all `;` to `&`.
+    expect(
+      redactDiagnosticUrl("https://api.example.com/v1?redirect=https://a;b&mode=ok"),
+    ).toBe("https://api.example.com/v1?redirect=https://a;b&mode=ok");
   });
 
   test("does not mangle //user@host inside a query-param value", () => {

@@ -359,25 +359,8 @@ function redactMalformedQuery(rawUrl: string): string {
   if (queryStart === -1) return noFragment;
   const prefix = noFragment.slice(0, queryStart + 1);
   const query = noFragment.slice(queryStart + 1);
-  const redacted = query
-    .split(/[&;]/)
-    .map((pair) => {
-      const eqIndex = pair.indexOf("=");
-      if (eqIndex === -1) return pair;
-      const rawKey = pair.slice(0, eqIndex);
-      let key: string;
-      try {
-        key = decodeURIComponent(rawKey);
-      } catch {
-        key = rawKey;
-      }
-      if (shouldRedactUrlQueryParam(key)) {
-        return `${rawKey}=redacted`;
-      }
-      return pair;
-    })
-    .join("&");
-  return `${prefix}${redacted}`;
+  const redacted = redactSensitiveQuerySegments(query);
+  return prefix + redacted;
 }
 
 /**
@@ -391,6 +374,24 @@ function redactMalformedQuery(rawUrl: string): string {
  * fallback paths so that the behavior is consistent regardless of how
  * the URL was originally parsed.
  */
+function redactSensitiveQuerySegments(query: string): string {
+  return query.replace(
+    /(^|[&;])([^&=;]+)=([^&;]*)/g,
+    (match, delim, rawKey) => {
+      let key: string;
+      try {
+        key = decodeURIComponent(rawKey);
+      } catch {
+        key = rawKey;
+      }
+      if (shouldRedactUrlQueryParam(key)) {
+        return `${delim}${rawKey}=redacted`;
+      }
+      return match;
+    },
+  );
+}
+
 function redactSemicolonQueryParams(urlStr: string): string {
   if (!urlStr.includes(";")) return urlStr;
   const qs = urlStr.indexOf("?");
@@ -401,26 +402,9 @@ function redactSemicolonQueryParams(urlStr: string): string {
   const query = urlStr.slice(qs + 1, queryEnd);
   const suffix = hashIdx === -1 ? "" : urlStr.slice(hashIdx);
 
-  const parts = query.split(/[&;]/);
-  let changed = false;
-  const result = parts.map((pair) => {
-    const eq = pair.indexOf("=");
-    if (eq === -1) return pair;
-    const rawKey = pair.slice(0, eq);
-    let key: string;
-    try {
-      key = decodeURIComponent(rawKey);
-    } catch {
-      key = rawKey;
-    }
-    if (shouldRedactUrlQueryParam(key)) {
-      changed = true;
-      return `${rawKey}=redacted`;
-    }
-    return pair;
-  });
-  if (!changed) return urlStr;
-  return prefix + result.join("&") + suffix;
+  const cleaned = redactSensitiveQuerySegments(query);
+  if (cleaned === query) return urlStr;
+  return prefix + cleaned + suffix;
 }
 
 export function redactUrlForDisplay(rawUrl: string): string {
@@ -446,25 +430,7 @@ export function redactUrlForDisplay(rawUrl: string): string {
         hashIdx === -1
           ? rawUrl.slice(qsStart + 1)
           : rawUrl.slice(qsStart + 1, hashIdx);
-      const cleaned = rawQuery
-        .split(/[&;]/)
-        .map((pair) => {
-          const eqIdx = pair.indexOf("=");
-          if (eqIdx === -1) return pair;
-          const rawKey = pair.slice(0, eqIdx);
-          let key: string;
-          try {
-            key = decodeURIComponent(rawKey);
-          } catch {
-            key = rawKey;
-          }
-          if (shouldRedactUrlQueryParam(key)) {
-            return `${rawKey}=redacted`;
-          }
-          return pair;
-        })
-        .join("&");
-      parsed.search = cleaned;
+      parsed.search = redactSensitiveQuerySegments(rawQuery);
     }
 
     for (const key of parsed.searchParams.keys()) {
