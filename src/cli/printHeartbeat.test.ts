@@ -66,7 +66,7 @@ const heartbeatEvent: HeadlessHeartbeatEvent = {
 }
 
 describe('createHeadlessHeartbeatStructuredEmitter', () => {
-  test('does not emit heartbeat events before the stream-json drain starts', async () => {
+  test('writes heartbeat events before the stream-json drain starts (avoids dropping startup signals)', async () => {
     const write = mock(async (_message: HeadlessHeartbeatEvent) => {})
     const enqueue = mock((_message: HeadlessHeartbeatEvent) => {})
     const emitter = createHeadlessHeartbeatStructuredEmitter(
@@ -76,7 +76,7 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 
     await emitter(heartbeatEvent)
 
-    expect(write).not.toHaveBeenCalled()
+    expect(write).toHaveBeenCalledWith(heartbeatEvent)
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -151,7 +151,7 @@ describe('createRunHeadlessHeartbeat', () => {
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
-    expect(written).toHaveLength(0)
+    expect(written).toHaveLength(1)
     expect(enqueued).toHaveLength(0)
 
     streamJsonDrainStarted = true
@@ -159,7 +159,7 @@ describe('createRunHeadlessHeartbeat', () => {
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
-    expect(written).toHaveLength(0)
+    expect(written).toHaveLength(1)
     expect(enqueued).toHaveLength(1)
     expect(enqueued[0]!.phase).toBe('loading_session')
 

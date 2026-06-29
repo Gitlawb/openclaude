@@ -1280,7 +1280,7 @@ describe('task report generation', () => {
         expect(serialized.endsWith('\n')).toBe(false)
         expect(serialized).not.toContain(secret)
         expect(serialized).not.toContain('ghp_1234567890abcdef')
-        expect(serialized).toContain('[redacted]')
+        expect(serialized).toContain('[REDACTED]')
         expect(report.commands[0]?.stdout?.preview.length).toBeLessThanOrEqual(
           64,
         )
