@@ -20,6 +20,7 @@ import {
   queryModelWithStreaming,
 } from './claude.js'
 import { EMPTY_USAGE } from './emptyUsage.js'
+import { __test as openAIShimTest } from './openaiShim.js'
 
 const envKeys = [
   'ANTHROPIC_AUTH_TOKEN',
@@ -165,6 +166,30 @@ function makeStallingOpenAIStreamResponse(
           clearTimeout(closeTimer)
         }
         onCancel?.(reason)
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/event-stream',
+      },
+    },
+  )
+}
+
+function makeIdleTimeoutOpenAIStreamResponse(timeoutMs: number): Response {
+  const encoder = new TextEncoder()
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            makeOpenAIStreamChunk({ role: 'assistant', content: 'partial' }),
+          ),
+        )
+        queueMicrotask(() => {
+          controller.error(new openAIShimTest.StreamIdleTimeoutError(timeoutMs))
+        })
       },
     }),
     {
@@ -473,7 +498,7 @@ describe('Claude API lifecycle tracking', () => {
       })
 
       if (body.stream === true) {
-        return makeStallingOpenAIStreamResponse()
+        return makeIdleTimeoutOpenAIStreamResponse(25)
       }
 
       resolveFallbackRequestStarted()
@@ -520,11 +545,18 @@ describe('Claude API lifecycle tracking', () => {
     })()
 
     try {
-      await waitForPromise(
-        fallbackRequestStarted,
+      const firstOutcome = await waitForPromise(
+        Promise.race([
+          fallbackRequestStarted.then(() => 'fallback' as const),
+          drain.then(() => 'drain' as const),
+        ]),
         STREAM_IDLE_RECOVERY_ASSERTION_MS,
         'non-streaming fallback did not start promptly after stream idle timeout',
       )
+      if (firstOutcome === 'drain') {
+        if (drainError) throw drainError
+        throw new Error('stream completed before non-streaming fallback started')
+      }
       expect(Date.now() - startedAt).toBeLessThan(
         STREAM_IDLE_RECOVERY_ASSERTION_MS,
       )

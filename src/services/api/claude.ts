@@ -102,6 +102,7 @@ import {
   extractQuotaStatusFromHeaders,
 } from '../claudeAiLimits.js'
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
+import { getStreamIdleTimeoutMs } from './openaiShim.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
@@ -1959,18 +1960,7 @@ async function* queryModel(
     const streamWatchdogEnabled =
       !isEnvTruthy(process.env.CLAUDE_DISABLE_STREAM_WATCHDOG) &&
       !isEnvDefinedFalsy(process.env.CLAUDE_ENABLE_STREAM_WATCHDOG)
-    const streamIdleTimeoutRaw = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS?.trim()
-    const parsedStreamIdleTimeoutMs =
-      streamIdleTimeoutRaw && /^\d+$/.test(streamIdleTimeoutRaw)
-        ? Number(streamIdleTimeoutRaw)
-        : 0
-    // Keep parsing semantics in sync with openaiShim's lower-level reader timeout.
-    const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
-    const STREAM_IDLE_TIMEOUT_MS =
-      Number.isSafeInteger(parsedStreamIdleTimeoutMs) &&
-      parsedStreamIdleTimeoutMs > 0
-        ? Math.min(parsedStreamIdleTimeoutMs, MAX_STREAM_IDLE_TIMEOUT_MS)
-        : 90_000
+    const STREAM_IDLE_TIMEOUT_MS = getStreamIdleTimeoutMs()
     const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
     let streamIdleAborted = false
     // performance.now() snapshot when watchdog fires, for measuring abort propagation delay

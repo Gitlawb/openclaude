@@ -144,10 +144,9 @@ function createStreamAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
 }
 
-function getStreamIdleTimeoutMs(): number {
+export function getStreamIdleTimeoutMs(): number {
   const raw = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS?.trim()
   if (!raw || !/^\d+$/.test(raw)) return DEFAULT_STREAM_IDLE_TIMEOUT_MS
-  // Keep parsing semantics in sync with the outer watchdog in claude.ts.
   const parsed = Number(raw)
   return Number.isSafeInteger(parsed) && parsed > 0
     ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
