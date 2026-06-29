@@ -208,14 +208,14 @@ describe('redactUrlForDisplay', () => {
         'https://api.example.com/v1?model=ok;token=SECRET&api_key=KEY',
       ),
     ).toBe(
-      'https://api.example.com/v1?model=ok&token=redacted&api_key=redacted',
+      'https://api.example.com/v1?model=ok;token=redacted&api_key=redacted',
     )
   })
 
   test('redacts semicolon-delimited token without &-delimited params', () => {
     expect(
       redactUrlForDisplay('https://api.example.com/v1?mode=ok;token=SECRET'),
-    ).toBe('https://api.example.com/v1?mode=ok&token=redacted')
+    ).toBe('https://api.example.com/v1?mode=ok;token=redacted')
   })
 
   test('redacts semicolon-delimited api_key in mixed-separator query', () => {
@@ -223,7 +223,7 @@ describe('redactUrlForDisplay', () => {
       redactUrlForDisplay(
         'https://api.example.com/v1?mode=ok;api_key=KEY&model=llama',
       ),
-    ).toBe('https://api.example.com/v1?mode=ok&api_key=redacted&model=llama')
+    ).toBe('https://api.example.com/v1?mode=ok;api_key=redacted&model=llama')
   })
 })
 

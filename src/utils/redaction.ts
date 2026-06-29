@@ -376,7 +376,7 @@ function redactMalformedQuery(rawUrl: string): string {
  */
 function redactSensitiveQuerySegments(query: string): string {
   return query.replace(
-    /(^|[&;])([^&=;]+)=([^&;]*)/g,
+    /(^|[&;])([^&=;]+)(?:=([^&;]*))?/g,
     (match, delim, rawKey) => {
       let key: string;
       try {
@@ -431,12 +431,6 @@ export function redactUrlForDisplay(rawUrl: string): string {
           ? rawUrl.slice(qsStart + 1)
           : rawUrl.slice(qsStart + 1, hashIdx);
       parsed.search = redactSensitiveQuerySegments(rawQuery);
-    }
-
-    for (const key of parsed.searchParams.keys()) {
-      if (shouldRedactUrlQueryParam(key)) {
-        parsed.searchParams.set(key, "redacted");
-      }
     }
 
     parsed.hash = "";
