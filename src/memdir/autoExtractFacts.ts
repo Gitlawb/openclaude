@@ -89,7 +89,15 @@ export async function extractFactsIntoMemdir(
     writeFactMemory(...args)
   }
 
-  // 1. Detect Environment Variables (KEY=VALUE)
+  // Build scrubbed content for downstream extractors so env values (which may
+  // contain secrets, paths, or code) are not re-extracted as concept facts.
+  const scrubbedContent = content.replace(
+    /(?:export\s+)?[A-Z_]{3,}=[^\s\n"']+/g,
+    match => `${match.split('=')[0]}=[REDACTED]`,
+  )
+
+  // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
+  //    the actual value is available for redaction metadata.
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
@@ -105,13 +113,13 @@ export async function extractFactsIntoMemdir(
   }
 
   // 3. Detect Versions
-  const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
+  const versionMatches = scrubbedContent.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
     cappedWrite(dir, 'version', match[0].toLowerCase(), `Version ${match[1]}`, { semver: match[1] })
   }
 
   // 4. Detect Hostnames/URLs
-  const urlMatches = content.matchAll(/(https?:\/\/[^\s\n"']+)/g)
+  const urlMatches = scrubbedContent.matchAll(/(https?:\/\/[^\s\n"']+)/g)
   for (const match of urlMatches) {
     try {
       const url = new URL(match[1])
@@ -124,20 +132,22 @@ export async function extractFactsIntoMemdir(
     }
   }
 
-  // 5. Detect IPv4
-  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
+  // 5. Detect IPv4 — use a local context window for tagging
+  const ipMatches = scrubbedContent.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
   for (const match of ipMatches) {
     const ip = match[1]
-    const context = content.toLowerCase()
+    const start = Math.max(0, (match.index ?? 0) - 80)
+    const end = Math.min(scrubbedContent.length, (match.index ?? 0) + ip.length + 80)
+    const localContext = scrubbedContent.slice(start, end).toLowerCase()
     const tags: Record<string, string> = { type: 'ipv4' }
-    if (context.includes('database') || context.includes('db')) tags.role = 'database'
-    if (context.includes('prod')) tags.env = 'production'
-    if (context.includes('worker')) tags.role = 'worker'
+    if (/\b(database|db)\b/.test(localContext)) tags.role = 'database'
+    if (/\bprod\b/.test(localContext)) tags.env = 'production'
+    if (/\bworker\b/.test(localContext)) tags.role = 'worker'
     cappedWrite(dir, 'ip', ip, `Server IP: ${ip}`, tags)
   }
 
   // 6. Detect backtick symbols
-  const backtickMatches = content.matchAll(/`([^`]+)`/g)
+  const backtickMatches = scrubbedContent.matchAll(/`([^`]+)`/g)
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
@@ -146,7 +156,7 @@ export async function extractFactsIntoMemdir(
   }
 
   // 7. Detect Technical Concepts (PascalCase, camelCase, hyphenated)
-  const technicalMatches = content.matchAll(
+  const technicalMatches = scrubbedContent.matchAll(
     /\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g,
   )
   const seen = new Set<string>()
@@ -160,13 +170,13 @@ export async function extractFactsIntoMemdir(
   }
 
   // 8. Specific tech detection
-  if (content.toLowerCase().includes('redux'))
+  if (scrubbedContent.toLowerCase().includes('redux'))
     cappedWrite(dir, 'tech', 'Redux', 'Redux state management', { category: 'state_management' })
-  if (content.toLowerCase().includes('react'))
+  if (scrubbedContent.toLowerCase().includes('react'))
     cappedWrite(dir, 'tech', 'React', 'React frontend library', { category: 'frontend' })
 
   // 9. Project File Signatures
-  const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+  const fileMatches = scrubbedContent.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
   for (const match of fileMatches) {
     cappedWrite(dir, 'file', match[1].toLowerCase(), `Project file: ${match[1]}`, { category: 'configuration' })
   }

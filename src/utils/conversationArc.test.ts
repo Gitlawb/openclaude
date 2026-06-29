@@ -234,11 +234,17 @@ describe('conversationArc', () => {
       await finalizeArcTurn()
 
       const arcPath = join(memDir, '.arc.json')
+      const summaryFiles = () =>
+        readdirSync(memDir).filter(f => f.startsWith('session-summary-'))
+
+      // Confirm artifacts exist before cleanup
       expect(existsSync(arcPath)).toBe(true)
+      expect(summaryFiles().length).toBeGreaterThan(0)
 
       clearArcArtifacts(memDir)
 
       expect(existsSync(arcPath)).toBe(false)
+      expect(summaryFiles().length).toBe(0)
       const remaining = readdirSync(memDir).filter(
         f => f.startsWith('session-summary-') || f === '.arc.json',
       )
