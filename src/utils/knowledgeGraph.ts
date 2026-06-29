@@ -173,8 +173,6 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
       for (const r of results.slice(0, 8)) {
         output += `- ${r.title}`
         if (r.description) output += `: ${r.description}`
-        const snippet = r.content?.trim().slice(0, 300)
-        if (snippet) output += `\n  content: ${snippet.replace(/\n+/g, ' ').slice(0, 200)}`
         output += '\n'
       }
       return output + '------------------------------------------------\n'
