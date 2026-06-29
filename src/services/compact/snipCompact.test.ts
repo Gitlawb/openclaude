@@ -341,6 +341,30 @@ describe('shouldNudgeForSnips', () => {
     expect(shouldNudgeForSnips(messages)).toBe(false)
   })
 
+  test('resets at a previous context-efficiency nudge until enough new content accumulates', () => {
+    const priorNudge = {
+      type: 'attachment',
+      attachment: { type: 'context_efficiency' },
+    }
+    const smallChunk = 'x'.repeat(12_000)
+    const oldChunkBeforeNudge = 'x'.repeat(36_000)
+    const largeRecent = [
+      makeUser('u1', smallChunk),
+      makeUser('u2', smallChunk),
+      makeUser('u3', smallChunk),
+      makeUser('u4', smallChunk),
+    ]
+
+    expect(
+      shouldNudgeForSnips([
+        makeUser('u0', oldChunkBeforeNudge),
+        priorNudge,
+        makeUser('u5', smallChunk),
+      ]),
+    ).toBe(false)
+    expect(shouldNudgeForSnips([priorNudge, ...largeRecent])).toBe(true)
+  })
+
   test('returns true when enough tokens have accumulated since last reset', () => {
     const bigChunk = 'x'.repeat(12_000)
     const messages = [
@@ -350,5 +374,18 @@ describe('shouldNudgeForSnips', () => {
       makeUser('u4', bigChunk),
     ]
     expect(shouldNudgeForSnips(messages)).toBe(true)
+  })
+
+  test('respects a custom interval threshold', () => {
+    const bigChunk = 'x'.repeat(12_000)
+    const messages = [
+      makeUser('u1', bigChunk),
+      makeUser('u2', bigChunk),
+      makeUser('u3', bigChunk),
+      makeUser('u4', bigChunk),
+    ]
+
+    expect(shouldNudgeForSnips(messages, 10_000)).toBe(true)
+    expect(shouldNudgeForSnips(messages, 50_000)).toBe(false)
   })
 })
