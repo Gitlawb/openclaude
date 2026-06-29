@@ -47,6 +47,20 @@ describe('autoExtractFacts', () => {
     expect(countFactFiles()).toBeGreaterThan(0)
   })
 
+  it('redacts credentials, query strings, and fragments from URL facts', async () => {
+    await extractFactsIntoMemdir(
+      'endpoint https://user:pass@api.example.com/path?secret=token#section here',
+      memDir,
+    )
+    const files = readdirSync(factsDir()).filter(f => f.includes('api-example-com'))
+    expect(files.length).toBeGreaterThan(0)
+    const content = readFileSync(join(factsDir(), files[0]), 'utf-8')
+    expect(content).toContain('https://api.example.com/path')
+    expect(content).not.toContain('user:pass')
+    expect(content).not.toContain('secret=token')
+    expect(content).not.toContain('#section')
+  })
+
   it('extracts backtick concepts', async () => {
     await extractFactsIntoMemdir('call the `PaymentProcessor` service', memDir)
     expect(countFactFiles()).toBeGreaterThan(0)
