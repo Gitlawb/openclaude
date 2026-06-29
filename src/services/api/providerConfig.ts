@@ -802,13 +802,14 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
+  const effectiveClinePassMode = isClinePassMode && !isGithubMode
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? processEnv.MISTRAL_MODEL?.trim()
       : isGeminiMode
         ? processEnv.GEMINI_MODEL?.trim()
-        : isClinePassMode
+        : effectiveClinePassMode
           ? processEnv.CLINE_API_MODEL?.trim() ?? processEnv.OPENAI_MODEL?.trim()
           : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
@@ -852,7 +853,7 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
     fallbackEnvBaseUrl ??
-    (isClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
+    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,

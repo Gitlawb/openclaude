@@ -878,6 +878,26 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLINE_API_KEY).toBe('custom-cline-key')
   })
 
+  test('ClinePass provider with custom base URL applies CLINE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'clinepass',
+        name: 'ClinePass Custom',
+        baseUrl: 'https://custom.cline.bot/v1',
+        model: 'cline-pass/qwen3.7-max',
+        apiKey: 'custom-cline-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://custom.cline.bot/v1')
+    expect(process.env.OPENAI_MODEL).toBe('cline-pass/qwen3.7-max')
+    expect(process.env.OPENAI_API_KEY).toBe('custom-cline-key')
+    expect(process.env.CLINE_API_KEY).toBe('custom-cline-key')
+  })
+
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -2287,6 +2307,52 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'cline-pass/deepseek-v4-flash',
         OPENAI_API_KEY: 'cline-test-key',
         CLINE_API_KEY: 'cline-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists ClinePass profiles with custom base URL using the same dedicated credential', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const clinePassProfile = buildProfile({
+        provider: 'clinepass',
+        name: 'ClinePass Custom',
+        baseUrl: 'https://custom.cline.bot/v1',
+        model: 'cline-pass/qwen3.7-max',
+        apiKey: 'custom-cline-key',
+        id: 'clinepass_custom',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [clinePassProfile],
+      }))
+
+      const result = setActiveProviderProfile('clinepass_custom', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('clinepass_custom')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://custom.cline.bot/v1',
+        OPENAI_MODEL: 'cline-pass/qwen3.7-max',
+        OPENAI_API_KEY: 'custom-cline-key',
+        CLINE_API_KEY: 'custom-cline-key',
       })
     } finally {
       process.chdir(originalCwd)

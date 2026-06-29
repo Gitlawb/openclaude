@@ -136,6 +136,11 @@ function resolveProfileCompatibility(provider: string): {
   return { route, compatibilityMode: 'openai' }
 }
 
+function isClinePassProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  return route.routeId === 'clinepass' || profile.baseUrl?.toLowerCase().includes('api.cline.bot')
+}
+
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl?.trim()) return undefined
   try {
@@ -696,7 +701,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('api.cline.bot')
+    (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
       : true) &&
@@ -857,7 +862,7 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'clinepass' || profile.baseUrl.toLowerCase().includes('api.cline.bot')) {
+      if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
@@ -1125,7 +1130,7 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
-      if (activeProfile.baseUrl?.toLowerCase().includes('api.cline.bot')) {
+      if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
       }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
@@ -1174,7 +1179,7 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
-      if (activeProfile.baseUrl?.toLowerCase().includes('api.cline.bot')) {
+      if (isClinePassProfile(activeProfile)) {
         env.CLINE_API_KEY = activeProfile.apiKey
       }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {

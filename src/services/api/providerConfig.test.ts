@@ -139,3 +139,16 @@ test('resolveProviderRequest ignores CLINE_API_MODEL without CLINE_API_KEY', () 
   expect(request.requestedModel).toBe('gpt-4o')
   expect(request.baseUrl).toBe('https://api.openai.com/v1')
 })
+
+test('resolveProviderRequest ignores ClinePass model when GitHub mode is active', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLAUDE_CODE_USE_GITHUB: '1',
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('github:copilot')
+  expect(request.baseUrl).not.toContain('cline.bot')
+})

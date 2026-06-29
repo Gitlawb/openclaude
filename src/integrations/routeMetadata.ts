@@ -875,6 +875,10 @@ export function resolveActiveRouteIdFromEnv(
       processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
     const matchedRoute = resolveRouteIdFromBaseUrl(baseUrl)
 
+    if (matchedRoute) {
+      return matchedRoute
+    }
+
     if (options?.activeProfileProvider) {
       const route = resolveProfileRoute(options.activeProfileProvider)
       if (
@@ -892,10 +896,6 @@ export function resolveActiveRouteIdFromEnv(
       if (profileBaseUrlRoute) {
         return profileBaseUrlRoute
       }
-    }
-
-    if (matchedRoute) {
-      return matchedRoute
     }
 
     const normalizedBaseUrl = normalizeComparableBaseUrl(baseUrl)
