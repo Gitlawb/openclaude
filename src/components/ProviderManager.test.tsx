@@ -21,6 +21,15 @@ import {
 // order-dependent across OSes.
 import * as realProviderProfilesModule from '../utils/providerProfiles.js'
 
+// Static snapshot of the REAL exports, captured at import time before any
+// mock.module() runs. The `import * as` namespace is a live binding, so after
+// mockProviderProfilesModule() installs a mock it reflects the *mocked* exports;
+// spreading or re-installing from the live binding (mock or restore) would then
+// re-capture the partial stub and leak it into later files (client routing reads
+// a null active profile -> falls back to OPENAI_MODEL). Restoring from this frozen
+// snapshot reverts to the genuine module.
+const realProviderProfilesSnapshot = { ...realProviderProfilesModule }
+
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -186,7 +195,7 @@ function mockProviderProfilesModule(options?: {
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
   mock.module('../utils/providerProfiles.js', () => ({
-    ...realProviderProfilesModule,
+    ...realProviderProfilesSnapshot,
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
@@ -553,7 +562,7 @@ afterAll(() => {
   // real providerProfiles.js module to stop the partial stub installed by
   // mockProviderProfilesModule() from leaking into later test files.
   mock.restore()
-  mock.module('../utils/providerProfiles.js', () => realProviderProfilesModule)
+  mock.module('../utils/providerProfiles.js', () => realProviderProfilesSnapshot)
 })
 
 test('ProviderManager resolves GitHub virtual provider from async storage without sync reads in render flow', async () => {
