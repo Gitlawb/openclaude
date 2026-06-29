@@ -81,7 +81,7 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
   if (existsSync(indexPath)) {
     try {
       const data = readFileSync(indexPath)
-      indexDb = await restore<typeof ORAMA_SCHEMA>('binary', data)
+      indexDb = await restore('binary', data)
       indexDir = memoryDir
       return
     } catch {
