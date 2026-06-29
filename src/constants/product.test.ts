@@ -41,9 +41,24 @@ test('isRemoteSessionLocal: false for missing or malformed ingress URL', () => {
 
 // --- isRemoteSessionStaging ---
 
-test('isRemoteSessionStaging: matches the staging ingress hostname label', () => {
+test('isRemoteSessionStaging: matches the real staging ingress/API hosts', () => {
+  // The default staging `sessionIngressUrl` is getBridgeBaseUrl() ===
+  // https://api-staging.anthropic.com, which carries no bare `staging` label —
+  // a generic label match misses it, so assert it explicitly.
+  expect(
+    isRemoteSessionStaging(undefined, 'https://api-staging.anthropic.com'),
+  ).toBe(true)
+  expect(
+    isRemoteSessionStaging(
+      undefined,
+      'https://api-staging.anthropic.com/v1/session_ingress/x',
+    ),
+  ).toBe(true)
   expect(
     isRemoteSessionStaging(undefined, 'https://claude-ai.staging.ant.dev'),
+  ).toBe(true)
+  expect(
+    isRemoteSessionStaging(undefined, 'https://platform.staging.ant.dev'),
   ).toBe(true)
 })
 
@@ -51,14 +66,25 @@ test('isRemoteSessionStaging: matches a `_staging_` session id', () => {
   expect(isRemoteSessionStaging('session_staging_abc', undefined)).toBe(true)
 })
 
-test('isRemoteSessionStaging: does not match `staging` in a production URL path or query', () => {
-  // Regression: the old `ingressUrl.includes('staging')` check would route
-  // these production URLs to the staging endpoint.
+test('isRemoteSessionStaging: does not match unrelated hosts carrying a `staging` label or substring', () => {
+  // Regression: the old `ingressUrl.includes('staging')` check routed these
+  // production URLs to the staging endpoint; a generic dot-label match would
+  // still over-match `foo.staging.example.com`.
   expect(
     isRemoteSessionStaging(undefined, 'https://claude.ai/code/x?ref=staging'),
   ).toBe(false)
   expect(
     isRemoteSessionStaging(undefined, 'https://staging-cdn-claude.example.com'),
+  ).toBe(false)
+  expect(
+    isRemoteSessionStaging(
+      undefined,
+      'https://foo.staging.example.com/v1/session_ingress/x',
+    ),
+  ).toBe(false)
+  // A look-alike of the staging zone outside ant.dev must not match.
+  expect(
+    isRemoteSessionStaging(undefined, 'https://evil-staging.ant.dev.attacker.com'),
   ).toBe(false)
 })
 
