@@ -6,7 +6,7 @@
  * Uses memdir sidecar file (.arc.json) instead of knowledge graph storage.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'fs'
 import { join } from 'path'
 import type { Message } from '../types/message.js'
 import { getAutoMemPath } from '../memdir/paths.js'
@@ -364,7 +364,10 @@ export async function getArcSummary(query?: string): Promise<string> {
       if (results.length > 0) {
         summary += '\nRelevant Knowledge:\n'
         for (const r of results.slice(0, 5)) {
-          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}\n`
+          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}`
+          const snippet = r.content?.trim().slice(0, 300)
+          if (snippet) summary += ` [${snippet.replace(/\n+/g, ' ').slice(0, 120)}]`
+          summary += '\n'
         }
       }
     } catch {
@@ -378,6 +381,23 @@ export async function getArcSummary(query?: string): Promise<string> {
 export function resetArc(): void {
   conversationArc = null
   arcMemoryDir = null
+}
+
+export function clearArcArtifacts(memoryDir: string): void {
+  if (!memoryDir || !existsSync(memoryDir)) return
+  // Remove .arc.json
+  const arcPath = getArcPath(memoryDir)
+  if (existsSync(arcPath)) {
+    try { rmSync(arcPath, { force: true }) } catch { /* ignore */ }
+  }
+  // Remove session-summary-* files
+  try {
+    for (const entry of readdirSync(memoryDir)) {
+      if (entry.startsWith('session-summary-')) {
+        rmSync(join(memoryDir, entry), { force: true })
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 export function getArcStats() {

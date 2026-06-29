@@ -22,9 +22,43 @@ let indexDb: any = null
 let indexDir: string | null = null
 
 const INDEX_FILENAME = '.vector-index'
+const INDEX_META_FILENAME = '.vector-index-meta.json'
 
 export function getIndexPath(memoryDir: string): string {
   return join(memoryDir, INDEX_FILENAME)
+}
+
+export function getIndexMetaPath(memoryDir: string): string {
+  return join(memoryDir, INDEX_META_FILENAME)
+}
+
+function countMdFiles(memoryDir: string): number {
+  let count = 0
+  function walk(dir: string, depth: number) {
+    if (depth > 4) return
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry)
+      let stat: ReturnType<typeof statSync>
+      try {
+        stat = statSync(fullPath)
+      } catch {
+        continue
+      }
+      if (stat.isDirectory()) {
+        walk(fullPath, depth + 1)
+      } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
+        count++
+      }
+    }
+  }
+  walk(memoryDir, 0)
+  return count
 }
 
 async function scanMdFiles(
@@ -105,11 +139,19 @@ function getLatestMdMtime(memoryDir: string): number {
 
 export async function initMemdirIndex(memoryDir: string): Promise<void> {
   const indexPath = getIndexPath(memoryDir)
+  const metaPath = getIndexMetaPath(memoryDir)
 
-  if (existsSync(indexPath)) {
+  if (existsSync(indexPath) && existsSync(metaPath)) {
     const indexMtime = statSync(indexPath).mtimeMs
     const latestMtime = getLatestMdMtime(memoryDir)
-    if (latestMtime <= indexMtime) {
+    const currentFileCount = countMdFiles(memoryDir)
+    let storedFileCount = -1
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
+      storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
+    } catch { /* missing or corrupt meta — rebuild */ }
+
+    if (latestMtime <= indexMtime && currentFileCount === storedFileCount) {
       try {
         const data = readFileSync(indexPath)
         indexDb = await restore('binary', data)
@@ -150,7 +192,7 @@ export async function searchMemdirIndex(
   query: string,
   memoryDir: string,
   limit = 10,
-): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; score: number }>> {
+): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; content: string; score: number }>> {
   if (!indexDb || indexDir !== memoryDir) {
     await initMemdirIndex(memoryDir)
   }
@@ -167,6 +209,7 @@ export async function searchMemdirIndex(
         title: doc.title,
         type: doc.type,
         description: doc.description,
+        content: doc.content ?? '',
         score: hit.score || 0,
       }
     })
@@ -178,9 +221,12 @@ export async function searchMemdirIndex(
 export async function saveIndex(memoryDir: string): Promise<void> {
   if (!indexDb) return
   const indexPath = getIndexPath(memoryDir)
+  const metaPath = getIndexMetaPath(memoryDir)
   try {
     const data = await persist(indexDb, 'binary')
     writeFileSync(indexPath, data as Buffer)
+    const meta = { fileCount: countMdFiles(memoryDir) }
+    writeFileSync(metaPath, JSON.stringify(meta), 'utf-8')
   } catch {
     // persist failed — non-fatal
   }

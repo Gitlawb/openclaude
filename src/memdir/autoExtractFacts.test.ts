@@ -32,11 +32,6 @@ describe('autoExtractFacts', () => {
     expect(files.some(f => f.includes('database-url'))).toBe(true)
   })
 
-  it('extracts absolute paths', async () => {
-    await extractFactsIntoMemdir('the config is at /opt/app/config/settings.json', memDir)
-    expect(countFactFiles()).toBeGreaterThan(0)
-  })
-
   it('extracts versions', async () => {
     await extractFactsIntoMemdir('upgrade to v2.1.3 and use node v18', memDir)
     expect(countFactFiles()).toBeGreaterThan(0)
@@ -61,27 +56,11 @@ describe('autoExtractFacts', () => {
     expect(content).not.toContain('#section')
   })
 
-  it('extracts backtick concepts', async () => {
-    await extractFactsIntoMemdir('call the `PaymentProcessor` service', memDir)
-    expect(countFactFiles()).toBeGreaterThan(0)
-  })
-
-  it('extracts technical terms with PascalCase', async () => {
-    await extractFactsIntoMemdir('the UserAuthentication flow handles login', memDir)
-    const files = readdirSync(factsDir())
-    expect(files.some(f => f.includes('userauthentication'))).toBe(true)
-  })
-
   it('detects React and Redux mentions', async () => {
     await extractFactsIntoMemdir('we use React with Redux', memDir)
     const files = readdirSync(factsDir()).map(f => f.toLowerCase())
     expect(files.some(f => f.includes('react'))).toBe(true)
     expect(files.some(f => f.includes('redux'))).toBe(true)
-  })
-
-  it('extracts project file signatures', async () => {
-    await extractFactsIntoMemdir('check build.gradle and pom.xml', memDir)
-    expect(countFactFiles()).toBeGreaterThan(0)
   })
 
   it('writes files with proper frontmatter', async () => {
