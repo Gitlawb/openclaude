@@ -223,7 +223,7 @@ function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
   }
 }
 
-function hasMistralApiHost(baseUrl: string | undefined): boolean {
+export function hasMistralApiHost(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
 
   try {

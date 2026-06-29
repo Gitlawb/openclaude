@@ -5,7 +5,7 @@ import { asMockFetch } from '../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
-import { createOpenAIShimClient } from './openaiShim.ts'
+import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
@@ -6233,6 +6233,58 @@ test('Mistral: strips unsupported store on chat_completions (#739)', async () =>
   })
 
   expect(requestBody?.store).toBeUndefined()
+})
+
+test('Mistral host fallback: strips store on an unresolved Mistral-host route (#739)', async () => {
+  // `api.mistral.ai/v1` resolves to the Mistral descriptor route, whose
+  // removeBodyFields already strips `store` — so the test above passes even
+  // without the hasMistralApiHost fallback. This case pins the fallback's real
+  // value: a Mistral-host proxy (`proxy.mistral.ai`) that does NOT resolve to a
+  // descriptor route (resolveRouteIdFromBaseUrl returns null, no
+  // removeBodyFields), so `store` is stripped *only* by hasMistralApiHost.
+  process.env.OPENAI_BASE_URL = 'https://proxy.mistral.ai/v1'
+  process.env.OPENAI_API_KEY = 'mistral-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'codestral-2508',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'codestral-2508',
+    system: 'you are mistral',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  // The shim sets `store: false` on every chat_completions body; without the
+  // fallback this unresolved route would forward it and hit Mistral's 422.
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('hasMistralApiHost matches the Mistral host and its subdomains only', () => {
+  expect(hasMistralApiHost('https://api.mistral.ai/v1')).toBe(true)
+  expect(hasMistralApiHost('https://proxy.mistral.ai/v1')).toBe(true)
+  expect(hasMistralApiHost('https://eu.mistral.ai/v1')).toBe(true)
+  // Non-Mistral hosts (and look-alikes) must keep `store`.
+  expect(hasMistralApiHost('https://api.openai.com/v1')).toBe(false)
+  expect(hasMistralApiHost('https://notmistral.ai/v1')).toBe(false)
+  expect(hasMistralApiHost('https://api.mistral.ai.evil.com/v1')).toBe(false)
+  expect(hasMistralApiHost(undefined)).toBe(false)
+  expect(hasMistralApiHost('not a url')).toBe(false)
 })
 
 test('Groq: keeps max_completion_tokens and strips unsupported store', async () => {
