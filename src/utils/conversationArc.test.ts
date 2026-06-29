@@ -155,6 +155,26 @@ describe('conversationArc', () => {
     })
   })
 
+  describe('persistence and reindex', () => {
+    it('persists arc and rebuilds index across reload', async () => {
+      const arc = initializeArc(memDir)
+      expect(arc.currentPhase).toBe('init')
+
+      await updateArcPhase([createMessage('user', 'check the `UserAuthService` on https://api.example.com/v2/users')])
+      expect(arc.currentPhase).toBe('exploring')
+
+      // Reload from disk and verify phase persisted
+      resetArc()
+      const reloaded = initializeArc(memDir)
+      expect(reloaded.currentPhase).toBe('exploring')
+
+      // getArcSummary(query) should find indexed facts from the previous turn
+      const summary = await getArcSummary('UserAuthService')
+      expect(summary).toContain('exploring')
+      expect(summary).toContain('UserAuthService')
+    })
+  })
+
   describe('finalizeArcTurn', () => {
     it('writes session summary file when goals completed', async () => {
       const arc = initializeArc(memDir)

@@ -106,7 +106,8 @@ export async function extractFactsIntoMemdir(
     try {
       const url = new URL(match[1])
       if (url.hostname.includes('.')) {
-        writeFactMemory(dir, 'endpoint', url.hostname, `Endpoint: ${url.hostname}`, { url: url.toString() })
+        const safeUrl = `${url.protocol}//${url.host}${url.pathname}`
+        writeFactMemory(dir, 'endpoint', url.hostname, `Endpoint: ${url.hostname}`, { url: safeUrl })
       }
     } catch {
       /* ignore */
