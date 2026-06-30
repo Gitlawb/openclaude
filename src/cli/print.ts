@@ -276,7 +276,6 @@ import {
 } from 'src/utils/model/model.js'
 import {
   getModelOptions,
-  parseSwitchProfileValue,
   type ModelOption,
 } from 'src/utils/model/modelOptions.js'
 import {
@@ -394,9 +393,14 @@ const extractMemoriesModule = feature('EXTRACT_MEMORIES')
  * #1119). Those are UI-only affordances for the interactive `/model` switcher —
  * they are not real, selectable model ids — so they must never reach SDK
  * consumers. Exported so the exclusion is unit-testable.
+ *
+ * Filter on the explicit `switchToProfileId` marker rather than the encoded
+ * `value` prefix: a legitimate custom model id that happens to start with
+ * `__switch_profile__:` must still reach SDK consumers, and only the synthesized
+ * profile-switch options carry `switchToProfileId`.
  */
 export function selectSdkModelOptions(options: ModelOption[]): ModelOption[] {
-  return options.filter(option => parseSwitchProfileValue(option.value) === null)
+  return options.filter(option => option.switchToProfileId === undefined)
 }
 
 const SHUTDOWN_TEAM_PROMPT = `<system-reminder>

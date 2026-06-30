@@ -51,4 +51,26 @@ describe('selectSdkModelOptions — keeps cross-profile switch entries out of SD
   test('passes through a list with no switch entries unchanged', () => {
     expect(selectSdkModelOptions(realOptions)).toEqual(realOptions)
   })
+
+  // Collision regression: a real, configured custom model id may literally
+  // start with `__switch_profile__:`. The gate keys on the explicit
+  // `switchToProfileId` marker (only synthesized switch entries carry it), so
+  // such an id must still reach SDK consumers rather than being mistaken for a
+  // UI-only profile-switch affordance.
+  test('keeps a real custom model id that starts with the switch-profile prefix', () => {
+    const collidingOption: ModelOption = {
+      value: '__switch_profile__:vendor:model',
+      label: 'Oddly-named custom model',
+      description: 'A real selectable model id, no switchToProfileId marker',
+    }
+
+    const selected = selectSdkModelOptions([
+      realOptions[0]!,
+      collidingOption,
+      realOptions[1]!,
+    ])
+
+    expect(selected).toContain(collidingOption)
+    expect(selected).toEqual([realOptions[0]!, collidingOption, realOptions[1]!])
+  })
 })
