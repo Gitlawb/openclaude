@@ -1625,9 +1625,14 @@ function getConfigBackupDir(): string {
  * Returns the full path to the most recent backup, or null if none exist.
  */
 function findMostRecentBackup(file: string): string | null {
+  return findConfigBackups(file)[0] ?? null
+}
+
+function findConfigBackups(file: string): string[] {
   const fs = getFsImplementation()
   const fileBase = basename(file)
   const backupDir = getConfigBackupDir()
+  const backupPaths: string[] = []
 
   // Check the new backup directory first
   try {
@@ -1635,11 +1640,9 @@ function findMostRecentBackup(file: string): string | null {
       .readdirStringSync(backupDir)
       .filter(f => f.startsWith(`${fileBase}.backup.`))
       .sort()
+      .reverse()
 
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(backupDir, mostRecent)
-    }
+    backupPaths.push(...backups.map(backup => join(backupDir, backup)))
   } catch {
     // Backup dir doesn't exist yet
   }
@@ -1652,17 +1655,15 @@ function findMostRecentBackup(file: string): string | null {
       .readdirStringSync(fileDir)
       .filter(f => f.startsWith(`${fileBase}.backup.`))
       .sort()
+      .reverse()
 
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(fileDir, mostRecent)
-    }
+    backupPaths.push(...backups.map(backup => join(fileDir, backup)))
 
     // Check for legacy backup file (no timestamp)
     const legacyBackup = `${file}.backup`
     try {
       fs.statSync(legacyBackup)
-      return legacyBackup
+      backupPaths.push(legacyBackup)
     } catch {
       // Legacy backup doesn't exist
     }
@@ -1670,7 +1671,7 @@ function findMostRecentBackup(file: string): string | null {
     // Ignore errors reading directory
   }
 
-  return null
+  return backupPaths
 }
 
 function backupCorruptedConfigFile(file: string): {
@@ -1683,19 +1684,26 @@ function backupCorruptedConfigFile(file: string): {
 
   try {
     fs.mkdirSync(corruptedBackupDir)
-  } catch (mkdirErr) {
-    const mkdirCode = getErrnoCode(mkdirErr)
-    if (mkdirCode !== 'EEXIST') {
-      throw mkdirErr
-    }
+  } catch {
+    return { alreadyBackedUp: false }
   }
 
-  const existingCorruptedBackups = fs
-    .readdirStringSync(corruptedBackupDir)
-    .filter(f => f.startsWith(`${fileBase}.corrupted.`))
+  let existingCorruptedBackups: string[] = []
+  try {
+    existingCorruptedBackups = fs
+      .readdirStringSync(corruptedBackupDir)
+      .filter(f => f.startsWith(`${fileBase}.corrupted.`))
+  } catch {
+    return { alreadyBackedUp: false }
+  }
 
   let alreadyBackedUp = false
-  const currentContent = fs.readFileSync(file, { encoding: 'utf-8' })
+  let currentContent: string
+  try {
+    currentContent = fs.readFileSync(file, { encoding: 'utf-8' })
+  } catch {
+    return { alreadyBackedUp: false }
+  }
   for (const backup of existingCorruptedBackups) {
     try {
       const backupContent = fs.readFileSync(join(corruptedBackupDir, backup), {
@@ -1733,52 +1741,56 @@ function restoreConfigFromMostRecentBackup<A>(
   file: string,
   createDefault: () => A,
 ): A | null {
-  const backupPath = findMostRecentBackup(file)
-  if (!backupPath) {
+  const backupPaths = findConfigBackups(file)
+  const { corruptedBackupPath, alreadyBackedUp } = backupCorruptedConfigFile(file)
+  if (backupPaths.length === 0) {
     return null
   }
 
   const fs = getFsImplementation()
-  let parsedConfig: unknown
-  try {
-    parsedConfig = jsonParse(
-      stripBOM(fs.readFileSync(backupPath, { encoding: 'utf-8' })),
-    )
-  } catch {
-    return null
-  }
-  if (
-    parsedConfig === null ||
-    typeof parsedConfig !== 'object' ||
-    Array.isArray(parsedConfig)
-  ) {
-    return null
-  }
+  for (const backupPath of backupPaths) {
+    let parsedConfig: unknown
+    try {
+      parsedConfig = jsonParse(
+        stripBOM(fs.readFileSync(backupPath, { encoding: 'utf-8' })),
+      )
+    } catch {
+      continue
+    }
+    if (
+      parsedConfig === null ||
+      typeof parsedConfig !== 'object' ||
+      Array.isArray(parsedConfig)
+    ) {
+      continue
+    }
 
-  const { corruptedBackupPath, alreadyBackedUp } = backupCorruptedConfigFile(file)
-  try {
-    fs.copyFileSync(backupPath, file)
-  } catch {
-    return null
-  }
+    try {
+      fs.copyFileSync(backupPath, file)
+    } catch {
+      return null
+    }
 
-  process.stderr.write(
-    `\nClaude configuration file at ${file} was corrupted and has been restored from backup: ${backupPath}\n`,
-  )
-  if (corruptedBackupPath) {
     process.stderr.write(
-      `The corrupted file has been backed up to: ${corruptedBackupPath}\n\n`,
+      `\nClaude configuration file at ${file} was corrupted and has been restored from backup: ${backupPath}\n`,
     )
-  } else if (alreadyBackedUp) {
-    process.stderr.write(`The corrupted file has already been backed up.\n\n`)
-  } else {
-    process.stderr.write(`\n`)
+    if (corruptedBackupPath) {
+      process.stderr.write(
+        `The corrupted file has been backed up to: ${corruptedBackupPath}\n\n`,
+      )
+    } else if (alreadyBackedUp) {
+      process.stderr.write(`The corrupted file has already been backed up.\n\n`)
+    } else {
+      process.stderr.write(`\n`)
+    }
+
+    return {
+      ...createDefault(),
+      ...(parsedConfig as Partial<A>),
+    }
   }
 
-  return {
-    ...createDefault(),
-    ...(parsedConfig as Partial<A>),
-  }
+  return null
 }
 
 function getConfig<A>(
@@ -1834,7 +1846,7 @@ function getConfig<A>(
       if (restoredConfig) {
         return restoredConfig
       }
-      throw error
+      return createDefault()
     }
 
     // Log config parse errors so users know what happened
