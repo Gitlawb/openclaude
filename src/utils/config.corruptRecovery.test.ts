@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { execaSync } from 'execa'
 import {
   mkdtempSync,
   mkdirSync,
@@ -7,7 +8,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs'
-import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -31,25 +31,25 @@ describe('startup config recovery', () => {
         'utf-8',
       )
 
-      const result = spawnSync(
+      const result = execaSync(
         process.execPath,
         [
           '--feature=UNATTENDED_RETRY',
           '-e',
-          "const { enableConfigs } = await import('./src/utils/config.ts'); enableConfigs();",
+          "const { enableConfigs } = await import(`${import.meta.dir}/src/utils/config.ts`); enableConfigs();",
         ],
         {
           cwd: process.cwd(),
-          encoding: 'utf-8',
           env: {
             ...process.env,
             OPENCLAUDE_CONFIG_DIR: configDir,
             CLAUDE_CONFIG_DIR: '',
           },
+          reject: false,
         },
       )
 
-      expect(result.status).toBe(0)
+      expect(result.exitCode).toBe(0)
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual(backupConfig)
       expect(
         readdirSync(backupDir).some(file =>
