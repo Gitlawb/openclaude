@@ -474,7 +474,6 @@ Coverage output is written to `coverage/lcov.info`, and OpenClaude also generate
 - `src/` - core CLI/runtime
 - `scripts/` - build, verification, and maintenance scripts
 - `docs/` - setup, contributor, and project documentation
-- `python/` - standalone Python helpers and their tests
 - `vscode-extension/openclaude-vscode/` - VS Code extension
 - `.github/` - repo automation, templates, and CI configuration
 - `bin/` - CLI launcher entrypoints
