@@ -201,10 +201,14 @@ export async function searchMemdirIndex(
   // Even when the index is already loaded, check freshness so that files
   // written by /remember, extract-memories, auto-dream, or direct edits
   // are visible to the next search without an explicit rebuildIndex() call.
+  // Missing index or meta file is treated as stale — otherwise a failed
+  // saveIndex() would leave the stale in-memory DB active indefinitely.
   if (indexDb && indexDir === memoryDir) {
     const indexPath = getIndexPath(memoryDir)
     const metaPath = getIndexMetaPath(memoryDir)
-    if (existsSync(indexPath) && existsSync(metaPath)) {
+    if (!existsSync(indexPath) || !existsSync(metaPath)) {
+      await initMemdirIndex(memoryDir)
+    } else {
       const indexMtime = statSync(indexPath).mtimeMs
       const latestMtime = getLatestMdMtime(memoryDir)
       const currentFileCount = countMdFiles(memoryDir)
