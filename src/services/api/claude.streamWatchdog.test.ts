@@ -307,10 +307,19 @@ afterEach(() => {
   try {
     createHandler = undefined
     for (const key of envKeys) {
-      if (originalEnv[key] === undefined) {
-        delete process.env[key]
+      const envKey: string = key
+      if (
+        envKey === '__proto__' ||
+        envKey === 'constructor' ||
+        envKey === 'prototype'
+      ) {
+        continue
+      }
+
+      if (originalEnv[envKey] === undefined) {
+        delete process.env[envKey]
       } else {
-        process.env[key] = originalEnv[key]
+        process.env[envKey] = originalEnv[envKey]
       }
     }
     if (hadSavedMacro) {
