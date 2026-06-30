@@ -193,8 +193,30 @@ export async function searchMemdirIndex(
   memoryDir: string,
   limit = 10,
 ): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; content: string; score: number }>> {
+  // Refresh the index if it hasn't been loaded yet or if the directory changed.
   if (!indexDb || indexDir !== memoryDir) {
     await initMemdirIndex(memoryDir)
+  }
+
+  // Even when the index is already loaded, check freshness so that files
+  // written by /remember, extract-memories, auto-dream, or direct edits
+  // are visible to the next search without an explicit rebuildIndex() call.
+  if (indexDb && indexDir === memoryDir) {
+    const indexPath = getIndexPath(memoryDir)
+    const metaPath = getIndexMetaPath(memoryDir)
+    if (existsSync(indexPath) && existsSync(metaPath)) {
+      const indexMtime = statSync(indexPath).mtimeMs
+      const latestMtime = getLatestMdMtime(memoryDir)
+      const currentFileCount = countMdFiles(memoryDir)
+      let storedFileCount = -1
+      try {
+        const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
+        storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
+      } catch { /* ignore */ }
+      if (latestMtime > indexMtime || currentFileCount !== storedFileCount) {
+        await initMemdirIndex(memoryDir)
+      }
+    }
   }
 
   if (!indexDb) return []

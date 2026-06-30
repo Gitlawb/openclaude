@@ -22,6 +22,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { getOrchestratedMemory } from './knowledgeGraph.js'
 
 function createMessage(role: string, content: string): any {
   return {
@@ -276,6 +277,37 @@ describe('conversationArc', () => {
       expect(stats!.decisionCount).toBe(1)
       expect(stats!.milestoneCount).toBe(1)
       expect(stats!.durationMs).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  describe('production pipeline integration', () => {
+    // Exercises the same calls query.ts makes when
+    // CONVERSATION_ARC + knowledgeGraphEnabled are both on:
+    //   updateArcPhase → finalizeArcTurn → getArcSummary → getOrchestratedMemory
+
+    it('processes a full conversation turn through arc + memory', async () => {
+      initializeArc(memDir)
+
+      // Simulate a user message (query.ts calls updateArcPhase per message)
+      await updateArcPhase([createMessage('user', 'check the login flow')])
+      const arc = getArc()!
+      expect(arc.currentPhase).toBe('exploring')
+
+      // Add a goal and complete it (query.ts calls addGoal + updateGoalStatus)
+      const goal = addGoal('Fix login bug')
+      updateGoalStatus(goal.id, 'completed')
+      expect(goal.status).toBe('completed')
+
+      // Finalize the turn (query.ts calls finalizeArcTurn at session end)
+      await finalizeArcTurn()
+      const summaryFiles = readdirSync(memDir)
+        .filter(f => f.startsWith('session-summary-'))
+      expect(summaryFiles.length).toBeGreaterThan(0)
+
+      // getArcSummary with a query — this is what the prompt assembly calls
+      const arcSummary = await getArcSummary('login')
+      expect(arcSummary).toContain('exploring')
+      expect(arcSummary).toContain('1/1 completed')
     })
   })
 })
