@@ -41,15 +41,23 @@ describe('startup config recovery', () => {
         {
           cwd: process.cwd(),
           env: {
-            ...process.env,
+            HOME: process.env.HOME ?? '',
+            NODE_ENV: 'test',
             OPENCLAUDE_CONFIG_DIR: configDir,
+            PATH: process.env.PATH ?? '',
+            TMPDIR: process.env.TMPDIR ?? tmpdir(),
             CLAUDE_CONFIG_DIR: '',
           },
           reject: false,
         },
       )
 
-      expect(result.exitCode).toBe(0)
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `config recovery subprocess failed with exit code ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+        )
+      }
+
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual(backupConfig)
       expect(
         readdirSync(backupDir).some(file =>
