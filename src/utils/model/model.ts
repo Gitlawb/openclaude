@@ -756,8 +756,15 @@ export function parseUserSpecifiedModel(
   }
   const normalizedModel = modelInputTrimmed.toLowerCase()
 
+  // Separate "the [1m] tag is present in the input" from "1M context is active".
+  // The tag must ALWAYS be stripped before alias/model matching, otherwise an
+  // aliased request like `sonnet[1m]` fails to resolve to its base model. Whether
+  // to re-append the tag depends on has1mContext, which returns false when 1M is
+  // disabled (CLAUDE_CODE_DISABLE_1M_CONTEXT) — in that case the request resolves
+  // to the base model with the tag dropped, not left as an unresolved alias.
+  const hasTagSyntax = /\[1m]$/i.test(normalizedModel)
   const has1mTag = has1mContext(normalizedModel)
-  const modelString = has1mTag
+  const modelString = hasTagSyntax
     ? normalizedModel.replace(/\[1m]$/i, '').trim()
     : normalizedModel
 
@@ -817,10 +824,15 @@ export function parseUserSpecifiedModel(
     // can tell the user to restart/wait for flag cache refresh to get the latest values.
   }
 
-  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs)
-  // Only strip [1m] suffix if present, maintaining case of the base model
-  if (has1mTag) {
-    return modelInputTrimmed.replace(/\[1m\]$/i, '').trim() + '[1m]'
+  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs).
+  // Strip a present [1m] suffix (maintaining base-model case) and re-append it
+  // only when 1M is active — when disabled, a custom `mydeploy[1m]` must resolve
+  // to the base `mydeploy`, not an unservable `mydeploy[1m]` model id.
+  if (hasTagSyntax) {
+    return (
+      modelInputTrimmed.replace(/\[1m\]$/i, '').trim() +
+      (has1mTag ? '[1m]' : '')
+    )
   }
   return modelInputTrimmed
 }
