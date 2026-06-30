@@ -85,7 +85,7 @@ const AUTHORIZATION_PATTERN =
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
-  /((?:AWS|GOOGLE)[_-][A-Za-z0-9_]+\s*[=:]\s*)["']?[^"',\s)}\]&#]+["']?/gi;
+  /((?:AWS|GOOGLE)[_-][A-Za-z0-9_]+\s*[=:]\s*)["']?[^"',\s)}\]&#;]+["']?/gi;
 
 // Generic credential env var names (*_API_KEY, *_SECRET, *_TOKEN, *_PASSWORD)
 // with strict negative lookarounds so we don't redact normal text that
@@ -100,14 +100,15 @@ const GENERIC_CREDENTIAL_ENV_PATTERN =
 const GENERIC_HEADER_FIELD_PATTERN =
   /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&#;]+)/gi;
 
-// Cookie/Set-Cookie header values — uses a permissive value character class
-// that allows `;` and `,` so semicolon-delimited attributes (e.g.
-// `sessionKey=abc123; Path=/; Secure`) and comma-joined multi-cookie values
-// (e.g. `sid=one, refresh=two`) are fully redacted. This runs first in
-// redactSensitiveInfo so the generic pattern below (which stops at `;`)
-// never sees partial cookie values.
+// Cookie/Set-Cookie header values — scoped to header-shaped text only (not URL
+// query params) via negative lookbehind on ? or &. Uses a permissive value
+// character class that allows `;` and `,` so semicolon-delimited attributes
+// (e.g. `sessionKey=abc123; Path=/; Secure`) and comma-joined multi-cookie
+// values (e.g. `sid=one, refresh=two`) are fully redacted. This runs first in
+// redactSensitiveInfo so the generic pattern below (which stops at `;`) never
+// sees partial cookie values.
 const COOKIE_PATTERN =
-  /(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"'\n]+/gi;
+  /(?<![?&])(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"'\n&]+/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -149,7 +150,7 @@ function buildKnownEnvVarPattern(): RegExp {
   const sorted = [...keys].sort((a, b) => b.length - a.length);
   const escaped = sorted.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(
-    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\\s*[=:]\\s*)["']?[^"'\\s)}\\]&#]+["']?`,
+    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\s*[=:]\s*)["']?[^"'\s)}\]&#;]+["']?`,
     "gi",
   );
 }
@@ -363,6 +364,8 @@ const SENSITIVE_URL_QUERY_PARAM_TOKENS = [
   "pwd",
   "auth",
   "authorization",
+  "cookie",
+  "set-cookie",
 ] as const;
 
 /**

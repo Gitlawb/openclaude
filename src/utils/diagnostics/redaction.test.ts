@@ -534,6 +534,63 @@ describe("redactSensitiveInfo", () => {
       expect(redactSensitiveInfo(input)).toBe(expected);
     }
   });
+
+  // Regression: uppercase provider keys with semicolon-separated safe trailing
+  // params must preserve the safe params even though URL redaction handles `;`.
+  test("preserves semicolon-delimited safe params after uppercase provider env-var keys", () => {
+    const cases = [
+      {
+        input: "https://example.com/v1?OPENAI_API_KEY=secret;mode=test",
+        expected: "https://example.com/v1?OPENAI_API_KEY=redacted;mode=test",
+      },
+      {
+        input: "https://example.com/v1?AWS_SECRET_ACCESS_KEY=key123;debug=true",
+        expected: "https://example.com/v1?AWS_SECRET_ACCESS_KEY=redacted;debug=true",
+      },
+      {
+        input: "https://example.com/v1?GOOGLE_API_KEY=gkey456;trace=1",
+        expected: "https://example.com/v1?GOOGLE_API_KEY=redacted;trace=1",
+      },
+    ];
+
+    for (const { input, expected } of cases) {
+      expect(redactSensitiveInfo(input)).toBe(expected);
+    }
+  });
+
+  // Regression: COOKIE_PATTERN should not consume URL query params.
+  // Cookie in query strings should be handled by the URL redaction pass,
+  // not the header-style cookie pattern that consumes full values.
+  test("does not let cookie query param consume safe trailing params", () => {
+    // Cookie in URL query should go through URL redaction (which preserves
+    // safe trailing params) not the header-style cookie pattern.
+    const result = redactSensitiveInfo(
+      "https://example.com/v1?cookie=secret&mode=test",
+    );
+    expect(result).toBe("https://example.com/v1?cookie=redacted&mode=test");
+  });
+
+  test("does not let set-cookie query param consume safe trailing params", () => {
+    const result = redactSensitiveInfo(
+      "https://example.com/v1?set-cookie=secret&mode=test",
+    );
+    expect(result).toBe("https://example.com/v1?set-cookie=redacted&mode=test");
+  });
+
+  // Regression: header-style cookie values should still be fully redacted.
+  test("still redacts full Cookie header values with semicolon attributes", () => {
+    const result = redactSensitiveInfo(
+      "Cookie: sessionId=abc123; Path=/; Secure; HttpOnly",
+    );
+    expect(result).toBe("Cookie: [REDACTED]");
+  });
+
+  test("still redacts full Set-Cookie header values with semicolon attributes", () => {
+    const result = redactSensitiveInfo(
+      "Set-Cookie: sessionId=abc123; Path=/; Secure; HttpOnly",
+    );
+    expect(result).toBe("Set-Cookie: [REDACTED]");
+  });
 });
 
 describe("logForDebugging", () => {
