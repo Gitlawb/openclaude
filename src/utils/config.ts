@@ -1673,6 +1673,114 @@ function findMostRecentBackup(file: string): string | null {
   return null
 }
 
+function backupCorruptedConfigFile(file: string): {
+  alreadyBackedUp: boolean
+  corruptedBackupPath?: string
+} {
+  const fs = getFsImplementation()
+  const fileBase = basename(file)
+  const corruptedBackupDir = getConfigBackupDir()
+
+  try {
+    fs.mkdirSync(corruptedBackupDir)
+  } catch (mkdirErr) {
+    const mkdirCode = getErrnoCode(mkdirErr)
+    if (mkdirCode !== 'EEXIST') {
+      throw mkdirErr
+    }
+  }
+
+  const existingCorruptedBackups = fs
+    .readdirStringSync(corruptedBackupDir)
+    .filter(f => f.startsWith(`${fileBase}.corrupted.`))
+
+  let alreadyBackedUp = false
+  const currentContent = fs.readFileSync(file, { encoding: 'utf-8' })
+  for (const backup of existingCorruptedBackups) {
+    try {
+      const backupContent = fs.readFileSync(join(corruptedBackupDir, backup), {
+        encoding: 'utf-8',
+      })
+      if (currentContent === backupContent) {
+        alreadyBackedUp = true
+        break
+      }
+    } catch {
+      // Ignore read errors on corrupted backups
+    }
+  }
+
+  if (alreadyBackedUp) {
+    return { alreadyBackedUp }
+  }
+
+  const corruptedBackupPath = join(
+    corruptedBackupDir,
+    `${fileBase}.corrupted.${Date.now()}`,
+  )
+  try {
+    fs.copyFileSync(file, corruptedBackupPath)
+    logForDebugging(`Corrupted config backed up to: ${corruptedBackupPath}`, {
+      level: 'error',
+    })
+    return { alreadyBackedUp, corruptedBackupPath }
+  } catch {
+    return { alreadyBackedUp }
+  }
+}
+
+function restoreConfigFromMostRecentBackup<A>(
+  file: string,
+  createDefault: () => A,
+): A | null {
+  const backupPath = findMostRecentBackup(file)
+  if (!backupPath) {
+    return null
+  }
+
+  const fs = getFsImplementation()
+  let parsedConfig: unknown
+  try {
+    parsedConfig = jsonParse(
+      stripBOM(fs.readFileSync(backupPath, { encoding: 'utf-8' })),
+    )
+  } catch {
+    return null
+  }
+  if (
+    parsedConfig === null ||
+    typeof parsedConfig !== 'object' ||
+    Array.isArray(parsedConfig)
+  ) {
+    return null
+  }
+
+  const { corruptedBackupPath, alreadyBackedUp } = backupCorruptedConfigFile(file)
+  try {
+    fs.copyFileSync(backupPath, file)
+  } catch {
+    return null
+  }
+
+  process.stderr.write(
+    `\nClaude configuration file at ${file} was corrupted and has been restored from backup: ${backupPath}\n`,
+  )
+  if (corruptedBackupPath) {
+    process.stderr.write(
+      `The corrupted file has been backed up to: ${corruptedBackupPath}\n\n`,
+    )
+  } else if (alreadyBackedUp) {
+    process.stderr.write(`The corrupted file has already been backed up.\n\n`)
+  } else {
+    process.stderr.write(`\n`)
+  }
+
+  return {
+    ...createDefault(),
+    ...(parsedConfig as Partial<A>),
+  }
+}
+
 function getConfig<A>(
   file: string,
   createDefault: () => A,
@@ -1719,6 +1827,13 @@ function getConfig<A>(
 
     // Re-throw ConfigParseError if throwOnInvalid is true
     if (error instanceof ConfigParseError && throwOnInvalid) {
+      const restoredConfig = restoreConfigFromMostRecentBackup(
+        file,
+        createDefault,
+      )
+      if (restoredConfig) {
+        return restoredConfig
+      }
       throw error
     }
 
@@ -1759,61 +1874,8 @@ function getConfig<A>(
         `\nClaude configuration file at ${file} is corrupted: ${error.message}\n`,
       )
 
-      // Try to backup the corrupted config file (only if not already backed up)
-      const fileBase = basename(file)
-      const corruptedBackupDir = getConfigBackupDir()
-
-      // Ensure backup directory exists
-      try {
-        fs.mkdirSync(corruptedBackupDir)
-      } catch (mkdirErr) {
-        const mkdirCode = getErrnoCode(mkdirErr)
-        if (mkdirCode !== 'EEXIST') {
-          throw mkdirErr
-        }
-      }
-
-      const existingCorruptedBackups = fs
-        .readdirStringSync(corruptedBackupDir)
-        .filter(f => f.startsWith(`${fileBase}.corrupted.`))
-
-      let corruptedBackupPath: string | undefined
-      let alreadyBackedUp = false
-
-      // Check if current corrupted content matches any existing backup
-      const currentContent = fs.readFileSync(file, { encoding: 'utf-8' })
-      for (const backup of existingCorruptedBackups) {
-        try {
-          const backupContent = fs.readFileSync(
-            join(corruptedBackupDir, backup),
-            { encoding: 'utf-8' },
-          )
-          if (currentContent === backupContent) {
-            alreadyBackedUp = true
-            break
-          }
-        } catch {
-          // Ignore read errors on backups
-        }
-      }
-
-      if (!alreadyBackedUp) {
-        corruptedBackupPath = join(
-          corruptedBackupDir,
-          `${fileBase}.corrupted.${Date.now()}`,
-        )
-        try {
-          fs.copyFileSync(file, corruptedBackupPath)
-          logForDebugging(
-            `Corrupted config backed up to: ${corruptedBackupPath}`,
-            {
-              level: 'error',
-            },
-          )
-        } catch {
-          // Ignore backup errors
-        }
-      }
+      const { corruptedBackupPath, alreadyBackedUp } =
+        backupCorruptedConfigFile(file)
 
       // Notify user about corrupted config and available backup
       const backupPath = findMostRecentBackup(file)
