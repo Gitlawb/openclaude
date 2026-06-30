@@ -77,11 +77,11 @@ const GITHUB_TOKEN_PATTERN =
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g;
 
 // Generic x-api-key header redaction
-const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n]+/gi;
+const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n&#;]+/gi;
 
 // Authorization header / Bearer token redaction
 const AUTHORIZATION_PATTERN =
-  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n]+/gi;
+  /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n&#;]+/gi;
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
@@ -91,14 +91,14 @@ const PROVIDER_PREFIXED_ENV_PATTERN =
 // with strict negative lookarounds so we don't redact normal text that
 // happens to contain "API_KEY=" mid-sentence.
 const GENERIC_CREDENTIAL_ENV_PATTERN =
-  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n]+["']?/gi;
+  /(?<![A-Za-z0-9_-])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\n&#;]+["']?/gi;
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
 // access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n]+)/gi;
+  /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&#;]+)/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -251,6 +251,27 @@ export function redactSensitiveInfo(text: string): string {
     "[REDACTED]",
   );
 
+  // Post-processing: absorb `&<text>` that trails a redacted placeholder but
+  // does NOT contain `=` — such text is likely a continuation of the value
+  // rather than a subsequent URL query parameter. This prevents partial
+  // leakage when a credential value contains literal `&` (e.g. a compound
+  // API token like `abc&def`).
+  redacted = redacted.replace(
+    /(\[REDACTED(?:_[A-Z_]+)?\])(&[^\s"',)\]}]+)/g,
+    (_, placeholder, ampTail) =>
+      ampTail.includes("=") ? placeholder + ampTail : placeholder,
+  );
+
+  // Redact sensitive query params in `https?://` URLs embedded in free-form
+  // text, log lines, and error messages. This catches query params like
+  // `signature=SECRET123` that the generic key-value patterns don't cover.
+  // Skip URLs that already contain `[REDACTED]` to avoid re-processing
+  // already-redacted query params through redactUrlForDisplay.
+  redacted = redacted.replace(
+    /https?:\/\/[^\s"',)\]}>]+/gi,
+    (url) => (/\[REDACTED/i.test(url) ? url : redactUrlForDisplay(url)),
+  );
+
   return redacted;
 }
 
@@ -297,9 +318,12 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   if (typeof value === "string") {
     // Route URL-shaped strings through the URL redaction helper first so
     // signed-URL query params (signature, sig, etc.) that redactSensitiveInfo
-    // doesn't cover are still masked. Safe on non-URL strings — the fallback
-    // path returns the input with just userinfo/query redaction applied.
-    const urlRedacted = redactUrlForDisplay(value);
+    // doesn't cover are still masked. Non-URL strings pass through unchanged
+    // to avoid the fallback path in redactUrlForDisplay treating # as a
+    // fragment delimiter on ordinary text.
+    const urlRedacted = /^https?:\/\//i.test(value)
+      ? redactUrlForDisplay(value)
+      : value;
     return redactSensitiveInfo(urlRedacted);
   }
 
