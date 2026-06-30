@@ -32,8 +32,10 @@ export function getIndexMetaPath(memoryDir: string): string {
   return join(memoryDir, INDEX_META_FILENAME)
 }
 
-function countMdFiles(memoryDir: string): number {
+function getMdStats(memoryDir: string): { count: number; totalSize: number; latestMtime: number } {
   let count = 0
+  let totalSize = 0
+  let latestMtime = 0
   function walk(dir: string, depth: number) {
     if (depth > 4) return
     let entries: string[]
@@ -54,11 +56,13 @@ function countMdFiles(memoryDir: string): number {
         walk(fullPath, depth + 1)
       } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
         count++
+        totalSize += stat.size
+        if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs
       }
     }
   }
   walk(memoryDir, 0)
-  return count
+  return { count, totalSize, latestMtime }
 }
 
 async function scanMdFiles(
@@ -108,34 +112,7 @@ async function scanMdFiles(
   return results
 }
 
-function getLatestMdMtime(memoryDir: string): number {
-  let latest = 0
-  function walk(dir: string, depth: number) {
-    if (depth > 4) return
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      const fullPath = join(dir, entry)
-      let stat: ReturnType<typeof statSync>
-      try {
-        stat = statSync(fullPath)
-      } catch {
-        continue
-      }
-      if (stat.isDirectory()) {
-        walk(fullPath, depth + 1)
-      } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
-        if (stat.mtimeMs > latest) latest = stat.mtimeMs
-      }
-    }
-  }
-  walk(memoryDir, 0)
-  return latest
-}
+
 
 export async function initMemdirIndex(memoryDir: string): Promise<void> {
   const indexPath = getIndexPath(memoryDir)
@@ -143,15 +120,16 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
 
   if (existsSync(indexPath) && existsSync(metaPath)) {
     const indexMtime = statSync(indexPath).mtimeMs
-    const latestMtime = getLatestMdMtime(memoryDir)
-    const currentFileCount = countMdFiles(memoryDir)
+    const stats = getMdStats(memoryDir)
     let storedFileCount = -1
+    let storedTotalSize = -1
     try {
       const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
       storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
+      storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
     } catch { /* missing or corrupt meta — rebuild */ }
 
-    if (latestMtime <= indexMtime && currentFileCount === storedFileCount) {
+    if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize) {
       try {
         const data = readFileSync(indexPath)
         indexDb = await restore('binary', data)
@@ -210,14 +188,15 @@ export async function searchMemdirIndex(
       await initMemdirIndex(memoryDir)
     } else {
       const indexMtime = statSync(indexPath).mtimeMs
-      const latestMtime = getLatestMdMtime(memoryDir)
-      const currentFileCount = countMdFiles(memoryDir)
+      const stats = getMdStats(memoryDir)
       let storedFileCount = -1
+      let storedTotalSize = -1
       try {
         const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
         storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
+        storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
       } catch { /* ignore */ }
-      if (latestMtime > indexMtime || currentFileCount !== storedFileCount) {
+      if (stats.latestMtime > indexMtime || stats.count !== storedFileCount || stats.totalSize !== storedTotalSize) {
         await initMemdirIndex(memoryDir)
       }
     }
@@ -251,7 +230,8 @@ export async function saveIndex(memoryDir: string): Promise<void> {
   try {
     const data = await persist(indexDb, 'binary')
     writeFileSync(indexPath, data as Buffer)
-    const meta = { fileCount: countMdFiles(memoryDir) }
+    const stats = getMdStats(memoryDir)
+    const meta = { fileCount: stats.count, totalSize: stats.totalSize }
     writeFileSync(metaPath, JSON.stringify(meta), 'utf-8')
   } catch {
     // persist failed — non-fatal
