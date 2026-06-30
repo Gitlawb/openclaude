@@ -200,6 +200,27 @@ export function shouldLoadMoreResumeLogs(options: {
   const buffer = visibleCount * 2
   return visibleNodeCount < visibleCount || focusedIndex + buffer >= displayedLogCount
 }
+export function countVisibleResumeTreeRows(
+  nodes: readonly TreeNode<unknown>[],
+  options: {
+    expandedGroupSessionIds: ReadonlySet<string>;
+    forceExpanded: boolean;
+  },
+): number {
+  const { expandedGroupSessionIds, forceExpanded } = options
+  const isExpanded = (nodeId: string | number): boolean => {
+    if (forceExpanded) return true
+    const groupSessionId = typeof nodeId === "string" && nodeId.startsWith("group:") ? nodeId.slice(6) : null
+    return groupSessionId ? expandedGroupSessionIds.has(groupSessionId) : false
+  }
+  const countNode = (node: TreeNode<unknown>): number => {
+    const children = node.children ?? []
+    if (children.length === 0 || !isExpanded(node.id)) return 1
+    return 1 + children.reduce((count, child) => count + countNode(child), 0)
+  }
+
+  return nodes.reduce((count, node) => count + countNode(node), 0)
+}
 function findContainingGroupNode(nodes: LogTreeNode[], nodeId?: string | number): LogTreeNode | null {
   if (!nodeId) return null
   for (const node of nodes) {
@@ -1255,7 +1276,10 @@ export function LogSelector(t0: LogSelectorProps) {
   const showAdditionalFilterLine = filterIndicators.length > 0 && viewMode !== "search";
   const headerLines = 8 + (showAdditionalFilterLine ? 1 : 0) + tagTabsLines;
   const visibleCount = Math.max(1, Math.floor((maxHeight - headerLines - 2) / 3));
-  const loadMoreVisibleCount = isResumeWithRenameEnabled ? treeNodes.length : displayedLogs.length;
+  const loadMoreVisibleCount = isResumeWithRenameEnabled ? countVisibleResumeTreeRows(treeNodes, {
+    expandedGroupSessionIds,
+    forceExpanded: viewMode === "search" || branchFilterEnabled
+  }) : displayedLogs.length;
   React.useEffect(() => {
     if (!onLoadMore) {
       return;

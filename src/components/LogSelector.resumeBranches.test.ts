@@ -18,6 +18,7 @@ import {
 import type { LogOption, SessionBranchEntry } from '../types/logs.js'
 import {
   LogSelector,
+  countVisibleResumeTreeRows,
   getResumeLogDisplayTitle,
   groupLogsByResumeBranch,
   logMatchesResumePickerSearch,
@@ -251,6 +252,65 @@ test('requests more logs when grouped branch rows underfill the visible picker',
       visibleNodeCount: 10,
     }),
   ).toBe(true)
+})
+
+test('counts expanded branch rows before requesting more logs', () => {
+  const rootId = id(50)
+  const visibleCount = 5
+  const treeNodes = [
+    {
+      id: `group:${rootId}`,
+      value: null,
+      label: 'Root implementation session',
+      children: [1, 2, 3, 4].map(index => ({
+        id: `log:${rootId}:${index}`,
+        value: null,
+        label: `Branch ${index}`,
+        children:
+          index === 4
+            ? [
+                {
+                  id: `log:${rootId}:${index}:1`,
+                  value: null,
+                  label: `Nested branch ${index}`,
+                },
+              ]
+            : undefined,
+      })),
+    },
+  ]
+  const collapsedCount = countVisibleResumeTreeRows(treeNodes, {
+    expandedGroupSessionIds: new Set(),
+    forceExpanded: false,
+  })
+  const manuallyExpandedCount = countVisibleResumeTreeRows(treeNodes, {
+    expandedGroupSessionIds: new Set([rootId]),
+    forceExpanded: false,
+  })
+  const forcedExpandedCount = countVisibleResumeTreeRows(treeNodes, {
+    expandedGroupSessionIds: new Set(),
+    forceExpanded: true,
+  })
+
+  expect(collapsedCount).toBe(1)
+  expect(manuallyExpandedCount).toBe(visibleCount)
+  expect(forcedExpandedCount).toBe(visibleCount + 1)
+  expect(
+    shouldLoadMoreResumeLogs({
+      displayedLogCount: 50,
+      focusedIndex: 0,
+      visibleCount,
+      visibleNodeCount: collapsedCount,
+    }),
+  ).toBe(true)
+  expect(
+    shouldLoadMoreResumeLogs({
+      displayedLogCount: 50,
+      focusedIndex: 0,
+      visibleCount,
+      visibleNodeCount: forcedExpandedCount,
+    }),
+  ).toBe(false)
 })
 
 test('rendered picker expands branch groups and selects child branch logs', async () => {
