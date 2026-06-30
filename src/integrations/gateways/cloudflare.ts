@@ -1,4 +1,4 @@
-import { defineVendor } from '../define.js'
+import { defineGateway } from '../define.js'
 
 // Cloudflare Workers AI exposes an OpenAI-compatible endpoint scoped to the
 // caller's Cloudflare account id. The base URL contains `<ACCOUNT_ID>` as a
@@ -7,17 +7,20 @@ import { defineVendor } from '../define.js'
 // requests will succeed. Same shape `docs/advanced-setup.md` already uses for
 // Azure (`https://your-resource.openai.azure.com/...`). See issue #1100.
 //
-// A first-class AI Gateway integration with `gateway_id` URL templating, and
-// dynamic `/models` discovery on the Groq #1143 / mapModel pattern, are clean
-// follow-ups left for separate PRs.
-export default defineVendor({
+// Modeled as a first-class gateway (not a vendor) alongside the other
+// OpenAI-compatible hosted providers (atlas-cloud, groq, together, ...): it is
+// a hosted inference endpoint reached over the shared `openai` transport, so it
+// belongs with the gateways rather than the transport vendors. A dedicated AI
+// Gateway integration with `gateway_id` URL templating and dynamic `/models`
+// discovery on the Groq #1143 / mapModel pattern is a clean follow-up.
+export default defineGateway({
   id: 'cloudflare',
   label: 'Cloudflare Workers AI',
-  classification: 'openai-compatible',
+  vendorId: 'openai',
+  category: 'hosted',
   defaultBaseUrl:
     'https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1',
   defaultModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  requiredEnvVars: ['CLOUDFLARE_API_TOKEN'],
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -36,6 +39,7 @@ export default defineVendor({
   },
   preset: {
     id: 'cloudflare',
+    vendorId: 'openai',
     description:
       'Cloudflare Workers AI OpenAI-compatible endpoint. Replace <ACCOUNT_ID> in the base URL with your Cloudflare account id.',
     label: 'Cloudflare Workers AI',
