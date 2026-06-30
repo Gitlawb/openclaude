@@ -13,6 +13,7 @@ import {
 import {
   adoptResumedSessionFile,
   buildConversationChain,
+  getProjectDir,
   loadSameRepoMessageLogsProgressive,
   loadTranscriptFile,
   recordGoalState,
@@ -34,8 +35,10 @@ import {
 } from '../bootstrap/state.js'
 import type { GoalState } from '../services/goal/types.js'
 import type { SessionBranchEntry } from '../types/logs.js'
-import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
-import { sanitizePath } from './path.js'
+import {
+  getClaudeConfigHomeDir,
+  setClaudeConfigHomeDirForTesting,
+} from './envUtils.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
 
 const tempDirs: string[] = []
@@ -677,45 +680,46 @@ test('loadSameRepoMessageLogsProgressive preserves branch metadata across worktr
     join(tmpdir(), 'openclaude-session-storage-config-'),
   )
   tempDirs.push(configDir)
-  const rootProject = '/repo/main'
-  const branchProject = '/repo/worktree-feature'
+  const worktreesRoot = await mkdtemp(
+    join(tmpdir(), 'openclaude-session-storage-worktrees-'),
+  )
+  tempDirs.push(worktreesRoot)
+  const rootProject = join(worktreesRoot, 'main')
+  const branchProject = join(worktreesRoot, 'worktree-feature')
   const rootId = id(61)
   const branchId = id(62)
-  const rootProjectDir = join(configDir, 'projects', sanitizePath(rootProject))
-  const branchProjectDir = join(
-    configDir,
-    'projects',
-    sanitizePath(branchProject),
-  )
-  await mkdir(rootProjectDir, { recursive: true })
-  await mkdir(branchProjectDir, { recursive: true })
-  await writeFile(
-    join(rootProjectDir, `${rootId}.jsonl`),
-    `${JSON.stringify({
-      ...user(id(63), null, 'root prompt'),
-      sessionId: rootId,
-      cwd: rootProject,
-    })}\n`,
-  )
-  await writeFile(
-    join(branchProjectDir, `${branchId}.jsonl`),
-    `${JSON.stringify({
-      ...user(id(64), null, 'branch prompt'),
-      sessionId: branchId,
-      cwd: branchProject,
-    })}\n${JSON.stringify({
-      type: 'session-branch',
-      sessionId: branchId,
-      parentSessionId: rootId,
-      rootSessionId: rootId,
-      branchedFromSessionId: rootId,
-      branchName: 'Worktree branch',
-      branchedAt: ts,
-    })}\n`,
-  )
 
   try {
     setClaudeConfigHomeDirForTesting(configDir)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    const rootProjectDir = getProjectDir(rootProject)
+    const branchProjectDir = getProjectDir(branchProject)
+    await mkdir(rootProjectDir, { recursive: true })
+    await mkdir(branchProjectDir, { recursive: true })
+    await writeFile(
+      join(rootProjectDir, `${rootId}.jsonl`),
+      `${JSON.stringify({
+        ...user(id(63), null, 'root prompt'),
+        sessionId: rootId,
+        cwd: rootProject,
+      })}\n`,
+    )
+    await writeFile(
+      join(branchProjectDir, `${branchId}.jsonl`),
+      `${JSON.stringify({
+        ...user(id(64), null, 'branch prompt'),
+        sessionId: branchId,
+        cwd: branchProject,
+      })}\n${JSON.stringify({
+        type: 'session-branch',
+        sessionId: branchId,
+        parentSessionId: rootId,
+        rootSessionId: rootId,
+        branchedFromSessionId: rootId,
+        branchName: 'Worktree branch',
+        branchedAt: ts,
+      })}\n`,
+    )
     const result = await loadSameRepoMessageLogsProgressive(
       [rootProject, branchProject],
       undefined,
@@ -730,6 +734,7 @@ test('loadSameRepoMessageLogsProgressive preserves branch metadata across worktr
     expect(branchLog?.sessionBranch?.rootSessionId).toBe(rootId)
   } finally {
     setClaudeConfigHomeDirForTesting(undefined)
+    getClaudeConfigHomeDir.cache?.clear?.()
   }
 })
 
@@ -738,26 +743,14 @@ test('loadSameRepoMessageLogsProgressive preserves branch metadata outside lite 
     join(tmpdir(), 'openclaude-session-storage-config-'),
   )
   tempDirs.push(configDir)
-  const rootProject = '/repo/main'
-  const branchProject = '/repo/worktree-feature'
+  const worktreesRoot = await mkdtemp(
+    join(tmpdir(), 'openclaude-session-storage-worktrees-'),
+  )
+  tempDirs.push(worktreesRoot)
+  const rootProject = join(worktreesRoot, 'main')
+  const branchProject = join(worktreesRoot, 'worktree-feature')
   const rootId = id(71)
   const branchId = id(72)
-  const rootProjectDir = join(configDir, 'projects', sanitizePath(rootProject))
-  const branchProjectDir = join(
-    configDir,
-    'projects',
-    sanitizePath(branchProject),
-  )
-  await mkdir(rootProjectDir, { recursive: true })
-  await mkdir(branchProjectDir, { recursive: true })
-  await writeFile(
-    join(rootProjectDir, `${rootId}.jsonl`),
-    `${JSON.stringify({
-      ...user(id(73), null, 'root prompt'),
-      sessionId: rootId,
-      cwd: rootProject,
-    })}\n`,
-  )
   const branchMetadata: SessionBranchEntry = {
     type: 'session-branch',
     sessionId: branchId,
@@ -767,26 +760,39 @@ test('loadSameRepoMessageLogsProgressive preserves branch metadata outside lite 
     branchName: 'Long-lived branch',
     branchedAt: ts,
   }
-  const largeText = 'x'.repeat(70 * 1024)
-  await writeFile(
-    join(branchProjectDir, `${branchId}.jsonl`),
-    `${JSON.stringify({
-      ...user(id(74), null, 'branch prompt'),
-      sessionId: branchId,
-      cwd: branchProject,
-    })}\n${JSON.stringify({
-      ...user(id(75), id(74), largeText),
-      sessionId: branchId,
-      cwd: branchProject,
-    })}\n${JSON.stringify(branchMetadata)}\n${JSON.stringify({
-      ...assistant(id(76), id(75), largeText),
-      sessionId: branchId,
-      cwd: branchProject,
-    })}\n`,
-  )
 
   try {
     setClaudeConfigHomeDirForTesting(configDir)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    const rootProjectDir = getProjectDir(rootProject)
+    const branchProjectDir = getProjectDir(branchProject)
+    await mkdir(rootProjectDir, { recursive: true })
+    await mkdir(branchProjectDir, { recursive: true })
+    await writeFile(
+      join(rootProjectDir, `${rootId}.jsonl`),
+      `${JSON.stringify({
+        ...user(id(73), null, 'root prompt'),
+        sessionId: rootId,
+        cwd: rootProject,
+      })}\n`,
+    )
+    const largeText = 'x'.repeat(70 * 1024)
+    await writeFile(
+      join(branchProjectDir, `${branchId}.jsonl`),
+      `${JSON.stringify({
+        ...user(id(74), null, 'branch prompt'),
+        sessionId: branchId,
+        cwd: branchProject,
+      })}\n${JSON.stringify({
+        ...user(id(75), id(74), largeText),
+        sessionId: branchId,
+        cwd: branchProject,
+      })}\n${JSON.stringify(branchMetadata)}\n${JSON.stringify({
+        ...assistant(id(76), id(75), largeText),
+        sessionId: branchId,
+        cwd: branchProject,
+      })}\n`,
+    )
     const result = await loadSameRepoMessageLogsProgressive(
       [rootProject, branchProject],
       undefined,
@@ -798,5 +804,6 @@ test('loadSameRepoMessageLogsProgressive preserves branch metadata outside lite 
     expect(branchLog?.sessionBranch?.rootSessionId).toBe(rootId)
   } finally {
     setClaudeConfigHomeDirForTesting(undefined)
+    getClaudeConfigHomeDir.cache?.clear?.()
   }
 })
