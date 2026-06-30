@@ -39,6 +39,17 @@ test('filterResumeLogs preserves PR filters before picker grouping', () => {
   const nonPrLog = log(id(3))
   const sidechainLog = log(id(4), { isSidechain: true, prNumber: 42 })
 
+  expect(filterResumeLogs([prLog, nonPrLog, sidechainLog], undefined)).toEqual([
+    prLog,
+    nonPrLog,
+  ])
+  expect(filterResumeLogs([prLog, nonPrLog, sidechainLog], false)).toEqual([
+    prLog,
+    nonPrLog,
+  ])
+  expect(
+    filterResumeLogs([prLog, nonPrLog, sidechainLog], 'not-a-pr'),
+  ).toEqual([prLog, nonPrLog])
   expect(filterResumeLogs([prLog, otherPrLog, nonPrLog], true)).toEqual([
     prLog,
     otherPrLog,

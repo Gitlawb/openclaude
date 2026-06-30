@@ -178,11 +178,12 @@ export function logMatchesResumePickerSearch(log: LogOption, rawQuery: string): 
   const query = rawQuery.trim().toLowerCase()
   if (!query) return true
   const displayedTitle = getResumeLogDisplayTitle(log).toLowerCase()
+  const baseDisplayTitle = getLogDisplayTitle(log).toLowerCase()
   const branchName = (log.sessionBranch?.branchName || "").toLowerCase()
   const branch = (log.gitBranch || "").toLowerCase()
   const tag = (log.tag || "").toLowerCase()
   const prInfo = log.prNumber ? `pr #${log.prNumber} ${log.prRepository || ""}`.toLowerCase() : ""
-  return displayedTitle.includes(query) || branchName.includes(query) || branch.includes(query) || tag.includes(query) || prInfo.includes(query)
+  return displayedTitle.includes(query) || baseDisplayTitle.includes(query) || branchName.includes(query) || branch.includes(query) || tag.includes(query) || prInfo.includes(query)
 }
 export function shouldLoadMoreResumeLogs(options: {
   displayedLogCount: number;

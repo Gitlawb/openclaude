@@ -1,8 +1,23 @@
+import { PassThrough } from 'node:stream'
+
 import { expect, test } from 'bun:test'
 import type { UUID } from 'node:crypto'
+import React from 'react'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
+import { getOriginalCwd } from '../bootstrap/state.js'
+import { createRoot } from '../ink.js'
+import instances from '../ink/instances.js'
+import type { ParsedKey } from '../ink/parse-keypress.js'
+import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
+import { AppStateProvider } from '../state/AppState.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import type { LogOption, SessionBranchEntry } from '../types/logs.js'
 import {
+  LogSelector,
   getResumeLogDisplayTitle,
   groupLogsByResumeBranch,
   logMatchesResumePickerSearch,
@@ -10,6 +25,8 @@ import {
 } from './LogSelector.js'
 
 const ts = '2026-06-30T00:00:00.000Z'
+const SYNC_START = '\x1B[?2026h'
+const SYNC_END = '\x1B[?2026l'
 
 function id(n: number): UUID {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}` as UUID
@@ -52,6 +69,88 @@ function log(
     sessionId,
     ...options,
   }
+}
+
+function extractLastFrame(output: string): string {
+  let lastFrame: string | null = null
+  let cursor = 0
+  while (cursor < output.length) {
+    const start = output.indexOf(SYNC_START, cursor)
+    if (start === -1) break
+    const contentStart = start + SYNC_START.length
+    const end = output.indexOf(SYNC_END, contentStart)
+    if (end === -1) break
+    const frame = output.slice(contentStart, end)
+    if (frame.trim().length > 0) lastFrame = frame
+    cursor = end + SYNC_END.length
+  }
+  return lastFrame ?? output
+}
+
+function createTestStreams(): {
+  stdout: PassThrough
+  stdin: PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  getOutput: () => string
+} {
+  let output = ''
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+  ;(stdout as unknown as { columns: number }).columns = 120
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
+  return { stdout, stdin, getOutput: () => output }
+}
+
+function dispatchKeyboard(
+  stdout: PassThrough,
+  key: Pick<ParsedKey, 'name' | 'sequence' | 'raw'>,
+): void {
+  const instance = instances.get(stdout as unknown as NodeJS.WriteStream) as
+    | { dispatchKeyboardEvent: (parsedKey: ParsedKey) => void }
+    | undefined
+  if (!instance) {
+    throw new Error('Ink instance not found')
+  }
+  instance.dispatchKeyboardEvent({
+    kind: 'key',
+    fn: false,
+    ctrl: false,
+    meta: false,
+    shift: false,
+    option: false,
+    super: false,
+    isPasted: false,
+    ...key,
+  })
+}
+
+async function waitForFrame(
+  getOutput: () => string,
+  predicate: (frame: string) => boolean,
+): Promise<string> {
+  const startedAt = Date.now()
+  let frame = ''
+  while (Date.now() - startedAt < 2500) {
+    frame = stripAnsi(extractLastFrame(getOutput()))
+    if (predicate(frame)) return frame
+    await Bun.sleep(10)
+  }
+  throw new Error(`Timed out waiting for LogSelector output:\n${frame}`)
 }
 
 test('groups root sessions with their branches without moving the group behind newer branches', () => {
@@ -123,6 +222,7 @@ test('search and display include branch names and session titles', () => {
 
   expect(getResumeLogDisplayTitle(branch)).toBe('Retry token exchange')
   expect(logMatchesResumePickerSearch(branch, 'token exchange')).toBe(true)
+  expect(logMatchesResumePickerSearch(branch, 'copied root prompt')).toBe(true)
   expect(logMatchesResumePickerSearch(root, 'callback fix')).toBe(true)
 })
 
@@ -151,4 +251,113 @@ test('requests more logs when grouped branch rows underfill the visible picker',
       visibleNodeCount: 10,
     }),
   ).toBe(true)
+})
+
+test('rendered picker expands branch groups and selects child branch logs', async () => {
+  await acquireSharedMutationLock(
+    'components/LogSelector.resumeBranches.test.tsx',
+  )
+  const rootId = id(40)
+  const branchId = id(41)
+  const projectPath = getOriginalCwd()
+  const root = log(rootId, 'Root implementation session', 10, {
+    customTitle: 'Root implementation session',
+    projectPath,
+  })
+  const branch = log(branchId, 'Branch copied prompt', 20, {
+    projectPath,
+    sessionBranch: branchMeta(
+      branchId,
+      rootId,
+      rootId,
+      'Branch implementation session',
+    ),
+  })
+  const selected: LogOption[] = []
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const rootRenderer = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  try {
+    rootRenderer.render(
+      React.createElement(
+        AppStateProvider,
+        null,
+        React.createElement(
+          KeybindingSetup,
+          null,
+          React.createElement(LogSelector, {
+            logs: [branch, root],
+            maxHeight: 30,
+            forceWidth: 100,
+            onSelect: selectedLog => {
+              selected.push(selectedLog)
+            },
+          }),
+        ),
+      ),
+    )
+
+    await waitForFrame(
+      getOutput,
+      frame =>
+        frame.includes('Root implementation session') &&
+        frame.includes('(+1 other session)') &&
+        !frame.includes('Branch implementation session'),
+    )
+    await Bun.sleep(50)
+
+    dispatchKeyboard(stdout, {
+      name: 'right',
+      sequence: '\x1B[C',
+      raw: '\x1B[C',
+    })
+    await waitForFrame(
+      getOutput,
+      frame =>
+        frame.includes('Root implementation session') &&
+        frame.includes('Branch implementation session'),
+    )
+
+    dispatchKeyboard(stdout, {
+      name: 'left',
+      sequence: '\x1B[D',
+      raw: '\x1B[D',
+    })
+    await waitForFrame(
+      getOutput,
+      frame =>
+        frame.includes('Root implementation session') &&
+        !frame.includes('Branch implementation session'),
+    )
+
+    dispatchKeyboard(stdout, {
+      name: 'right',
+      sequence: '\x1B[C',
+      raw: '\x1B[C',
+    })
+    await waitForFrame(
+      getOutput,
+      frame =>
+        frame.includes('Root implementation session') &&
+        frame.includes('Branch implementation session'),
+    )
+
+    stdin.write('2')
+
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < 2500 && selected.length === 0) {
+      await Bun.sleep(10)
+    }
+    expect(selected.map(selectedLog => selectedLog.sessionId)).toEqual([
+      branchId,
+    ])
+  } finally {
+    rootRenderer.unmount()
+    stdin.end()
+    releaseSharedMutationLock()
+  }
 })
