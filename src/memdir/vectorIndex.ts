@@ -53,7 +53,9 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
         continue
       }
       if (stat.isDirectory()) {
-        walk(fullPath, depth + 1)
+        if (!entry.startsWith('.') || entry === '.facts') {
+          walk(fullPath, depth + 1)
+        }
       } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
         count++
         totalSize += stat.size
@@ -87,7 +89,9 @@ async function scanMdFiles(
         continue
       }
       if (stat.isDirectory()) {
-        walk(fullPath, depth + 1)
+        if (!entry.startsWith('.') || entry === '.facts') {
+          walk(fullPath, depth + 1)
+        }
       } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
         try {
           const raw = readFileSync(fullPath, 'utf-8')
