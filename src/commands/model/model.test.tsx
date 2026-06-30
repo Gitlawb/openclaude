@@ -17,10 +17,14 @@ import type { ModelOption } from '../../utils/model/modelOptions.js'
 import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import * as actualFastModeForModelTest from '../../utils/fastMode.js'
+import * as actualExtraUsageForModelTest from '../../utils/extraUsage.js'
 
 // Snapshot the real fast-mode module up front so the cross-profile switch test
 // can mock it with a full surface and restore the real one afterwards.
 const REAL_FAST_MODE_FOR_MODEL_TEST = { ...actualFastModeForModelTest }
+// Same for extraUsage, so the cross-profile confirmation test can force the
+// `Billed as extra usage` branch and restore the real surface afterwards.
+const REAL_EXTRA_USAGE_FOR_MODEL_TEST = { ...actualExtraUsageForModelTest }
 
 type SettingsModule = typeof import('../../utils/settings/settings.js')
 
@@ -2908,5 +2912,84 @@ test('cross-profile /model switch drops fast mode when the target provider canno
   } finally {
     instance.unmount()
     mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+  }
+})
+
+test('cross-profile /model switch surfaces the selected effort and extra-usage notice (#1119)', async () => {
+  // jatmn review: the cross-profile branch built its own confirmation and
+  // returned before the regular `/model` logic that appends the selected effort
+  // and the cost-impacting `Billed as extra usage` notice. Selecting a target
+  // through an inactive profile must show the same feedback the direct model
+  // path does.
+  mock.module('../../utils/extraUsage.js', () => ({
+    ...REAL_EXTRA_USAGE_FOR_MODEL_TEST,
+    isBilledAsExtraUsage: () => true,
+  }))
+  mockProviderProfiles({
+    setActiveProviderProfile: (profileId: string) => ({
+      id: profileId,
+      name: 'OpenAI',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5-mini',
+    }),
+  } as never)
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (model: string | null, effort: unknown) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+
+  const { getDefaultAppState } = await import('../../state/AppState.js')
+  let doneMessage: string | undefined
+  const { call } = await importFreshModelModule('cross-profile-confirmation')
+  const element = await call(
+    (message?: string) => {
+      doneMessage = message
+    },
+    {} as never,
+    '',
+  )
+  const { AppStateProvider } = await import('../../state/AppState.js')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider
+      initialState={
+        {
+          ...getDefaultAppState(),
+          fastMode: false,
+          mainLoopModel: 'claude-sonnet-4-6',
+        } as never
+      }
+      onChangeAppState={() => {}}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+      'high',
+    )
+
+    await waitForCondition(() => doneMessage !== undefined)
+    expect(doneMessage).toContain('Switched to')
+    expect(doneMessage).toContain('high effort')
+    expect(doneMessage).toContain('Billed as extra usage')
+  } finally {
+    instance.unmount()
+    mock.module('../../utils/extraUsage.js', () => REAL_EXTRA_USAGE_FOR_MODEL_TEST)
   }
 })

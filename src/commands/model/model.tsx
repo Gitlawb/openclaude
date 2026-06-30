@@ -705,10 +705,29 @@ function ModelPickerWrapper({
       }
 
       let switchMessage = `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`
+      // Mirror the regular switch confirmation so a cross-profile selection
+      // surfaces the same cost-impacting feedback: the selected effort and the
+      // `Billed as extra usage` notice (jatmn review, #1119). The picker already
+      // decodes effort for switch values, so omitting it here would silently
+      // hide reasoning/extra-usage information the direct model path shows.
+      if (effort !== undefined) {
+        switchMessage += ` with ${chalk.bold(effort)} effort`
+      }
+      const crossProfileFastModeOn =
+        (isFastMode ?? false) && fastModeSupportedNow && !shouldTurnFastModeOff
       if (shouldTurnFastModeOff) {
         switchMessage += ' · Fast mode OFF'
-      } else if ((isFastMode ?? false) && fastModeSupportedNow) {
+      } else if (crossProfileFastModeOn) {
         switchMessage += ' · Fast mode ON'
+      }
+      if (
+        isBilledAsExtraUsage(
+          switchTarget.model,
+          crossProfileFastModeOn,
+          isOpus1mMergeEnabled(),
+        )
+      ) {
+        switchMessage += ' · Billed as extra usage'
       }
       onDone(switchMessage)
       return
