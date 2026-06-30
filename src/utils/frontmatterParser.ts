@@ -335,9 +335,14 @@ export function parsePositiveIntFromFrontmatter(
     return undefined
   }
 
-  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10)
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : /^\d+$/.test(String(value).trim())
+        ? Number(String(value).trim())
+        : NaN
 
-  if (Number.isInteger(parsed) && parsed > 0) {
+  if (Number.isSafeInteger(parsed) && parsed > 0) {
     return parsed
   }
 

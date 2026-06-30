@@ -9,6 +9,12 @@ export type Terminal =
   | { reason: 'aborted_tools' }
   | { reason: 'hook_stopped' }
   | { reason: 'max_turns'; turnCount: number }
+  | {
+      reason: 'agent_step_limit'
+      turnCount: number
+      stepsUsed: number
+      maxSteps: number
+    }
   | { reason: 'tool_failure_loop' }
 
 export type Continue =

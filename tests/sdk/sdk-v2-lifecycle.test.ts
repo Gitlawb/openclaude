@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { randomUUID } from 'crypto'
-import { rmSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import {
+  createSdkMcpServer,
+  tool,
   unstable_v2_createSession,
   unstable_v2_resumeSession,
   unstable_v2_prompt,
@@ -30,6 +33,7 @@ import {
   isExpectedDrainAbort,
   UUID_REGEX,
 } from './helpers/query-test-doubles.js'
+import { MockQueryEngine } from './helpers/mock-engine.js'
 
 // sendMessage drains trigger init(), which checks auth. Stub it for CI.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
@@ -45,6 +49,10 @@ let originalOriginalCwd: string
 
 // Collect temp dirs for cleanup
 const tempDirs: string[] = []
+
+function attachMockEngine(session: unknown, mockEngine: MockQueryEngine): void {
+  ;(session as { setEngine(engine: MockQueryEngine): void }).setEngine(mockEngine)
+}
 
 beforeAll(async () => {
   await acquireSharedMutationLock('sdk-v2-lifecycle')
@@ -258,6 +266,375 @@ describe('V2: permission handling', () => {
       },
     })
     expect(session.sessionId).toBeDefined()
+  })
+})
+
+describe('V2: SDK agents', () => {
+  test('createSession() injects SDK agents with maxSteps on first message', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const mockEngine = new MockQueryEngine()
+      const session = unstable_v2_createSession({
+        cwd: dir,
+        agents: {
+          helper: {
+            prompt: 'Help with persistent SDK agent injection coverage',
+            maxSteps: 2,
+          },
+        },
+      })
+      attachMockEngine(session, mockEngine)
+
+      const messages: unknown[] = []
+      for await (const msg of session.sendMessage('agent injection success')) {
+        messages.push(msg)
+      }
+
+      expect(
+        messages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+      expect(
+        mockEngine.config.agents.some(
+          (agent: any) =>
+            agent?.agentType === 'helper' &&
+            agent?.whenToUse === 'helper' &&
+            agent?.maxSteps === 2,
+        ),
+      ).toBe(true)
+
+      const firstTurnAgents = [...mockEngine.config.agents]
+      const secondTurnMessages: unknown[] = []
+      for await (const msg of session.sendMessage('agent injection second turn')) {
+        secondTurnMessages.push(msg)
+      }
+      expect(
+        secondTurnMessages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+      expect(mockEngine.config.agents.map((agent: any) => agent?.agentType)).toEqual(
+        firstTurnAgents.map((agent: any) => agent?.agentType),
+      )
+      expect(
+        mockEngine.config.agents.filter(
+          (agent: any) => agent?.agentType === 'helper',
+        ),
+      ).toHaveLength(1)
+    })
+  })
+
+  test('createSession() filters denied SDK MCP tools on every turn', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const mockEngine = new MockQueryEngine()
+      const deniedBash = tool(
+        'Bash',
+        'Denied persistent SDK MCP Bash duplicate',
+        { type: 'object', properties: {} },
+        async () => ({ content: [{ type: 'text', text: 'denied' }] }),
+      )
+      const allowedSdkTool = tool(
+        'sdkAllowed',
+        'Allowed persistent SDK MCP tool',
+        { type: 'object', properties: {} },
+        async () => ({ content: [{ type: 'text', text: 'allowed' }] }),
+      )
+      const session = unstable_v2_createSession({
+        cwd: dir,
+        disallowedTools: ['Bash'],
+        mcpServers: {
+          'sdk-tools': createSdkMcpServer({
+            type: 'sdk',
+            name: 'sdk-tools',
+            tools: [deniedBash, allowedSdkTool],
+          }),
+        },
+      })
+      const initialTools =
+        (session as unknown as { _engine: { config: { tools: unknown[] } } })
+          ._engine.config.tools
+      const initialToolNames = initialTools.map((entry: any) => entry?.name)
+      expect(initialToolNames.length).toBeGreaterThan(0)
+      expect(initialToolNames).not.toContain('Bash')
+      mockEngine.config.tools = [...initialTools]
+      attachMockEngine(session, mockEngine)
+
+      const firstTurnMessages: unknown[] = []
+      for await (const msg of session.sendMessage('mcp deny filtering')) {
+        firstTurnMessages.push(msg)
+      }
+      const firstTurnToolNames = mockEngine.config.tools.map(
+        (entry: any) => entry?.name,
+      )
+      for (const initialToolName of initialToolNames) {
+        expect(firstTurnToolNames).toContain(initialToolName)
+      }
+      expect(firstTurnToolNames).toContain('sdkAllowed')
+      expect(firstTurnToolNames).not.toContain('Bash')
+      expect(
+        firstTurnMessages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+
+      const secondTurnMessages: unknown[] = []
+      for await (const msg of session.sendMessage('mcp deny filtering second turn')) {
+        secondTurnMessages.push(msg)
+      }
+      const secondTurnToolNames = mockEngine.config.tools.map(
+        (entry: any) => entry?.name,
+      )
+      expect(secondTurnToolNames).toEqual(firstTurnToolNames)
+      expect(secondTurnToolNames).toContain('sdkAllowed')
+      expect(secondTurnToolNames).not.toContain('Bash')
+      expect(
+        secondTurnMessages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+    })
+  })
+
+  test('createSession() merges filesystem and SDK agents before injection', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const agentsDir = join(dir, '.openclaude', 'agents')
+      mkdirSync(agentsDir, { recursive: true })
+      writeFileSync(
+        join(agentsDir, 'filesystem.md'),
+        [
+          '---',
+          'name: filesystem',
+          'description: Use for filesystem agent merge coverage',
+          '---',
+          'Filesystem agent prompt',
+        ].join('\n'),
+      )
+
+      const mockEngine = new MockQueryEngine()
+      const session = unstable_v2_createSession({
+        cwd: dir,
+        agents: {
+          helper: {
+            description: 'Use for persistent SDK agent merge coverage',
+            prompt: 'Help with persistent SDK agent merge coverage',
+            maxSteps: 2,
+          },
+        },
+      })
+      attachMockEngine(session, mockEngine)
+
+      const messages: unknown[] = []
+      for await (const msg of session.sendMessage('agent merge success')) {
+        messages.push(msg)
+      }
+
+      expect(messages.some((message: any) => message?.type === 'assistant')).toBe(
+        true,
+      )
+      const agentTypes = mockEngine.config.agents.map(
+        (agent: any) => agent?.agentType,
+      )
+      expect(agentTypes).toContain('filesystem')
+      expect(agentTypes).toContain('helper')
+
+      const secondTurnMessages: unknown[] = []
+      for await (const msg of session.sendMessage('agent merge second turn')) {
+        secondTurnMessages.push(msg)
+      }
+      const secondTurnAgentTypes = mockEngine.config.agents.map(
+        (agent: any) => agent?.agentType,
+      )
+      expect(
+        secondTurnMessages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+      expect(secondTurnAgentTypes).toEqual(agentTypes)
+      expect(
+        secondTurnAgentTypes.filter(agentType => agentType === 'filesystem'),
+      ).toHaveLength(1)
+      expect(secondTurnAgentTypes.filter(agentType => agentType === 'helper')).toHaveLength(1)
+    })
+  })
+
+  test('createSession() lets SDK agents override filesystem agents with the same name', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const agentsDir = join(dir, '.openclaude', 'agents')
+      mkdirSync(agentsDir, { recursive: true })
+      writeFileSync(
+        join(agentsDir, 'helper.md'),
+        [
+          '---',
+          'name: helper',
+          'description: Use for filesystem collision coverage',
+          '---',
+          'Filesystem helper prompt',
+        ].join('\n'),
+      )
+
+      const mockEngine = new MockQueryEngine()
+      const session = unstable_v2_createSession({
+        cwd: dir,
+        agents: {
+          helper: {
+            description: 'Use for SDK collision coverage',
+            prompt: 'SDK helper prompt',
+            maxSteps: 2,
+          },
+        },
+      })
+      attachMockEngine(session, mockEngine)
+
+      const messages: unknown[] = []
+      for await (const msg of session.sendMessage('agent collision success')) {
+        messages.push(msg)
+      }
+
+      const helperAgents = mockEngine.config.agents.filter(
+        (agent: any) => agent?.agentType === 'helper',
+      )
+      expect(messages.some((message: any) => message?.type === 'assistant')).toBe(
+        true,
+      )
+      expect(helperAgents).toHaveLength(1)
+      expect((helperAgents[0] as any).getSystemPrompt()).toBe(
+        'SDK helper prompt',
+      )
+      expect((helperAgents[0] as any).maxSteps).toBe(2)
+
+      const secondTurnMessages: unknown[] = []
+      for await (const msg of session.sendMessage('agent collision second turn')) {
+        secondTurnMessages.push(msg)
+      }
+      const secondTurnHelpers = mockEngine.config.agents.filter(
+        (agent: any) => agent?.agentType === 'helper',
+      )
+      expect(
+        secondTurnMessages.some((message: any) => message?.type === 'assistant'),
+      ).toBe(true)
+      expect(secondTurnHelpers).toHaveLength(1)
+      expect((secondTurnHelpers[0] as any).getSystemPrompt()).toBe(
+        'SDK helper prompt',
+      )
+      expect((secondTurnHelpers[0] as any).maxSteps).toBe(2)
+    })
+  })
+
+  test('createSession() emits invalid SDK agent failures before engine output', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const mockEngine = new MockQueryEngine()
+      const session = unstable_v2_createSession({
+        cwd: dir,
+        agents: {
+          broken: {
+            description: 'Use for broken persistent SDK agent coverage',
+            prompt: 2 as unknown as string,
+          },
+          badLimit: {
+            description: 'Use for invalid persistent SDK agent step limit coverage',
+            prompt: 'bad limit prompt',
+            maxSteps: 0,
+          },
+        },
+      })
+      attachMockEngine(session, mockEngine)
+
+      const messages: any[] = []
+      for await (const msg of session.sendMessage('agent failure visibility')) {
+        messages.push(msg)
+      }
+
+      expect(messages[0]).toMatchObject({
+        type: 'agent_load_failure',
+        stage: 'injection',
+      })
+      expect(messages[0].error_message).toContain("Invalid SDK agent 'broken'")
+      const loadFailures = messages.filter(
+        message => message?.type === 'agent_load_failure',
+      )
+      expect(loadFailures).toHaveLength(2)
+      expect(loadFailures[1].error_message).toContain(
+        "Invalid SDK agent 'badLimit'",
+      )
+      expect(loadFailures[1].error_message).toContain('maxSteps')
+      const assistantIndex = messages.findIndex(
+        message => message?.type === 'assistant',
+      )
+      expect(assistantIndex).toBeGreaterThan(1)
+      expect(
+        loadFailures.every(failure => messages.indexOf(failure) < assistantIndex),
+      ).toBe(true)
+      expect(messages.some(message => message?.type === 'assistant')).toBe(true)
+      expect(
+        mockEngine.config.agents.some(
+          (agent: any) => agent?.agentType === 'broken',
+        ),
+      ).toBe(false)
+      expect(
+        mockEngine.config.agents.some(
+          (agent: any) => agent?.agentType === 'badLimit',
+        ),
+      ).toBe(false)
+
+      const secondTurnMessages: any[] = []
+      for await (const msg of session.sendMessage('agent failure second turn')) {
+        secondTurnMessages.push(msg)
+      }
+
+      expect(
+        secondTurnMessages.some(
+          message => message?.type === 'agent_load_failure',
+        ),
+      ).toBe(false)
+      expect(secondTurnMessages.some(message => message?.type === 'assistant')).toBe(
+        true,
+      )
+    })
+  })
+
+  test('createSession() emits filesystem agent parse failures before engine output', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const agentsDir = join(dir, '.openclaude', 'agents')
+      mkdirSync(agentsDir, { recursive: true })
+      writeFileSync(
+        join(agentsDir, 'broken.md'),
+        [
+          '---',
+          'name: broken',
+          '---',
+          'Broken filesystem agent prompt',
+        ].join('\n'),
+      )
+
+      const mockEngine = new MockQueryEngine()
+      const session = unstable_v2_createSession({ cwd: dir })
+      attachMockEngine(session, mockEngine)
+
+      const messages: any[] = []
+      for await (const msg of session.sendMessage('agent parse failure visibility')) {
+        messages.push(msg)
+      }
+
+      expect(messages[0]).toMatchObject({
+        type: 'agent_load_failure',
+        stage: 'definitions',
+      })
+      expect(messages[0].error_message).toContain('broken.md')
+      expect(messages[0].error_message).toContain(
+        'Missing required "description" field',
+      )
+      expect(messages.some(message => message?.type === 'assistant')).toBe(true)
+
+      const secondTurnMessages: any[] = []
+      for await (const msg of session.sendMessage('agent parse second turn')) {
+        secondTurnMessages.push(msg)
+      }
+
+      expect(
+        secondTurnMessages.some(
+          message => message?.type === 'agent_load_failure',
+        ),
+      ).toBe(false)
+      expect(secondTurnMessages.some(message => message?.type === 'assistant')).toBe(
+        true,
+      )
+    })
   })
 })
 

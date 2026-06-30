@@ -134,6 +134,7 @@ const PRESET_ORDER = [
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
+  'ClinePass',
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',

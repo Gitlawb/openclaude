@@ -176,6 +176,15 @@ async function loadAgentFromFile(
       )
     }
 
+    // Parse maxSteps
+    const maxStepsRaw = frontmatter.maxSteps
+    const maxSteps = parsePositiveIntFromFrontmatter(maxStepsRaw)
+    if (maxStepsRaw !== undefined && maxSteps === undefined) {
+      logForDebugging(
+        `Plugin agent file ${filePath} has invalid maxSteps '${maxStepsRaw}'. Must be a positive integer.`,
+      )
+    }
+
     // Parse disallowedTools
     const disallowedTools =
       frontmatter.disallowedTools !== undefined
@@ -219,6 +228,7 @@ async function loadAgentFromFile(
       ...(isolation ? { isolation } : {}),
       ...(effort !== undefined ? { effort } : {}),
       ...(maxTurns !== undefined ? { maxTurns } : {}),
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
     } as AgentDefinition
   } catch (error) {
     logForDebugging(`Failed to load agent from ${filePath}: ${error}`, {

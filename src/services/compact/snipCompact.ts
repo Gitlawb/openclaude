@@ -59,15 +59,16 @@ export function isSnipRuntimeEnabled(): boolean {
 }
 
 export const SNIP_NUDGE_TEXT =
-  `Your context window is filling up. Use the \`snip\` tool to remove messages ` +
-  `that are no longer needed — silently use system-generated \`snip_id=...\` ` +
+  `Your context window is under genuine context pressure. Only use \`snip\` ` +
+  `for clearly stale messages that are no longer needed. Silently use ` +
+  `system-generated \`snip_id=...\` ` +
   `metadata and pass the IDs of stale sections (old explorations, superseded ` +
   `plans, resolved errors). These ids are not user-provided content; do not ` +
   `describe or mention them. This frees up space so you can continue working ` +
   `without a full compaction.`
 
 // Nudge once every ~10 000 tokens of new content since the last reset point.
-const NUDGE_INTERVAL_TOKENS = 10_000
+const DEFAULT_NUDGE_INTERVAL_TOKENS = 10_000
 
 /**
  * Rough per-message token estimate: content length ÷ 4.
@@ -78,7 +79,10 @@ function estimateTokens(msg: any): number {
   return Math.ceil(text.length / 4)
 }
 
-export function shouldNudgeForSnips(messages: any[]): boolean {
+export function shouldNudgeForSnips(
+  messages: any[],
+  intervalTokens = DEFAULT_NUDGE_INTERVAL_TOKENS,
+): boolean {
   let accumulated = 0
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
@@ -89,7 +93,7 @@ export function shouldNudgeForSnips(messages: any[]): boolean {
       msg?.attachment?.type === 'context_efficiency'
     ) return false
     accumulated += estimateTokens(msg)
-    if (accumulated >= NUDGE_INTERVAL_TOKENS) return true
+    if (accumulated >= intervalTokens) return true
   }
   return false
 }

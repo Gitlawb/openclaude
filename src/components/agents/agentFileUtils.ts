@@ -110,6 +110,9 @@ export function getActualAgentFilePath(agent: AgentDefinition): string {
   if (agent.source === 'plugin') {
     throw new Error('Cannot get file path for plugin agents')
   }
+  if (agent.source === 'sdk') {
+    throw new Error('Cannot get file path for SDK agents')
+  }
 
   const dirPath = agent.baseDir || getAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
@@ -143,6 +146,9 @@ export function getActualRelativeAgentFilePath(agent: AgentDefinition): string {
   }
   if (agent.source === 'flagSettings') {
     return 'CLI argument'
+  }
+  if (agent.source === 'sdk') {
+    return 'SDK agent'
   }
 
   const dirPath =
