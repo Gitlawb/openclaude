@@ -51,6 +51,7 @@ export function getAPIProvider(): LegacyAPIProvider {
     case 'minimax':
       return 'minimax'
     case 'xiaomi-mimo':
+    case 'xiaomi-mimo-token':
       return 'xiaomi-mimo'
     case 'xai':
       return 'xai'

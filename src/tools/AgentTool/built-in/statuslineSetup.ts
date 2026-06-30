@@ -52,14 +52,16 @@ How to use the statusLine command:
        "name": "string",         // Output style name (e.g., "default", "Explanatory", "Learning")
      },
      "context_window": {
-       "total_input_tokens": number,       // Total input tokens used in session (cumulative)
-       "total_output_tokens": number,      // Total output tokens used in session (cumulative)
+       "total_input_tokens": number,       // Total input tokens used in session (cumulative, estimated when provider does not report usage)
+       "total_output_tokens": number,      // Total output tokens used in session (cumulative, estimated when provider does not report usage)
+       "total_tokens_are_estimated": boolean | undefined, // true when session totals include transcript-based estimates for one or more turns whose provider did not report usage
        "context_window_size": number,      // Context window size for current model (e.g., 200000)
-       "current_usage": {                   // Token usage from last API call (null if no messages yet)
+       "current_usage": {                   // Token usage from last API call, or transcript estimate when provider reports all-zero usage (null if no messages yet)
          "input_tokens": number,           // Input tokens for current context
          "output_tokens": number,          // Output tokens generated
          "cache_creation_input_tokens": number,  // Tokens written to cache
-         "cache_read_input_tokens": number       // Tokens read from cache
+         "cache_read_input_tokens": number,      // Tokens read from cache
+         "is_estimated": boolean | undefined     // true when usage was estimated because provider did not report token counts
        } | null,
        "used_percentage": number | null,      // Pre-calculated: % of context used (0-100), null if no messages yet
        "remaining_percentage": number | null  // Pre-calculated: % of context remaining (0-100), null if no messages yet

@@ -148,3 +148,62 @@ test('does not append a blocked current model to filtered override options', asy
     stdout.end()
   }
 })
+
+test('matches current model to override options case-insensitively', async () => {
+  const { ModelPicker } = await import(
+    `./ModelPicker.js?case-current-${Date.now()}`
+  )
+  let output = ''
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+  ;(stdout as unknown as { columns: number }).columns = 120
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
+
+  const instance = await render(
+    <AppStateProvider
+      initialState={{
+        ...getDefaultAppState(),
+        mainLoopModel: 'GLM-5.2',
+      }}
+    >
+      <ModelPicker
+        initial="GLM-5.2"
+        onSelect={() => {}}
+        optionsOverride={[
+          {
+            value: 'glm-5.2',
+            label: 'GLM 5.2',
+            description: 'Provider: Hicap',
+          },
+        ]}
+      />
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => stripAnsi(output).includes('GLM 5.2'))
+    const rendered = stripAnsi(output)
+    expect(rendered).toContain('GLM 5.2')
+    expect(rendered).not.toContain('Current model')
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})

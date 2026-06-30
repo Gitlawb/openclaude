@@ -29,11 +29,11 @@ import { errorMessage } from '../utils/errors.js';
 import type { FileHistorySnapshot } from '../utils/fileHistory.js';
 import { logError } from '../utils/log.js';
 import { createSystemMessage } from '../utils/messages.js';
-import { computeStandaloneAgentContext, restoreAgentFromSession, restoreWorktreeForResume } from '../utils/sessionRestore.js';
+import { computeStandaloneAgentContext, createForkSessionInfoMessage, restoreAgentFromSession, restoreWorktreeForResume } from '../utils/sessionRestore.js';
 import { adoptResumedSessionFile, enrichLogs, isCustomTitleEnabled, loadAllProjectsMessageLogsProgressive, loadSameRepoMessageLogsProgressive, recordContentReplacement, resetSessionFilePointer, restoreSessionMetadata, type SessionLogResult } from '../utils/sessionStorage.js';
 import type { ModelSetting } from '../utils/model/model.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
-import type { ContentReplacementRecord } from '../utils/toolResultStorage.js';
+import { filterContentReplacementsForMessages, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
 import { REPL } from './REPL.js';
 function parsePrIdentifier(value: string): number | null {
   const directNumber = parseInt(value, 10);
@@ -231,7 +231,13 @@ export function ResumeConversation({
         await resetSessionFilePointer();
         restoreCostStateForSession(result_3.sessionId);
       } else if (forkSession && result_3.contentReplacements?.length) {
-        await recordContentReplacement(result_3.contentReplacements);
+        result_3.contentReplacements = filterContentReplacementsForMessages(result_3.messages, result_3.contentReplacements);
+        if (result_3.contentReplacements.length) {
+          await recordContentReplacement(result_3.contentReplacements);
+        }
+      }
+      if (forkSession) {
+        result_3.messages.push(createForkSessionInfoMessage(result_3.sessionId ?? log_0.sessionId));
       }
       const {
         agentDefinition: resolvedAgentDef

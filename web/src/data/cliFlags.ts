@@ -65,7 +65,7 @@ export const flagGroups: FlagGroup[] = [
     flags: [
       { flag: '-c, --continue', description: 'Continue the most recent conversation in the current directory.' },
       { flag: '-r, --resume', arg: '[id]', description: 'Resume a conversation by session ID, or open the interactive picker with an optional search term.' },
-      { flag: '--fork-session', description: 'When resuming, create a new session ID instead of reusing the original.' },
+      { flag: '--fork-session', description: 'When resuming, branch the conversation into a new session ID. This does not create filesystem or worktree isolation.' },
       { flag: '--from-pr', arg: '[pr]', description: 'Resume a session linked to a PR by number/URL, or open the interactive picker.' },
       { flag: '--session-id', arg: '<uuid>', description: 'Use a specific session ID for the conversation (must be a valid UUID).' },
       { flag: '-n, --name', arg: '<name>', description: 'Set a display name for this session (shown in /resume and the terminal title).' },

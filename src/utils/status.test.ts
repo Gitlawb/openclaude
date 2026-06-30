@@ -153,6 +153,60 @@ test('buildAPIProviderProperties redacts token-bearing OpenAI-compatible base UR
   expect(serialized).not.toContain('fragment-leak')
 })
 
+test('buildAPIProviderProperties does not substring-redact short configured secrets', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1?credential=1'
+  process.env.OPENAI_MODEL = 'gpt-4.1'
+  process.env.OPENAI_API_KEY = '1'
+
+  const properties = await readAPIProviderProperties('openai')
+
+  expect(properties.find(property => property.label === 'OpenAI base URL')?.value).toBe(
+    'https://api.openai.com/v1?credential=redacted',
+  )
+  expect(properties.find(property => property.label === 'Model')?.value).toBe(
+    'gpt-4.1',
+  )
+})
+
+test('buildAPIProviderProperties redacts double-encoded configured secrets outside URL query values', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.openai.com/abc%252FdefSecret987/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o abc%252FdefSecret987'
+  process.env.OPENAI_API_KEY = 'abc/defSecret987'
+
+  const properties = await readAPIProviderProperties('openai')
+
+  expect(properties.find(property => property.label === 'OpenAI base URL')?.value).toBe(
+    'https://api.openai.com/redacted/v1',
+  )
+  expect(properties.find(property => property.label === 'Model')?.value).toBe(
+    'gpt-4o redacted',
+  )
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('abc%252FdefSecret987')
+})
+
+test('buildAPIProviderProperties redacts percent-encoded configured secret punctuation outside URL query values', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.openai.com/abc%21defSecret987/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o abc%21defSecret987'
+  process.env.OPENAI_API_KEY = 'abc!defSecret987'
+
+  const properties = await readAPIProviderProperties('openai')
+
+  expect(properties.find(property => property.label === 'OpenAI base URL')?.value).toBe(
+    'https://api.openai.com/redacted/v1',
+  )
+  expect(properties.find(property => property.label === 'Model')?.value).toBe(
+    'gpt-4o redacted',
+  )
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('abc%21defSecret987')
+})
+
 test('buildAPIProviderProperties redacts token-bearing Gemini base URLs', async () => {
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.GEMINI_BASE_URL =

@@ -1325,6 +1325,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
+        OPENAI_API_KEYS: undefined as any,
         OPENAI_API_KEY: undefined as any,
         OPENAI_ORG: undefined as any,
         OPENAI_PROJECT: undefined as any,
@@ -1344,6 +1345,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_MODEL = GITHUB_PROVIDER_DEFAULT_MODEL
+    delete process.env.OPENAI_API_KEYS
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT
@@ -1394,6 +1396,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.CLAUDE_CODE_USE_GITHUB
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_KEYS
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT

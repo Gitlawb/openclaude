@@ -33,7 +33,8 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', modelDescriptorId: 'kimi-for-coding' },
+      { id: 'kimi-k2.7-code', apiName: 'kimi-k2.7-code', aliases: ['moonshotai/kimi-k2.7-code'], label: 'Kimi K2.7 Code', modelDescriptorId: 'kimi-k2.7-code', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { supportsVision: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high'], defaultLevel: 'medium', wireFormat: 'reasoning_effort' } },
+      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', modelDescriptorId: 'kimi-for-coding', contextWindow: 262_144, maxOutputTokens: 32_768, capabilities: { supportsVision: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high'], defaultLevel: 'medium', wireFormat: 'reasoning_effort' } },
     ],
   },
   usage: { supported: false },

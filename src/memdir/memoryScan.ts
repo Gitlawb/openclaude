@@ -4,9 +4,11 @@
  * the API-client chain (which closed a cycle through memdir.ts — #25372).
  */
 
+import type { Dirent } from 'fs'
 import { readdir } from 'fs/promises'
-import { basename, join } from 'path'
+import { join } from 'path'
 import { parseFrontmatter } from '../utils/frontmatterParser.js'
+import type { ReadFileRangeResult } from '../utils/readFileInRange.js'
 import { readFileInRange } from '../utils/readFileInRange.js'
 import { type MemoryType, parseMemoryType } from './memoryTypes.js'
 
@@ -20,6 +22,36 @@ export type MemoryHeader = {
 
 const MAX_MEMORY_FILES = 200
 const FRONTMATTER_MAX_LINES = 30
+const FRONTMATTER_MAX_BYTES = 64 * 1024
+const MAX_DEPTH = 3
+const HEADER_READ_CONCURRENCY = 8
+
+type MemoryScanDirent = Pick<
+  Dirent,
+  'name' | 'isFile' | 'isDirectory' | 'isSymbolicLink'
+>
+
+type MemoryScanDependencies = {
+  readdir: (dir: string) => Promise<MemoryScanDirent[]>
+  readFileInRange: (
+    filePath: string,
+    offset: number,
+    maxLines: number,
+    maxBytes: number,
+    signal: AbortSignal,
+    options: { truncateOnByteLimit: true },
+  ) => Promise<Pick<ReadFileRangeResult, 'content' | 'mtimeMs'>>
+}
+
+type RankedMemoryHeader = {
+  header: MemoryHeader
+  order: number
+}
+
+const defaultDependencies: MemoryScanDependencies = {
+  readdir: dir => readdir(dir, { withFileTypes: true }),
+  readFileInRange,
+}
 
 /**
  * Scan a memory directory for .md files, read their frontmatter, and return
@@ -27,60 +59,177 @@ const FRONTMATTER_MAX_LINES = 30
  * findRelevantMemories (query-time recall) and extractMemories (pre-injects
  * the listing so the extraction agent doesn't spend a turn on `ls`).
  *
- * Single-pass: readFileInRange stats internally and returns mtimeMs, so we
- * read-then-sort rather than stat-sort-read. For the common case (N ≤ 200)
- * this halves syscalls vs a separate stat round; for large N we read a few
- * extra small files but still avoid the double-stat on the surviving 200.
+ * Traversal is depth-bounded before opening child directories. Header reads
+ * run through a small worker pool, and only the newest MAX_MEMORY_FILES
+ * parsed headers are retained while scanning.
  */
 export async function scanMemoryFiles(
   memoryDir: string,
   signal: AbortSignal,
 ): Promise<MemoryHeader[]> {
+  return scanMemoryFilesWithDependencies(memoryDir, signal, defaultDependencies)
+}
+
+async function scanMemoryFilesWithDependencies(
+  memoryDir: string,
+  signal: AbortSignal,
+  deps: MemoryScanDependencies,
+): Promise<MemoryHeader[]> {
   try {
-    const entries = await readdir(memoryDir, { recursive: true })
-    // Limit depth to 3 levels to prevent DoS from deep/symlinked directory trees.
-    // Relative paths from readdir use the OS separator, so count separators.
-    const sep = require('path').sep as string
-    const MAX_DEPTH = 3
-    const mdFiles = entries.filter(
-      f =>
-        f.endsWith('.md') &&
-        basename(f) !== 'MEMORY.md' &&
-        (f.split(sep).length - 1) < MAX_DEPTH,
-    )
+    signal.throwIfAborted()
+    const topHeaders: RankedMemoryHeader[] = []
+    const fileIterator = walkMarkdownFiles(
+      memoryDir,
+      signal,
+      deps,
+    )[Symbol.asyncIterator]()
+    let nextOrder = 0
 
-    const headerResults = await Promise.allSettled(
-      mdFiles.map(async (relativePath): Promise<MemoryHeader> => {
-        const filePath = join(memoryDir, relativePath)
-        const { content, mtimeMs } = await readFileInRange(
-          filePath,
-          0,
-          FRONTMATTER_MAX_LINES,
-          undefined,
-          signal,
-        )
-        const { frontmatter } = parseFrontmatter(content, filePath)
-        return {
-          filename: relativePath,
-          filePath,
-          mtimeMs,
-          description: frontmatter.description || null,
-          type: parseMemoryType(frontmatter.type),
+    const workers = Array.from({ length: HEADER_READ_CONCURRENCY }, async () => {
+      while (!signal.aborted) {
+        let next: IteratorResult<string>
+        try {
+          next = await fileIterator.next()
+        } catch (error) {
+          if (signal.aborted) return
+          throw error
         }
-      }),
-    )
+        if (next.done) return
+        const order = nextOrder++
 
-    return headerResults
-      .filter(
-        (r): r is PromiseFulfilledResult<MemoryHeader> =>
-          r.status === 'fulfilled',
-      )
-      .map(r => r.value)
-      .sort((a, b) => b.mtimeMs - a.mtimeMs)
-      .slice(0, MAX_MEMORY_FILES)
+        try {
+          const header = await readMemoryHeader(
+            memoryDir,
+            next.value,
+            signal,
+            deps,
+          )
+          if (signal.aborted) return
+          insertNewestHeader(topHeaders, { header, order })
+        } catch {
+          if (signal.aborted) return
+        }
+      }
+    })
+
+    await Promise.all(workers)
+    return signal.aborted ? [] : topHeaders.map(entry => entry.header)
   } catch {
     return []
   }
+}
+
+async function* walkMarkdownFiles(
+  memoryDir: string,
+  signal: AbortSignal,
+  deps: MemoryScanDependencies,
+): AsyncGenerator<string> {
+  const pendingDirs: Array<{
+    absolutePath: string
+    relativePath: string
+    depth: number
+  }> = [{ absolutePath: memoryDir, relativePath: '', depth: 0 }]
+
+  while (pendingDirs.length > 0) {
+    signal.throwIfAborted()
+    const current = pendingDirs.pop()!
+    let entries: MemoryScanDirent[]
+    try {
+      entries = await deps.readdir(current.absolutePath)
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      signal.throwIfAborted()
+      const relativePath = current.relativePath
+        ? join(current.relativePath, entry.name)
+        : entry.name
+      const absolutePath = join(memoryDir, relativePath)
+      const isMarkdownMemoryFile =
+        entry.name.endsWith('.md') && entry.name !== 'MEMORY.md'
+
+      if (entry.isSymbolicLink()) {
+        if (isMarkdownMemoryFile) {
+          yield relativePath
+        }
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        const nextDepth = current.depth + 1
+        if (nextDepth < MAX_DEPTH) {
+          pendingDirs.push({ absolutePath, relativePath, depth: nextDepth })
+        }
+        continue
+      }
+
+      if (entry.isFile() && isMarkdownMemoryFile) {
+        yield relativePath
+      }
+    }
+  }
+}
+
+async function readMemoryHeader(
+  memoryDir: string,
+  relativePath: string,
+  signal: AbortSignal,
+  deps: MemoryScanDependencies,
+): Promise<MemoryHeader> {
+  signal.throwIfAborted()
+  const filePath = join(memoryDir, relativePath)
+  const { content, mtimeMs } = await deps.readFileInRange(
+    filePath,
+    0,
+    FRONTMATTER_MAX_LINES,
+    FRONTMATTER_MAX_BYTES,
+    signal,
+    { truncateOnByteLimit: true },
+  )
+  const { frontmatter } = parseFrontmatter(content, filePath)
+  const description =
+    typeof frontmatter.description === 'string' && frontmatter.description
+      ? frontmatter.description
+      : null
+
+  return {
+    filename: relativePath,
+    filePath,
+    mtimeMs,
+    description,
+    type: parseMemoryType(frontmatter.type),
+  }
+}
+
+function insertNewestHeader(
+  headers: RankedMemoryHeader[],
+  entry: RankedMemoryHeader,
+): void {
+  const index = headers.findIndex(
+    existing =>
+      entry.header.mtimeMs > existing.header.mtimeMs ||
+      (entry.header.mtimeMs === existing.header.mtimeMs &&
+        entry.order < existing.order),
+  )
+  if (index === -1) {
+    if (headers.length < MAX_MEMORY_FILES) {
+      headers.push(entry)
+    }
+    return
+  }
+
+  headers.splice(index, 0, entry)
+  if (headers.length > MAX_MEMORY_FILES) {
+    headers.length = MAX_MEMORY_FILES
+  }
+}
+
+export const __test = {
+  FRONTMATTER_MAX_BYTES,
+  FRONTMATTER_MAX_LINES,
+  HEADER_READ_CONCURRENCY,
+  scanMemoryFilesWithDependencies,
 }
 
 /**

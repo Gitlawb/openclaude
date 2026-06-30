@@ -88,6 +88,33 @@ High-level architecture notes for ${projectName}.
 `
 }
 
+function buildConventionsTemplate(projectName: string): string {
+  return `# Project Conventions
+
+Auto-detected conventions for ${projectName}.
+
+## Build System
+
+- Detected on first scan.
+
+## Test Framework
+
+- Detected on first scan.
+
+## Package Manager
+
+- Detected on first scan.
+
+## Linting & Formatting
+
+- Detected on first scan.
+
+## Related
+
+- Run \`/wiki scan\` to re-scan project conventions.
+`
+}
+
 async function ensureFile(
   filePath: string,
   content: string,
@@ -128,6 +155,11 @@ export async function initializeWiki(cwd: string): Promise<WikiInitResult> {
   await ensureFile(
     `${paths.pagesDir}/architecture.md`,
     buildArchitectureTemplate(projectName),
+    createdFiles,
+  )
+  await ensureFile(
+    paths.conventionsFile,
+    buildConventionsTemplate(projectName),
     createdFiles,
   )
 

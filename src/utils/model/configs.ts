@@ -211,6 +211,22 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
   xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
+export const CLAUDE_OPUS_4_8_CONFIG = {
+  firstParty: 'claude-opus-4-8',
+  bedrock: 'us.anthropic.claude-opus-4-8-v1',
+  vertex: 'claude-opus-4-8',
+  foundry: 'claude-opus-4-8',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
+  github: 'github:copilot',
+  codex: 'gpt-5.5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  minimax: 'MiniMax-M2.5',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
+} as const satisfies LegacyProviderModelConfig
+
 export const CLAUDE_SONNET_4_6_CONFIG = {
   firstParty: 'claude-sonnet-4-6',
   bedrock: 'us.anthropic.claude-sonnet-4-6',
@@ -241,6 +257,7 @@ export const LEGACY_PROVIDER_MODEL_CONFIGS = {
   opus45: CLAUDE_OPUS_4_5_CONFIG,
   opus46: CLAUDE_OPUS_4_6_CONFIG,
   opus47: CLAUDE_OPUS_4_7_CONFIG,
+  opus48: CLAUDE_OPUS_4_8_CONFIG,
 } as const satisfies Record<string, LegacyProviderModelConfig>
 
 // Backward-compatible alias for existing imports.

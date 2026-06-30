@@ -69,6 +69,31 @@ describe('diagnostic issue report', () => {
     expect(serialized).not.toContain('server.js')
   })
 
+  test('does not report delimiter-only OpenAI credential pools as present', async () => {
+    const report = await buildIssueReport({
+      env: {
+        ...baseEnv,
+        OPENAI_API_KEYS: ', ,',
+        OPENAI_API_KEY: undefined,
+      },
+      cwd: '/home/alice/private/openclaude',
+      now: new Date('2026-06-15T10:30:00.000Z'),
+      checks: {
+        buildArtifactsPresent: true,
+        ripgrep: { available: true, detail: 'system rg' },
+      },
+      settings: {
+        sourcesPresent: [],
+        validationErrors: [],
+      },
+      mcpServers: {},
+      errors: [],
+    })
+
+    expect(report.provider.credential.present).toBe(false)
+    expect(report.provider.credential.sources).toEqual([])
+  })
+
   test('formats markdown suitable for a GitHub issue', async () => {
     const report = await buildIssueReport({
       env: baseEnv,

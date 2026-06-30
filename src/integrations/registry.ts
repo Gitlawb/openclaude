@@ -18,6 +18,41 @@ const _anthropicProxies = new Map<string, AnthropicProxyDescriptor>()
 const _models = new Map<string, ModelDescriptor>()
 
 // ---------------------------------------------------------------------------
+// Lazy loading
+// ---------------------------------------------------------------------------
+// The descriptor catalog (~10k lines of generated vendor/gateway/model data)
+// is expensive to evaluate, so index.ts registers a loader here instead of
+// populating the registry at import time. The first read-side call runs it;
+// register* intentionally does NOT (the loader itself registers, and test
+// fixtures must be able to register into an empty registry).
+
+let _lazyLoader: (() => void) | null = null
+let _lazyLoaderRunning = false
+
+export function setRegistryLazyLoader(loader: () => void): void {
+  _lazyLoader = loader
+}
+
+function ensureLoaded(): void {
+  // Re-entrancy guard: the loader registers descriptors, and registration can
+  // itself reach a read getter; skip while it's running so we don't recurse.
+  if (!_lazyLoader || _lazyLoaderRunning) {
+    return
+  }
+  const loader = _lazyLoader
+  _lazyLoaderRunning = true
+  try {
+    loader()
+    // Clear only after the loader succeeds, so a failed lazy import or
+    // descriptor registration retries on the next read instead of leaving the
+    // registry permanently empty/partial.
+    _lazyLoader = null
+  } finally {
+    _lazyLoaderRunning = false
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -61,22 +96,27 @@ export function registerModel(d: ModelDescriptor): void {
 // ---------------------------------------------------------------------------
 
 export function getBrand(id: string): BrandDescriptor | undefined {
+  ensureLoaded()
   return _brands.get(id)
 }
 
 export function getVendor(id: string): VendorDescriptor | undefined {
+  ensureLoaded()
   return _vendors.get(id)
 }
 
 export function getGateway(id: string): GatewayDescriptor | undefined {
+  ensureLoaded()
   return _gateways.get(id)
 }
 
 export function getAnthropicProxy(id: string): AnthropicProxyDescriptor | undefined {
+  ensureLoaded()
   return _anthropicProxies.get(id)
 }
 
 export function getModel(id: string): ModelDescriptor | undefined {
+  ensureLoaded()
   return _models.get(id)
 }
 
@@ -85,22 +125,27 @@ export function getModel(id: string): ModelDescriptor | undefined {
 // ---------------------------------------------------------------------------
 
 export function getAllBrands(): BrandDescriptor[] {
+  ensureLoaded()
   return Array.from(_brands.values())
 }
 
 export function getAllVendors(): VendorDescriptor[] {
+  ensureLoaded()
   return Array.from(_vendors.values())
 }
 
 export function getAllGateways(): GatewayDescriptor[] {
+  ensureLoaded()
   return Array.from(_gateways.values())
 }
 
 export function getAllAnthropicProxies(): AnthropicProxyDescriptor[] {
+  ensureLoaded()
   return Array.from(_anthropicProxies.values())
 }
 
 export function getAllModels(): ModelDescriptor[] {
+  ensureLoaded()
   return Array.from(_models.values())
 }
 
@@ -109,14 +154,17 @@ export function getAllModels(): ModelDescriptor[] {
 // ---------------------------------------------------------------------------
 
 export function getCatalogForGateway(gatewayId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
+  ensureLoaded()
   return _gateways.get(gatewayId)?.catalog
 }
 
 export function getCatalogForVendor(vendorId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
+  ensureLoaded()
   return _vendors.get(vendorId)?.catalog
 }
 
 export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] {
+  ensureLoaded()
   const gateway = _gateways.get(routeId)
   if (gateway?.catalog?.models) {
     return gateway.catalog.models
@@ -129,10 +177,12 @@ export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] 
 }
 
 export function getModelsForBrand(brandId: string): ModelDescriptor[] {
+  ensureLoaded()
   return getAllModels().filter(m => m.brandId === brandId)
 }
 
 export function getModelsForGateway(gatewayId: string): ModelDescriptor[] {
+  ensureLoaded()
   const entries = getCatalogEntriesForRoute(gatewayId)
   return entries
     .map(e => {
@@ -145,6 +195,7 @@ export function getModelsForGateway(gatewayId: string): ModelDescriptor[] {
 }
 
 export function getModelsForVendor(vendorId: string): ModelDescriptor[] {
+  ensureLoaded()
   const entries = getCatalogEntriesForRoute(vendorId)
   return entries
     .map(e => {
@@ -157,6 +208,7 @@ export function getModelsForVendor(vendorId: string): ModelDescriptor[] {
 }
 
 export function getBrandsForVendor(vendorId: string): BrandDescriptor[] {
+  ensureLoaded()
   return getAllBrands().filter(b => b.canonicalVendorId === vendorId)
 }
 
@@ -165,6 +217,7 @@ export function getBrandsForVendor(vendorId: string): BrandDescriptor[] {
 // ---------------------------------------------------------------------------
 
 export function validateIntegrationRegistry(): RegistryValidationResult {
+  ensureLoaded()
   const errors: string[] = []
   const warnings: string[] = []
   const allVendors = getAllVendors()
@@ -388,6 +441,11 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 // ---------------------------------------------------------------------------
 
 export function _clearRegistryForTesting(): void {
+  // Also drop the lazy loader: after an explicit clear, tests expect reads to
+  // see only fixtures they register (call ensureIntegrationsLoaded() to reload
+  // the real catalog).
+  _lazyLoader = null
+  _lazyLoaderRunning = false
   _brands.clear()
   _vendors.clear()
   _gateways.clear()

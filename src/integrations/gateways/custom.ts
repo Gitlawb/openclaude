@@ -44,7 +44,7 @@ export default defineGateway({
     description: 'Any OpenAI-compatible provider',
     label: 'Custom',
     name: 'Custom OpenAI-compatible',
-    apiKeyEnvVars: ['OPENAI_API_KEY'],
+    apiKeyEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     baseUrlEnvVars: ['OPENAI_BASE_URL', 'OPENAI_API_BASE'],
     modelEnvVars: ['OPENAI_MODEL'],
     fallbackBaseUrl: 'http://localhost:11434/v1',

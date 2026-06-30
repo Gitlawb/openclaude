@@ -8,6 +8,7 @@ import goal from './commands/goal/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
+import clearContextWindow from './commands/clear-context-window/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
 import commitMessage from './commands/commit-message/index.js'
@@ -44,6 +45,7 @@ import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
 import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
+import replay from './commands/replay/index.js'
 import {
   requestSize,
   requestSizeNonInteractive,
@@ -51,6 +53,7 @@ import {
 import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
+import setContextWindow from './commands/set-context-window/index.js'
 import share from './commands/share/index.js'
 import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
@@ -162,6 +165,7 @@ import sandboxToggle from './commands/sandbox-toggle/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
+import ads from './commands/ads.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -272,6 +276,7 @@ export const INTERNAL_ONLY_COMMANDS = [
 const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
+  ads,
   agents,
   autoFix,
   branch,
@@ -283,6 +288,7 @@ const COMMANDS = memoize((): Command[] => [
   cacheStats,
   chrome,
   clear,
+  clearContextWindow,
   color,
   compact,
   commitMessage,
@@ -323,10 +329,12 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  replay,
   requestSize,
   requestSizeNonInteractive,
   resume,
   session,
+  setContextWindow,
   skills,
   stats,
   status,

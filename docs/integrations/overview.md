@@ -24,6 +24,7 @@ docs/
   integrations/
     overview.md
     glossary.md
+    reasoning-effort.md
     how-to/
       add-vendor.md
       add-gateway.md
@@ -43,9 +44,11 @@ If you are onboarding to the integration system:
 
 1. Read `docs/architecture/integrations.md` for the system boundaries.
 2. Read `docs/integrations/glossary.md` for the shared vocabulary.
-3. Use the how-to guides for the specific descriptor type you are adding.
-4. Use `docs/integrations/reference-samples.md` once the architecture and the relevant how-to guide are clear.
-5. Read `docs/integrations/common-pitfalls.md` before opening a docs or implementation PR for a new integration.
+3. Read `docs/integrations/reasoning-effort.md` before marking models as
+   reasoning-capable or `/effort`-controllable.
+4. Use the how-to guides for the specific descriptor type you are adding.
+5. Use `docs/integrations/reference-samples.md` once the architecture and the relevant how-to guide are clear.
+6. Read `docs/integrations/common-pitfalls.md` before opening a docs or implementation PR for a new integration.
 
 ## Core Rules
 
@@ -114,6 +117,14 @@ advanced `/provider add` and `/provider edit` fields for OpenAI-compatible
 routes. Fixed direct vendors usually set both to `false`; broad custom routes
 or gateways that intentionally accept user-supplied auth/header details set the
 relevant flag to `true`.
+
+### Reasoning support is per model and per route
+
+`capabilities.supportsReasoning` is descriptive. It says the model is known to
+reason or think, but it does not by itself authorize `/effort` to add request
+fields. Only add `reasoning` metadata when the exact route/model request shape,
+accepted levels, and disable behavior have been verified. See
+`docs/integrations/reasoning-effort.md`.
 
 ## Descriptor Authoring Pattern
 

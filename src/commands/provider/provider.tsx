@@ -50,6 +50,7 @@ import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
   sanitizeApiKey,
+  sanitizeOpenAICredentialPool,
   sanitizeProviderConfigValue,
   saveProfileFile,
   type ProfileEnv,
@@ -477,7 +478,10 @@ function buildSavedProfileSummary(
           env,
         ),
         credentialLabel:
-          maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined
+          maskSecretForDisplay(
+            sanitizeOpenAICredentialPool(env.OPENAI_API_KEYS) ??
+              sanitizeOpenAICredentialPool(env.OPENAI_API_KEY),
+          ) !== undefined
             ? 'configured'
             : undefined,
       }
@@ -1370,28 +1374,29 @@ export function ProviderWizard({
     case 'openai-key':
       {
         const openAIMetadata = getProviderPresetUiMetadata('openai')
+        const currentOpenAIApiKey = openAIMetadata.apiKey
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title={`${openAIMetadata.name} setup`}
           subtitle="Step 1 of 3"
           description={
-            process.env.OPENAI_API_KEY
-              ? `Enter an API key, or leave this blank to reuse the current ${openAIMetadata.credentialEnvVars[0] ?? 'OPENAI_API_KEY'} from this session.`
+            currentOpenAIApiKey
+              ? 'Enter an API key, or leave this blank to reuse the current OpenAI credentials from this session.'
               : `Enter the API key for ${openAIMetadata.name}.`
           }
           initialValue=""
           placeholder="sk-..."
           mask="*"
-          allowEmpty={Boolean(process.env.OPENAI_API_KEY)}
+          allowEmpty={Boolean(currentOpenAIApiKey)}
           validate={value => {
-            const candidate = value.trim() || process.env.OPENAI_API_KEY || ''
-            return sanitizeApiKey(candidate)
+            const candidate = value.trim() || currentOpenAIApiKey
+            return sanitizeOpenAICredentialPool(candidate)
               ? null
               : 'Enter a real API key. Placeholder values like SUA_CHAVE are not valid.'
           }}
           onSubmit={value => {
-            const apiKey = value.trim() || process.env.OPENAI_API_KEY || ''
+            const apiKey = value.trim() || currentOpenAIApiKey
             setStep({
               name: 'openai-base',
               apiKey,

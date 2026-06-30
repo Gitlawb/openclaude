@@ -303,10 +303,32 @@ export function saveMarketplaceToSettings(
 }
 
 /**
+ * Marketplace names are user-supplied and are used directly as object keys for
+ * membership and lookup (`config[name]`) all over this module. On a normal
+ * object, a name that shadows an `Object.prototype` member — `constructor`,
+ * `__proto__`, `toString`, `hasOwnProperty`, … — resolves up the prototype
+ * chain to an inherited value, so `config[name]` is truthy even when no such
+ * marketplace is registered. That makes "not found" guards pass and then act on
+ * a bogus inherited entry (silently mis-deleting or crashing on
+ * `entry.installLocation`). Returning a null-prototype object makes every
+ * `config[name]` lookup own-property-exact.
+ */
+function toNullProtoConfig(
+  config: KnownMarketplacesConfig,
+): KnownMarketplacesConfig {
+  return Object.assign(
+    Object.create(null) as KnownMarketplacesConfig,
+    config,
+  )
+}
+
+/**
  * Load known marketplaces configuration from disk
  *
  * Reads the configuration file at ~/.claude/plugins/known_marketplaces.json
  * which contains a mapping of marketplace names to their sources and metadata.
+ * The returned config is null-prototype (see {@link toNullProtoConfig}) so that
+ * lookups by user-supplied marketplace name are own-property-exact.
  *
  * Example configuration file content:
  * ```json
@@ -344,10 +366,10 @@ export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesCo
       })
       throw new ConfigParseError(errorMsg, configFile, data)
     }
-    return parsed.data
+    return toNullProtoConfig(parsed.data)
   } catch (error) {
     if (isENOENT(error)) {
-      return {}
+      return toNullProtoConfig({})
     }
     // If it's already a ConfigParseError, re-throw it
     if (error instanceof ConfigParseError) {
@@ -377,7 +399,7 @@ export async function loadKnownMarketplacesConfigSafe(): Promise<KnownMarketplac
   } catch {
     // Inner function already logged via logForDebugging. Don't logError here —
     // corrupted user config isn't a Claude Code bug, shouldn't hit the error file.
-    return {}
+    return toNullProtoConfig({})
   }
 }
 
@@ -2174,7 +2196,7 @@ export async function getMarketplaceCacheOnly(
 
   try {
     const content = await fs.readFile(configFile, { encoding: 'utf-8' })
-    const config = jsonParse(content) as KnownMarketplacesConfig
+    const config = toNullProtoConfig(jsonParse(content) as KnownMarketplacesConfig)
     const entry = config[name]
 
     if (!entry) {
@@ -2288,7 +2310,7 @@ export async function getPluginByIdCacheOnly(pluginId: string): Promise<{
 
   try {
     const content = await fs.readFile(configFile, { encoding: 'utf-8' })
-    const config = jsonParse(content) as KnownMarketplacesConfig
+    const config = toNullProtoConfig(jsonParse(content) as KnownMarketplacesConfig)
     const marketplaceConfig = config[marketplaceName]
 
     if (!marketplaceConfig) {

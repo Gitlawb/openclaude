@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
 import { createGoalState } from '../services/goal/state.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
+import { INTERRUPT_MESSAGE } from '../utils/messages.js'
 import { handleStopHooks } from './stopHooks.js'
 import type { GoalEvaluationDeps } from '../services/goal/controller.js'
 
@@ -229,5 +230,79 @@ describe('goal continuation stop-hook precedence', () => {
     expect(yieldedUserMessages).toHaveLength(1)
     expect(yieldedUserMessages[0]).toBe(returned.blockingErrors[0])
     expect(yieldedUserMessages[0].message.content).toContain('Run tests.')
+  })
+})
+
+function interruptionMessages(yielded: any[]) {
+  return yielded.filter(
+    message =>
+      message.type === 'user' &&
+      Array.isArray(message.message.content) &&
+      message.message.content.some(
+        (part: any) => part.type === 'text' && part.text === INTERRUPT_MESSAGE,
+      ),
+  )
+}
+
+describe('handleStopHooks abort-reason handling', () => {
+  test('abort reason "interrupt" suppresses the synthetic interruption message', async () => {
+    const appStateRef = { current: getDefaultAppState() }
+    const toolUseContext = makeToolUseContext(appStateRef)
+
+    const { yielded, returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        toolUseContext,
+        'sdk',
+        false,
+        undefined,
+        {
+          // Abort while the Stop-hook generator is being consumed so the
+          // abort branch in handleStopHooks runs with reason 'interrupt'.
+          executeStopHooks: async function* () {
+            toolUseContext.abortController.abort('interrupt')
+            yield {} as any
+          },
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+    expect(returned.preventContinuation).toBe(true)
+  })
+
+  test('default abort still yields the synthetic interruption message', async () => {
+    const appStateRef = { current: getDefaultAppState() }
+    const toolUseContext = makeToolUseContext(appStateRef)
+
+    const { yielded, returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        toolUseContext,
+        'sdk',
+        false,
+        undefined,
+        {
+          // Default abort (user cancel) must still emit the interruption.
+          executeStopHooks: async function* () {
+            toolUseContext.abortController.abort()
+            yield {} as any
+          },
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    expect(interruptionMessages(yielded)).toHaveLength(1)
+    expect(returned.preventContinuation).toBe(true)
   })
 })

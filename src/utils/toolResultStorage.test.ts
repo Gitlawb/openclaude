@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test'
 
 import { createUserMessage } from './messages.ts'
-import { applyToolResultReplacementsToMessages } from './toolResultStorage.ts'
+import {
+  applyToolResultReplacementsToMessages,
+  filterContentReplacementsForMessages,
+} from './toolResultStorage.ts'
 
 test('applyToolResultReplacementsToMessages replaces matching tool results and preserves unrelated messages', () => {
   const unrelated = createUserMessage({ content: 'keep me' })
@@ -56,4 +59,33 @@ test('applyToolResultReplacementsToMessages is idempotent when messages are alre
   )
 
   expect(next).toBe(messages)
+})
+
+test('filterContentReplacementsForMessages keeps only records for retained tool results', () => {
+  const retained = createUserMessage({
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool-1',
+        content: 'large retained output',
+        is_error: false,
+      },
+    ],
+  })
+  const kept = {
+    kind: 'tool-result' as const,
+    toolUseId: 'tool-1',
+    replacement: '[retained preview]',
+  }
+
+  expect(
+    filterContentReplacementsForMessages([retained], [
+      kept,
+      {
+        kind: 'tool-result',
+        toolUseId: 'tool-2',
+        replacement: '[dropped preview]',
+      },
+    ]),
+  ).toEqual([kept])
 })

@@ -135,6 +135,7 @@ export function AgentsMenu(t0) {
       localSettings: t7,
       flagSettings: t8,
       plugin: t9,
+      sdk: allAgents.filter(a => a.source === "sdk"),
       all: allAgents
     };
     $[16] = allAgents;
@@ -202,7 +203,7 @@ export function AgentsMenu(t0) {
       {
         let t13;
         if ($[28] !== agentsBySource || $[29] !== modeState.source) {
-          t13 = modeState.source === "all" ? [...agentsBySource["built-in"], ...agentsBySource.userSettings, ...agentsBySource.projectSettings, ...agentsBySource.localSettings, ...agentsBySource.policySettings, ...agentsBySource.flagSettings, ...agentsBySource.plugin] : agentsBySource[modeState.source];
+          t13 = modeState.source === "all" ? [...agentsBySource["built-in"], ...agentsBySource.userSettings, ...agentsBySource.projectSettings, ...agentsBySource.localSettings, ...agentsBySource.policySettings, ...agentsBySource.flagSettings, ...agentsBySource.plugin, ...agentsBySource.sdk] : agentsBySource[modeState.source];
           $[28] = agentsBySource;
           $[29] = modeState.source;
           $[30] = t13;
@@ -320,7 +321,7 @@ export function AgentsMenu(t0) {
         }
         const freshAgent_1 = t13;
         const agentToUse = freshAgent_1 || modeState.agent;
-        const isEditable = agentToUse.source !== "built-in" && agentToUse.source !== "plugin" && agentToUse.source !== "flagSettings";
+        const isEditable = agentToUse.source !== "built-in" && agentToUse.source !== "plugin" && agentToUse.source !== "flagSettings" && agentToUse.source !== "sdk";
         const isActiveAgent = agentToUse.agentType === activeAgentName;
         const sessionAgentToUse = agents.find(a_10 => a_10.agentType === agentToUse.agentType) ?? agentToUse;
         const editableItems = isEditable ? [{

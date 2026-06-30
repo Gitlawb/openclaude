@@ -243,6 +243,21 @@ afterEach(async () => {
   }
 })
 
+describe('isFastModeSupportedByModel — Opus model gate (#1769)', () => {
+  test('supports the current default Opus (now 4.8), matching the /fast UI', async () => {
+    forceFirstPartyProviderEnv()
+    await installCommonMocks({ cachedEnabled: true, oauthToken: 'tok' })
+    const { isFastModeSupportedByModel } = await importFreshFastModeModule()
+    await prepareFastModeTestState()
+
+    // The 'opus' alias resolves to getDefaultOpusModel() = claude-opus-4-8 for
+    // first-party. The predicate must recognize it, or the "/fast" UI ("Opus
+    // 4.8 only") and runtime behavior disagree. (Pre-fix this returned false
+    // because the predicate only matched opus-4-6.)
+    expect(isFastModeSupportedByModel('opus')).toBe(true)
+  })
+})
+
 describe('fastMode ant-only fallback cleanup', () => {
   test('resolveFastModeStatusFromCache does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'

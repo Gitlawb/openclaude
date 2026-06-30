@@ -50,12 +50,22 @@ export type StatusLineCommandInput = {
   context_window: {
     total_input_tokens: number
     total_output_tokens: number
+    /**
+     * Present when session totals include transcript-based estimates for one
+     * or more turns whose provider did not report token usage.
+     */
+    total_tokens_are_estimated?: boolean
     context_window_size: number
     current_usage: {
       input_tokens: number
       output_tokens: number
       cache_creation_input_tokens: number
       cache_read_input_tokens: number
+      /**
+       * Present when the active provider did not report token usage and
+       * OpenClaude estimated the current context from the transcript.
+       */
+      is_estimated?: boolean
     } | null
     used_percentage: number | null
     remaining_percentage: number | null

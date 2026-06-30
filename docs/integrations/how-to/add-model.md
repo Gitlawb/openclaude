@@ -65,6 +65,17 @@ editing multiple shared model files. In the common path:
   one route;
 - let the route catalog continue to own the offered subset.
 
+## Reasoning and `/effort` metadata
+
+Use `classification: ['reasoning']` and `capabilities.supportsReasoning` to
+describe that a model is known to reason or think. Those fields do not by
+themselves enable `/effort` request mutation.
+
+Only add `reasoning` metadata when the model's exact control surface has been
+verified for the route that will call it, including accepted levels, rejected
+levels, and any thinking-disable format. For the full checklist, see
+`docs/integrations/reasoning-effort.md`.
+
 ## When to add a brand descriptor
 
 Add or update a brand descriptor when:

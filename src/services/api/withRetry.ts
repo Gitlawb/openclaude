@@ -104,6 +104,12 @@ function shouldRetry529(querySource: QuerySource | undefined): boolean {
 const PERSISTENT_MAX_BACKOFF_MS = 5 * 60 * 1000
 const PERSISTENT_RESET_CAP_MS = 6 * 60 * 60 * 1000
 const HEARTBEAT_INTERVAL_MS = 30_000
+const PERSISTENT_MAX_ATTEMPTS = 100
+// Exposed for unit-test assertion only. The persistent retry cap itself is
+// driven by isPersistentRetryEnabled() — there is no runtime override seam
+// (tests must enable UNATTENDED_RETRY via `bun test --feature=UNATTENDED_RETRY`
+// and set CLAUDE_CODE_UNATTENDED_RETRY to exercise this path).
+export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, isPersistentRetryEnabled }
 
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
@@ -194,6 +200,7 @@ export async function* withRetry<T>(
   options: RetryOptions,
 ): AsyncGenerator<SystemAPIErrorMessage, T> {
   const maxRetries = getMaxRetries(options)
+  const persistentRetryEnabled = isPersistentRetryEnabled()
   const retryContext: RetryContext = {
     model: options.model,
     thinkingConfig: options.thinkingConfig,
@@ -293,7 +300,7 @@ export async function* withRetry<T>(
       // keep-alive path instead of fast-mode cache-preservation anyway.
       if (
         wasFastModeActive &&
-        !isPersistentRetryEnabled() &&
+        !persistentRetryEnabled &&
         error instanceof APIError &&
         (error.status === 429 || is529Error(error))
       ) {
@@ -380,7 +387,7 @@ export async function* withRetry<T>(
           if (
             process.env.USER_TYPE === 'external' &&
             !process.env.IS_SANDBOX &&
-            !isPersistentRetryEnabled()
+            !persistentRetryEnabled
           ) {
             logEvent('tengu_api_custom_529_overloaded_error', {})
             throw new CannotRetryError(
@@ -393,14 +400,37 @@ export async function* withRetry<T>(
 
       // Only retry if the error indicates we should
       const persistent =
-        isPersistentRetryEnabled() && isTransientCapacityError(error)
+        persistentRetryEnabled && isTransientCapacityError(error)
       if (attempt > maxRetries && !persistent) {
+        throw new CannotRetryError(error, retryContext)
+      }
+      // Cap persistent retries to prevent unbounded loops (100 attempts * ~5min max backoff = 8 hours).
+      // NOTE: the "~8 hours" estimate applies only to the exponential-backoff path. The
+      // reset-delay path can wait up to PERSISTENT_RESET_CAP_MS (6 hours) per attempt, so
+      // exhausting 100 attempts can take far longer.
+      if (persistent && persistentAttempt >= PERSISTENT_MAX_ATTEMPTS) {
+        logEvent('tengu_api_persistent_retry_cap_reached', {
+          error: (error as APIError).message as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          status: (error as APIError).status,
+          model: retryContext.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          persistentAttempt,
+          PERSISTENT_MAX_BACKOFF_MS,
+          PERSISTENT_MAX_ATTEMPTS,
+          provider: getAPIProviderForStatsig(),
+        })
         throw new CannotRetryError(error, retryContext)
       }
 
       // AWS/GCP errors aren't always APIError, but can be retried
       const handledCloudAuthError =
         handleAwsCredentialError(error) || handleGcpCredentialError(error)
+      if (
+        !handledCloudAuthError &&
+        (!(error instanceof APIError) ||
+          !shouldRetry(error, persistentRetryEnabled))
+      ) {
+        throw new CannotRetryError(error, retryContext)
+      }
 
       // OpenRouter / OpenAI-compatible quota gateways: HTTP 402 with the
       // affordable max_tokens in the message. Retry once at the affordable
@@ -426,13 +456,6 @@ export async function* withRetry<T>(
         if (affordData) {
           throw new CannotRetryError(error, retryContext)
         }
-      }
-
-      if (
-        !handledCloudAuthError &&
-        (!(error instanceof APIError) || !shouldRetry(error))
-      ) {
-        throw new CannotRetryError(error, retryContext)
       }
 
       // Handle max tokens context overflow errors by adjusting max_tokens for the next attempt
@@ -783,7 +806,7 @@ function handleGcpCredentialError(error: unknown): boolean {
   return false
 }
 
-function shouldRetry(error: APIError): boolean {
+function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean {
   // Never retry mock errors - they're from /mock-limits command for testing
   if (isMockRateLimitError(error)) {
     return false
@@ -791,7 +814,7 @@ function shouldRetry(error: APIError): boolean {
 
   // Persistent mode: 429/529 always retryable, bypass subscriber gates and
   // x-should-retry header.
-  if (isPersistentRetryEnabled() && isTransientCapacityError(error)) {
+  if (persistentRetryEnabled && isTransientCapacityError(error)) {
     return true
   }
 

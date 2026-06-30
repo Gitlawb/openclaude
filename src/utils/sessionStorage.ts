@@ -25,9 +25,9 @@ import {
   getOriginalCwd,
   getPlanSlugCache,
   getPromptId,
+  getReplayIndexBuilder,
   getSessionId,
   getSessionProjectDir,
-  isSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
 import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
@@ -51,6 +51,7 @@ import {
   type LogOption,
   type PersistedWorktreeSession,
   type SerializedMessage,
+  type SessionBranchEntry,
   sortLogs,
   type TranscriptMessage,
 } from '../types/logs.js'
@@ -89,7 +90,7 @@ import {
   readTranscriptForLoad,
   SKIP_PRECOMPACT_THRESHOLD,
 } from './sessionStoragePortable.js'
-import { getSettings_DEPRECATED } from './settings/settings.js'
+import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
@@ -465,6 +466,23 @@ function getProject(): Project {
           project?.reAppendSessionMetadata()
         } catch {
           // Best-effort — don't let metadata re-append crash the cleanup
+        }
+
+        try {
+          const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+          const replayBuilders = resetAllReplayIndexBuilders()
+          if (!shouldSkipSessionPersistence()) {
+            const { writeReplayIndex } = await import('./replayIndex.js')
+            for (const { sessionId, builder, projectDir } of replayBuilders) {
+              const transcriptPath = projectDir
+                ? join(projectDir, `${sessionId}.jsonl`)
+                : getTranscriptPathForSession(sessionId)
+              const index = builder.build(sessionId)
+              await writeReplayIndex(sessionId, transcriptPath, index)
+            }
+          }
+        } catch {
+          // Best-effort — don't let replay index cleanup crash shutdown
         }
       })
       cleanupRegistered = true
@@ -977,18 +995,7 @@ class Project {
    * test sessions don't pollute the user's --resume list.
    */
   private shouldSkipPersistence(): boolean {
-    const allowTestPersistence = isEnvTruthy(
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE,
-    )
-    if (allowTestPersistence) {
-      return false
-    }
-    return (
-      getNodeEnv() === 'test' ||
-      getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
-      isSessionPersistenceDisabled() ||
-      isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
-    )
+    return shouldSkipSessionPersistence()
   }
 
   /**
@@ -1085,6 +1092,47 @@ class Project {
           slug,
         }
         await this.appendEntry(transcriptMessage)
+        const shouldTrackReplay = !this.shouldSkipPersistence()
+        if (shouldTrackReplay && !isSidechain && message.type === 'user') {
+          const content = getFirstMeaningfulUserMessageTextContent([message])
+          if (content) {
+            try {
+              getReplayIndexBuilder().trackUserMessage(
+                content,
+                message.timestamp ?? new Date().toISOString(),
+              )
+            } catch {
+              // Replay tracking is best-effort and must not affect transcript writes.
+            }
+          }
+        }
+        if (shouldTrackReplay && !isSidechain && message.type === 'system') {
+          try {
+            if (message.subtype === 'api_error') {
+              getReplayIndexBuilder().trackRetry(
+                'api',
+                message.error.message || `API error ${message.error.status ?? ''}`.trim(),
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  attempt: message.retryAttempt,
+                  maxRetries: message.maxRetries,
+                  retryDelayMs: message.retryInMs,
+                },
+              )
+            } else if (message.subtype === 'permission_retry') {
+              getReplayIndexBuilder().trackRetry(
+                'permission',
+                message.content,
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  commands: message.commands,
+                },
+              )
+            }
+          } catch {
+            // Replay tracking is best-effort and must not affect transcript writes.
+          }
+        }
         if (isChainParticipant(message)) {
           parentUuid = message.uuid
         }
@@ -1243,6 +1291,8 @@ class Project {
       void this.enqueueWrite(targetFile, entry)
     } else if (entry.type === 'goal-state') {
       await this.appendToFile(sessionFile, jsonStringify(entry) + '\n')
+    } else if (entry.type === 'session-branch') {
+      void this.enqueueWrite(sessionFile, entry)
     } else if (entry.type === 'marble-origami-commit') {
       // Always append. Commit order matters for restore (later commits may
       // reference earlier commits' summary messages), so these must be
@@ -1256,7 +1306,7 @@ class Project {
       if (entry.type === 'queue-operation') {
         // Queue operations are always appended to the session file
         void this.enqueueWrite(sessionFile, entry)
-      } else {
+      } else if (isTranscriptMessage(entry)) {
         // At this point, entry must be a TranscriptMessage (user/assistant/attachment/system)
         // All other entry types have been handled above
         const isAgentSidechain =
@@ -1298,6 +1348,13 @@ class Project {
             }
           }
         }
+      } else {
+        const entryType = (entry as { type?: string }).type ?? 'unknown'
+        // Exhaustiveness guard: entry is never here when every Entry variant
+        // has an append policy above.
+        const _exhaustive: never = entry
+        void _exhaustive
+        throw new Error(`Unhandled session storage entry type: ${entryType}`)
       }
     }
   }
@@ -2606,6 +2663,7 @@ export async function loadTranscriptFromFile(
       contentReplacements,
       worktreeStates,
       goalStates,
+      sessionBranches,
     } = await loadTranscriptFile(filePath)
 
     if (messages.size === 0) {
@@ -2652,6 +2710,7 @@ export async function loadTranscriptFromFile(
         ? worktreeStates.get(sessionId)
         : undefined,
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     }
   }
 
@@ -3282,6 +3341,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       attributionSnapshots,
       contentReplacements,
       goalStates,
+      sessionBranches,
       contextCollapseCommits,
       contextCollapseSnapshot,
       leafUuids,
@@ -3346,6 +3406,9 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
         ? (contentReplacements.get(sessionId) ?? [])
         : log.contentReplacements,
       goal: sessionId ? goalStates.get(sessionId) : log.goal,
+      sessionBranch: sessionId
+        ? (sessionBranches.get(sessionId) ?? log.sessionBranch)
+        : log.sessionBranch,
       // Filter to the resumed session's entries. loadTranscriptFile reads
       // the file sequentially so the array is already in commit order;
       // filter preserves that.
@@ -3429,9 +3492,10 @@ const METADATA_TYPE_MARKERS = [
   '"type":"worktree-state"',
   '"type":"pr-link"',
   '"type":"goal-state"',
+  '"type":"session-branch"',
 ]
 const METADATA_MARKER_BUFS = METADATA_TYPE_MARKERS.map(m => Buffer.from(m))
-// Longest marker is 22 bytes; +1 for leading `{` = 23.
+// Longest marker plus the leading `{` fits within this bound.
 const METADATA_PREFIX_BOUND = 25
 
 // null = carry spans whole chunk. Skips concat when carry provably isn't
@@ -3799,6 +3863,7 @@ export async function loadTranscriptFile(
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   agentContentReplacements: Map<AgentId, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
   leafUuids: Set<UUID>
@@ -3823,6 +3888,7 @@ export async function loadTranscriptFile(
     ContentReplacementRecord[]
   >()
   const goalStates = new Map<UUID, GoalStateEntry['goal']>()
+  const sessionBranches = new Map<UUID, SessionBranchEntry>()
   // Array, not Map — commit order matters (nested collapses).
   const contextCollapseCommits: ContextCollapseCommitEntry[] = []
   // Last-wins — later entries supersede.
@@ -3924,6 +3990,8 @@ export async function loadTranscriptFile(
           prRepositories.set(entry.sessionId, entry.prRepository)
         } else if (entry.type === 'goal-state' && entry.sessionId) {
           goalStates.set(entry.sessionId, entry.goal)
+        } else if (entry.type === 'session-branch' && entry.sessionId) {
+          sessionBranches.set(entry.sessionId, entry)
         }
       })
     }
@@ -3990,6 +4058,8 @@ export async function loadTranscriptFile(
         prRepositories.set(entry.sessionId, entry.prRepository)
       } else if (entry.type === 'goal-state' && entry.sessionId) {
         goalStates.set(entry.sessionId, entry.goal)
+      } else if (entry.type === 'session-branch' && entry.sessionId) {
+        sessionBranches.set(entry.sessionId, entry)
       } else if (entry.type === 'file-history-snapshot') {
         fileHistorySnapshots.set(entry.messageId, entry)
       } else if (entry.type === 'attribution-snapshot') {
@@ -4127,6 +4197,7 @@ export async function loadTranscriptFile(
     contentReplacements,
     agentContentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
     leafUuids,
@@ -4147,6 +4218,7 @@ async function loadSessionFile(sessionId: UUID): Promise<{
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
 }> {
@@ -4203,6 +4275,7 @@ export async function getLastSessionLog(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
   } = await loadSessionFile(sessionId)
@@ -4245,6 +4318,7 @@ export async function getLastSessionLog(
     ),
     worktreeSession: worktreeStates.get(sessionId),
     goal: goalStates.get(sessionId),
+    sessionBranch: sessionBranches.get(sessionId),
     contextCollapseCommits: contextCollapseCommits.filter(
       e => e.sessionId === sessionId,
     ),
@@ -4939,6 +5013,7 @@ export async function loadAllLogsFromSessionFile(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     leafUuids,
   } = await loadTranscriptFile(sessionFile, { keepAllLeaves: true })
 
@@ -5013,6 +5088,7 @@ export async function loadAllLogsFromSessionFile(
       ),
       contentReplacements: contentReplacements.get(sessionId) ?? [],
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     })
   }
 

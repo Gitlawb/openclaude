@@ -1,8 +1,13 @@
 import { describe, test, expect } from 'bun:test'
+import { spawnSync } from 'node:child_process'
+import { readFileSync, statSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { generateSdkTypes } from '../../scripts/generate-sdk-types.js'
 import {
   AccountInfoSchema,
   SDKAssistantMessageSchema,
   SDKSystemMessageSchema,
+  SDKHeartbeatMessageSchema,
   SDKCompactBoundaryMessageSchema,
   SDKMessageSchema,
   SDKUserMessageSchema,
@@ -22,6 +27,13 @@ import {
 } from '../../src/entrypoints/sdk/coreSchemas.js'
 import { z } from 'zod/v4'
 
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+const generatedTypesPath = fileURLToPath(
+  new URL('../../src/entrypoints/sdk/coreTypes.generated.ts', import.meta.url),
+)
+const normalizeLineEndings = (source: string) => source.replace(/\r\n/g, '\n')
+const generatedTypesSource = () => readFileSync(generatedTypesPath, 'utf8')
+
 /**
  * Tests for generated SDK types from Zod schemas.
  *
@@ -32,6 +44,42 @@ import { z } from 'zod/v4'
  * 4. The full SDKMessage union accepts all message variants
  */
 describe('SDK Zod schemas (type generation source)', () => {
+  test('SDK type generation exports heartbeat messages directly', () => {
+    const generatedSource = generateSdkTypes()
+    const committedSource = normalizeLineEndings(generatedTypesSource())
+
+    expect(generatedSource).toBe(committedSource)
+    expect(generatedSource).toMatch(/^export type SDKHeartbeatMessage\b/m)
+    expect(generatedSource).not.toContain(
+      '// ⚠ Failed: SDKHeartbeatMessageSchema',
+    )
+    expect(generatedSource).not.toMatch(
+      /^export type SDKHeartbeatMessage = any$/m,
+    )
+  })
+
+  test('SDK type generator can be imported from non-file entrypoints', () => {
+    const beforeSource = generatedTypesSource()
+    const beforeMtimeMs = statSync(generatedTypesPath).mtimeMs
+
+    // The generator is a Bun TypeScript script, matching package.json scripts.
+    const bunExecutable = process.execPath
+    const result = spawnSync(
+      bunExecutable,
+      [
+        '--eval',
+        "process.argv[1] = '-'; import('./scripts/generate-sdk-types.ts').then(() => console.log('import-ok'))",
+      ],
+      { cwd: repoRoot, encoding: 'utf8' },
+    )
+
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(normalizeLineEndings(result.stdout).trim()).toBe('import-ok')
+    expect(generatedTypesSource()).toBe(beforeSource)
+    expect(statSync(generatedTypesPath).mtimeMs).toBe(beforeMtimeMs)
+  })
+
   test('SDKAssistantMessageSchema accepts valid data', () => {
     const schema = SDKAssistantMessageSchema()
     const result = schema.safeParse({
@@ -193,11 +241,74 @@ describe('SDK Zod schemas (type generation source)', () => {
         uuid: '12345678-1234-1234-1234-123456789012',
         session_id: '12345678-1234-1234-1234-123456789012',
       },
+      {
+        type: 'system',
+        subtype: 'heartbeat',
+        timestamp: '2026-06-25T12:00:30.000Z',
+        elapsed_ms: 30_000,
+        since_last_activity_ms: 30_000,
+        state: 'running',
+        phase: 'in_turn',
+        heartbeat_index: 1,
+        pending_permission_requests: 0,
+        background_tasks: {},
+        uuid: '12345678-1234-1234-1234-123456789012',
+        session_id: '12345678-1234-1234-1234-123456789012',
+      },
     ]
 
     for (const msg of messages) {
       const result = schema.safeParse(msg)
       expect(result.success).toBe(true)
+    }
+  })
+
+  test('SDKHeartbeatMessageSchema rejects values outside the producer contract', () => {
+    const schema = SDKHeartbeatMessageSchema()
+    const validHeartbeat = {
+      type: 'system',
+      subtype: 'heartbeat',
+      timestamp: '2026-06-25T12:00:30.000Z',
+      elapsed_ms: 30_000,
+      since_last_activity_ms: 30_000,
+      state: 'running',
+      phase: 'in_turn',
+      heartbeat_index: 1,
+      pending_permission_requests: 0,
+      background_tasks: { local_agent: 1 },
+      uuid: '12345678-1234-1234-1234-123456789012',
+      session_id: '12345678-1234-1234-1234-123456789012',
+    }
+
+    expect(schema.safeParse(validHeartbeat).success).toBe(true)
+    expect(
+      schema.safeParse({
+        ...validHeartbeat,
+        uuid: '00000000-0000-4000-8000-000000000000',
+        session_id: '',
+      }).success,
+    ).toBe(true)
+    expect(
+      schema.safeParse({
+        ...validHeartbeat,
+        uuid: 'heartbeat-fallback',
+        session_id: 'session-fallback',
+      }).success,
+    ).toBe(true)
+
+    for (const invalidHeartbeat of [
+      { ...validHeartbeat, elapsed_ms: -1 },
+      { ...validHeartbeat, elapsed_ms: 1.5 },
+      { ...validHeartbeat, since_last_activity_ms: -1 },
+      { ...validHeartbeat, since_last_activity_ms: 1.5 },
+      { ...validHeartbeat, heartbeat_index: 0 },
+      { ...validHeartbeat, heartbeat_index: 1.5 },
+      { ...validHeartbeat, pending_permission_requests: -1 },
+      { ...validHeartbeat, pending_permission_requests: 1.5 },
+      { ...validHeartbeat, background_tasks: { local_agent: 0 } },
+      { ...validHeartbeat, background_tasks: { local_agent: 1.5 } },
+    ]) {
+      expect(schema.safeParse(invalidHeartbeat).success).toBe(false)
     }
   })
 

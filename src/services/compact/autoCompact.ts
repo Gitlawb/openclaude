@@ -81,6 +81,11 @@ export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 
 export const AUTOCOMPACT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000
 
+// Minimum cooldown override allowed via OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS.
+// Values below this floor are rejected (function falls back to the default) so
+// misconfiguration cannot effectively disable the circuit breaker.
+export const MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS = 10_000
+
 // Pause autocompact after this many consecutive failures.
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
 // in a single session, wasting ~250K API calls/day globally.
@@ -91,7 +96,11 @@ export function getAutoCompactFailureCooldownMs(): number {
   if (override) {
     const trimmed = override.trim()
     const parsed = Number(trimmed)
-    if (/^[1-9]\d*$/.test(trimmed) && Number.isSafeInteger(parsed)) {
+    if (
+      /^[1-9]\d*$/.test(trimmed) &&
+      Number.isSafeInteger(parsed) &&
+      parsed >= MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS
+    ) {
       return parsed
     }
   }

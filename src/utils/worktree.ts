@@ -285,7 +285,7 @@ function worktreePathFor(repoRoot: string, slug: string): string {
 async function getOrCreateWorktree(
   repoRoot: string,
   slug: string,
-  options?: { prNumber?: number },
+  options?: { prNumber?: number; baseRef?: string },
 ): Promise<WorktreeCreateResult> {
   const worktreePath = worktreePathFor(repoRoot, slug)
   const worktreeBranch = worktreeBranchName(slug)
@@ -335,6 +335,12 @@ async function getOrCreateWorktree(
         )
       }
       baseBranch = 'FETCH_HEAD'
+    } else if (options?.baseRef) {
+      // Caller pinned an explicit base (e.g. agent isolation passes the parent
+      // session's HEAD so the worktree mirrors the parent's committed state
+      // rather than origin/<defaultBranch>). Use it verbatim; the rev-parse
+      // below resolves it to a SHA.
+      baseBranch = options.baseRef
     } else {
       // If origin/<branch> already exists locally, skip fetch. In large repos
       // (210k files, 16M objects) fetch burns ~6-8s on a local commit-graph
@@ -961,7 +967,10 @@ export async function cleanupWorktree(): Promise<void> {
  * global session state (currentWorktreeSession, process.chdir, project config).
  * Falls back to hook-based creation if not in a git repository.
  */
-export async function createAgentWorktree(slug: string): Promise<{
+export async function createAgentWorktree(
+  slug: string,
+  options?: { cwd?: string },
+): Promise<{
   worktreePath: string
   worktreeBranch?: string
   headCommit?: string
@@ -969,6 +978,11 @@ export async function createAgentWorktree(slug: string): Promise<{
   hookBased?: boolean
 }> {
   validateWorktreeSlug(slug)
+
+  // Resolve the parent session's working directory once. Defaults to the
+  // ambient session cwd; callers (and tests) may pin it explicitly so both the
+  // canonical-root and parent-HEAD lookups below stay consistent.
+  const sessionCwd = options?.cwd ?? getCwd()
 
   // Try hook-based worktree creation first (allows user-configured VCS)
   if (hasWorktreeCreateHook()) {
@@ -985,7 +999,7 @@ export async function createAgentWorktree(slug: string): Promise<{
   // the main repo's .claude/worktrees/ even when spawned from inside a session
   // worktree — otherwise they nest at <worktree>/.claude/worktrees/ and the
   // periodic cleanup (which scans the canonical root) never finds them.
-  const gitRoot = findCanonicalGitRoot(getCwd())
+  const gitRoot = findCanonicalGitRoot(sessionCwd)
   if (!gitRoot) {
     throw new Error(
       'Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured. ' +
@@ -993,8 +1007,26 @@ export async function createAgentWorktree(slug: string): Promise<{
     )
   }
 
+  // Base the agent worktree on the parent session's current HEAD so the
+  // isolated agent sees the same committed project state the parent is working
+  // on — not origin/<defaultBranch>, which may be an older tree missing files
+  // that only exist on the active branch (#1586). Resolve from the session cwd
+  // (not the canonical root) so a session on a feature branch is honored. Fall
+  // back to the default origin-based behavior if HEAD can't be resolved (e.g. a
+  // repo with no commits yet).
+  const { stdout: headStdout, code: headCode } =
+    await execFileNoThrowWithCwd(gitExe(), ['rev-parse', 'HEAD'], {
+      cwd: sessionCwd,
+    })
+  const parentHeadRef =
+    headCode === 0 && headStdout.trim() ? headStdout.trim() : undefined
+
   const { worktreePath, worktreeBranch, headCommit, existed } =
-    await getOrCreateWorktree(gitRoot, slug)
+    await getOrCreateWorktree(
+      gitRoot,
+      slug,
+      parentHeadRef ? { baseRef: parentHeadRef } : undefined,
+    )
 
   if (!existed) {
     logForDebugging(

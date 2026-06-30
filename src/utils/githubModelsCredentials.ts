@@ -1,6 +1,7 @@
 import { isBareMode, isEnvTruthy } from './envUtils.js'
 import { getSecureStorage } from './secureStorage/index.js'
 import { exchangeForCopilotToken } from '../services/github/deviceFlow.js'
+import { logForDebugging } from './debug.js'
 
 /** JSON key in the shared OpenClaude secure storage blob. */
 export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
@@ -223,6 +224,52 @@ export function saveGithubModelsToken(
     [GITHUB_MODELS_STORAGE_KEY]: mergedBlob,
   }
   return secureStorage.update(merged as typeof prev)
+}
+
+/**
+ * Force-refresh the Copilot token on 401.
+ *
+ * Only refreshes when the failing credential matches the stored Copilot
+ * token — silently skipping when a provider override, route credential,
+ * or custom auth header is in use, preventing credential substitution.
+ *
+ * Returns true if the refresh succeeded.
+ */
+export async function refreshCopilotTokenOn401(): Promise<boolean> {
+  if (isBareMode()) return false
+
+  // Direct API key users cannot refresh — they need to update the key manually
+  if (process.env.GITHUB_COPILOT_KEY?.trim()) return false
+
+  try {
+    const blob = readGithubModelsCredentialBlob()
+    if (!blob) return false
+    if (blob.credentialType === 'copilot_key') return false
+
+    // Only refresh when the failing credential IS the stored Copilot token.
+    // A provider override, route credential, or manually-set GITHUB_TOKEN
+    // will not match, preventing silent credential substitution.
+    const currentCredential = process.env.OPENAI_API_KEY?.trim()
+    if (!currentCredential || currentCredential !== blob.accessToken) return false
+
+    const oauthToken = blob.oauthAccessToken
+    if (!oauthToken) return false
+
+    const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim() || undefined
+    const refreshed = await exchangeForCopilotToken(oauthToken, undefined, gheUrl)
+    const saved = saveGithubModelsToken(refreshed.token, oauthToken)
+    if (!saved.success) return false
+
+    process.env.GITHUB_TOKEN = refreshed.token
+    process.env.OPENAI_API_KEY = refreshed.token
+    return true
+  } catch (error) {
+    logForDebugging(
+      `[refreshCopilotTokenOn401] failed: ${error instanceof Error ? error.message : String(error)}`,
+      { level: 'warn' },
+    )
+    return false
+  }
 }
 
 export function clearGithubModelsToken(): { success: boolean; warning?: string } {

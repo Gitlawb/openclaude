@@ -15,6 +15,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -55,6 +56,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -87,6 +89,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_BASE_URL')
     restoreEnvValue('OPENAI_API_BASE')
     restoreEnvValue('OPENAI_API_KEY')
+    restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
@@ -210,6 +213,11 @@ describe('discoverModelsForRoute', () => {
       source: 'stale-cache',
       stale: true,
       models: [
+        {
+          id: 'ollama-qwen3-coder-next-cloud',
+          apiName: 'qwen3-coder-next:cloud',
+          maxOutputTokens: 32_768,
+        },
         {
           id: 'deepseek-v4-pro-cloud',
           apiName: 'deepseek-v4-pro:cloud',
@@ -439,6 +447,79 @@ describe('discoverModelsForRoute', () => {
     })
 
     expect(result?.routeId).toBe('lmstudio')
+    expect(result?.source).toBe('network')
+  })
+
+  test('openai-compatible discovery does not use invalid pooled credentials', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'discovery-invalid-pool-test',
+      label: 'Invalid Pool Test',
+      defaultBaseUrl: 'https://invalid-pool.example/v1',
+      defaultModel: 'gpt-5.5',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
+      },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'dynamic',
+        discovery: { kind: 'openai-compatible' },
+      },
+    })
+
+    setMockFetch(mock((_input, init) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get('authorization')).toBeNull()
+      expect(headers.get('api-key')).toBeNull()
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('discovery-invalid-pool-test', {
+      apiKey: 'key-a,SUA_CHAVE',
+      forceRefresh: true,
+    })
+
+    expect(result?.routeId).toBe('discovery-invalid-pool-test')
+    expect(result?.source).toBe('network')
+  })
+
+  test('refreshStartupDiscoveryForActiveRoute sends first pooled OpenAI credential', async () => {
+    const { refreshStartupDiscoveryForActiveRoute } =
+      await loadDiscoveryServiceModule()
+
+    const startupEnv: NodeJS.ProcessEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://custom.example/v1',
+      OPENAI_API_KEYS: 'key-a,key-b',
+    }
+
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers).toEqual({ Authorization: 'Bearer key-a' })
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await refreshStartupDiscoveryForActiveRoute({
+      processEnv: startupEnv,
+    })
+
+    expect(result?.routeId).toBe('custom')
     expect(result?.source).toBe('network')
   })
 

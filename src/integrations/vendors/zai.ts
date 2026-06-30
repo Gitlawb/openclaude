@@ -5,7 +5,7 @@ export default defineVendor({
   label: 'Z.AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.z.ai/api/coding/paas/v4',
-  defaultModel: 'GLM-5.1',
+  defaultModel: 'glm-5.2',
   requiredEnvVars: ['OPENAI_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -18,7 +18,7 @@ export default defineVendor({
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
       reasoningContentFallback: '',
-      thinkingRequestFormat: 'deepseek-compatible',
+      thinkingRequestFormat: 'zai-compatible',
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
     },
@@ -44,6 +44,17 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
+      {
+        id: 'glm-5.2',
+        apiName: 'glm-5.2',
+        label: 'GLM-5.2',
+        modelDescriptorId: 'glm-5.2',
+        transportOverrides: {
+          openaiShim: {
+            enableToolStreaming: true,
+          },
+        },
+      },
       {
         id: 'GLM-5.1',
         apiName: 'GLM-5.1',

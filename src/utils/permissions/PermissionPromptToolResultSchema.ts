@@ -123,7 +123,7 @@ export function permissionPromptToolResultToPermissionDecision(
     logForDebugging(
       `SDK permission prompt deny+interrupt: tool=${tool.name} message=${result.message}`,
     )
-    toolUseContext.abortController.abort()
+    toolUseContext.abortController.abort('interrupt')
   }
   return {
     ...result,

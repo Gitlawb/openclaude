@@ -98,6 +98,22 @@ test('endpoint_not_found without a host falls back to the Ollama-aware message',
   expect(text).toContain('Ollama')
 })
 
+test('auth_invalid guidance names singular and pooled OpenAI credentials', () => {
+  const error = APIError.generate(
+    401,
+    undefined,
+    'OpenAI API error 401: Unauthorized [openai_category=auth_invalid,host=api.openai.com] Hint: Authentication failed.',
+    new Headers(),
+  )
+
+  const message = getAssistantMessageFromError(error, 'gpt-4o')
+  const text = getFirstText(message)
+
+  expect(text).toContain('Authentication failed')
+  expect(text).toContain('OPENAI_API_KEYS')
+  expect(text).toContain('OPENAI_API_KEY')
+})
+
 test('maps tool_call_incompatible category markers to model/tool guidance', () => {
   const error = APIError.generate(
     400,

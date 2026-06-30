@@ -176,7 +176,7 @@ export interface SystemPromptSectionDetail {
 
 interface Agent {
   agentType: string
-  source: SettingSource | 'built-in' | 'plugin'
+  source: SettingSource | 'built-in' | 'plugin' | 'sdk'
   tokens: number
 }
 

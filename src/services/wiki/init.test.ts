@@ -30,6 +30,7 @@ test('initializeWiki creates the expected wiki scaffold', async () => {
     join('.openclaude', 'wiki', 'index.md'),
     join('.openclaude', 'wiki', 'log.md'),
     join('.openclaude', 'wiki', 'pages', 'architecture.md'),
+    join('.openclaude', 'wiki', 'pages', 'conventions.md'),
   ])
   expect(await readFile(paths.schemaFile, 'utf8')).toContain(
     '# OpenClaude Wiki Schema',
@@ -40,6 +41,9 @@ test('initializeWiki creates the expected wiki scaffold', async () => {
   )
   expect(await readFile(join(paths.pagesDir, 'architecture.md'), 'utf8')).toContain(
     '# Architecture',
+  )
+  expect(await readFile(paths.conventionsFile, 'utf8')).toContain(
+    '# Project Conventions',
   )
 })
 

@@ -1472,6 +1472,13 @@ const READONLY_COMMAND_REGEXES = new Set([
   /^node --version$/,
   /^python --version$/,
   /^python3 --version$/,
+  // Package-manager / compiler version queries. Exact-anchored (no trailing
+  // args) for the same defense-in-depth reason as node above: a bare version
+  // flag is read-only, but permitting suffixes could let a tool that parses
+  // flags in an unexpected order run a task (e.g. `npm <flag> run <script>`).
+  /^npm (?:-v|--version)$/,
+  /^bun (?:-v|--version)$/,
+  /^tsc (?:-v|--version)$/,
 
   // Misc. safe commands
   // tree command moved to COMMAND_ALLOWLIST for proper flag validation (blocks -o/--output)

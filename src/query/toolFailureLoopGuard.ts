@@ -88,7 +88,10 @@ export function updateToolFailureLoopGuard(params: {
       continue
     }
 
-    if (isIgnoredSyntheticToolResult(content)) {
+    if (
+      block.isAgentStepLimitToolResult ||
+      isIgnoredSyntheticToolResult(content)
+    ) {
       continue
     }
 
@@ -202,6 +205,7 @@ type ToolResultBlockLike = {
   tool_use_id?: unknown
   content?: unknown
   is_error?: unknown
+  isAgentStepLimitToolResult?: boolean
 }
 
 type FailureInfo = {
@@ -264,7 +268,10 @@ function getToolResultBlocks(
 
     for (const block of message.message.content) {
       if (isToolResultBlock(block)) {
-        blocks.push(block)
+        blocks.push({
+          ...block,
+          isAgentStepLimitToolResult: message.isAgentStepLimitToolResult,
+        })
       }
     }
   }
@@ -290,9 +297,12 @@ function toolResultContentToString(content: unknown): string {
   }
 
   if (typeof content === 'object' && content !== null) {
-    const text = (content as { text?: unknown }).text
-    if (typeof text === 'string') {
-      return text
+    const block = content as { text?: unknown; content?: unknown }
+    if (block.text !== undefined) {
+      return toolResultContentToString(block.text)
+    }
+    if (block.content !== undefined) {
+      return toolResultContentToString(block.content)
     }
   }
 

@@ -91,6 +91,7 @@ const ALLOWED_ENV_FILE_KEYS = new Set([
   'OPENROUTER_API_KEY',
   'OPENAI_API_BASE',
   'OPENAI_API_FORMAT',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -164,13 +165,19 @@ function findClosingQuote(value: string, quote: string): number {
 
 /**
  * Unescapes the active quote delimiter in a quoted env value.
+ *
+ * findClosingQuote/isEscapedQuote treat the value as backslash-escaped: an
+ * odd-length backslash run escapes the following quote, so `\\` is already
+ * consumed as a single escaped backslash when locating the closing quote.
+ * Collapse `\\` to `\` here too, otherwise the two stages disagree and a
+ * value like "a\\b" round-trips to the doubled "a\\b" instead of "a\b".
  */
 function unescapeQuotedValue(raw: string, quote: string): string {
   let result = ''
 
   for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '\\' && raw[i + 1] === quote) {
-      result += quote
+    if (raw[i] === '\\' && (raw[i + 1] === quote || raw[i + 1] === '\\')) {
+      result += raw[i + 1]
       i++
       continue
     }

@@ -330,6 +330,52 @@ test('buildProfileSaveMessage maps provider fields without echoing secrets', () 
   expect(message).not.toContain('sk-secret-12345678')
 })
 
+test('buildProfileSaveMessage reports pooled OpenAI credentials as configured', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'sk-secret-a,sk-secret-b',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('sk-secret-a')
+  expect(message).not.toContain('sk-secret-b')
+})
+test('buildProfileSaveMessage redacts individual pooled OpenAI credentials in display fields', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'lowercasecredentialaaaaaaaaaaaa,lowercasecredentialbbbbbbbbbbbb',
+      OPENAI_MODEL: 'lowercasecredentialaaaaaaaaaaaa',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('lowercasecredentialaaaaaaaaaaaa')
+  expect(message).not.toContain('lowercasecredentialbbbbbbbbbbbb')
+  expect(message).toContain('Model: low...aaa')
+})
+test('buildProfileSaveMessage ignores delimiter-only pooled OpenAI credentials', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('Credentials: configured')
+})
 test('buildProfileSaveMessage labels local openai-compatible profiles consistently', () => {
   const message = buildProfileSaveMessage(
     'openai',

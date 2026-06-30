@@ -154,9 +154,18 @@ async function tryRmdir(dirPath: string, fsImpl: FsOperations): Promise<void> {
 
 export async function cleanupOldSessionFiles(): Promise<CleanupResult> {
   const cutoffDate = getCutoffDate()
-  const result: CleanupResult = { messages: 0, errors: 0 }
   const projectsDir = getProjectsDir()
   const fsImpl = getFsImplementation()
+
+  return cleanupOldSessionFilesInProjectsDir(projectsDir, cutoffDate, fsImpl)
+}
+
+export async function cleanupOldSessionFilesInProjectsDir(
+  projectsDir: string,
+  cutoffDate: Date,
+  fsImpl: FsOperations,
+): Promise<CleanupResult> {
+  const result: CleanupResult = { messages: 0, errors: 0 }
 
   let projectDirents
   try {
@@ -180,7 +189,11 @@ export async function cleanupOldSessionFiles(): Promise<CleanupResult> {
 
     for (const entry of entries) {
       if (entry.isFile()) {
-        if (!entry.name.endsWith('.jsonl') && !entry.name.endsWith('.cast')) {
+        if (
+          !entry.name.endsWith('.jsonl') &&
+          !entry.name.endsWith('.cast') &&
+          !entry.name.endsWith('.replay.json')
+        ) {
           continue
         }
         try {

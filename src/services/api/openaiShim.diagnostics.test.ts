@@ -128,7 +128,7 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
 
   expect(transportLog).toBeDefined()
   const logLine = String(transportLog?.[0])
-  expect(logLine).toContain('url=http://redacted:redacted@localhost:11434/v1/chat/completions')
+  expect(logLine).toContain('url=http://redacted:redacted@localhost:11434/api/chat')
   expect(logLine).not.toContain('user:supersecret')
   expect(logLine).not.toContain('supersecret@')
 })
@@ -201,8 +201,8 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
 
   expect(fallbackLog).toBeDefined()
   const logLine = String(fallbackLog?.[0])
-  expect(logLine).toContain('from=http://redacted:redacted@localhost:11434/v1/chat/completions')
-  expect(logLine).toContain('to=http://redacted:redacted@127.0.0.1:11434/v1/chat/completions')
+  expect(logLine).toContain('from=http://redacted:redacted@localhost:11434/api/chat')
+  expect(logLine).toContain('to=http://redacted:redacted@127.0.0.1:11434/api/chat')
   expect(logLine).not.toContain('supersecret')
 })
 

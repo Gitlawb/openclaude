@@ -176,7 +176,7 @@ export function hookSourceDescriptionDisplayString(source: HookSource): string {
   }
   const pluginHooksPath = getDisplayPath(
     join(getClaudeConfigHomeDir(), 'plugins', '*', 'hooks', 'hooks.json'),
-  )
+  ).replace(/\\/g, '/')
 
   switch (source) {
     case 'userSettings':

@@ -442,18 +442,19 @@ export async function resolveBackgroundSession(
   const exactId = sessions.filter(s => s.id === target)
   if (exactId.length === 1) return exactId[0]
 
-  const idPrefix = sessions.filter(s => s.id.startsWith(target))
-  if (idPrefix.length === 1) return idPrefix[0]
-  if (idPrefix.length > 1) {
-    throw new Error(`Background session id "${target}" is ambiguous`)
-  }
-
   const byName = sessions.filter(s => s.name === target)
   const liveByName = byName.filter(s => !isTerminalBackgroundSession(s))
   if (liveByName.length === 1) return liveByName[0]
   if (liveByName.length > 1) {
     throw new Error(`Background session name "${target}" is ambiguous`)
   }
+
+  const idPrefix = sessions.filter(s => s.id.startsWith(target))
+  if (idPrefix.length === 1) return idPrefix[0]
+  if (idPrefix.length > 1) {
+    throw new Error(`Background session id "${target}" is ambiguous`)
+  }
+
   if (byName.length === 1) return byName[0]
   if (byName.length > 1) {
     throw new Error(`Background session name "${target}" is ambiguous`)

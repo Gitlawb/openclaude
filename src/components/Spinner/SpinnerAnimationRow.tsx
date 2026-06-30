@@ -17,6 +17,10 @@ import { useStalledAnimation } from './useStalledAnimation.js';
 import { interpolateColor, toRGBColor } from './utils.js';
 const SEP_WIDTH = stringWidth(' · ');
 const THINKING_BARE_WIDTH = stringWidth('thinking');
+// Show the elapsed-time counter early (reassurance that work is in flight,
+// especially during long tool calls where no tokens stream) but hold the token
+// count back until the turn is clearly long-running.
+const SHOW_TIMER_AFTER_MS = 5_000;
 const SHOW_TOKENS_AFTER_MS = 30_000;
 
 // Thinking shimmer constants. Previously lived in a separate ThinkingShimmerText
@@ -183,7 +187,8 @@ export function SpinnerAnimationRow({
   // the status parts, so reserve that space in the gating math too.
   const parensWidth = hasRunningTeammates ? 4 : 4 + 2 + SEP_WIDTH;
   const wantsThinking = thinkingStatus !== null;
-  const wantsTimerAndTokens = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TOKENS_AFTER_MS;
+  const wantsTimer = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS;
+  const wantsTokens = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TOKENS_AFTER_MS;
   const availableSpace = columns - messageWidth - parensWidth;
   let showThinking = wantsThinking && availableSpace > thinkingWidthValue;
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
@@ -194,9 +199,9 @@ export function SpinnerAnimationRow({
     }
   }
   const usedAfterThinking = showThinking ? thinkingWidthValue + sep : 0;
-  const showTimer = wantsTimerAndTokens && availableSpace > usedAfterThinking + timerWidth;
+  const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
-  const showTokens = wantsTimerAndTokens && totalTokens > 0 && availableSpace > usedAfterTimer + tokensWidth;
+  const showTokens = wantsTokens && totalTokens > 0 && availableSpace > usedAfterTimer + tokensWidth;
   // Second chance for narrow terminals: the gating above reserves space for
   // the mode glyph + separator, but a would-be thinking-only spin renders
   // neither the glyph nor the wrapping parens beyond "( )". When nothing

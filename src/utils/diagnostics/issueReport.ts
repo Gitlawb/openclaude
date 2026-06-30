@@ -12,6 +12,7 @@ import {
   getRouteCredentialEnvVars,
 } from '../../integrations/routeMetadata.js'
 import { resolveModelRuntimeLimits } from '../../integrations/runtimeMetadata.js'
+import { parseCredentialList } from '../../services/api/credentialPool.js'
 import type { CapabilityFlags, ModelCatalogEntry } from '../../integrations/descriptors.js'
 import type { ScopedMcpServerConfig } from '../../services/mcp/types.js'
 import { getClaudeCodeMcpConfigs } from '../../services/mcp/config.js'
@@ -272,10 +273,19 @@ function normalizeRouteMatchBaseUrl(
   }
 }
 
+function hasDiagnosticCredentialValue(name: string, value: string | undefined): boolean {
+  if (name === 'OPENAI_API_KEYS' || name === 'OPENAI_API_KEY') {
+    return parseCredentialList(value).length > 0
+  }
+  return Boolean(value?.trim())
+}
+
 function getCredentialSummary(routeId: string, env: NodeJS.ProcessEnv) {
   const descriptor = getRouteDescriptor(routeId)
   const envVars = getRouteCredentialEnvVars(routeId)
-  const sources = envVars.filter(name => Boolean(env[name]?.trim()))
+  const sources = envVars.filter(name =>
+    hasDiagnosticCredentialValue(name, env[name]),
+  )
   const requiresAuth = descriptor?.setup.requiresAuth ?? routeId !== 'custom'
 
   return {

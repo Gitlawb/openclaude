@@ -233,13 +233,19 @@ export async function registerProtocolHandler(
 }
 
 /**
- * Resolve the claude binary path for protocol registration. Prefers the
- * native installer's stable symlink (~/.local/bin/claude) which survives
+ * Resolve the CLI binary path for protocol registration. Prefers the
+ * native installer's stable launcher in ~/.local/bin, which survives
  * auto-updates; falls back to process.execPath when the symlink is absent
  * (dev builds, non-native installs).
  */
+export function getProtocolBinaryName(platform = process.platform): string {
+  const baseName =
+    MACRO.PACKAGE_URL === '@anthropic-ai/claude-code' ? 'claude' : 'openclaude'
+  return platform === 'win32' ? `${baseName}.exe` : baseName
+}
+
 async function resolveClaudePath(): Promise<string> {
-  const binaryName = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const binaryName = getProtocolBinaryName()
   const stablePath = path.join(getUserBinDir(), binaryName)
   try {
     await fs.realpath(stablePath)

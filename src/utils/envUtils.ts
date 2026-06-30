@@ -198,6 +198,10 @@ export function setClaudeConfigHomeDirForTesting(
   claudeConfigHomeDirOverride = configDir?.normalize('NFC')
 }
 
+export function getClaudeConfigHomeDirOverrideForTesting(): string | undefined {
+  return claudeConfigHomeDirOverride
+}
+
 // Memoized: 150+ callers, many on hot paths. Keyed off both override env
 // vars so tests that change either get a fresh value without explicit
 // cache.clear.

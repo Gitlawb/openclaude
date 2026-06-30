@@ -64,6 +64,7 @@ import type { FileStateCache } from './utils/fileStateCache.js'
 import type { DenialTrackingState } from './utils/permissions/denialTracking.js'
 import type { SystemPrompt } from './utils/systemPromptType.js'
 import type { ContentReplacementState } from './utils/toolResultStorage.js'
+import type { QueryLifecycleOperationTracker } from './utils/queryLifecycle.js'
 
 // Re-export progress types for backwards compatibility
 export type {
@@ -291,6 +292,7 @@ export type ToolUseContext = {
     toolInputSummary?: string | null,
   ) => (request: PromptRequest) => Promise<PromptResponse>
   toolUseId?: string
+  queryLifecycle?: QueryLifecycleOperationTracker
   criticalSystemReminder_EXPERIMENTAL?: string
   /** When true, preserve toolUseResult on messages even for subagents.
    * Used by in-process teammates whose transcripts are viewable by the user. */

@@ -96,6 +96,8 @@ describe('redactUrlForStatus', () => {
 describe('redactPathForStatus', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/statusRedaction.test.ts')
+    process.env.HOME = REAL_HOMEDIR
+    restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
   })
 
   afterEach(() => {
@@ -110,12 +112,14 @@ describe('redactPathForStatus', () => {
   })
 
   test('shortens POSIX home directory paths to ~', () => {
+    process.env.HOME = REAL_HOMEDIR
     const result = redactPathForStatus(`${REAL_HOMEDIR}/secrets/client.key`)
     expect(result).toBe('~/secrets/client.key')
     expect(result).not.toContain(REAL_HOMEDIR)
   })
 
   test('handles the home directory exactly', () => {
+    process.env.HOME = REAL_HOMEDIR
     expect(redactPathForStatus(REAL_HOMEDIR)).toBe('~')
   })
 

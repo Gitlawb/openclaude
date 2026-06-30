@@ -116,6 +116,8 @@ export interface UserMessage<C = string | ContentBlockParam[]> {
   }
   /** Matches the tool's `Output` type for tool_result messages. */
   toolUseResult?: unknown
+  /** Internal marker for synthetic tool_result messages created by agent step limits. */
+  isAgentStepLimitToolResult?: boolean
   /** MCP protocol metadata passed through to SDK consumers. */
   mcpMeta?: {
     _meta?: Record<string, unknown>

@@ -450,6 +450,19 @@ export function applyProviderFlag(
       }
       break
 
+    case 'xiaomi-mimo-token':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://token-plan-sgp.xiaomimimo.com/v1',
+      )
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
+      }
+      break
+
     case 'venice':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.venice.ai/api/v1'

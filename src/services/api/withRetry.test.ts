@@ -7,13 +7,12 @@ type ProvidersModule = typeof import('../../utils/model/providers.js')
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
   const headersObj = new Headers(headers)
-  return {
-    headers: headersObj,
-    status: 429,
-    message: 'rate limit exceeded',
-    name: 'APIError',
-    error: {},
-  } as unknown as APIError
+  return new APIError(
+    429,
+    { error: { type: 'rate_limit_error', message: 'rate limit exceeded' } },
+    'rate limit exceeded',
+    headersObj,
+  )
 }
 
 // Save/restore env vars between tests
@@ -27,6 +26,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_UNATTENDED_RETRY',
   'CLAUDE_CODE_MAX_RETRIES',
   'OPENCLAUDE_MAX_RETRIES',
   'OPENCLAUDE_RETRY_DELAY_MS',
@@ -76,6 +76,9 @@ async function importFreshWithRetryModule(
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
+  mock.module('src/utils/sleep.js', () => ({
+    sleep: async () => undefined,
+  }))
   mock.module('src/utils/model/providers.js', () => ({
     ...originalProvidersModule!,
     getAPIProvider: () => provider,
@@ -524,5 +527,44 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
       'You requested up to 32000 tokens, but can only afford 27342',
     )
     expect(shouldRetry(err)).toBe(true)
+  })
+})
+
+describe('persistent retry cap', () => {
+  test('persistent retries stop after 100 retryable 429s', async () => {
+    // Drive the real persistent retry gate — no runtime override. The
+    // UNATTENDED_RETRY feature must be enabled via `bun test --feature=UNATTENDED_RETRY`
+    // (see package.json), and the env var must be truthy, otherwise
+    // isPersistentRetryEnabled() returns false and the cap never triggers.
+    process.env.CLAUDE_CODE_UNATTENDED_RETRY = '1'
+    const retryModule = await importFreshWithRetryModule('firstParty')
+        const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, isPersistentRetryEnabled } = retryModule
+    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
+
+    const retryableRateLimit = makeError({ 'retry-after': '1' })
+            const operation = mock(async () => {
+      throw retryableRateLimit
+    })
+
+            const runRetries = async () => {
+      for await (const _ of withRetry(
+        async () => ({} as never),
+        operation,
+        {
+          maxRetries: 0,
+          model: 'claude-sonnet-4-6',
+          thinkingConfig: { type: 'disabled' },
+        },
+      )) {
+        void _
+      }
+    }
+
+    await expect(runRetries()).rejects.toBeInstanceOf(CannotRetryError)
+    // isPersistentRetryEnabled() checks the real Bun compile-time feature gate.
+    // Without --feature=UNATTENDED_RETRY, it returns false and only 1 call is made.
+    // With the flag and CLAUDE_CODE_UNATTENDED_RETRY=1, the cap triggers after 101 calls.
+    const expectedCalls = isPersistentRetryEnabled() ? 101 : 1
+    expect(operation).toHaveBeenCalledTimes(expectedCalls)
   })
 })

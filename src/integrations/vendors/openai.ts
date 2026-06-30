@@ -6,11 +6,11 @@ export default defineVendor({
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.openai.com/v1',
   defaultModel: 'gpt-5.4',
-  requiredEnvVars: ['OPENAI_API_KEY'],
+  requiredEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['OPENAI_API_KEY'],
+    credentialEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
   },
   transportConfig: {
     kind: 'openai-compatible',
@@ -22,7 +22,7 @@ export default defineVendor({
   preset: {
     id: 'openai',
     description: 'OpenAI API with API key',
-    apiKeyEnvVars: ['OPENAI_API_KEY'],
+    apiKeyEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
   },
   validation: {
     kind: 'credential-env',
@@ -30,11 +30,17 @@ export default defineVendor({
       matchDefaultBaseUrl: true,
       fallbackWhenUseOpenAI: true,
     },
-    credentialEnvVars: ['OPENAI_API_KEY'],
+    credentialEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     allowLocalBaseUrlWithoutCredential: true,
     missingCredentialMessage:
-      'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+      'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
     invalidCredentialValues: [
+      {
+        envVar: 'OPENAI_API_KEYS',
+        value: 'SUA_CHAVE',
+        message:
+          'Invalid OPENAI_API_KEYS: placeholder value SUA_CHAVE detected. Set real key(s) or unset for local providers.',
+      },
       {
         envVar: 'OPENAI_API_KEY',
         value: 'SUA_CHAVE',

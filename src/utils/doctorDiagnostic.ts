@@ -99,10 +99,6 @@ function getNormalizedPaths(): [invokedPath: string, execPath: string] {
 }
 
 export async function getCurrentInstallationType(): Promise<InstallationType> {
-  if (process.env.NODE_ENV === 'development') {
-    return 'development'
-  }
-
   const [invokedPath] = getNormalizedPaths()
 
   // Check if running in bundled mode first
@@ -156,6 +152,15 @@ export async function getCurrentInstallationType(): Promise<InstallationType> {
 
   if (globalPrefix && invokedPath.startsWith(globalPrefix)) {
     return 'npm-global'
+  }
+
+  // Development build: running from a source tree (e.g. `bun run dev`) with
+  // NODE_ENV=development. Checked AFTER all real-install path markers so that
+  // a user shell exporting NODE_ENV=development can't downgrade a real npm
+  // install to 'development' (which would block /update). A source-tree run
+  // matches none of the path markers above, so it lands here.
+  if (process.env.NODE_ENV === 'development') {
+    return 'development'
   }
 
   // If we can't determine, return unknown

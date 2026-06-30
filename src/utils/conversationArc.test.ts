@@ -161,6 +161,33 @@ describe('conversationArc', () => {
       expect(getArc()?.currentPhase).toBe('implementing')
     })
 
+    it('joins multi-block text with a real newline so fact extraction stops at block boundaries', async () => {
+      initializeArc()
+      const blockMessage = {
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Set export API_KEY=secret123' },
+            { type: 'text', text: 'and then continue' },
+          ],
+          id: 'test',
+          type: 'message',
+          created_at: Date.now(),
+        },
+        sender: 'assistant',
+      }
+      await updateArcPhase([blockMessage as any])
+
+      const graph = getGlobalGraph()
+      const envVar = Object.values(graph.entities).find(
+        (e: any) => e.type === 'environment_variable' && e.name === 'API_KEY',
+      )
+      expect(envVar).toBeDefined()
+      // With a literal "\n" separator the value absorbed the next block
+      // (`secret123\nand`); a real newline stops the value at the block boundary.
+      expect((envVar as any).attributes.value).toBe('secret123')
+    })
+
     it('progresses phases forward only', async () => {
       initializeArc()
       await updateArcPhase([createMessage('user', 'Write code')])
