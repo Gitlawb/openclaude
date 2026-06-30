@@ -870,6 +870,7 @@ test('loadSameRepoMessageLogsProgressive ignores branch metadata outside lite re
     )
 
     const branchLog = result.logs.find(log => log.sessionId === branchId)
+    expect(branchLog).toBeDefined()
     expect(branchLog?.sessionBranch).toBeUndefined()
   } finally {
     setClaudeConfigHomeDirForTesting(undefined)
