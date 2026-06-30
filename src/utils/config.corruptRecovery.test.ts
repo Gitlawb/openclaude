@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { execaSync } from 'execa'
 import {
   mkdtempSync,
   mkdirSync,
@@ -10,10 +9,18 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { getGlobalClaudeFile } from './env.js'
+
+async function importFreshConfigModule() {
+  return import(`./config.js?corruptRecovery=${Date.now()}-${Math.random()}`)
+}
 
 describe('startup config recovery', () => {
   test('restores corrupt global config from the newest valid backup candidate', async () => {
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-config-recovery-'))
+    const originalOpenClaudeConfigDir = process.env.OPENCLAUDE_CONFIG_DIR
+    const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+    const originalNodeEnv = process.env.NODE_ENV
     try {
       const configPath = join(configDir, '.openclaude.json')
       const backupDir = join(configDir, 'backups')
@@ -30,36 +37,18 @@ describe('startup config recovery', () => {
         JSON.stringify(backupConfig),
         'utf-8',
       )
-      const configModulePath = join(import.meta.dir, 'config.ts')
-      const repoRoot = join(import.meta.dir, '../..')
 
-      const result = execaSync(
-        process.execPath,
-        [
-          '--feature=UNATTENDED_RETRY',
-          '-e',
-          `const { enableConfigs } = await import(${JSON.stringify(configModulePath)}); enableConfigs();`,
-        ],
-        {
-          cwd: repoRoot,
-          env: {
-            HOME: process.env.HOME ?? '',
-            NODE_ENV: 'test',
-            OPENCLAUDE_CONFIG_DIR: configDir,
-            PATH: process.env.PATH ?? '',
-            TMPDIR: process.env.TMPDIR ?? tmpdir(),
-            CLAUDE_CONFIG_DIR: '',
-          },
-          reject: false,
-        },
+      process.env.OPENCLAUDE_CONFIG_DIR = configDir
+      delete process.env.CLAUDE_CONFIG_DIR
+      process.env.NODE_ENV = 'development'
+      getGlobalClaudeFile.cache?.clear?.()
+      const { enableConfigs, getGlobalConfig } = await importFreshConfigModule()
+
+      enableConfigs()
+
+      expect(getGlobalConfig().promptQueueUseCount).toBe(
+        backupConfig.promptQueueUseCount,
       )
-
-      if (result.exitCode !== 0) {
-        throw new Error(
-          `config recovery subprocess failed with exit code ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-        )
-      }
-
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual(backupConfig)
       expect(
         readdirSync(backupDir).some(file =>
@@ -67,6 +56,22 @@ describe('startup config recovery', () => {
         ),
       ).toBe(true)
     } finally {
+      if (originalOpenClaudeConfigDir === undefined) {
+        delete process.env.OPENCLAUDE_CONFIG_DIR
+      } else {
+        process.env.OPENCLAUDE_CONFIG_DIR = originalOpenClaudeConfigDir
+      }
+      if (originalClaudeConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir
+      }
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = originalNodeEnv
+      }
+      getGlobalClaudeFile.cache?.clear?.()
       rmSync(configDir, { recursive: true, force: true })
     }
   })
