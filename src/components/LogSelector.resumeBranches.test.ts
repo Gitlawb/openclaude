@@ -257,6 +257,7 @@ test('rendered picker expands branch groups and selects child branch logs', asyn
   await acquireSharedMutationLock(
     'components/LogSelector.resumeBranches.test.tsx',
   )
+  let rootRenderer: Awaited<ReturnType<typeof createRoot>> | null = null
   const rootId = id(40)
   const branchId = id(41)
   const projectPath = getOriginalCwd()
@@ -275,13 +276,14 @@ test('rendered picker expands branch groups and selects child branch logs', asyn
   })
   const selected: LogOption[] = []
   const { stdout, stdin, getOutput } = createTestStreams()
-  const rootRenderer = await createRoot({
-    stdout: stdout as unknown as NodeJS.WriteStream,
-    stdin: stdin as unknown as NodeJS.ReadStream,
-    patchConsole: false,
-  })
 
   try {
+    rootRenderer = await createRoot({
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    })
+
     rootRenderer.render(
       React.createElement(
         AppStateProvider,
@@ -356,7 +358,7 @@ test('rendered picker expands branch groups and selects child branch logs', asyn
       branchId,
     ])
   } finally {
-    rootRenderer.unmount()
+    rootRenderer?.unmount()
     stdin.end()
     releaseSharedMutationLock()
   }
