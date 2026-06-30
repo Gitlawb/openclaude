@@ -463,6 +463,37 @@ function getCopilotModelOptions(): ModelOption[] {
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  // When a provider profile's env is applied, collect its models so they
+  // can be appended to the picker options below.
+  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
+  // getActiveProviderProfile which would affect users with inactive profiles.
+  //
+  // Hoisted above the local OpenAI-compatible early returns (Ollama and the
+  // route-catalog scope) because users with a local profile active still need
+  // the unified `/model` switcher to surface every other configured profile —
+  // otherwise they have to round-trip through `/provider` (issue #1119).
+  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const profileModelOptions: ModelOption[] = []
+  let activeProfileId: string | undefined
+  if (profileEnvApplied) {
+    const activeProfile = getActiveProviderProfile()
+    if (activeProfile) {
+      activeProfileId = activeProfile.id
+      const models = getProfileModelOptions(activeProfile)
+      profileModelOptions.push(...models)
+    }
+  }
+
+  // Inactive provider profile options. Surfaces each configured-but-inactive
+  // provider profile's models in the picker so users can switch active provider
+  // + model from `/model` instead of having to round-trip through `/provider`
+  // (issue #1119). Only built when the active profile env is applied so we
+  // don't expose this affordance to users who haven't opted into the
+  // multi-profile workflow.
+  const inactiveProfileOptions: ModelOption[] = profileEnvApplied
+    ? getInactiveProviderProfileOptions(activeProfileId)
+    : []
+
   if (getAPIProvider() === 'github') {
     return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
   }
@@ -472,7 +503,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const ollamaModels = getCachedOllamaModelOptions()
     if (ollamaModels.length > 0) {
-      return [defaultOption, ...ollamaModels]
+      return [defaultOption, ...ollamaModels, ...inactiveProfileOptions]
     }
     // Fallback: if models not yet fetched, show current model instead of Claude models
     const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
@@ -484,9 +515,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
           label: currentModel,
           description: 'Currently configured Ollama model',
         },
+        ...inactiveProfileOptions,
       ]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using NVIDIA NIM, show models from the NVIDIA catalog
@@ -572,37 +604,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     standardOptions.push(MaxHaiku45Option)
     return standardOptions
   }
-
-  // When a provider profile's env is applied, collect its models so they
-  // can be appended to the picker options below.
-  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
-  // getActiveProviderProfile which would affect users with inactive profiles.
-  //
-  // Hoisted above the local OpenAI-compatible early return because users with
-  // a local profile active (Ollama, lm-studio, etc.) still need the unified
-  // `/model` switcher to surface every other configured profile — otherwise
-  // they have to round-trip through `/provider`.
-  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  const profileModelOptions: ModelOption[] = []
-  let activeProfileId: string | undefined
-  if (profileEnvApplied) {
-    const activeProfile = getActiveProviderProfile()
-    if (activeProfile) {
-      activeProfileId = activeProfile.id
-      const models = getProfileModelOptions(activeProfile)
-      profileModelOptions.push(...models)
-    }
-  }
-
-  // Inactive provider profile options. Surfaces each configured-but-inactive
-  // provider profile's models in the picker so users can switch active provider
-  // + model from `/model` instead of having to round-trip through `/provider`
-  // (issue #1119). Only built when the active profile env is applied so we
-  // don't expose this affordance to users who haven't opted into the
-  // multi-profile workflow.
-  const inactiveProfileOptions: ModelOption[] = profileEnvApplied
-    ? getInactiveProviderProfileOptions(activeProfileId)
-    : []
 
   // Local OpenAI-compatible / route-catalog scope. Inactive-profile options are
   // appended here too so the unified `/model` switcher still surfaces every

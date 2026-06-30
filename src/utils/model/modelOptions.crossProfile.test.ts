@@ -20,6 +20,8 @@ import * as actualAuth from '../auth.js'
 import * as actualProviderConfig from '../../services/api/providerConfig.js'
 import * as actualSettings from '../settings/settings.js'
 import * as actualModelAllowlist from './modelAllowlist.js'
+import * as actualOllamaModels from './ollamaModels.js'
+import type { ModelOption } from './modelOptions.js'
 import type { ProviderProfile } from '../config.js'
 import type { SettingsJson } from '../settings/types.js'
 
@@ -32,6 +34,7 @@ const realAuth = { ...actualAuth }
 const realProviderConfig = { ...actualProviderConfig }
 const realSettings = { ...actualSettings }
 const realModelAllowlist = { ...actualModelAllowlist }
+const realOllamaModels = { ...actualOllamaModels }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // per-test mocks installed in a harness would persist and leak into later
@@ -54,6 +57,21 @@ let activeCacheScopeOverride: string | null = null
 // setSessionSettingsCache, so drive the allowlist deterministically here rather
 // than through the shared settings cache. Gated + passthrough so it doesn't leak.
 let activeSettingsOverride: SettingsJson | null = null
+// Drives the Ollama early-return branch in getModelOptionsBase. When set, the
+// gated mock reports an Ollama provider with this fixed cached-model list so a
+// cross-profile test can assert the branch still appends inactive-profile
+// options (#1164). Gated + passthrough so it can't leak into other suites.
+let activeOllamaOverride: { cachedModels: ModelOption[] } | null = null
+
+mock.module('./ollamaModels.js', () => ({
+  ...realOllamaModels,
+  isOllamaProvider: () =>
+    activeOllamaOverride ? true : realOllamaModels.isOllamaProvider(),
+  getCachedOllamaModelOptions: () =>
+    activeOllamaOverride
+      ? activeOllamaOverride.cachedModels
+      : realOllamaModels.getCachedOllamaModelOptions(),
+}))
 
 mock.module('../settings/settings.js', () => ({
   ...realSettings,
@@ -155,6 +173,7 @@ beforeEach(() => {
   activeProfilesOverride = null
   activeCacheScopeOverride = null
   activeSettingsOverride = null
+  activeOllamaOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   resetModelStringsForTestingOnly()
 })
@@ -165,6 +184,7 @@ afterEach(() => {
   activeProfilesOverride = null
   activeCacheScopeOverride = null
   activeSettingsOverride = null
+  activeOllamaOverride = null
   resetSettingsCache()
   resetModelStringsForTestingOnly()
 })
@@ -395,6 +415,62 @@ test('getModelOptionsBase: local OpenAI-compatible scope still appends inactive 
       profileId: 'profile_remote',
       model: 'glm-5.1',
     })
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
+    }
+  }
+})
+
+test('getModelOptionsBase: active Ollama profile still surfaces inactive profile options', async () => {
+  // Regression for #1164: the `isOllamaProvider()` early return ran before the
+  // inactive-profile compute, so a user whose active profile is a local Ollama
+  // endpoint only saw the Ollama models and lost the cross-profile switcher,
+  // forcing the exact `/provider` round-trip this PR removes. The inactive
+  // options are now hoisted above the Ollama branch and appended to its returns.
+  const active = buildProviderProfileFixture({
+    id: 'profile_ollama',
+    name: 'Local Ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'llama3.2',
+  })
+  const inactive = buildProviderProfileFixture({
+    id: 'profile_remote',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.1',
+  })
+
+  const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  // Force the Ollama branch with a non-empty cached-model list so it takes the
+  // `[default, ...ollamaModels, ...inactiveProfileOptions]` return path.
+  activeOllamaOverride = {
+    cachedModels: [
+      { value: 'llama3.2', label: 'llama3.2', description: 'Local Ollama' },
+    ],
+  }
+  try {
+    const { getModelOptions, parseSwitchProfileValue } =
+      await importFreshModelOptionsModule({
+        getProviderProfiles: () => [active, inactive],
+        getActiveProviderProfile: () => active,
+        getProfileModelOptions: profile => [
+          { value: profile.model, label: profile.model, description: profile.name },
+        ],
+      })
+
+    const options = getModelOptions(false)
+    // The Ollama model is still present...
+    expect(options.some(o => o.value === 'llama3.2')).toBe(true)
+    // ...and the inactive profile now appears as a switch option.
+    const switchOptions = options.filter(o => o.switchToProfileId !== undefined)
+    expect(switchOptions.length).toBeGreaterThan(0)
+    expect(switchOptions[0]?.switchToProfileId).toBe('profile_remote')
+    const parsed = parseSwitchProfileValue(switchOptions[0]!.value)
+    expect(parsed).toEqual({ profileId: 'profile_remote', model: 'glm-5.1' })
   } finally {
     if (previousFlag === undefined) {
       delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
