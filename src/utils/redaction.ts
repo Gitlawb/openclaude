@@ -101,12 +101,13 @@ const GENERIC_HEADER_FIELD_PATTERN =
   /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&#;]+)/gi;
 
 // Cookie/Set-Cookie header values — uses a permissive value character class
-// that allows `;` so semicolon-delimited attributes (e.g.
-// `sessionKey=abc123; Path=/; Secure`) are fully redacted. This runs first
-// in redactSensitiveInfo so the generic pattern below (which stops at `;`)
+// that allows `;` and `,` so semicolon-delimited attributes (e.g.
+// `sessionKey=abc123; Path=/; Secure`) and comma-joined multi-cookie values
+// (e.g. `sid=one, refresh=two`) are fully redacted. This runs first in
+// redactSensitiveInfo so the generic pattern below (which stops at `;`)
 // never sees partial cookie values.
 const COOKIE_PATTERN =
-  /(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"',\n]+/gi;
+  /(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"'\n]+/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)

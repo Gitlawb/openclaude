@@ -464,6 +464,23 @@ describe("redactSensitiveInfo", () => {
     expect(result).toMatch(/\[REDACTED/);
     expect(result).not.toContain("plain-secret-value");
   });
+
+  // Regression: COOKIE_PATTERN must consume comma-joined multi-cookie values
+  // (e.g. `Set-Cookie: sid=one, refresh=two`) rather than stopping at the
+  // first comma like the generic header pattern does.
+  test("redacts comma-joined Set-Cookie values fully", () => {
+    const result = redactSensitiveInfo(
+      'Set-Cookie: sid=abc123, refresh=def456',
+    );
+    expect(result).toBe('Set-Cookie: [REDACTED]');
+  });
+
+  test("redacts comma-joined Cookie values fully", () => {
+    const result = redactSensitiveInfo(
+      "cookie: sid=abc123, refresh=def456",
+    );
+    expect(result).toBe("cookie: [REDACTED]");
+  });
 });
 
 describe("logForDebugging", () => {
