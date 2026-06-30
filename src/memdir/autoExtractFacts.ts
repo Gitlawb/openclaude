@@ -92,19 +92,22 @@ export async function extractFactsIntoMemdir(
   // Build scrubbed content for downstream extractors so env values (which may
   // contain secrets, paths, or code) are not re-extracted as concept facts.
   const scrubbedContent = content.replace(
-    /(?:export\s+)?[A-Z_]{3,}=[^\s\n"']+/g,
+    /(?:export\s+)?[A-Z_][A-Z_0-9]{2,}=[^\s\n]+/g,
     match => `${match.split('=')[0]}=[REDACTED]`,
   )
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
-  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
+  //    Supports keys with digits and values wrapped in quotes.
+  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_][A-Z_0-9]{2,})=[^\s\n]+/g)
   for (const match of envMatches) {
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
   }
 
-  // 2. Detect Absolute Paths — use scrubbedContent so env values are not re-extracted as path facts
-  const pathMatches = scrubbedContent.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
+  // 2. Detect Absolute Paths — strip URLs first so path-like URL segments are not
+  //    extracted as filesystem paths, then scan the remaining text.
+  const noUrlContent = scrubbedContent.replace(/https?:\/\/[^\s\n]+/g, '')
+  const pathMatches = noUrlContent.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
   for (const match of pathMatches) {
     const path = match[1]
     if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
