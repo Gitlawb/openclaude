@@ -1673,6 +1673,41 @@ function findMostRecentBackup(file: string): string | null {
   return null
 }
 
+/**
+ * Attempt to recover a config whose live file is present but corrupt by
+ * reading the most recent healthy backup and parsing it. Backups in
+ * ~/.claude/backups are written from previously-valid configs, so this lets a
+ * one-off bad write be undone instead of silently discarding the user's
+ * settings. Returns the merged config when a backup exists and parses, or
+ * undefined when there is no usable backup (#1807).
+ *
+ * Exported for unit testing: `getConfig` is module-private and short-circuits
+ * to the in-memory config under NODE_ENV=test, so the recovery path is covered
+ * directly against an injected filesystem.
+ */
+export function recoverConfigFromBackup<A>(
+  file: string,
+  createDefault: () => A,
+): A | undefined {
+  const backupPath = findMostRecentBackup(file)
+  if (!backupPath) {
+    return undefined
+  }
+
+  try {
+    const fs = getFsImplementation()
+    const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
+    const parsedBackup = jsonParse(stripBOM(backupContent))
+    return {
+      ...createDefault(),
+      ...parsedBackup,
+    }
+  } catch {
+    // Backup missing or itself corrupt — caller falls back to defaults.
+    return undefined
+  }
+}
+
 function getConfig<A>(
   file: string,
   createDefault: () => A,
@@ -1715,6 +1750,22 @@ function getConfig<A>(
         )
       }
       return createDefault()
+    }
+
+    // A present-but-corrupt config previously reset to defaults (or threw when
+    // throwOnInvalid), discarding the user's settings even though healthy
+    // backups exist in ~/.claude/backups. Recover the most recent backup that
+    // still parses before doing anything destructive, so a one-off bad write
+    // no longer wipes config or crashes startup (#1807).
+    if (error instanceof ConfigParseError) {
+      const recovered = recoverConfigFromBackup<A>(file, createDefault)
+      if (recovered) {
+        process.stderr.write(
+          `\nClaude configuration file at ${file} was corrupted and has been ` +
+            `recovered from the most recent healthy backup.\n\n`,
+        )
+        return recovered
+      }
     }
 
     // Re-throw ConfigParseError if throwOnInvalid is true
