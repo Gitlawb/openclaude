@@ -30,7 +30,8 @@ describe('startup config recovery', () => {
         JSON.stringify(backupConfig),
         'utf-8',
       )
-      const configModulePath = join(process.cwd(), 'src/utils/config.ts')
+      const configModulePath = join(import.meta.dir, 'config.ts')
+      const repoRoot = join(import.meta.dir, '../..')
 
       const result = execaSync(
         process.execPath,
@@ -40,7 +41,7 @@ describe('startup config recovery', () => {
           `const { enableConfigs } = await import(${JSON.stringify(configModulePath)}); enableConfigs();`,
         ],
         {
-          cwd: process.cwd(),
+          cwd: repoRoot,
           env: {
             HOME: process.env.HOME ?? '',
             NODE_ENV: 'test',
