@@ -85,7 +85,7 @@ const AUTHORIZATION_PATTERN =
 
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
-  /((?:AWS|GOOGLE)[_-][A-Za-z0-9_]+\s*[=:]\s*)["']?[^"',\s)}\]]+["']?/gi;
+  /((?:AWS|GOOGLE)[_-][A-Za-z0-9_]+\s*[=:]\s*)["']?[^"',\s)}\]&#]+["']?/gi;
 
 // Generic credential env var names (*_API_KEY, *_SECRET, *_TOKEN, *_PASSWORD)
 // with strict negative lookarounds so we don't redact normal text that
@@ -149,7 +149,7 @@ function buildKnownEnvVarPattern(): RegExp {
   const sorted = [...keys].sort((a, b) => b.length - a.length);
   const escaped = sorted.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(
-    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\\s*[=:]\\s*)["']?[^"'\\s)}\\]]+["']?`,
+    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\\s*[=:]\\s*)["']?[^"'\\s)}\\]&#]+["']?`,
     "gi",
   );
 }

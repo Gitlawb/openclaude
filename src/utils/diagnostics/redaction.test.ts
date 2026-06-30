@@ -504,6 +504,36 @@ describe("redactSensitiveInfo", () => {
       "//api.example.com/v1?signature=redacted&mode=test",
     );
   });
+
+  // Regression: uppercase provider env-var names in URL query strings must not
+  // consume safe trailing query params when matched by env-var redaction passes.
+  test("preserves safe query params after provider env-var names in URLs", () => {
+    const cases = [
+      {
+        input: "https://example.com/v1?OPENAI_API_KEY=secret&mode=test",
+        expected: "https://example.com/v1?OPENAI_API_KEY=redacted&mode=test",
+      },
+      {
+        input: "https://example.com/v1?AWS_SECRET_ACCESS_KEY=key123&debug=true",
+        expected:
+          "https://example.com/v1?AWS_SECRET_ACCESS_KEY=redacted&debug=true",
+      },
+      {
+        input: "https://example.com/v1?GOOGLE_API_KEY=gkey456&trace=1",
+        expected: "https://example.com/v1?GOOGLE_API_KEY=redacted&trace=1",
+      },
+      {
+        input:
+          "https://example.com/v1?ANTHROPIC_API_KEY=ant789&limit=10#section",
+        expected:
+          "https://example.com/v1?ANTHROPIC_API_KEY=redacted&limit=10",
+      },
+    ];
+
+    for (const { input, expected } of cases) {
+      expect(redactSensitiveInfo(input)).toBe(expected);
+    }
+  });
 });
 
 describe("logForDebugging", () => {
