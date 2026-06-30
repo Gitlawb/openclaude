@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import {
   mkdtempSync,
   mkdirSync,
@@ -7,66 +7,14 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../test/sharedMutationLock.js'
-import type * as ConfigModule from './config.js'
-import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
-
-const originalOpenClaudeConfigDir = process.env.OPENCLAUDE_CONFIG_DIR
-const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('config.corruptRecovery.test.ts')
-})
-
-afterAll(() => {
-  releaseSharedMutationLock()
-})
-
-async function importFreshConfigModule(): Promise<typeof ConfigModule> {
-  return (await import(
-    `./config.js?corruptRecoveryTest=${Date.now()}-${Math.random()}`
-  )) as typeof ConfigModule
-}
-
-async function clearGlobalClaudeFileCache(): Promise<void> {
-  const env = await import('./env.js')
-  ;(
-    env.getGlobalClaudeFile as typeof env.getGlobalClaudeFile & {
-      cache?: { clear?: () => void }
-    }
-  ).cache?.clear?.()
-}
-
-afterEach(async () => {
-  setClaudeConfigHomeDirForTesting(undefined)
-  await clearGlobalClaudeFileCache()
-  if (originalOpenClaudeConfigDir === undefined) {
-    delete process.env.OPENCLAUDE_CONFIG_DIR
-  } else {
-    process.env.OPENCLAUDE_CONFIG_DIR = originalOpenClaudeConfigDir
-  }
-
-  if (originalClaudeConfigDir === undefined) {
-    delete process.env.CLAUDE_CONFIG_DIR
-  } else {
-    process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir
-  }
-})
 
 describe('startup config recovery', () => {
   test('restores corrupt global config from the newest valid backup candidate', async () => {
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-config-recovery-'))
     try {
-      setClaudeConfigHomeDirForTesting(configDir)
-      await clearGlobalClaudeFileCache()
-      process.env.OPENCLAUDE_CONFIG_DIR = configDir
-      delete process.env.CLAUDE_CONFIG_DIR
-
       const configPath = join(configDir, '.openclaude.json')
       const backupDir = join(configDir, 'backups')
       const backupConfig = { promptQueueUseCount: 7 }
@@ -83,9 +31,25 @@ describe('startup config recovery', () => {
         'utf-8',
       )
 
-      const config = await importFreshConfigModule()
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--feature=UNATTENDED_RETRY',
+          '-e',
+          "const { enableConfigs } = await import('./src/utils/config.ts'); enableConfigs();",
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf-8',
+          env: {
+            ...process.env,
+            OPENCLAUDE_CONFIG_DIR: configDir,
+            CLAUDE_CONFIG_DIR: '',
+          },
+        },
+      )
 
-      expect(() => config.enableConfigs()).not.toThrow()
+      expect(result.status).toBe(0)
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual(backupConfig)
       expect(
         readdirSync(backupDir).some(file =>
