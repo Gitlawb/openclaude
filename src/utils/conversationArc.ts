@@ -194,7 +194,9 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
     await extractFactsAutomatically(content)
   }
 
-  if (arcMemoryDir) {
+  // Only persist arc state when auto-memory is enabled
+  const { isAutoMemoryEnabled } = await import('../memdir/paths.js')
+  if (arcMemoryDir && isAutoMemoryEnabled()) {
     saveArcToDisk(arcMemoryDir, arc)
     await rebuildIndex(arcMemoryDir).catch(() => {})
   }

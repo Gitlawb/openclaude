@@ -717,11 +717,8 @@ async function* queryLoop(
       getGlobalConfig().knowledgeGraphEnabled &&
       messagesForQuery.length > 0
     ) {
-      const { isAutoMemoryEnabled } = await import('./memdir/paths.js')
-      if (isAutoMemoryEnabled()) {
-        const { updateArcPhase } = await import('./utils/conversationArc.js')
-        await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
-      }
+      const { updateArcPhase } = await import('./utils/conversationArc.js')
+      await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
     }
 
     let tracking = autoCompactTracking
