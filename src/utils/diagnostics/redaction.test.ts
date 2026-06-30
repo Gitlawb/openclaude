@@ -481,6 +481,18 @@ describe("redactSensitiveInfo", () => {
     );
     expect(result).toBe("cookie: [REDACTED]");
   });
+
+  // Regression: URL query redaction must not skip URLs that already contain
+  // [REDACTED] from a generic pattern match — remaining sensitive params
+  // (e.g. signature=SIG) must still be caught by redactUrlForDisplay.
+  test("redacts remaining URL query params after generic pattern redacted part of URL", () => {
+    const result = redactSensitiveInfo(
+      "https://api.example.com/v1?api_key=SECRET&signature=SIG&mode=test",
+    );
+    expect(result).toBe(
+      "https://api.example.com/v1?api_key=redacted&signature=redacted&mode=test",
+    );
+  });
 });
 
 describe("logForDebugging", () => {

@@ -1094,8 +1094,7 @@ export function createHeadlessHeartbeatStructuredEmitter(
     if (!hasDrainStarted()) {
       // Before drain starts, write directly so startup signals in
       // stream-json mode are not silently dropped.
-      structuredIO.write(message)
-      return
+      return structuredIO.write(message)
     }
     structuredIO.outbound.enqueue(message)
   }

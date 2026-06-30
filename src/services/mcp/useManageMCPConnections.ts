@@ -532,14 +532,15 @@ export function useManageMCPConnections(
                 )
                 // Permission-reply handler — separate event, separate
                 // capability. Only registers if the server declares
-                // claude/channel/permission (same opt-in check as the send
-                // path in interactiveHandler.ts). Server parses the user's
-                // reply and emits {request_id, behavior}; no regex on our
-                // side, text in the general channel can't accidentally match.
+                // claude/channel/permission truthy (same opt-in check as
+                // filterPermissionRelayClients in channelPermissions.ts).
+                // Server parses the user's reply and emits {request_id,
+                // behavior}; no regex on our side, text in the general
+                // channel can't accidentally match.
                 if (
                   client.capabilities?.experimental?.[
                     'claude/channel/permission'
-                  ] !== undefined
+                  ]
                 ) {
                   client.client.setNotificationHandler(
                     ChannelPermissionNotificationSchema(),

@@ -93,6 +93,25 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
     expect(write).not.toHaveBeenCalled()
     expect(enqueue).toHaveBeenCalledWith(heartbeatEvent)
   })
+
+  // Regression: the pre-drain branch must return the write promise so
+  // callers can observe write failures and backpressure. The emitter
+  // should reject when the underlying write rejects.
+  test('propagates write rejection before drain starts', async () => {
+    const writeError = new Error('write failed')
+    const write = mock(async (_message: HeadlessHeartbeatEvent) => {
+      throw writeError
+    })
+    const enqueue = mock((_message: HeadlessHeartbeatEvent) => {})
+    const emitter = createHeadlessHeartbeatStructuredEmitter(
+      { write, outbound: { enqueue } },
+      () => false,
+    )
+
+    await expect(emitter(heartbeatEvent)).rejects.toThrow('write failed')
+    expect(write).toHaveBeenCalledWith(heartbeatEvent)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
 })
 
 describe('createRunHeadlessHeartbeat', () => {

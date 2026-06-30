@@ -277,12 +277,12 @@ export function redactSensitiveInfo(text: string): string {
 
   // Redact sensitive query params in `https?://` URLs embedded in free-form
   // text, log lines, and error messages. This catches query params like
-  // `signature=SECRET123` that the generic key-value patterns don't cover.
-  // Skip URLs that already contain `[REDACTED]` to avoid re-processing
-  // already-redacted query params through redactUrlForDisplay.
+  // `signature=SECRET123` that the generic key-value patterns don't cover,
+  // even when another param was already redacted by a generic pattern
+  // (e.g. `api_key=XXX` matched by GENERIC_HEADER_FIELD_PATTERN).
   redacted = redacted.replace(
-    /https?:\/\/[^\s"',)\]}>]+/gi,
-    (url) => (/\[REDACTED/i.test(url) ? url : redactUrlForDisplay(url)),
+    /https?:\/\/[^\s"',)}>]+/gi,
+    (url) => redactUrlForDisplay(url),
   );
 
   return redacted;
