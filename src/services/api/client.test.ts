@@ -642,7 +642,7 @@ test('routes env-only xAI requests through the OpenAI-compatible shim', async ()
   // cached system prompt and conversation history can be reused. Mirrors the
   // Hermes implementation (RELEASE_v0.8.0 PR #5604).
   expect(capturedHeaders?.get('x-grok-conv-id')).toBeTruthy()
-  expect(capturedBody?.model).toBe('grok-4')
+  expect(capturedBody?.model).toBe('grok-4.3')
   expect(response).toMatchObject({
     role: 'assistant',
     model: 'grok-4',
@@ -1527,59 +1527,122 @@ test('providerOverride clamps stale effort against metadata levels', async () =>
 })
 test('providerOverride Atlas Kimi metadata emits top-level reasoning_effort and clamps unsupported levels', async () => {
   let requestBody: Record<string, unknown> | undefined
+  const originalFetch = globalThis.fetch
 
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body))
 
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-provider-override-atlas-kimi',
-        model: 'moonshotai/kimi-k2.6',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'ok',
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-provider-override-atlas-kimi',
+          model: 'moonshotai/kimi-k2.7-code',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
             },
-            finish_reason: 'stop',
+          ],
+          usage: {
+            prompt_tokens: 8,
+            completion_tokens: 3,
+            total_tokens: 11,
           },
-        ],
-        usage: {
-          prompt_tokens: 8,
-          completion_tokens: 3,
-          total_tokens: 11,
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
         },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      )
+    }) as FetchType
+
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'xhigh',
+      providerOverride: {
+        model: 'moonshotai/kimi-k2.7-code',
+        baseURL: 'https://api.atlascloud.ai/v1',
+        apiKey: 'atlas-test-key',
       },
-    )
-  }) as FetchType
+    })) as unknown as ShimClient
 
-  const client = (await getAnthropicClient({
-    maxRetries: 0,
-    effortValue: 'xhigh',
-    providerOverride: {
-      model: 'moonshotai/kimi-k2.6',
-      baseURL: 'https://api.atlascloud.ai/v1',
-      apiKey: 'atlas-test-key',
-    },
-  })) as unknown as ShimClient
+    await client.beta.messages.create({
+      model: 'unused',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
 
-  await client.beta.messages.create({
-    model: 'unused',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(requestBody?.reasoning_effort).toBe('xhigh')
+    expect(requestBody?.reasoning_effort).toBe('high')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
-test('providerOverride Atlas Grok Build uses always-on no-wire reasoning metadata', async () => {
+test('providerOverride Kimi Code clamps unsupported xhigh effort to high', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  const originalFetch = globalThis.fetch
+
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body))
+
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-provider-override-kimi-code',
+          model: 'kimi-for-coding',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: 8,
+            completion_tokens: 3,
+            total_tokens: 11,
+          },
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }) as FetchType
+
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'xhigh',
+      providerOverride: {
+        model: 'kimi-for-coding',
+        baseURL: 'https://api.kimi.com/coding/v1',
+        apiKey: 'kimi-test-key',
+      },
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'unused',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+
+    expect(requestBody?.reasoning_effort).toBe('high')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+test('providerOverride Atlas Grok Build does not send reasoning effort', async () => {
   let requestBody: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (_input, init) => {

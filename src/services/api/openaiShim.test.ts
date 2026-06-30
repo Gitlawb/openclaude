@@ -1231,28 +1231,21 @@ test('uses max_tokens instead of max_completion_tokens for local providers', asy
 
   globalThis.fetch = (async (_input, init) => {
     const body = JSON.parse(String(init?.body))
-    expect(body.max_tokens).toBe(64)
-    expect(body.max_completion_tokens).toBeUndefined()
+    expect(body.options?.num_predict).toBe(64)
+    expect(body.options?.num_ctx).toBe(32768)
     expect(body.stream_options).toBeUndefined()
 
     return new Response(
       JSON.stringify({
-        id: 'chatcmpl-1',
         model: 'llama3.1:8b',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'hello',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 5,
-          completion_tokens: 1,
-          total_tokens: 6,
+        message: {
+          role: 'assistant',
+          content: 'hello',
         },
+        done: true,
+        done_reason: 'stop',
+        prompt_eval_count: 5,
+        eval_count: 1,
       }),
       {
         headers: {
@@ -5707,11 +5700,11 @@ test('self-heals localhost resolution failures by retrying local loopback base U
     }),
   ).resolves.toBeDefined()
 
-  expect(requestUrls[0]).toBe('http://localhost:11434/v1/chat/completions')
-  expect(requestUrls).toContain('http://127.0.0.1:11434/v1/chat/completions')
+  expect(requestUrls[0]).toBe('http://localhost:11434/api/chat')
+  expect(requestUrls).toContain('http://127.0.0.1:11434/api/chat')
 })
 
-test('self-heals local endpoint_not_found by retrying with /v1 base URL', async () => {
+test('uses native Ollama chat endpoint when local base URL omits /v1', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434'
 
   const requestUrls: string[] = []
@@ -5719,33 +5712,17 @@ test('self-heals local endpoint_not_found by retrying with /v1 base URL', async 
     const url = typeof input === 'string' ? input : input.url
     requestUrls.push(url)
 
-    if (url === 'http://localhost:11434/chat/completions') {
-      return new Response('Not Found', {
-        status: 404,
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-      })
-    }
-
     return new Response(
       JSON.stringify({
-        id: 'chatcmpl-1',
         model: 'qwen2.5-coder:7b',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'hello from /v1',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 5,
-          completion_tokens: 2,
-          total_tokens: 7,
+        message: {
+          role: 'assistant',
+          content: 'hello from native Ollama',
         },
+        done: true,
+        done_reason: 'stop',
+        prompt_eval_count: 5,
+        eval_count: 2,
       }),
       {
         status: 200,
@@ -5767,9 +5744,66 @@ test('self-heals local endpoint_not_found by retrying with /v1 base URL', async 
     }),
   ).resolves.toBeDefined()
 
+  expect(requestUrls).toEqual(['http://localhost:11434/api/chat'])
+})
+
+test('keeps remote Ollama-named gateways on chat completions', async () => {
+  process.env.OPENAI_BASE_URL = 'https://ollama-gateway.example.com/v1'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    expect(body.max_tokens).toBe(64)
+    expect(body.options).toBeUndefined()
+
+    return makeChatCompletionResponse('llama3.1:8b')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'llama3.1:8b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
   expect(requestUrls).toEqual([
-    'http://localhost:11434/chat/completions',
-    'http://localhost:11434/v1/chat/completions',
+    'https://ollama-gateway.example.com/v1/chat/completions',
+  ])
+})
+
+test('keeps HTTPS localhost Ollama-port proxies on chat completions', async () => {
+  process.env.OPENAI_BASE_URL = 'https://localhost:11434/v1'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    expect(body.max_tokens).toBe(64)
+    expect(body.options).toBeUndefined()
+
+    return makeChatCompletionResponse('llama3.1:8b')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'llama3.1:8b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls).toEqual([
+    'https://localhost:11434/v1/chat/completions',
   ])
 })
 

@@ -54,11 +54,14 @@ afterEach(() => {
 test('treats localhost endpoints as local', () => {
   expect(isLocalProviderUrl('http://localhost:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.0.0.1:11434/v1')).toBe(true)
-  expect(isLocalProviderUrl('http://0.0.0.0:11434/v1')).toBe(true)
   // Full 127.0.0.0/8 loopback range should be treated as local
   expect(isLocalProviderUrl('http://127.0.0.2:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.1.2.3:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.255.255.255:11434/v1')).toBe(true)
+})
+
+test('does not treat wildcard bind addresses as local endpoints', () => {
+  expect(isLocalProviderUrl('http://0.0.0.0:11434/v1')).toBe(false)
 })
 
 test('treats private IPv4 endpoints as local', () => {

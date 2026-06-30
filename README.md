@@ -107,6 +107,27 @@ Inside OpenClaude:
 
 > **Note:** OpenClaude does not automatically load project `.env` files. We recommend using the `/provider` command for setup, which saves provider profiles and credentials in `.openclaude-profile.json`. If you prefer environment variables, export them explicitly or run `openclaude --provider-env-file .env` for provider/setup variables. Export runtime/debug knobs from your shell or launcher.
 
+### Resume or fork a conversation
+
+Resume an existing conversation by session ID, or continue the most recent
+conversation in the current directory:
+
+```bash
+openclaude --resume <session-id>
+openclaude --continue
+```
+
+Add `--fork-session` to branch the conversation history into a new session ID
+instead of reusing the original transcript:
+
+```bash
+openclaude --resume <session-id> --fork-session
+openclaude --continue --fork-session
+```
+
+Forking is conversation branching only. It does not create filesystem isolation,
+copy your working tree, or create a git worktree branch.
+
 ### Background sessions
 
 Run long non-interactive prompts detached from the current terminal:
@@ -177,6 +198,13 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+For Ollama, OpenClaude uses Ollama's native chat API and requests a 32768-token
+context window on each chat request so same-session history is not silently
+truncated by Ollama's OpenAI-compatible shim. Set `OPENCLAUDE_OLLAMA_NUM_CTX`
+or `OLLAMA_CONTEXT_LENGTH` if you need a different request-level context size.
+See [Advanced Setup](docs/advanced-setup.md#ollama-context-length) for
+verification with `ollama ps`.
+
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -199,6 +227,7 @@ Advanced and source-build guides:
 | AI/ML API | `/provider` or OpenAI-compatible env vars ([setup guide](docs/aimlapi-setup.md)) | Uses `https://api.aimlapi.com/v1`, stores keys via `AIMLAPI_API_KEY`; for env setup also set `CLAUDE_CODE_USE_OPENAI=1` to use the OpenAI-compatible route. Sends required OpenClaude attribution headers and discovers chat-capable models from the public `/models` catalog |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Fireworks AI | `/provider` or env vars | First-class provider with 276 curated models (DeepSeek, Qwen, Llama, Gemma, and more); uses `FIREWORKS_API_KEY` |
+| ClinePass | `/provider` or env vars | AI model gateway with usage limits (5hr, weekly, monthly); uses `CLINE_API_KEY` at `https://api.cline.bot/api/v1` |
 | Gemini | `/provider` or env vars | Supports API key only |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
@@ -250,6 +279,20 @@ When CLAUDE_CODE_USE_GITHUB=1, OpenClaude serializes sub-agent execution to redu
 The `is_async` field reported in the `tengu_agent_tool_selected` event and the agent metadata now reflects the final execution mode (i.e., `false` when synchronous is forced). See `.env.example` for the full descriptions.
 
 For best results, use models with strong tool/function calling support.
+
+### Agent step limits
+
+Custom agents can define `maxSteps` as a positive integer to cap how many tool-use steps a sub-agent may execute. When the limit is reached, OpenClaude stops additional tool calls and asks the sub-agent for a concise final summary covering completed work, findings, remaining tasks, and whether another run is needed. Omitting `maxSteps`, or setting it to an invalid value such as `0` or malformed input, preserves the default unlimited behavior.
+
+```markdown
+---
+name: bounded-researcher
+description: Use for focused research with bounded tool use
+maxSteps: 8
+---
+
+You are a focused research agent.
+```
 
 ## Agent Routing
 

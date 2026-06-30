@@ -51,6 +51,7 @@ import {
   type LogOption,
   type PersistedWorktreeSession,
   type SerializedMessage,
+  type SessionBranchEntry,
   sortLogs,
   type TranscriptMessage,
 } from '../types/logs.js'
@@ -1290,6 +1291,8 @@ class Project {
       void this.enqueueWrite(targetFile, entry)
     } else if (entry.type === 'goal-state') {
       await this.appendToFile(sessionFile, jsonStringify(entry) + '\n')
+    } else if (entry.type === 'session-branch') {
+      void this.enqueueWrite(sessionFile, entry)
     } else if (entry.type === 'marble-origami-commit') {
       // Always append. Commit order matters for restore (later commits may
       // reference earlier commits' summary messages), so these must be
@@ -1303,7 +1306,7 @@ class Project {
       if (entry.type === 'queue-operation') {
         // Queue operations are always appended to the session file
         void this.enqueueWrite(sessionFile, entry)
-      } else {
+      } else if (isTranscriptMessage(entry)) {
         // At this point, entry must be a TranscriptMessage (user/assistant/attachment/system)
         // All other entry types have been handled above
         const isAgentSidechain =
@@ -1345,6 +1348,13 @@ class Project {
             }
           }
         }
+      } else {
+        const entryType = (entry as { type?: string }).type ?? 'unknown'
+        // Exhaustiveness guard: entry is never here when every Entry variant
+        // has an append policy above.
+        const _exhaustive: never = entry
+        void _exhaustive
+        throw new Error(`Unhandled session storage entry type: ${entryType}`)
       }
     }
   }
@@ -2653,6 +2663,7 @@ export async function loadTranscriptFromFile(
       contentReplacements,
       worktreeStates,
       goalStates,
+      sessionBranches,
     } = await loadTranscriptFile(filePath)
 
     if (messages.size === 0) {
@@ -2699,6 +2710,7 @@ export async function loadTranscriptFromFile(
         ? worktreeStates.get(sessionId)
         : undefined,
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     }
   }
 
@@ -3329,6 +3341,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       attributionSnapshots,
       contentReplacements,
       goalStates,
+      sessionBranches,
       contextCollapseCommits,
       contextCollapseSnapshot,
       leafUuids,
@@ -3393,6 +3406,9 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
         ? (contentReplacements.get(sessionId) ?? [])
         : log.contentReplacements,
       goal: sessionId ? goalStates.get(sessionId) : log.goal,
+      sessionBranch: sessionId
+        ? (sessionBranches.get(sessionId) ?? log.sessionBranch)
+        : log.sessionBranch,
       // Filter to the resumed session's entries. loadTranscriptFile reads
       // the file sequentially so the array is already in commit order;
       // filter preserves that.
@@ -3476,9 +3492,10 @@ const METADATA_TYPE_MARKERS = [
   '"type":"worktree-state"',
   '"type":"pr-link"',
   '"type":"goal-state"',
+  '"type":"session-branch"',
 ]
 const METADATA_MARKER_BUFS = METADATA_TYPE_MARKERS.map(m => Buffer.from(m))
-// Longest marker is 22 bytes; +1 for leading `{` = 23.
+// Longest marker plus the leading `{` fits within this bound.
 const METADATA_PREFIX_BOUND = 25
 
 // null = carry spans whole chunk. Skips concat when carry provably isn't
@@ -3846,6 +3863,7 @@ export async function loadTranscriptFile(
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   agentContentReplacements: Map<AgentId, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
   leafUuids: Set<UUID>
@@ -3870,6 +3888,7 @@ export async function loadTranscriptFile(
     ContentReplacementRecord[]
   >()
   const goalStates = new Map<UUID, GoalStateEntry['goal']>()
+  const sessionBranches = new Map<UUID, SessionBranchEntry>()
   // Array, not Map — commit order matters (nested collapses).
   const contextCollapseCommits: ContextCollapseCommitEntry[] = []
   // Last-wins — later entries supersede.
@@ -3971,6 +3990,8 @@ export async function loadTranscriptFile(
           prRepositories.set(entry.sessionId, entry.prRepository)
         } else if (entry.type === 'goal-state' && entry.sessionId) {
           goalStates.set(entry.sessionId, entry.goal)
+        } else if (entry.type === 'session-branch' && entry.sessionId) {
+          sessionBranches.set(entry.sessionId, entry)
         }
       })
     }
@@ -4037,6 +4058,8 @@ export async function loadTranscriptFile(
         prRepositories.set(entry.sessionId, entry.prRepository)
       } else if (entry.type === 'goal-state' && entry.sessionId) {
         goalStates.set(entry.sessionId, entry.goal)
+      } else if (entry.type === 'session-branch' && entry.sessionId) {
+        sessionBranches.set(entry.sessionId, entry)
       } else if (entry.type === 'file-history-snapshot') {
         fileHistorySnapshots.set(entry.messageId, entry)
       } else if (entry.type === 'attribution-snapshot') {
@@ -4174,6 +4197,7 @@ export async function loadTranscriptFile(
     contentReplacements,
     agentContentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
     leafUuids,
@@ -4194,6 +4218,7 @@ async function loadSessionFile(sessionId: UUID): Promise<{
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
 }> {
@@ -4250,6 +4275,7 @@ export async function getLastSessionLog(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
   } = await loadSessionFile(sessionId)
@@ -4292,6 +4318,7 @@ export async function getLastSessionLog(
     ),
     worktreeSession: worktreeStates.get(sessionId),
     goal: goalStates.get(sessionId),
+    sessionBranch: sessionBranches.get(sessionId),
     contextCollapseCommits: contextCollapseCommits.filter(
       e => e.sessionId === sessionId,
     ),
@@ -4986,6 +5013,7 @@ export async function loadAllLogsFromSessionFile(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     leafUuids,
   } = await loadTranscriptFile(sessionFile, { keepAllLeaves: true })
 
@@ -5060,6 +5088,7 @@ export async function loadAllLogsFromSessionFile(
       ),
       contentReplacements: contentReplacements.get(sessionId) ?? [],
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     })
   }
 

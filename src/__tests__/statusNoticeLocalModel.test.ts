@@ -12,6 +12,8 @@ import {
   buildLocalModelContextLoad,
   checkLocalModelContextLoad,
   isActiveProviderLocalModel,
+  isLoopbackOllamaEndpoint,
+  parseOllamaPsContextWarning,
 } from '../utils/statusNoticeLocalModel.js'
 
 const emptyPermissionContext = async () => getEmptyToolPermissionContext()
@@ -166,6 +168,89 @@ describe('buildLocalModelContextLoad', () => {
     expect(result?.contributors[1]?.details).toEqual([
       'planner: ~9,000 tokens',
     ])
+  })
+
+  test('includes Ollama context length contributor without other warnings', () => {
+    const result = buildLocalModelContextLoad(null, [
+      {
+        id: 'ollama_context_length',
+        message: 'Ollama context length is too small',
+        details: ['llama3.1:8b: active CONTEXT is 4K'],
+        summary: 'Ollama CONTEXT: 4K (OpenClaude requests 32K)',
+      },
+    ])
+
+    expect(result?.lines).toEqual([
+      'Ollama CONTEXT: 4K (OpenClaude requests 32K)',
+    ])
+  })
+})
+
+describe('parseOllamaPsContextWarning', () => {
+  test('warns when a loaded Ollama model has a small active context', () => {
+    const result = parseOllamaPsContextWarning(`
+NAME            ID              SIZE      PROCESSOR    UNTIL              CONTEXT
+llama3.1:8b     46e0c10c039e    6.7 GB    100% GPU     4 minutes from now 4K
+`)
+
+    expect(result).toMatchObject({
+      id: 'ollama_context_length',
+      summary: 'Ollama CONTEXT: 4K (OpenClaude requests 32K)',
+    })
+    expect(result?.details.join('\n')).toContain('OpenClaude requests 32768')
+  })
+
+  test('does not warn when the active context is already large enough', () => {
+    const result = parseOllamaPsContextWarning(`
+NAME            ID              SIZE      PROCESSOR    UNTIL              CONTEXT
+llama3.1:8b     46e0c10c039e    6.7 GB    100% GPU     4 minutes from now 32K
+`)
+
+    expect(result).toBeNull()
+  })
+
+  test('only warns for the active model when multiple Ollama models are loaded', () => {
+    const output = `
+NAME            ID              SIZE      PROCESSOR    UNTIL              CONTEXT
+tinyllama:1b    46e0c10c039e    1.1 GB    100% GPU     4 minutes from now 4K
+llama3.1:8b     7e0c10c039e46    6.7 GB    100% GPU     4 minutes from now 32K
+`
+
+    expect(parseOllamaPsContextWarning(output, 'llama3.1:8b')).toBeNull()
+    expect(parseOllamaPsContextWarning(output, 'tinyllama:1b')).toMatchObject({
+      summary: 'Ollama CONTEXT: 4K (OpenClaude requests 32K)',
+    })
+  })
+
+  test('ignores older ollama ps output without a context column', () => {
+    const result = parseOllamaPsContextWarning(`
+NAME            ID              SIZE      PROCESSOR    UNTIL
+llama3.1:8b     46e0c10c039e    6.7 GB    100% GPU     4 minutes from now
+`)
+
+    expect(result).toBeNull()
+  })
+})
+
+describe('isLoopbackOllamaEndpoint', () => {
+  test('allows local Ollama endpoints for local ollama ps diagnostics', () => {
+    expect(isLoopbackOllamaEndpoint('http://localhost:11434/v1')).toBe(true)
+    expect(isLoopbackOllamaEndpoint('http://127.0.0.1:11434/v1')).toBe(true)
+    expect(isLoopbackOllamaEndpoint('http://[::1]:11434/v1')).toBe(true)
+  })
+
+  test('skips remote Ollama endpoints so local ollama ps is not misleading', () => {
+    expect(isLoopbackOllamaEndpoint('http://10.0.0.5:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('http://0.0.0.0:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('http://ollama.lan:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('https://localhost:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('https://127.0.0.1:11434/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('https://ollama.example.com/v1')).toBe(false)
+    expect(isLoopbackOllamaEndpoint('http://127.0.0.1.nip.io:11434/v1')).toBe(false)
+  })
+
+  test('skips localhost proxies whose path merely contains ollama', () => {
+    expect(isLoopbackOllamaEndpoint('http://localhost:8080/ollama/v1')).toBe(false)
   })
 })
 

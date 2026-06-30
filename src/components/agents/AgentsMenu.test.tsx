@@ -379,3 +379,118 @@ test('omits set-active action when no session setter is available', async () => 
     stdout.end()
   }
 })
+
+test('shows SDK agents in all view without file edit actions', async () => {
+  const AgentsMenu = await importAgentsMenu()
+  const reviewer = createAgent('reviewer')
+  const sdkHelper = createAgent('sdk-helper', 'sdk')
+  const initialState = {
+    ...getDefaultAppState(),
+    agentDefinitions: {
+      activeAgents: [reviewer, sdkHelper],
+      allAgents: [reviewer, sdkHelper],
+    },
+  }
+  const listStreams = createTestStreams()
+  const listRoot = await createRoot({
+    stdout: listStreams.stdout as unknown as NodeJS.WriteStream,
+    stdin: listStreams.stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  listRoot.render(
+    <AppStateProvider initialState={initialState}>
+      <AgentsMenu
+        tools={[]}
+        onExit={() => {}}
+        initialModeState={{ mode: 'list-agents', source: 'all' }}
+      />
+    </AppStateProvider>,
+  )
+
+  try {
+    const listOutput = await waitForOutput(
+      listStreams.getOutput,
+      frame => frame.includes('reviewer') && frame.includes('sdk-helper'),
+    )
+    expect(listOutput).toContain('sdk-helper')
+  } finally {
+    listRoot.unmount()
+    listStreams.stdin.end()
+    listStreams.stdout.end()
+  }
+
+  const menuStreams = createTestStreams()
+  const menuRoot = await createRoot({
+    stdout: menuStreams.stdout as unknown as NodeJS.WriteStream,
+    stdin: menuStreams.stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  menuRoot.render(
+    <AppStateProvider initialState={initialState}>
+      <AgentsMenu
+        tools={[]}
+        onExit={() => {}}
+        initialModeState={{
+          mode: 'agent-menu',
+          agent: sdkHelper,
+          previousMode: { mode: 'list-agents', source: 'all' },
+        }}
+      />
+    </AppStateProvider>,
+  )
+
+  try {
+    const menuOutput = await waitForOutput(menuStreams.getOutput, frame =>
+      frame.includes('View agent'),
+    )
+    expect(menuOutput).not.toContain('Edit agent')
+    expect(menuOutput).not.toContain('Delete agent')
+  } finally {
+    menuRoot.unmount()
+    menuStreams.stdin.end()
+    menuStreams.stdout.end()
+  }
+})
+
+test('shows only SDK agents in the dedicated SDK source list', async () => {
+  const AgentsMenu = await importAgentsMenu()
+  const reviewer = createAgent('reviewer')
+  const sdkHelper = createAgent('sdk-helper', 'sdk')
+  const initialState = {
+    ...getDefaultAppState(),
+    agentDefinitions: {
+      activeAgents: [reviewer, sdkHelper],
+      allAgents: [reviewer, sdkHelper],
+    },
+  }
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(
+    <AppStateProvider initialState={initialState}>
+      <AgentsMenu
+        tools={[]}
+        onExit={() => {}}
+        initialModeState={{ mode: 'list-agents', source: 'sdk' }}
+      />
+    </AppStateProvider>,
+  )
+
+  try {
+    const output = await waitForOutput(getOutput, frame =>
+      frame.includes('sdk-helper'),
+    )
+    expect(output).toContain('sdk-helper')
+    expect(output).not.toContain('reviewer')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})

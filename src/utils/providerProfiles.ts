@@ -46,6 +46,7 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  isClinePassBaseUrl,
   isFireworksBaseUrl,
   isNearaiBaseUrl,
   isXaiBaseUrl,
@@ -134,6 +135,11 @@ function resolveProfileCompatibility(provider: string): {
   }
 
   return { route, compatibilityMode: 'openai' }
+}
+
+function isClinePassProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -703,6 +709,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
+    (isClinePassProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
+      : true) &&
     (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
@@ -866,6 +876,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (isClinePassProfile(profile)) {
+        openAIProfileEnv.CLINE_API_KEY = profile.apiKey
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
@@ -1147,6 +1160,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (isClinePassProfile(activeProfile)) {
+        strictEnv.CLINE_API_KEY = activeProfile.apiKey
+      }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
@@ -1198,6 +1214,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (isClinePassProfile(activeProfile)) {
+      env.CLINE_API_KEY = activeProfile.apiKey
     }
     if (isNearaiBaseUrl(activeProfile.baseUrl)) {
       env.NEARAI_API_KEY = activeProfile.apiKey

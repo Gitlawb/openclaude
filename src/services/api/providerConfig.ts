@@ -19,7 +19,14 @@ import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
+import {
+  DEFAULT_CLINEPASS_BASE_URL,
+} from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
+import {
+  getRouteDefaultModel,
+  isClinePassBaseUrl,
+} from '../../integrations/routeMetadata.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -30,6 +37,7 @@ export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1'
 export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+export const DEFAULT_CLINEPASS_API_BASE_URL = `${DEFAULT_CLINEPASS_BASE_URL}/api/v1`
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
@@ -419,7 +427,7 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       hostname = hostname.slice(0, zoneIdIndex)
     }
 
-    if (LOCALHOST_HOSTNAMES.has(hostname) || hostname === '0.0.0.0') {
+    if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
     if (hostname.endsWith('.local')) {
@@ -537,6 +545,33 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
     return (
       hostname.includes('ollama') ||
       pathname.includes('ollama')
+    )
+  } catch {
+    return false
+  }
+}
+
+export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    const parsed = new URL(baseUrl)
+    let hostname = parsed.hostname.toLowerCase()
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1)
+    }
+    const ipv4Octets = hostname.split('.')
+    const isLoopbackIpv4 =
+      ipv4Octets.length === 4 &&
+      ipv4Octets.every(octet => /^\d{1,3}$/.test(octet) && Number(octet) <= 255) &&
+      ipv4Octets[0] === '127'
+    return (
+      parsed.protocol === 'http:' &&
+      parsed.port === '11434' &&
+      (
+        hostname === 'localhost' ||
+        hostname === '::1' ||
+        isLoopbackIpv4
+      )
     )
   } catch {
     return false
@@ -770,18 +805,7 @@ export function resolveProviderRequest(options?: {
   const isGithubMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
-  const requestedModel =
-    options?.model?.trim() ||
-    (isMistralMode
-      ? processEnv.MISTRAL_MODEL?.trim()
-      : processEnv.OPENAI_MODEL?.trim()) ||
-    (isGeminiMode
-      ? processEnv.GEMINI_MODEL?.trim()
-      : processEnv.OPENAI_MODEL?.trim()) ||
-    options?.fallbackModel?.trim() ||
-    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
-    (isGithubMode ? 'github:copilot' : 'codexplan')
-  const descriptor = parseModelDescriptor(requestedModel)
+  const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -815,10 +839,41 @@ export function resolveProviderRequest(options?: {
       ? asNamedEnvUrl(processEnv.OPENAI_API_BASE, 'OPENAI_API_BASE')
       : undefined)
 
+  // ClinePass model selection is only valid when no concrete non-ClinePass
+  // base URL is explicitly provided via options or env. This prevents stale
+  // CLINE_API_KEY/CLINE_API_MODEL from overriding an explicit OPENAI_BASE_URL
+  // pointing at a different provider.
+  const concreteBaseUrlBeforeDefault =
+    explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
+  const hasConcreteNonClinePassBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
+  const effectiveClinePassMode =
+    isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
+  const clinePassDefaultModel = effectiveClinePassMode
+    ? getRouteDefaultModel('clinepass')
+    : undefined
+
+  const requestedModel =
+    options?.model?.trim() ||
+    (isMistralMode
+      ? processEnv.MISTRAL_MODEL?.trim()
+      : isGeminiMode
+        ? processEnv.GEMINI_MODEL?.trim()
+        : effectiveClinePassMode
+          ? processEnv.CLINE_API_MODEL?.trim() ||
+            processEnv.OPENAI_MODEL?.trim()
+          : processEnv.OPENAI_MODEL?.trim()) ||
+    options?.fallbackModel?.trim() ||
+    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
+    clinePassDefaultModel ||
+    (isGithubMode ? 'github:copilot' : 'codexplan')
+  const descriptor = parseModelDescriptor(requestedModel)
+
   const envBaseUrlRaw =
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
-    fallbackEnvBaseUrl
+    fallbackEnvBaseUrl ??
+    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,

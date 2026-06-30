@@ -77,6 +77,7 @@ import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  isDirectLocalOllamaEndpoint,
   isLikelyOllamaEndpoint,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
@@ -109,6 +110,7 @@ import {
   hasInvalidCredentialPlaceholder,
   parseCredentialList,
 } from './credentialPool.js'
+import { MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS } from '../../utils/ollamaContext.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -298,6 +300,399 @@ interface OpenAITool {
     parameters: Record<string, unknown>
     strict?: boolean
   }
+}
+
+type OllamaChatResponse = {
+  model?: string
+  message?: {
+    role?: string
+    content?: string
+    tool_calls?: Array<{
+      function?: {
+        name?: string
+        arguments?: unknown
+      }
+    }>
+  }
+  done?: boolean
+  done_reason?: string
+  prompt_eval_count?: number
+  eval_count?: number
+}
+
+type OllamaChatMessage = Omit<OpenAIMessage, 'content' | 'tool_calls'> & {
+  content?: string
+  images?: string[]
+  tool_calls?: Array<{
+    function: {
+      name: string
+      arguments: Record<string, unknown>
+    }
+  }>
+}
+
+function parsePositiveIntegerEnv(value: string | undefined): number | null {
+  if (!value?.trim()) {
+    return null
+  }
+  const parsed = Number(value.trim())
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
+}
+
+function getOllamaNumCtx(): number {
+  return (
+    parsePositiveIntegerEnv(process.env.OPENCLAUDE_OLLAMA_NUM_CTX) ??
+    parsePositiveIntegerEnv(process.env.OLLAMA_CONTEXT_LENGTH) ??
+    MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS
+  )
+}
+
+function buildOllamaChatUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl)
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/v1$/i, '')
+  parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/api/chat`
+  parsed.search = ''
+  parsed.hash = ''
+  return parsed.toString()
+}
+
+function extractOllamaImageData(url: string): string | null {
+  const match = url.match(/^data:[^;,]+;base64,(.+)$/i)
+  if (!match) {
+    return null
+  }
+  return match[1]
+}
+
+function normalizeOllamaNativeToolCalls(
+  toolCalls: OpenAIMessage['tool_calls'],
+): OllamaChatMessage['tool_calls'] {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return undefined
+  }
+
+  const normalized = toolCalls
+    .map(toolCall => {
+      const name = toolCall.function?.name
+      if (!name) {
+        return null
+      }
+
+      let args: Record<string, unknown> = {}
+      try {
+        const parsed = JSON.parse(toolCall.function.arguments || '{}')
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          args = parsed as Record<string, unknown>
+        }
+      } catch {
+        args = {}
+      }
+
+      return {
+        function: {
+          name,
+          arguments: args,
+        },
+      }
+    })
+    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function normalizeOllamaNativeMessages(messages: unknown): OllamaChatMessage[] {
+  if (!Array.isArray(messages)) {
+    return []
+  }
+
+  return messages.map(message => {
+    const openAIMessage = message as OpenAIMessage
+    const content = openAIMessage.content
+    const toolCalls = normalizeOllamaNativeToolCalls(openAIMessage.tool_calls)
+    if (!Array.isArray(content)) {
+      return {
+        ...openAIMessage,
+        content,
+        ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
+      }
+    }
+
+    const textParts: string[] = []
+    const images: string[] = []
+
+    for (const part of content) {
+      if (part.type === 'text') {
+        if (part.text) {
+          textParts.push(part.text)
+        }
+        continue
+      }
+
+      if (part.type === 'image_url') {
+        const imageUrl = part.image_url.url
+        const imageData = extractOllamaImageData(imageUrl)
+        if (imageData) {
+          images.push(imageData)
+        } else {
+          textParts.push(`[Image: ${imageUrl}]`)
+        }
+      }
+    }
+
+    return {
+      ...openAIMessage,
+      content: textParts.join('\n'),
+      ...(images.length > 0 ? { images } : {}),
+      ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
+    }
+  })
+}
+
+function mapOllamaDoneReason(doneReason: unknown): string | null {
+  if (doneReason === 'length') return 'length'
+  if (doneReason === 'stop') return 'stop'
+  if (typeof doneReason === 'string' && doneReason) return doneReason
+  return null
+}
+
+function normalizeOllamaToolCalls(
+  toolCalls: NonNullable<OllamaChatResponse['message']>['tool_calls'],
+): Array<{
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}> | undefined {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return undefined
+  }
+
+  const normalized = toolCalls
+    .map(toolCall => {
+      const name = toolCall.function?.name
+      if (!name) {
+        return null
+      }
+      const args = toolCall.function?.arguments
+      return {
+        id: `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        type: 'function' as const,
+        function: {
+          name,
+          arguments:
+            typeof args === 'string' ? args : JSON.stringify(args ?? {}),
+        },
+      }
+    })
+    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function buildOpenAIUsageFromOllama(data: OllamaChatResponse) {
+  const promptTokens = data.prompt_eval_count ?? 0
+  const completionTokens = data.eval_count ?? 0
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+  }
+}
+
+function convertOllamaChatResponseToOpenAI(
+  data: OllamaChatResponse,
+  fallbackModel: string,
+): Record<string, unknown> {
+  const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
+  return {
+    id: makeMessageId(),
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: data.model ?? fallbackModel,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: data.message?.content ?? '',
+          ...(toolCalls ? { tool_calls: toolCalls } : {}),
+        },
+        finish_reason: mapOllamaDoneReason(data.done_reason),
+      },
+    ],
+    usage: buildOpenAIUsageFromOllama(data),
+  }
+}
+
+function responseWithPreservedUrl(
+  body: BodyInit | null,
+  init: ResponseInit,
+  url: string,
+): Response {
+  const response = new Response(body, init)
+  try {
+    Object.defineProperty(response, 'url', {
+      value: url,
+      configurable: true,
+    })
+  } catch {
+    /* some runtimes lock the property; downstream has transport fallback */
+  }
+  return response
+}
+
+async function convertOllamaNonStreamingResponse(
+  response: Response,
+  fallbackModel: string,
+): Promise<Response> {
+  const data = await response.json() as OllamaChatResponse
+  return responseWithPreservedUrl(
+    JSON.stringify(convertOllamaChatResponseToOpenAI(data, fallbackModel)),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers: { 'content-type': 'application/json' },
+    },
+    response.url,
+  )
+}
+
+function openAIStreamChunk(
+  id: string,
+  model: string,
+  delta: Record<string, unknown>,
+  finishReason: string | null = null,
+): string {
+  return `data: ${JSON.stringify({
+    id,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  })}\n\n`
+}
+
+function convertOllamaStreamingResponse(
+  response: Response,
+  fallbackModel: string,
+): Response {
+  const body = response.body
+  if (!body) {
+    return response
+  }
+
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  const reader = body.getReader()
+  const streamId = makeMessageId()
+  let buffer = ''
+  let hasEmittedRole = false
+  let hasEmittedToolCall = false
+
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          if (buffer.trim()) {
+            enqueueOllamaLineAsOpenAI(buffer.trim(), controller)
+            buffer = ''
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+          return
+        }
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() ?? ''
+
+        let emittedLine = false
+        for (const line of lines) {
+          if (line.trim()) {
+            enqueueOllamaLineAsOpenAI(line.trim(), controller)
+            emittedLine = true
+          }
+        }
+        if (emittedLine) {
+          return
+        }
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
+
+  function enqueueOllamaLineAsOpenAI(
+    line: string,
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): void {
+    let data: OllamaChatResponse
+    try {
+      data = JSON.parse(line) as OllamaChatResponse
+    } catch {
+      return
+    }
+
+    const model = data.model ?? fallbackModel
+    const chunks: string[] = []
+    const delta: Record<string, unknown> = {}
+    if (!hasEmittedRole) {
+      delta.role = 'assistant'
+      hasEmittedRole = true
+    }
+    if (data.message?.content) {
+      delta.content = data.message.content
+    }
+    const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
+    if (toolCalls) {
+      hasEmittedToolCall = true
+      delta.tool_calls = toolCalls.map((toolCall, index) => ({
+        index,
+        id: toolCall.id,
+        type: toolCall.type,
+        function: toolCall.function,
+      }))
+    }
+    if (Object.keys(delta).length > 0) {
+      chunks.push(openAIStreamChunk(streamId, model, delta))
+    }
+    if (data.done) {
+      chunks.push(openAIStreamChunk(
+        streamId,
+        model,
+        {},
+        hasEmittedToolCall
+          ? 'tool_calls'
+          : mapOllamaDoneReason(data.done_reason),
+      ))
+      chunks.push(`data: ${JSON.stringify({
+        id: streamId,
+        object: 'chat.completion.chunk',
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [],
+        usage: buildOpenAIUsageFromOllama(data),
+      })}\n\n`)
+    }
+
+    for (const chunk of chunks) {
+      controller.enqueue(encoder.encode(chunk))
+    }
+  }
+
+  return responseWithPreservedUrl(
+    stream,
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers: { 'content-type': 'text/event-stream' },
+    },
+    response.url,
+  )
 }
 
 function convertSystemPrompt(
@@ -2676,6 +3071,11 @@ class OpenAIShimMessages {
         : shimConfig.endpointPath?.startsWith('/models/gemini-')
           ? 'gemini'
           : request.transport
+    const useNativeOllamaChat =
+      effectiveTransport === 'chat_completions' &&
+      !shimConfig.endpointPath &&
+      isDirectLocalOllamaEndpoint(request.baseUrl) &&
+      isLikelyOllamaEndpoint(request.baseUrl)
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
@@ -3317,6 +3717,9 @@ class OpenAIShimMessages {
       if (shimConfig.endpointPath) {
         return `${baseUrl}${shimConfig.endpointPath}`
       }
+      if (useNativeOllamaChat) {
+        return buildOllamaChatUrl(baseUrl)
+      }
       return request.transport === 'responses' || request.transport === 'responses_compat'
         ? `${baseUrl}/responses`
         : buildChatCompletionsUrl(baseUrl)
@@ -3381,9 +3784,31 @@ class OpenAIShimMessages {
     // Local backends do not implement prefix caching, so the deep key-sort
     // is pure CPU overhead per request (issue #1016). Drop to the native
     // `JSON.stringify` fast path when the fast-path config opts out.
+    const buildOllamaChatBody = (): Record<string, unknown> => {
+      const options: Record<string, unknown> = {
+        num_ctx: getOllamaNumCtx(),
+      }
+      if (body.max_tokens !== undefined) {
+        options.num_predict = body.max_tokens
+      } else if (body.max_completion_tokens !== undefined) {
+        options.num_predict = body.max_completion_tokens
+      }
+      if (params.temperature !== undefined) options.temperature = params.temperature
+      if (params.top_p !== undefined) options.top_p = params.top_p
+
+      return {
+        model: request.resolvedModel,
+        messages: normalizeOllamaNativeMessages(body.messages),
+        stream: params.stream ?? false,
+        options,
+        ...(body.tools ? { tools: body.tools } : {}),
+      }
+    }
+
     const serializeBody = (): string => {
       const payload =
-        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' ? buildResponsesBody()
+        useNativeOllamaChat ? buildOllamaChatBody()
+          : effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' ? buildResponsesBody()
           : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
           : effectiveTransport === 'gemini' ? buildGeminiBody()
           : body
@@ -3551,6 +3976,11 @@ class OpenAIShimMessages {
 
       if (response.ok) {
         credentialPool?.reportSuccess(credentialLease)
+        if (useNativeOllamaChat) {
+          response = params.stream
+            ? convertOllamaStreamingResponse(response, request.resolvedModel)
+            : await convertOllamaNonStreamingResponse(response, request.resolvedModel)
+        }
         let tokensIn = 0
         let tokensOut = 0
         // Skip clone() for streaming responses - it blocks until full body is received,

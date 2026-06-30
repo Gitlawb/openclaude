@@ -54,6 +54,19 @@ describe('findModelDescriptorForApiName', () => {
     expect(descriptor?.capabilities?.supportsVision).toBe(false)
   })
 
+  test('uses route-specific catalog aliases before global model ids', () => {
+    const descriptor = findModelDescriptorForApiNameWithRoute(
+      'grok-code-fast-1',
+      'xai',
+    )
+    expect(descriptor?.id).toBe('xai/grok-build-0.1')
+    expect(descriptor?.capabilities?.supportsVision).toBe(false)
+  })
+
+  test('does not resolve catalog aliases without a known route', () => {
+    expect(findModelDescriptorForApiName('grok-code-fast-1-0825')).toBeUndefined()
+  })
+
   test('returns undefined for unknown models so callers fail open', () => {
     expect(findModelDescriptorForApiName('definitely-not-a-real-model-xyz')).toBeUndefined()
   })

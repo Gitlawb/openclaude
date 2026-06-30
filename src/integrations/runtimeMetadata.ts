@@ -245,6 +245,7 @@ export function resolveOpenAIShimRuntimeContext(options?: {
 
   const activeRouteId = resolveActiveRouteIdFromEnv(runtimeEnv, {
     activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
   const baseUrlRouteId = resolveRouteIdFromBaseUrl(options?.baseUrl)
   const routeId =
@@ -438,7 +439,8 @@ export function resolveModelRuntimeLimits(options: {
   }
 
   const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
-    activeProfileProvider: options.activeProfileProvider,
+    activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
   const modelApiName = getBaseModelApiName(options.model) ?? options.model
   const catalogEntry = findCatalogEntryForApiName(routeId, modelApiName)

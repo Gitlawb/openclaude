@@ -59,13 +59,15 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
     text: data.modelName
   }];
   if (data.contextUsedPercent !== null) {
-    const pct = Math.round(data.contextUsedPercent);
+    const pct = data.contextUsedPercent;
+    const roundedPct = Math.round(pct);
+    const pctText = pct > 0 && pct < 1 ? '<1' : String(roundedPct);
     segments.push({
       key: 'context',
       priority: 1,
-      text: `ctx ${pct}%`,
+      text: `ctx ${pctText}%`,
       // Thresholds align with the auto-compact warnings
-      color: pct >= 90 ? 'error' : pct >= 70 ? 'warning' : undefined
+      color: roundedPct >= 90 ? 'error' : roundedPct >= 70 ? 'warning' : undefined
     });
   }
   if (data.costUSD > 0) {
