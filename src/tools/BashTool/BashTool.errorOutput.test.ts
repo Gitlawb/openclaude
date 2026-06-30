@@ -1,9 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync, rmSync } from 'fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   BashTool,
   appendPersistedOutputHint,
   MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+  persistShellOutputFile,
 } from './BashTool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { ShellError } from '../../utils/errors.js'
@@ -132,5 +142,35 @@ describe('BashTool error output (#1231)', () => {
   test('hint keeps "full output" wording when the roll file fit under the cap', () => {
     const hint = appendPersistedOutputHint('preview', '/tmp/out', 1234, false)
     expect(hint).toMatch(/full output \(1234 bytes\) saved to \/tmp\/out; read with the Read tool/)
+  })
+
+  // Follow-up to #1359 — when the roll file exceeds the cap, the cap must be
+  // applied to the saved copy, NOT to the shell's rolled-output source. The
+  // error fallback and resizeShellImageOutput still read the source, so
+  // mutating it would drop the very tail this persistence is meant to recover.
+  test('caps the destination copy and leaves the rolled-output source intact', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'persist-source-'))
+    const source = join(dir, 'roll.txt')
+    // 4 KiB of recoverable output; cap the saved copy at 1 KiB.
+    const body = 'x'.repeat(4096)
+    writeFileSync(source, body)
+    const cap = 1024
+    let dest: string | undefined
+    try {
+      const persisted = await persistShellOutputFile(source, 'persist-src-test', cap)
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      // Reported size is the original byte count; truncated flags the cap.
+      expect(persisted!.size).toBe(4096)
+      expect(persisted!.truncated).toBe(true)
+      // Source keeps every byte — its tail is still recoverable downstream.
+      expect(statSync(source).size).toBe(4096)
+      expect(readFileSync(source, 'utf8')).toBe(body)
+      // Destination copy is the one that got capped.
+      expect(statSync(dest).size).toBe(cap)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

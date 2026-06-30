@@ -331,23 +331,31 @@ export const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
  * roll file is missing or the link/copy itself fails. Callers fall back to
  * the in-memory stdout preview in that case.
  */
-async function persistShellOutputFile(
+export async function persistShellOutputFile(
   sourcePath: string,
   taskId: string,
+  maxSize: number = MAX_PERSISTED_SHELL_OUTPUT_SIZE,
 ): Promise<{ path: string; size: number; truncated: boolean } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
     await ensureToolResultsDir();
     const dest = getToolResultPath(taskId, false);
-    const truncated = size > MAX_PERSISTED_SHELL_OUTPUT_SIZE;
+    const truncated = size > maxSize;
     if (truncated) {
-      await fsTruncate(sourcePath, MAX_PERSISTED_SHELL_OUTPUT_SIZE);
-    }
-    try {
-      await link(sourcePath, dest);
-    } catch {
+      // Cap the destination copy, never the shell's rolled-output source: the
+      // error fallback and resizeShellImageOutput still read `sourcePath`, so
+      // truncating it would drop the tail this persistence is meant to recover.
+      // A hardlink shares the inode, so the oversized path must copy first and
+      // truncate the copy.
       await copyFile(sourcePath, dest);
+      await fsTruncate(dest, maxSize);
+    } else {
+      try {
+        await link(sourcePath, dest);
+      } catch {
+        await copyFile(sourcePath, dest);
+      }
     }
     // `size` is the original (pre-cap) byte count, which the success path
     // reports as the output total. `truncated` tells the error path that the
