@@ -15,6 +15,7 @@ import {
   searchMemdirIndex,
   initMemdirIndex,
   rebuildIndex,
+  clearIndex,
 } from '../memdir/vectorIndex.js'
 import { extractKeywords } from './knowledgeGraph.js'
 
@@ -396,13 +397,14 @@ export function clearArcArtifacts(memoryDir: string): void {
       }
     }
   } catch { /* ignore */ }
-  // Remove vector index artifacts so stale summaries are not returned
+  // Remove vector index artifacts and invalidate the in-memory cache
   for (const name of ['.vector-index', '.vector-index-meta.json']) {
     const p = join(memoryDir, name)
     if (existsSync(p)) {
       try { rmSync(p, { force: true }) } catch { /* ignore */ }
     }
   }
+  clearIndex()
 }
 
 export function getArcStats() {

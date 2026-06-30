@@ -103,8 +103,8 @@ export async function extractFactsIntoMemdir(
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
   }
 
-  // 2. Detect Absolute Paths
-  const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
+  // 2. Detect Absolute Paths — use scrubbedContent so env values are not re-extracted as path facts
+  const pathMatches = scrubbedContent.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
   for (const match of pathMatches) {
     const path = match[1]
     if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
