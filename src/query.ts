@@ -717,8 +717,11 @@ async function* queryLoop(
       getGlobalConfig().knowledgeGraphEnabled &&
       messagesForQuery.length > 0
     ) {
-      const { updateArcPhase } = await import('./utils/conversationArc.js')
-      await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+      const { isAutoMemoryEnabled } = await import('./memdir/paths.js')
+      if (isAutoMemoryEnabled()) {
+        const { updateArcPhase } = await import('./utils/conversationArc.js')
+        await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+      }
     }
 
     let tracking = autoCompactTracking
@@ -825,7 +828,8 @@ async function* queryLoop(
     // template string makes [...systemPrompt] spread chars, shredding the prompt.
     let promptWithArc: readonly string[] = systemPrompt
     if (feature('CONVERSATION_ARC')) {
-      if (getGlobalConfig().knowledgeGraphEnabled) {
+      const { isAutoMemoryEnabled } = await import('./memdir/paths.js')
+      if (getGlobalConfig().knowledgeGraphEnabled && isAutoMemoryEnabled()) {
         const lastMessage = messagesForQuery[messagesForQuery.length - 1]
         const userQueryText =
           lastMessage?.type === 'user' &&

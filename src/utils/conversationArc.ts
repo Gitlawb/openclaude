@@ -166,6 +166,8 @@ function detectPhase(content: string): ConversationArc['currentPhase'] | null {
 async function extractFactsAutomatically(content: string): Promise<void> {
   const dir = arcMemoryDir || getAutoMemPath()
   if (!dir) return
+  const { isAutoMemoryEnabled } = await import('../memdir/paths.js')
+  if (!isAutoMemoryEnabled()) return
   await extractFactsIntoMemdir(content, dir)
 }
 

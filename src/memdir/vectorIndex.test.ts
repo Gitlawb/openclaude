@@ -89,4 +89,150 @@ ${body}`
     const r2 = await searchMemdirIndex('dark', memDir)
     expect(r2.length).toBeGreaterThan(0)
   })
+
+  describe('stale index detection (P2 regression)', () => {
+    // CodeRabbit requested: regression tests for searching after a loaded memdir
+    // file is added, edited, removed, or after persisted index files are missing.
+    // The current implementation refreshes an already-loaded index when a new
+    // memory file is added, but the tests only covered explicit rebuildIndex()
+    // and persisted reload — not the risky stale-index cases this PR fixed.
+
+    it('searching after adding a file refreshes the loaded index', async () => {
+      // Initial index with one file
+      writeMem('project-v1.md', 'V1 Project', 'project', 'Initial version', 'Version 1 project')
+      await initMemdirIndex(memDir)
+
+      // Verify v1 is searchable
+      const r1 = await searchMemdirIndex('version 1', memDir)
+      expect(r1.length).toBeGreaterThan(0)
+      expect(r1.some(r => r.title.includes('V1'))).toBe(true)
+
+      // Add a new file WITHOUT calling rebuildIndex explicitly
+      writeMem('project-v2.md', 'V2 Project', 'project', 'New version', 'Version 2 project with features')
+
+      // Search should find the new file (auto-refresh)
+      const r2 = await searchMemdirIndex('version 2', memDir)
+      expect(r2.length).toBeGreaterThan(0)
+      expect(r2.some(r => r.title.includes('V2'))).toBe(true)
+    })
+
+    it('searching after editing a file picks up changes', async () => {
+      // Create initial file
+      writeMem('config.md', 'Config', 'reference', 'Database config', 'Using MySQL')
+      await initMemdirIndex(memDir)
+
+      // Verify MySQL is found
+      const r1 = await searchMemdirIndex('MySQL', memDir)
+      expect(r1.length).toBeGreaterThan(0)
+
+      // Edit the file to change DB type
+      writeMem('config.md', 'Config', 'reference', 'Database config', 'Using PostgreSQL')
+
+      // Search should find updated content
+      const r2 = await searchMemdirIndex('PostgreSQL', memDir)
+      expect(r2.length).toBeGreaterThan(0)
+      expect(r2.some(r => r.description.includes('Database'))).toBe(true)
+    })
+
+    it('searching after removing a file updates the index', async () => {
+      // Create two files
+      writeMem('keep.md', 'Keep', 'user', 'Kept file', 'This stays')
+      writeMem('remove.md', 'Remove', 'user', 'Removed file', 'This goes away')
+      await initMemdirIndex(memDir)
+
+      // Both should be searchable
+      const r1 = await searchMemdirIndex('file', memDir)
+      expect(r1.length).toBe(2)
+
+      // Remove one file
+      rmSync(join(memDir, 'remove.md'))
+
+      // Search should only find the remaining file
+      const r2 = await searchMemdirIndex('Kept', memDir)
+      expect(r2.length).toBeGreaterThan(0)
+      expect(r2.every(r => r.title !== 'Remove')).toBe(true)
+
+      // Verify removed file is not in results
+      const r3 = await searchMemdirIndex('Removed', memDir)
+      expect(r3.every(r => r.title !== 'Remove')).toBe(true)
+    })
+
+    it('searching when .vector-index file is missing rebuilds from source', async () => {
+      // Create files and build index
+      writeMem('doc1.md', 'Doc One', 'reference', 'First doc', 'Content one')
+      writeMem('doc2.md', 'Doc Two', 'reference', 'Second doc', 'Content two')
+      await initMemdirIndex(memDir)
+
+      // Verify both are searchable
+      const r1 = await searchMemdirIndex('doc', memDir)
+      expect(r1.length).toBe(2)
+
+      // Delete the persisted index file (simulates corruption or manual deletion)
+      const indexPath = getIndexPath(memDir)
+      if (existsSync(indexPath)) {
+        rmSync(indexPath, { force: true })
+      }
+
+      // Clear in-memory cache to simulate fresh session
+      clearIndex()
+
+      // Search should rebuild from source files
+      const r2 = await searchMemdirIndex('Content', memDir)
+      expect(r2.length).toBe(2)
+      expect(r2.some(r => r.title.includes('One'))).toBe(true)
+      expect(r2.some(r => r.title.includes('Two'))).toBe(true)
+    })
+
+    it('searching when .vector-index-meta.json is missing rebuilds', async () => {
+      // Create files and build index
+      writeMem('meta-test.md', 'Meta Test', 'project', 'Test metadata', 'Metadata test content')
+      await initMemdirIndex(memDir)
+
+      const r1 = await searchMemdirIndex('metadata', memDir)
+      expect(r1.length).toBeGreaterThan(0)
+
+      // Delete the metadata file
+      const metaPath = join(memDir, '.vector-index-meta.json')
+      if (existsSync(metaPath)) {
+        rmSync(metaPath, { force: true })
+      }
+
+      clearIndex()
+
+      // Should still work by rebuilding
+      const r2 = await searchMemdirIndex('metadata', memDir)
+      expect(r2.length).toBeGreaterThan(0)
+      expect(r2.some(r => r.title.includes('Meta'))).toBe(true)
+    })
+
+    it('searching with mixed stale conditions: files added, edited, and index missing', async () => {
+      // Create initial state
+      writeMem('original.md', 'Original', 'user', 'Original doc', 'Original content')
+      await initMemdirIndex(memDir)
+
+      // Verify original is found
+      const r1 = await searchMemdirIndex('Original', memDir)
+      expect(r1.length).toBeGreaterThan(0)
+
+      // Edit existing file
+      writeMem('original.md', 'Original Updated', 'user', 'Updated doc', 'Updated content')
+
+      // Add new file
+      writeMem('new.md', 'New Doc', 'reference', 'Newly added', 'Brand new content')
+
+      // Delete persisted index to force rebuild
+      const indexPath = getIndexPath(memDir)
+      if (existsSync(indexPath)) {
+        rmSync(indexPath, { force: true })
+      }
+      clearIndex()
+
+      // Search should handle all changes correctly
+      const r2 = await searchMemdirIndex('content', memDir)
+      expect(r2.length).toBe(2)
+      expect(r2.some(r => r.title.includes('Updated'))).toBe(true)
+      expect(r2.some(r => r.title.includes('New'))).toBe(true)
+      expect(r2.every(r => !r.title.includes('Original ') || r.title.includes('Updated'))).toBe(true)
+    })
+  })
 })
