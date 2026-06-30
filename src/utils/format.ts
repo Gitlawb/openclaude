@@ -42,8 +42,11 @@ export function formatDuration(
     if (ms === 0) {
       return '0s'
     }
-    // For durations < 1s, show 1 decimal place (e.g., 0.5s)
-    if (ms < 1) {
+    // For durations < 1s, show 1 decimal place (e.g., 0.5s). The threshold is
+    // 1000ms (1s), not 1ms — at `ms < 1` this branch could only ever fire for
+    // sub-millisecond values and always returned "0.0s", so real sub-second
+    // durations fell through and rendered as "0s".
+    if (ms < 1000) {
       const s = (ms / 1000).toFixed(1)
       return `${s}s`
     }
