@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from 'fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -23,6 +23,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import { getOrchestratedMemory } from './knowledgeGraph.js'
+import { getAutoMemPath } from '../memdir/paths.js'
 
 function createMessage(role: string, content: string): any {
   return {
@@ -286,7 +287,11 @@ describe('conversationArc', () => {
     //   updateArcPhase → finalizeArcTurn → getArcSummary → getOrchestratedMemory
 
     it('processes a full conversation turn through arc + memory', async () => {
-      initializeArc(memDir)
+      // Use the auto-memory path so getOrchestratedMemory can find the files.
+      const autoMemDir = getAutoMemPath()
+      mkdirSync(autoMemDir, { recursive: true })
+
+      initializeArc(autoMemDir)
 
       // Simulate a user message (query.ts calls updateArcPhase per message)
       await updateArcPhase([createMessage('user', 'check the login flow')])
@@ -300,7 +305,7 @@ describe('conversationArc', () => {
 
       // Finalize the turn (query.ts calls finalizeArcTurn at session end)
       await finalizeArcTurn()
-      const summaryFiles = readdirSync(memDir)
+      const summaryFiles = readdirSync(autoMemDir)
         .filter(f => f.startsWith('session-summary-'))
       expect(summaryFiles.length).toBeGreaterThan(0)
 
@@ -308,6 +313,12 @@ describe('conversationArc', () => {
       const arcSummary = await getArcSummary('login')
       expect(arcSummary).toContain('exploring')
       expect(arcSummary).toContain('1/1 completed')
+
+      // getOrchestratedMemory is the next hop in query.ts — it searches the
+      // vector index that updateArcPhase populated via extractFactsAutomatically
+      const orchMem = await getOrchestratedMemory('login')
+      expect(orchMem).toContain('PERSISTENT PROJECT MEMORY')
+      expect(orchMem).toContain('Fix login bug')
     })
   })
 })
