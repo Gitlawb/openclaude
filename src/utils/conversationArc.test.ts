@@ -27,6 +27,7 @@ import { getAutoMemPath } from '../memdir/paths.js'
 
 function createMessage(role: string, content: string): any {
   return {
+    type: role,
     message: { role, content, id: 'test', type: 'message', created_at: Date.now() },
     sender: role,
   }
@@ -321,10 +322,36 @@ describe('conversationArc', () => {
       expect(orchMem).toContain('Fix login bug')
     })
 
+    it('does not create arc artifacts when auto-memory is disabled', async () => {
+      // Mock isAutoMemoryEnabled returning false via env var
+      process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
+      try {
+        const autoMemDir = getAutoMemPath()
+        clearArcArtifacts(autoMemDir)
+        mkdirSync(autoMemDir, { recursive: true })
+
+        // Initialize arc - shouldn't write to disk
+        initializeArc(autoMemDir)
+        
+        // This simulates a full production turn that would normally write
+        await updateArcPhase([createMessage('user', 'check the login flow')])
+        const goal = addGoal('Fix bug')
+        updateGoalStatus(goal.id, 'completed')
+        await finalizeArcTurn()
+
+        // Verify no files were created
+        const files = readdirSync(autoMemDir)
+        expect(files.length).toBe(0)
+      } finally {
+        delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+      }
+    })
+
     it('query.ts path: arc memory is appended to system prompt when features enabled', async () => {
       // P2 requirement: verify the actual query.ts code path that calls these
       // functions behind the feature gates and includes results in system prompt.
       const autoMemDir = getAutoMemPath()
+      clearArcArtifacts(autoMemDir)
       mkdirSync(autoMemDir, { recursive: true })
 
       // Set up arc state
@@ -334,45 +361,41 @@ describe('conversationArc', () => {
       updateGoalStatus(goal.id, 'completed')
       await finalizeArcTurn()
 
-      // Simulate what query.ts does in the CONVERSATION_ARC block (lines 555-575):
-      // 1. Get the last message content as query text
       const lastMessage = createMessage('user', 'add login endpoint')
-      const userQueryText = typeof lastMessage.message.content === 'string'
-        ? lastMessage.message.content
-        : ''
-
-      // 2. Call getArcSummary with the query
-      const arcSummary = await getArcSummary(userQueryText)
-
-      // 3. Call getOrchestratedMemory with the query
-      const orchMem = await getOrchestratedMemory(userQueryText)
-
-      // 4. Verify both produce output that would be appended to systemPrompt
-      expect(arcSummary).toBeTruthy()
-      expect(arcSummary.length).toBeGreaterThan(0)
-      expect(arcSummary).toContain('Phase:')
-
-      expect(orchMem).toBeTruthy()
-      expect(orchMem.length).toBeGreaterThan(0)
-      expect(orchMem).toContain('PERSISTENT PROJECT MEMORY')
-
-      // 5. Verify the prompt construction logic: when both return content,
-      //    they get pushed to parts[] and appended to systemPrompt
-      const parts: string[] = []
-      if (arcSummary) parts.push(arcSummary)
-      if (orchMem) parts.push(orchMem)
-
-      expect(parts.length).toBe(2)
-
-      // This simulates: promptWithArc = [...systemPrompt, ...parts]
       const mockSystemPrompt = ['# System Instructions', 'You are an assistant.']
-      const promptWithArc = [...mockSystemPrompt, ...parts]
+
+      // Test helper logic directly
+      const { appendArcToSystemPrompt } = await import('./conversationArc.js')
+      const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
 
       // Verify arc content is in the final prompt
       expect(promptWithArc.length).toBe(mockSystemPrompt.length + 2)
       expect(promptWithArc.join('\n')).toContain('Phase:')
       expect(promptWithArc.join('\n')).toContain('PERSISTENT PROJECT MEMORY')
       expect(promptWithArc.join('\n')).toContain('Add JWT auth')
+    })
+    
+    it('query.ts path: does not append arc when auto-memory is disabled', async () => {
+      process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
+      try {
+        const autoMemDir = getAutoMemPath()
+        clearArcArtifacts(autoMemDir)
+        mkdirSync(autoMemDir, { recursive: true })
+        initializeArc(autoMemDir)
+        await updateArcPhase([createMessage('user', 'implement authentication system')])
+        
+        const lastMessage = createMessage('user', 'add login endpoint')
+        const mockSystemPrompt = ['# System Instructions', 'You are an assistant.']
+
+        const { appendArcToSystemPrompt } = await import('./conversationArc.js')
+        const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
+
+        // Verify prompt is unchanged
+        expect(promptWithArc).toBe(mockSystemPrompt)
+        expect(promptWithArc.length).toBe(2)
+      } finally {
+        delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+      }
     })
   })
 })
