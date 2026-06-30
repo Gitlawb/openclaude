@@ -540,20 +540,28 @@ export function applyProviderFlag(
       // The Cloudflare transport reads the generic OpenAI-compatible auth
       // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same way
       // nearai/fireworks mirror their dedicated keys. Gate it on the configured
-      // base URL actually resolving to the Cloudflare Workers AI endpoint
-      // (api.cloudflare.com): the descriptor default carries an unresolved
-      // `<ACCOUNT_ID>` placeholder and is never seeded, so until the user
-      // exports a real account-scoped OPENAI_BASE_URL the endpoint is unknown.
-      // Mirroring then would copy the token onto whatever stale OPENAI_BASE_URL
-      // is set (a previous OpenAI-compatible provider, or none), leaking it to
-      // the wrong host. Fail fast and leave OPENAI_API_KEY unset instead.
-      if (
-        process.env.CLOUDFLARE_API_TOKEN &&
-        isCloudflareBaseUrl(getConfiguredOpenAIBaseUrl())
-      ) {
-        process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
-      } else {
-        delete process.env.OPENAI_API_KEY
+      // base URL resolving to a *real* Cloudflare Workers AI endpoint: the host
+      // must be api.cloudflare.com AND the URL must not still carry the
+      // descriptor's unresolved `<ACCOUNT_ID>` placeholder (which shares that
+      // host). Mirroring onto a placeholder or a stale OPENAI_BASE_URL from a
+      // previous provider would leak the token to a host that cannot serve a
+      // request.
+      {
+        const configuredBaseUrl = getConfiguredOpenAIBaseUrl()
+        const isRealCloudflareEndpoint =
+          !!configuredBaseUrl &&
+          isCloudflareBaseUrl(configuredBaseUrl) &&
+          !isPlaceholderBaseUrl(configuredBaseUrl)
+        if (process.env.CLOUDFLARE_API_TOKEN && isRealCloudflareEndpoint) {
+          process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
+        } else if (!isRealCloudflareEndpoint) {
+          // Endpoint missing, an unresolved placeholder, or a stale/shared
+          // host: clear any generic key so a stale token isn't leaked.
+          delete process.env.OPENAI_API_KEY
+        }
+        // else: a real Cloudflare endpoint with no dedicated token — keep an
+        // existing OPENAI_API_KEY, the documented compatibility fallback
+        // (descriptor credentialEnvVars lists OPENAI_API_KEY after the token).
       }
       break
 

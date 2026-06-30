@@ -233,11 +233,37 @@ describe('applyProviderFlag - cloudflare', () => {
 
   test('clears a stale OPENAI_API_KEY when no CLOUDFLARE_API_TOKEN is set', () => {
     delete process.env.CLOUDFLARE_API_TOKEN
+    delete process.env.OPENAI_BASE_URL
     process.env.OPENAI_API_KEY = 'leftover-from-another-provider'
     applyProviderFlag('cloudflare', [])
     // Without a Cloudflare token a lingering generic key must not be sent to
     // Cloudflare; validation should report the missing token instead.
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('does NOT mirror the token onto the literal <ACCOUNT_ID> placeholder URL', () => {
+    // The placeholder shares the api.cloudflare.com host, so a host-only check
+    // would mirror the token onto an endpoint that cannot serve a request until
+    // the account id is filled in. Reject placeholder URLs before mirroring.
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL =
+      'https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1'
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('preserves an existing OPENAI_API_KEY fallback on a real Cloudflare endpoint with no token', () => {
+    // The descriptor lists OPENAI_API_KEY as a documented compatibility
+    // fallback after CLOUDFLARE_API_TOKEN. A user who configured the generic
+    // key against a real Workers AI URL must stay authenticated even without a
+    // dedicated token.
+    delete process.env.CLOUDFLARE_API_TOKEN
+    process.env.OPENAI_BASE_URL =
+      'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1'
+    process.env.OPENAI_API_KEY = 'compat-key'
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBe('compat-key')
   })
 })
 
