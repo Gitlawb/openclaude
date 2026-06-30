@@ -275,13 +275,13 @@ export function redactSensitiveInfo(text: string): string {
     "$1",
   );
 
-  // Redact sensitive query params in `https?://` URLs embedded in free-form
-  // text, log lines, and error messages. This catches query params like
-  // `signature=SECRET123` that the generic key-value patterns don't cover,
-  // even when another param was already redacted by a generic pattern
-  // (e.g. `api_key=XXX` matched by GENERIC_HEADER_FIELD_PATTERN).
+  // Redact sensitive query params in `https?://` and protocol-relative `//`
+  // URLs embedded in free-form text, log lines, and error messages. This
+  // catches query params like `signature=SECRET123` that the generic key-value
+  // patterns don't cover, even when another param was already redacted by a
+  // generic pattern (e.g. `api_key=XXX` matched by GENERIC_HEADER_FIELD_PATTERN).
   redacted = redacted.replace(
-    /https?:\/\/[^\s"',)}>]+/gi,
+    /(?:https?:)?\/\/[^\s"',)}>]+/gi,
     (url) => redactUrlForDisplay(url),
   );
 
@@ -331,10 +331,11 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   if (typeof value === "string") {
     // Route URL-shaped strings through the URL redaction helper first so
     // signed-URL query params (signature, sig, etc.) that redactSensitiveInfo
-    // doesn't cover are still masked. Non-URL strings pass through unchanged
-    // to avoid the fallback path in redactUrlForDisplay treating # as a
-    // fragment delimiter on ordinary text.
-    const urlRedacted = /^https?:\/\//i.test(value)
+    // doesn't cover are still masked. Covers both https:// and protocol-relative
+    // //host URLs. Non-URL strings pass through unchanged to avoid the fallback
+    // path in redactUrlForDisplay treating # as a fragment delimiter on ordinary
+    // text.
+    const urlRedacted = /^(?:https?:)?\/\//i.test(value)
       ? redactUrlForDisplay(value)
       : value;
     return redactSensitiveInfo(urlRedacted);

@@ -38,7 +38,9 @@ describe('sanitizeError', () => {
       "cause"
     ] as Record<string, unknown>
     expect(cause["apiKey"] as string).toMatch(/\[REDACTED/)
-    expect(cause["url"] as string).toContain("[REDACTED]")
+    expect(cause["url"] as string).toBe(
+      "https://example.com/?token=redacted",
+    )
   })
 
   test("preserves message and stack on the sanitized copy", () => {

@@ -493,6 +493,17 @@ describe("redactSensitiveInfo", () => {
       "https://api.example.com/v1?api_key=redacted&signature=redacted&mode=test",
     );
   });
+
+  // Regression: protocol-relative // URLs must be caught by the URL
+  // extractor in redactSensitiveInfo, not just by redactUrlForDisplay.
+  test("redacts protocol-relative URL query params via redactSensitiveInfo", () => {
+    const result = redactSensitiveInfo(
+      "//api.example.com/v1?signature=SECRET&mode=test",
+    );
+    expect(result).toBe(
+      "//api.example.com/v1?signature=redacted&mode=test",
+    );
+  });
 });
 
 describe("logForDebugging", () => {
