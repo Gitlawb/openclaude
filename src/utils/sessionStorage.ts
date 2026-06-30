@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, createReadStream, fstatSync, openSync, readSync } from 'fs'
+import { closeSync, fstatSync, openSync, readSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -5004,7 +5004,6 @@ type LiteMetadata = {
 
 const SESSION_BRANCH_ENTRY_PREFIX = '{"type":"session-branch"'
 const SESSION_BRANCH_ENTRY_PREFIX_SPACED = '{"type": "session-branch"'
-const SESSION_BRANCH_SCAN_CACHE = new Map<string, SessionBranchEntry | null>()
 
 function startsWithSessionBranchEntryPrefix(lineStart: string): boolean {
   return (
@@ -5073,70 +5072,6 @@ function extractSessionBranchMetadata(
       ? undefined
       : extractSessionBranchMetadataFromChunk(head, sessionId))
   )
-}
-
-function couldBeSessionBranchLinePrefix(lineStart: string): boolean {
-  return (
-    SESSION_BRANCH_ENTRY_PREFIX.startsWith(lineStart) ||
-    SESSION_BRANCH_ENTRY_PREFIX_SPACED.startsWith(lineStart) ||
-    startsWithSessionBranchEntryPrefix(lineStart)
-  )
-}
-
-async function scanSessionBranchMetadata(
-  filePath: string,
-  fileSize: number,
-  sessionId?: string,
-): Promise<SessionBranchEntry | undefined> {
-  if (!sessionId) return undefined
-
-  const cacheKey = `${filePath}:${fileSize}:${sessionId}`
-  if (SESSION_BRANCH_SCAN_CACHE.has(cacheKey)) {
-    return SESSION_BRANCH_SCAN_CACHE.get(cacheKey) ?? undefined
-  }
-
-  let carry = ''
-  let skippingLine = false
-  try {
-    for await (const chunk of createReadStream(filePath, {
-      encoding: 'utf8',
-    })) {
-      let text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
-      if (skippingLine) {
-        const newlineIdx = text.indexOf('\n')
-        if (newlineIdx === -1) continue
-        text = text.slice(newlineIdx + 1)
-        skippingLine = false
-      }
-
-      const lines = (carry + text).split('\n')
-      carry = lines.pop() ?? ''
-      for (const line of lines) {
-        const entry = parseSessionBranchMetadataLine(line, sessionId)
-        if (entry) {
-          SESSION_BRANCH_SCAN_CACHE.set(cacheKey, entry)
-          return entry
-        }
-      }
-
-      if (
-        carry.length >= METADATA_PREFIX_BOUND &&
-        !couldBeSessionBranchLinePrefix(carry)
-      ) {
-        carry = ''
-        skippingLine = true
-      }
-    }
-
-    const entry = skippingLine
-      ? undefined
-      : parseSessionBranchMetadataLine(carry, sessionId)
-    SESSION_BRANCH_SCAN_CACHE.set(cacheKey, entry ?? null)
-    return entry
-  } catch {
-    SESSION_BRANCH_SCAN_CACHE.set(cacheKey, null)
-    return undefined
-  }
 }
 
 /**
@@ -5348,9 +5283,7 @@ async function readLiteMetadata(
       if (num > 0) prNumber = num
     }
   }
-  const sessionBranch =
-    extractSessionBranchMetadata(head, tail, sessionId) ??
-    (await scanSessionBranchMetadata(filePath, fileSize, sessionId))
+  const sessionBranch = extractSessionBranchMetadata(head, tail, sessionId)
 
   return {
     firstPrompt,

@@ -354,6 +354,7 @@ async function createFork(
       ? { branchedAtMessageId: branchedAtMessage.uuid }
       : {}),
   }
+  lines.unshift(jsonStringify(branchMetadata))
 
   // Append content-replacement entry (if any) with the fork's sessionId.
   // Written as a SINGLE entry (same shape as insertContentReplacement) so
@@ -366,8 +367,6 @@ async function createFork(
     }
     lines.push(jsonStringify(forkedReplacementEntry))
   }
-
-  lines.push(jsonStringify(branchMetadata))
 
   // Write the fork session file
   await writeFile(forkSessionPath, lines.join('\n') + '\n', {
