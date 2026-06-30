@@ -100,6 +100,14 @@ const GENERIC_CREDENTIAL_ENV_PATTERN =
 const GENERIC_HEADER_FIELD_PATTERN =
   /(["']?(?:x-api-key|x[-_]?auth|authorization|auth|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\n&#;]+)/gi;
 
+// Cookie/Set-Cookie header values — uses a permissive value character class
+// that allows `;` so semicolon-delimited attributes (e.g.
+// `sessionKey=abc123; Path=/; Secure`) are fully redacted. This runs first
+// in redactSensitiveInfo so the generic pattern below (which stops at `;`)
+// never sees partial cookie values.
+const COOKIE_PATTERN =
+  /(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"',\n]+/gi;
+
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
 // are checked against this list. `privatekey` is here so a JSON object
@@ -223,6 +231,11 @@ export function redactSensitiveInfo(text: string): string {
     "$1[REDACTED]",
   );
 
+  // Cookie/Set-Cookie header values — permissive `;`-allowing pass runs
+  // before GENERIC_HEADER_FIELD_PATTERN (which stops at `;`) so
+  // semicolon-delimited cookie attributes are fully redacted.
+  redacted = redacted.replace(COOKIE_PATTERN, "$1[REDACTED]");
+
   // Catch-all: any of the standard credential field names with a value
   redacted = redacted.replace(
     GENERIC_HEADER_FIELD_PATTERN,
@@ -252,14 +265,13 @@ export function redactSensitiveInfo(text: string): string {
   );
 
   // Post-processing: absorb `&<text>` that trails a redacted placeholder but
-  // does NOT contain `=` — such text is likely a continuation of the value
-  // rather than a subsequent URL query parameter. This prevents partial
-  // leakage when a credential value contains literal `&` (e.g. a compound
-  // API token like `abc&def`).
+  // does NOT contain `=` (guaranteed by the regex) — such text is likely a
+  // continuation of the value rather than a subsequent URL query parameter.
+  // This prevents partial leakage when a credential value contains literal
+  // `&` (e.g. a compound API token like `abc&def`).
   redacted = redacted.replace(
-    /(\[REDACTED(?:_[A-Z_]+)?\])(&[^\s"',)\]}]+)/g,
-    (_, placeholder, ampTail) =>
-      ampTail.includes("=") ? placeholder + ampTail : placeholder,
+    /(\[REDACTED(?:_[A-Z_]+)?\])(&[^&=\s]+)(?=[&#;\s]|$)/g,
+    "$1",
   );
 
   // Redact sensitive query params in `https?://` URLs embedded in free-form
