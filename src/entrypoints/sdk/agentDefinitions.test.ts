@@ -6,7 +6,7 @@ import {
 } from './agentDefinitions.js'
 
 describe('buildSdkUserAgents', () => {
-  test('preserves valid maxSteps, ignores invalid maxSteps, and rejects malformed SDK agents safely', () => {
+  test('preserves valid maxSteps, reports invalid limits, and rejects malformed SDK agents safely', () => {
     const failures: Array<{ name: string; error: string }> = []
 
     const agents = buildSdkUserAgents(
@@ -75,34 +75,10 @@ describe('buildSdkUserAgents', () => {
 
     expect(agents.map(agent => agent.agentType)).toEqual([
       'valid',
-      'zero',
-      'malformed',
-      'negative',
-      'fractional',
-      'invalidTurns',
-      'malformedTurns',
       'missingDescription',
     ])
     expect(agents.find(agent => agent.agentType === 'valid')?.maxSteps).toBe(2)
     expect(agents.find(agent => agent.agentType === 'valid')?.maxTurns).toBe(4)
-    expect(
-      agents.find(agent => agent.agentType === 'zero')?.maxSteps,
-    ).toBeUndefined()
-    expect(
-      agents.find(agent => agent.agentType === 'malformed')?.maxSteps,
-    ).toBeUndefined()
-    expect(
-      agents.find(agent => agent.agentType === 'negative')?.maxSteps,
-    ).toBeUndefined()
-    expect(
-      agents.find(agent => agent.agentType === 'fractional')?.maxSteps,
-    ).toBeUndefined()
-    expect(
-      agents.find(agent => agent.agentType === 'invalidTurns')?.maxTurns,
-    ).toBeUndefined()
-    expect(
-      agents.find(agent => agent.agentType === 'malformedTurns')?.maxTurns,
-    ).toBeUndefined()
     expect(
       agents.find(agent => agent.agentType === 'missingDescription'),
     ).toMatchObject({
@@ -115,12 +91,28 @@ describe('buildSdkUserAgents', () => {
         ?.getSystemPrompt(),
     ).toBe('missing description prompt')
     expect(failures.map(failure => failure.name)).toEqual([
+      'zero',
+      'malformed',
+      'negative',
+      'fractional',
+      'invalidTurns',
+      'malformedTurns',
       'missingPrompt',
       'broken',
       'scalar',
       'array',
       'nullish',
     ])
+    for (const name of ['zero', 'malformed', 'negative', 'fractional']) {
+      expect(failures.find(failure => failure.name === name)?.error).toContain(
+        'maxSteps',
+      )
+    }
+    for (const name of ['invalidTurns', 'malformedTurns']) {
+      expect(failures.find(failure => failure.name === name)?.error).toContain(
+        'maxTurns',
+      )
+    }
     expect(
       failures.find(failure => failure.name === 'missingPrompt')?.error,
     ).toContain('prompt')

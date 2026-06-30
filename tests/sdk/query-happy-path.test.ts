@@ -146,6 +146,11 @@ describe('Query happy-path — full lifecycle', () => {
             description: 'Use for broken SDK agent coverage',
             prompt: 2 as unknown as string,
           },
+          badLimit: {
+            description: 'Use for invalid SDK agent step limit coverage',
+            prompt: 'bad limit prompt',
+            maxSteps: 0,
+          },
         },
       },
     })
@@ -161,7 +166,27 @@ describe('Query happy-path — full lifecycle', () => {
       stage: 'injection',
     })
     expect(messages[0].error_message).toContain("Invalid SDK agent 'broken'")
+    const loadFailures = messages.filter(
+      message => message?.type === 'agent_load_failure',
+    )
+    expect(loadFailures).toHaveLength(2)
+    expect(loadFailures[1].error_message).toContain(
+      "Invalid SDK agent 'badLimit'",
+    )
+    expect(loadFailures[1].error_message).toContain('maxSteps')
+    const assistantIndex = messages.findIndex(
+      message => message?.type === 'assistant',
+    )
+    expect(assistantIndex).toBeGreaterThan(1)
+    expect(
+      loadFailures.every(failure => messages.indexOf(failure) < assistantIndex),
+    ).toBe(true)
     expect(messages.some(message => message?.type === 'assistant')).toBe(true)
+    expect(
+      mockEngine.config.agents.some(
+        (agent: any) => agent?.agentType === 'badLimit',
+      ),
+    ).toBe(false)
   })
 
   test('valid SDK agents are exposed after successful engine injection', async () => {

@@ -41,12 +41,6 @@ export type SdkAgentDefinitionSet<
   allAgents: TAgent[]
 }
 
-function normalizePositiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0
-    ? value
-    : undefined
-}
-
 export function buildSdkUserAgents(
   userAgents: Record<string, unknown> | undefined,
   reportInvalidAgent: (name: string, errorMessage: string) => void,
@@ -65,22 +59,6 @@ export function buildSdkUserAgents(
     const normalizedDef = {
       ...candidate,
       description: candidate.description ?? name,
-    }
-    const maxTurns = normalizePositiveInteger(candidate.maxTurns)
-    const maxSteps = normalizePositiveInteger(candidate.maxSteps)
-    if (candidate.maxTurns !== undefined) {
-      if (maxTurns === undefined) {
-        delete normalizedDef.maxTurns
-      } else {
-        normalizedDef.maxTurns = maxTurns
-      }
-    }
-    if (candidate.maxSteps !== undefined) {
-      if (maxSteps === undefined) {
-        delete normalizedDef.maxSteps
-      } else {
-        normalizedDef.maxSteps = maxSteps
-      }
     }
 
     const parsed = AgentDefinitionSchema().safeParse(normalizedDef)
