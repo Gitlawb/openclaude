@@ -126,14 +126,20 @@ else
   fail "query.ts builds (verifies full import chain)"
 fi
 
-# ── 11. Test suite ──────────────────────────────────────────────────
+# ── 11. TypeScript type check ────────────────────────────────────────
 echo ""
-echo "── 11. Test suite ──"
+echo "── 11. TypeScript type check ──"
+
+check "bun run typecheck passes" bun run typecheck
+
+# ── 12. Test suite ──────────────────────────────────────────────────
+echo ""
+echo "── 12. Test suite ──"
 
 if bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/commands/knowledge/knowledge.test.ts &>/dev/null; then
-  pass "All 33 tests pass"
+  pass "All focused tests pass"
 else
-  fail "All 33 tests pass"
+  fail "All focused tests pass"
 fi
 
 echo ""
