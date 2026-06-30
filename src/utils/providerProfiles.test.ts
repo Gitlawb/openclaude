@@ -1799,6 +1799,58 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
     expect(saved?.model).toBe('glm-5.2')
   })
+
+  test('cold start on the Anthropic sentinel stays on built-in Anthropic and does not fall back to the OpenGateway default (#1429)', async () => {
+    // Regression: after clearActiveProviderProfile() records the Anthropic
+    // sentinel and deletes the startup profile mirror, a restart must keep the
+    // user on built-in Anthropic. Previously applyActiveProviderProfileFromConfig()
+    // returned without marking provider env as handled (the sentinel resolves to
+    // no profile), so buildStartupEnvFromProfile() saw the missing mirror as a
+    // fresh install and synthesized the default Gitlawb OpenGateway env —
+    // silently moving the user back onto a third-party provider.
+    const { applyActiveProviderProfileFromConfig, ANTHROPIC_DEFAULT_PROFILE_ID } =
+      await importFreshProviderProfileModules()
+    const { buildStartupEnvFromProfile, DEFAULT_STARTUP_PROVIDER_ENV_VAR } =
+      await import(`./providerProfile.js?ts=${Date.now()}-${Math.random()}`)
+
+    // No explicit provider selection in the environment (cold start).
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    } as any)
+
+    // Built-in Anthropic resolves to no profile, but env is now marked handled
+    // and carries no third-party provider selection.
+    expect(applied).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+
+    // The deleted profile mirror (persisted: null) must NOT be treated as a
+    // fresh install, so no OpenGateway default is synthesized.
+    const startupEnv = await buildStartupEnvFromProfile({
+      persisted: null,
+      processEnv: process.env,
+    })
+    expect(startupEnv[DEFAULT_STARTUP_PROVIDER_ENV_VAR]).not.toBe(
+      'gitlawb-opengateway',
+    )
+    expect(startupEnv.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(startupEnv.OPENAI_BASE_URL).toBeUndefined()
+  })
 })
 
 describe('persistActiveProviderProfileModel', () => {

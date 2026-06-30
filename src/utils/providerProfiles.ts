@@ -946,6 +946,28 @@ export function applyActiveProviderProfileFromConfig(
   },
 ): ProviderProfile | undefined {
   const processEnv = options?.processEnv ?? process.env
+
+  // Built-in Anthropic is an explicit active state recorded as the sentinel,
+  // not "no active profile". getActiveProviderProfile() resolves the sentinel
+  // to undefined, so without this guard we would return below without marking
+  // provider env as handled; buildStartupEnvFromProfile() then treats the
+  // profile mirror that clearActiveProviderProfile() deleted as a fresh install
+  // and synthesizes the default Gitlawb OpenGateway env, bouncing the user off
+  // built-in Anthropic on the next launch (#1429). Clear any managed provider
+  // env and set the applied flag so the legacy/fresh-install fallback is
+  // suppressed. An explicit startup provider selection still wins for the
+  // current session, matching the saved-profile branch below.
+  if (
+    trimOrUndefined(config.activeProviderProfileId) === ANTHROPIC_DEFAULT_PROFILE_ID
+  ) {
+    if (!options?.force && hasCompleteProviderSelection(processEnv)) {
+      return undefined
+    }
+    clearProviderProfileEnvFromProcessEnv(processEnv)
+    processEnv[PROFILE_ENV_APPLIED_FLAG] = '1'
+    return undefined
+  }
+
   const activeProfile = getActiveProviderProfile(config)
   if (!activeProfile) {
     return undefined
