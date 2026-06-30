@@ -2139,6 +2139,9 @@ export function getUserClaudeRulesDir(): string {
 // Exported for testing only
 export const _getConfigForTesting = getConfig
 export const _wouldLoseAuthStateForTesting = wouldLoseAuthState
+export function _resetConfigReadingAllowedForTesting(): void {
+  configReadingAllowed = false
+}
 export function _setGlobalConfigCacheForTesting(
   config: GlobalConfig | null,
 ): void {

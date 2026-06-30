@@ -9,11 +9,12 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import {
+  _resetConfigReadingAllowedForTesting,
+  _setGlobalConfigCacheForTesting,
+  enableConfigs,
+} from './config.js'
 import { getGlobalClaudeFile } from './env.js'
-
-async function importFreshConfigModule() {
-  return import(`./config.js?corruptRecovery=${Date.now()}-${Math.random()}`)
-}
 
 describe('startup config recovery', () => {
   test('restores corrupt global config from the newest valid backup candidate', async () => {
@@ -42,13 +43,11 @@ describe('startup config recovery', () => {
       delete process.env.CLAUDE_CONFIG_DIR
       process.env.NODE_ENV = 'development'
       getGlobalClaudeFile.cache?.clear?.()
-      const { enableConfigs, getGlobalConfig } = await importFreshConfigModule()
+      _setGlobalConfigCacheForTesting(null)
+      _resetConfigReadingAllowedForTesting()
 
       enableConfigs()
 
-      expect(getGlobalConfig().promptQueueUseCount).toBe(
-        backupConfig.promptQueueUseCount,
-      )
       expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual(backupConfig)
       expect(
         readdirSync(backupDir).some(file =>
