@@ -825,25 +825,8 @@ async function* queryLoop(
     // template string makes [...systemPrompt] spread chars, shredding the prompt.
     let promptWithArc: readonly string[] = systemPrompt
     if (feature('CONVERSATION_ARC')) {
-      const { isAutoMemoryEnabled } = await import('./memdir/paths.js')
-      if (getGlobalConfig().knowledgeGraphEnabled && isAutoMemoryEnabled()) {
-        const lastMessage = messagesForQuery[messagesForQuery.length - 1]
-        const userQueryText =
-          lastMessage?.type === 'user' &&
-          typeof lastMessage.message.content === 'string'
-            ? lastMessage.message.content
-            : ''
-        const { getArcSummary } = await import('./utils/conversationArc.js')
-        const arcSummary = await getArcSummary(userQueryText)
-        const { getOrchestratedMemory } = await import('./utils/knowledgeGraph.js')
-        const orchMem = await getOrchestratedMemory(userQueryText)
-        if (arcSummary || orchMem) {
-          const parts: string[] = []
-          if (arcSummary) parts.push(arcSummary)
-          if (orchMem) parts.push(orchMem)
-          promptWithArc = [...systemPrompt, ...parts]
-        }
-      }
+      const { appendArcToSystemPrompt } = await import('./utils/conversationArc.js')
+      promptWithArc = await appendArcToSystemPrompt(systemPrompt, messagesForQuery)
     }
 
     const fullSystemPrompt = asSystemPrompt(

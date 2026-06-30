@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'fs'
 import { join } from 'path'
 import type { Message } from '../types/message.js'
-import { getAutoMemPath } from '../memdir/paths.js'
+import { getAutoMemPath, isAutoMemoryEnabled } from '../memdir/paths.js'
 import { extractFactsIntoMemdir } from '../memdir/autoExtractFacts.js'
 import {
   searchMemdirIndex,
@@ -79,6 +79,7 @@ function loadArcFromDisk(memoryDir: string): ConversationArc | null {
 }
 
 function saveArcToDisk(memoryDir: string, arc: ConversationArc): void {
+  if (!isAutoMemoryEnabled()) return
   if (!existsSync(memoryDir)) {
     mkdirSync(memoryDir, { recursive: true })
   }
@@ -165,9 +166,7 @@ function detectPhase(content: string): ConversationArc['currentPhase'] | null {
 
 async function extractFactsAutomatically(content: string): Promise<void> {
   const dir = arcMemoryDir || getAutoMemPath()
-  if (!dir) return
-  const { isAutoMemoryEnabled } = await import('../memdir/paths.js')
-  if (!isAutoMemoryEnabled()) return
+  if (!dir || !isAutoMemoryEnabled()) return
   await extractFactsIntoMemdir(content, dir)
 }
 
@@ -195,7 +194,6 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
   }
 
   // Only persist arc state when auto-memory is enabled
-  const { isAutoMemoryEnabled } = await import('../memdir/paths.js')
   if (arcMemoryDir && isAutoMemoryEnabled()) {
     saveArcToDisk(arcMemoryDir, arc)
     await rebuildIndex(arcMemoryDir).catch(() => {})
@@ -209,7 +207,7 @@ function yamlQuote(val: string): string {
 
 export async function finalizeArcTurn(): Promise<void> {
   const arc = getArc()
-  if (!arc) return
+  if (!arc || !isAutoMemoryEnabled()) return
 
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
   const dir = arcMemoryDir
@@ -423,4 +421,28 @@ export function getArcStats() {
     milestoneCount: arc.milestones.length,
     durationMs: arc.lastUpdateTime - arc.startTime,
   }
+}
+
+export async function appendArcToSystemPrompt(
+  systemPrompt: readonly string[],
+  messagesForQuery: Message[],
+): Promise<readonly string[]> {
+  const { getGlobalConfig } = await import('../utils/config.js')
+  if (getGlobalConfig().knowledgeGraphEnabled && isAutoMemoryEnabled()) {
+    const lastMessage = messagesForQuery[messagesForQuery.length - 1]
+    const userQueryText =
+      lastMessage?.type === 'user' && typeof lastMessage.message.content === 'string'
+        ? lastMessage.message.content
+        : ''
+    const arcSummary = await getArcSummary(userQueryText)
+    const { getOrchestratedMemory } = await import('./knowledgeGraph.js')
+    const orchMem = await getOrchestratedMemory(userQueryText)
+    if (arcSummary || orchMem) {
+      const parts: string[] = []
+      if (arcSummary) parts.push(arcSummary)
+      if (orchMem) parts.push(orchMem)
+      return [...systemPrompt, ...parts]
+    }
+  }
+  return systemPrompt
 }
