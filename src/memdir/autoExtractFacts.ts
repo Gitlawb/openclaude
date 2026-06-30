@@ -89,17 +89,28 @@ export async function extractFactsIntoMemdir(
     writeFactMemory(...args)
   }
 
+  // Value pattern: double-quoted, single-quoted, or bare non-whitespace.
+  // Quoted alternatives come first so a multi-word value like "my secret"
+  // is consumed as one unit and no word-tokens leak into scrubbedContent.
+  const envValuePattern = `(?:${[
+    '"[^"]*"',
+    "'[^']*'",
+    '[^\\s\\n]+',
+  ].join('|')})`
+
   // Build scrubbed content for downstream extractors so env values (which may
   // contain secrets, paths, or code) are not re-extracted as concept facts.
   const scrubbedContent = content.replace(
-    /(?:export\s+)?[A-Z_][A-Z_0-9]{2,}=[^\s\n]+/g,
+    new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
     match => `${match.split('=')[0]}=[REDACTED]`,
   )
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
   //    Supports keys with digits and values wrapped in quotes.
-  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_][A-Z_0-9]{2,})=[^\s\n]+/g)
+  const envMatches = content.matchAll(
+    new RegExp(`(?:export\\s+)?([A-Z_][A-Z_0-9]{2,})=${envValuePattern}`, 'g'),
+  )
   for (const match of envMatches) {
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
   }

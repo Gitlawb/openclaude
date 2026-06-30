@@ -32,6 +32,23 @@ describe('autoExtractFacts', () => {
     expect(files.some(f => f.includes('database-url'))).toBe(true)
   })
 
+  it('redacts quoted multi-token env values so no residue reaches concept extractors', async () => {
+    // The value "my secret password" contains spaces; without proper quoting
+    // the individual words would leak into scrubbedContent and get extracted
+    // as concept facts.
+    await extractFactsIntoMemdir(
+      'export SECRET_TOKEN="my secret password"',
+      memDir,
+    )
+    const files = readdirSync(factsDir())
+    // env fact should exist
+    expect(files.some(f => f.includes('secret-token') || f.includes('SECRET_TOKEN'))).toBe(true)
+    // no concept fact should be created from the value tokens
+    const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
+    expect(conceptFacts.some(f => f.includes('secret'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('password'))).toBe(false)
+  })
+
   it('extracts versions', async () => {
     await extractFactsIntoMemdir('upgrade to v2.1.3 and use node v18', memDir)
     expect(countFactFiles()).toBeGreaterThan(0)
