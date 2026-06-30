@@ -125,6 +125,9 @@ ${body}`
       const r1 = await searchMemdirIndex('MySQL', memDir)
       expect(r1.length).toBeGreaterThan(0)
 
+      // Wait 2ms to ensure mtime changes (filesystem mtime resolution)
+      await new Promise(resolve => setTimeout(resolve, 2))
+
       // Edit the file to change DB type
       writeMem('config.md', 'Config', 'reference', 'Database config', 'Using PostgreSQL')
 
