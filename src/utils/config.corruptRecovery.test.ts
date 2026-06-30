@@ -30,13 +30,14 @@ describe('startup config recovery', () => {
         JSON.stringify(backupConfig),
         'utf-8',
       )
+      const configModulePath = join(process.cwd(), 'src/utils/config.ts')
 
       const result = execaSync(
         process.execPath,
         [
           '--feature=UNATTENDED_RETRY',
           '-e',
-          "const { enableConfigs } = await import(`${import.meta.dir}/src/utils/config.ts`); enableConfigs();",
+          `const { enableConfigs } = await import(${JSON.stringify(configModulePath)}); enableConfigs();`,
         ],
         {
           cwd: process.cwd(),
