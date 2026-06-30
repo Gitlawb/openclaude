@@ -3159,8 +3159,13 @@ class OpenAIShimMessages {
       hasMistralApiHost(request.baseUrl) ||
       isLocal
 
+    // Mistral's chat completions reject `max_completion_tokens` (and `store`).
+    // When the route resolves to the Mistral descriptor the config already maps
+    // to `max_tokens`; on the host-detected fallback (`hasMistralApiHost`) the
+    // generic default leaves `max_completion_tokens`, so map it here too.
     if (
-      shimConfig.maxTokensField === 'max_tokens' &&
+      (shimConfig.maxTokensField === 'max_tokens' ||
+        hasMistralApiHost(request.baseUrl)) &&
       body.max_completion_tokens !== undefined
     ) {
       body.max_tokens = body.max_completion_tokens

@@ -6273,6 +6273,11 @@ test('Mistral host fallback: strips store on an unresolved Mistral-host route (#
   // The shim sets `store: false` on every chat_completions body; without the
   // fallback this unresolved route would forward it and hit Mistral's 422.
   expect(requestBody?.store).toBeUndefined()
+  // #739's Mistral 422 rejects `max_completion_tokens` as well — the host
+  // fallback must also map it to `max_tokens` on the unresolved route, since
+  // the generic config leaves the `max_completion_tokens` default.
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.max_tokens).toBe(64)
 })
 
 test('hasMistralApiHost matches the Mistral host and its subdomains only', () => {
