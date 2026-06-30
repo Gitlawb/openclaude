@@ -1994,34 +1994,37 @@ test('controller abort stops buffered Gemini SSE events', async () => {
 
 test('controller abort reaches native Ollama converted stream', async () => {
   const previousBaseUrl = process.env.OPENAI_BASE_URL
-  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
-  const stalled = makeStallingResponse(
-    `${JSON.stringify({
-      model: 'llama3.1:8b',
-      message: { role: 'assistant', content: 'partial' },
-      done: false,
-    })}\n`,
-    'http://localhost:11434/api/chat',
-    'application/x-ndjson',
-  )
-
-  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  const result = await client.beta.messages
-    .create({
-      model: 'llama3.1:8b',
-      messages: [{ role: 'user', content: 'hello' }],
-      max_tokens: 64,
-      stream: true,
-    })
-    .withResponse()
-  const stream = result.data as unknown as ShimStream
+  let stalled: StallingResponse | undefined
 
   try {
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    stalled = makeStallingResponse(
+      `${JSON.stringify({
+        model: 'llama3.1:8b',
+        message: { role: 'assistant', content: 'partial' },
+        done: false,
+      })}\n`,
+      'http://localhost:11434/api/chat',
+      'application/x-ndjson',
+    )
+    const activeStalled = stalled
+
+    globalThis.fetch = (async () => activeStalled.response) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'llama3.1:8b',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+    const stream = result.data as unknown as ShimStream
+
     const outcome = await expectAbortStopsStream({
       abort: () => stream.controller.abort(),
-      cancelReasons: stalled.cancelReasons,
+      cancelReasons: activeStalled.cancelReasons,
       expectedEventsBeforeAbort: 1,
       label: 'native Ollama converted stream',
       stream,
@@ -2029,7 +2032,7 @@ test('controller abort reaches native Ollama converted stream', async () => {
 
     expect(outcome.events[0]?.type).toBe('message_start')
   } finally {
-    stalled.close()
+    stalled?.close()
     restoreEnv('OPENAI_BASE_URL', previousBaseUrl)
   }
 })
