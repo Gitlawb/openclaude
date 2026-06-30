@@ -391,7 +391,7 @@ describe('conversationArc', () => {
         const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
 
         // Verify prompt is unchanged
-        expect(promptWithArc).toBe(mockSystemPrompt)
+        expect(promptWithArc).toEqual(mockSystemPrompt)
         expect(promptWithArc.length).toBe(2)
       } finally {
         delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
