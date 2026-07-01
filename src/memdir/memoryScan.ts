@@ -95,8 +95,8 @@ async function scanMemoryFilesWithDependencies(
         try {
           next = await fileIterator.next()
         } catch (error) {
-          controller.abort()
           if (internalSignal.aborted) return
+          controller.abort()
           throw error
         }
         if (next.done) return
