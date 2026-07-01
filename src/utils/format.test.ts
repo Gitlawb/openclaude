@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { formatDuration, formatFileSize } from './format.js'
+import { formatDuration, formatFileSize, formatSecondsShort } from './format.js'
 
 test('formats sub-second durations with one decimal place', () => {
   // Regression: the < 1s branch was guarded by `ms < 1` (1 millisecond), so
@@ -10,6 +10,17 @@ test('formats sub-second durations with one decimal place', () => {
   expect(formatDuration(900)).toBe('0.9s')
   // 0.999s rounds to one decimal place.
   expect(formatDuration(999)).toBe('1.0s')
+  // Halfway cases must round in integer milliseconds, not on the raw fraction:
+  // `(950 / 1000).toFixed(1)` yields "0.9" because 0.95 isn't representable in
+  // binary floating point, so the decimal is computed from rounded ms instead.
+  expect(formatDuration(950)).toBe('1.0s')
+  expect(formatDuration(850)).toBe('0.9s')
+})
+
+test('formatSecondsShort keeps a stable one-decimal second', () => {
+  expect(formatSecondsShort(1234)).toBe('1.2s')
+  expect(formatSecondsShort(950)).toBe('1.0s')
+  expect(formatSecondsShort(1250)).toBe('1.3s')
 })
 
 test('formats whole-second and zero durations without a decimal', () => {

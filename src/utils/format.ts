@@ -29,8 +29,18 @@ export function formatFileSize(sizeInBytes: number): string {
  * Unlike formatDuration, always keeps the decimal — use for sub-minute timings
  * where the fractional second is meaningful (TTFT, hook durations, etc.).
  */
+/**
+ * Renders milliseconds as a one-decimal second value, rounding in integer
+ * milliseconds so half-steps are stable. Rounding the raw fraction with
+ * `(ms / 1000).toFixed(1)` is unstable because values like `0.95` aren't
+ * exactly representable in binary floating point (`950` would render `0.9`).
+ */
+function oneDecimalSeconds(ms: number): string {
+  return (Math.round(ms / 100) / 10).toFixed(1)
+}
+
 export function formatSecondsShort(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`
+  return `${oneDecimalSeconds(ms)}s`
 }
 
 export function formatDuration(
@@ -47,8 +57,7 @@ export function formatDuration(
     // sub-millisecond values and always returned "0.0s", so real sub-second
     // durations fell through and rendered as "0s".
     if (ms < 1000) {
-      const s = (ms / 1000).toFixed(1)
-      return `${s}s`
+      return `${oneDecimalSeconds(ms)}s`
     }
     const s = Math.floor(ms / 1000).toString()
     return `${s}s`
