@@ -173,4 +173,31 @@ describe('BashTool error output (#1231)', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  // The capped destination must hold exactly the FIRST `maxSize` bytes of the
+  // source — no more, no less. Guards the bounded read range (an off-by-one on
+  // the inclusive `end` would spill one extra byte). Distinguishable halves
+  // prove only the head is written, and never the tail.
+  test('capped destination contains exactly the first maxSize bytes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'persist-head-'))
+    const source = join(dir, 'roll.txt')
+    const cap = 2048
+    const head = 'A'.repeat(cap)
+    const tail = 'B'.repeat(cap)
+    writeFileSync(source, head + tail) // 2*cap bytes
+    let dest: string | undefined
+    try {
+      const persisted = await persistShellOutputFile(source, 'persist-head-test', cap)
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.truncated).toBe(true)
+      const saved = readFileSync(dest, 'utf8')
+      expect(saved.length).toBe(cap)
+      expect(saved).toBe(head) // exactly the head, no tail byte leaked in
+      expect(saved).not.toContain('B')
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

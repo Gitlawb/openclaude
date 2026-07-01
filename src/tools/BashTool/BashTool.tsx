@@ -1,6 +1,8 @@
 import { feature } from 'bun:bundle';
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
-import { copyFile, stat as fsStat, truncate as fsTruncate, link } from 'fs/promises';
+import { copyFile, stat as fsStat, link, unlink } from 'fs/promises';
+import { createReadStream, createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import * as React from 'react';
 import type { CanUseToolFn } from 'src/hooks/useCanUseTool.js';
 import type { AppState } from 'src/state/AppState.js';
@@ -343,13 +345,25 @@ export async function persistShellOutputFile(
     const dest = getToolResultPath(taskId, false);
     const truncated = size > maxSize;
     if (truncated) {
-      // Cap the destination copy, never the shell's rolled-output source: the
-      // error fallback and resizeShellImageOutput still read `sourcePath`, so
+      // Cap the destination, never the shell's rolled-output source: the error
+      // fallback and resizeShellImageOutput still read `sourcePath`, so
       // truncating it would drop the tail this persistence is meant to recover.
-      // A hardlink shares the inode, so the oversized path must copy first and
-      // truncate the copy.
-      await copyFile(sourcePath, dest);
-      await fsTruncate(dest, maxSize);
+      // Write only the first `maxSize` bytes into `dest` via a bounded read
+      // range — copying the whole (potentially multi-GB) source and truncating
+      // afterward would balloon session storage and, if the truncate failed,
+      // leave a full-size copy behind. `end` is inclusive, so [0, maxSize-1]
+      // yields exactly maxSize bytes.
+      try {
+        await pipeline(
+          createReadStream(sourcePath, { start: 0, end: maxSize - 1 }),
+          createWriteStream(dest),
+        );
+      } catch (e) {
+        // Remove any partial destination before falling through to the outer
+        // catch, so we never report a half-written capped file.
+        await unlink(dest).catch(() => {});
+        throw e;
+      }
     } else {
       try {
         await link(sourcePath, dest);
