@@ -94,6 +94,255 @@ function makeSseResponse(lines: string[]): Response {
   )
 }
 
+function withResponseUrl(response: Response, url: string): Response {
+  Object.defineProperty(response, 'url', {
+    value: url,
+    configurable: true,
+  })
+  return response
+}
+
+type StallingResponse = {
+  response: Response
+  cancelReasons: unknown[]
+  close: () => void
+}
+
+function makeStallingResponse(
+  firstChunk: string,
+  url = 'https://api.example.test/v1/chat/completions',
+  contentType = 'text/event-stream',
+): StallingResponse {
+  const encoder = new TextEncoder()
+  const cancelReasons: unknown[] = []
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+  let closed = false
+
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+        controller.enqueue(encoder.encode(firstChunk))
+      },
+      cancel(reason) {
+        closed = true
+        cancelReasons.push(reason)
+      },
+    }),
+    {
+      headers: {
+        'Content-Type': contentType,
+      },
+    },
+  )
+
+  return {
+    response: withResponseUrl(response, url),
+    cancelReasons,
+    close: () => {
+      if (closed) return
+      closed = true
+      try {
+        streamController?.close()
+      } catch {
+        // The test may already have cancelled the stream.
+      }
+    },
+  }
+}
+
+type ShimStream = AsyncIterable<Record<string, unknown>> & {
+  controller: AbortController
+}
+
+type StreamDrainOutcome =
+  | { status: 'completed'; events: Array<Record<string, unknown>> }
+  | {
+    status: 'rejected'
+    events: Array<Record<string, unknown>>
+    error: unknown
+  }
+
+async function waitForPromise<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  }
+}
+
+async function expectAbortStopsStream({
+  abort,
+  cancelReasons,
+  expectedEventsBeforeAbort,
+  label,
+  stream,
+}: {
+  abort: () => void
+  cancelReasons: unknown[]
+  expectedEventsBeforeAbort: number
+  label: string
+  stream: ShimStream
+}): Promise<StreamDrainOutcome> {
+  const events: Array<Record<string, unknown>> = []
+  let resolveReady!: () => void
+  const ready = new Promise<void>(resolve => {
+    resolveReady = resolve
+  })
+
+  const drain = (async (): Promise<StreamDrainOutcome> => {
+    try {
+      for await (const event of stream) {
+        events.push(event)
+        if (events.length >= expectedEventsBeforeAbort) {
+          resolveReady()
+        }
+      }
+      return { status: 'completed', events }
+    } catch (error) {
+      return { status: 'rejected', events, error }
+    }
+  })()
+
+  await waitForPromise(
+    ready,
+    500,
+    `${label} did not produce initial stream events`,
+  )
+  // Let the for-await loop ask the stream reader for the next chunk, so the
+  // abort has to wake a real pending read rather than only flipping a flag.
+  await Promise.resolve()
+  await Promise.resolve()
+
+  abort()
+
+  const outcome = await waitForPromise(
+    drain,
+    500,
+    `${label} did not stop promptly after abort`,
+  )
+  expect(cancelReasons).toHaveLength(1)
+  expect(outcome.status).toBe('rejected')
+  if (outcome.status === 'rejected') {
+    expect((outcome.error as { name?: unknown }).name).toBe('AbortError')
+  }
+  return outcome
+}
+
+async function expectPausedAbortCancelsStream({
+  cancelReasons,
+  label,
+  stream,
+}: {
+  cancelReasons: unknown[]
+  label: string
+  stream: ShimStream
+}): Promise<IteratorResult<Record<string, unknown>>> {
+  const iterator = stream[Symbol.asyncIterator]()
+  const first = await waitForPromise(
+    iterator.next(),
+    500,
+    `${label} did not produce first stream event`,
+  )
+  expect(first.done).toBe(false)
+
+  stream.controller.abort()
+  await waitForPromise(
+    (async () => {
+      for (let i = 0; i < 10; i++) {
+        if (cancelReasons.length > 0) return
+        await Promise.resolve()
+      }
+      throw new Error(`${label} did not cancel source on controller abort`)
+    })(),
+    500,
+    `${label} did not cancel source on controller abort`,
+  )
+
+  const returned = await waitForPromise(
+    Promise.resolve(iterator.return?.()),
+    500,
+    `${label} did not return promptly after abort while paused`,
+  )
+  expect(cancelReasons).toHaveLength(1)
+  return returned as IteratorResult<Record<string, unknown>>
+}
+
+async function expectBufferedAbortRejectsNext({
+  expectedText,
+  label,
+  stream,
+}: {
+  expectedText?: string
+  label: string
+  stream: ShimStream
+}): Promise<void> {
+  const iterator = stream[Symbol.asyncIterator]()
+
+  try {
+    let firstDelta: Record<string, unknown> | undefined
+    for (let i = 0; i < 5; i++) {
+      const next = await waitForPromise(
+        iterator.next(),
+        500,
+        `${label} did not produce expected pre-abort events`,
+      )
+      expect(next.done).toBe(false)
+      if (next.value?.type === 'content_block_delta') {
+        firstDelta = next.value
+        break
+      }
+    }
+
+    expect(firstDelta).toBeDefined()
+    if (expectedText !== undefined) {
+      expect((firstDelta as { delta?: { text?: string } }).delta?.text).toBe(expectedText)
+    }
+
+    stream.controller.abort()
+    const afterAbort = await waitForPromise(
+      iterator.next().then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+      500,
+      `${label} did not stop after abort`,
+    )
+
+    if (afterAbort.status !== 'rejected') {
+      throw new Error(`${label} yielded after abort: ${JSON.stringify(afterAbort.value)}`)
+    }
+    expect((afterAbort.error as { name?: unknown }).name).toBe('AbortError')
+  } finally {
+    await Promise.resolve(iterator.return?.()).catch(() => {})
+  }
+}
+
+function makeOpenAIStreamFrame(
+  delta: Record<string, unknown>,
+  finishReason: string | null = null,
+): string {
+  return `data: ${JSON.stringify({
+    id: 'chatcmpl-abort-test',
+    object: 'chat.completion.chunk',
+    created: 1_780_000_000,
+    model: 'test-model',
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  })}\n\n`
+}
+
 function makeStreamChunks(chunks: unknown[]): string[] {
   return [
     ...chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`),
@@ -1224,6 +1473,619 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent).toBeDefined()
   expect(usageEvent?.usage?.input_tokens).toBe(123)
   expect(usageEvent?.usage?.output_tokens).toBe(45)
+})
+
+test('controller abort reaches generic OpenAI SSE converter', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'partial' }),
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    const outcome = await expectAbortStopsStream({
+      abort: () => stream.controller.abort(),
+      cancelReasons: stalled.cancelReasons,
+      expectedEventsBeforeAbort: 3,
+      label: 'generic OpenAI SSE stream',
+      stream,
+    })
+
+    expect(outcome.events.some(event => event.type === 'content_block_delta')).toBe(true)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort cancels generic OpenAI SSE before iteration starts', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'partial' }),
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    stream.controller.abort()
+    await waitForPromise(
+      (async () => {
+        for (let i = 0; i < 10; i++) {
+          if (stalled.cancelReasons.length > 0) return
+          await Promise.resolve()
+        }
+        throw new Error('pre-iteration OpenAI SSE stream did not cancel source')
+      })(),
+      500,
+      'pre-iteration OpenAI SSE stream did not cancel source',
+    )
+    expect(stalled.cancelReasons).toHaveLength(1)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort cancels generic OpenAI SSE when paused after message_start', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'partial' }),
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    await expectPausedAbortCancelsStream({
+      cancelReasons: stalled.cancelReasons,
+      label: 'paused generic OpenAI SSE stream',
+      stream,
+    })
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort stops buffered generic OpenAI SSE events', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'first' }) +
+      makeOpenAIStreamFrame({ content: 'second' }),
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    await expectBufferedAbortRejectsNext({
+      expectedText: 'first',
+      label: 'buffered generic OpenAI SSE stream',
+      stream,
+    })
+    expect(stalled.cancelReasons).toHaveLength(1)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort reaches Anthropic messages SSE passthrough', async () => {
+  const stalled = makeStallingResponse(
+    `data: ${JSON.stringify({
+      type: 'message_start',
+      message: {
+        id: 'msg_passthrough_abort',
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: 'passthrough-model',
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    })}\n\n`,
+    'https://api.anthropic-shaped.example.com/v1/messages',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'passthrough-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    const outcome = await expectAbortStopsStream({
+      abort: () => stream.controller.abort(),
+      cancelReasons: stalled.cancelReasons,
+      expectedEventsBeforeAbort: 1,
+      label: 'Anthropic messages passthrough stream',
+      stream,
+    })
+
+    expect(outcome.events[0]?.type).toBe('message_start')
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort cancels Anthropic messages SSE when paused after event', async () => {
+  const stalled = makeStallingResponse(
+    `data: ${JSON.stringify({
+      type: 'message_start',
+      message: {
+        id: 'msg_paused_passthrough_abort',
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: 'passthrough-model',
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    })}\n\n`,
+    'https://api.anthropic-shaped.example.com/v1/messages',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'passthrough-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    await expectPausedAbortCancelsStream({
+      cancelReasons: stalled.cancelReasons,
+      label: 'paused Anthropic messages passthrough stream',
+      stream,
+    })
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort stops buffered Anthropic messages SSE events', async () => {
+  const stalled = makeStallingResponse(
+    [
+      `data: ${JSON.stringify({
+        type: 'message_start',
+        message: {
+          id: 'msg_buffered_passthrough_abort',
+          type: 'message',
+          role: 'assistant',
+          content: [],
+          model: 'passthrough-model',
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      })}`,
+      '',
+      `data: ${JSON.stringify({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      })}`,
+      '',
+      '',
+    ].join('\n'),
+    'https://api.anthropic-shaped.example.com/v1/messages',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'passthrough-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+  const iterator = stream[Symbol.asyncIterator]()
+
+  try {
+    const first = await waitForPromise(
+      iterator.next(),
+      500,
+      'buffered Anthropic messages passthrough did not produce first event',
+    )
+    expect(first.done).toBe(false)
+    expect(first.value?.type).toBe('message_start')
+
+    stream.controller.abort()
+    const afterAbort = await waitForPromise(
+      iterator.next().then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+      500,
+      'buffered Anthropic messages passthrough did not stop after abort',
+    )
+
+    if (afterAbort.status !== 'rejected') {
+      throw new Error(`buffered Anthropic messages passthrough yielded after abort: ${JSON.stringify(afterAbort.value)}`)
+    }
+    expect((afterAbort.error as { name?: unknown }).name).toBe('AbortError')
+    expect(stalled.cancelReasons).toHaveLength(1)
+  } finally {
+    await Promise.resolve(iterator.return?.()).catch(() => {})
+    stalled.close()
+  }
+})
+
+test('parent signal abort still reaches OpenAI SSE converter', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'partial' }),
+  )
+  const parent = new AbortController()
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create(
+      {
+        model: 'fake-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: true,
+      },
+      { signal: parent.signal },
+    )
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    const outcome = await expectAbortStopsStream({
+      abort: () => parent.abort(),
+      cancelReasons: stalled.cancelReasons,
+      expectedEventsBeforeAbort: 3,
+      label: 'parent-aborted OpenAI SSE stream',
+      stream,
+    })
+
+    expect(outcome.events.some(event => event.type === 'content_block_delta')).toBe(true)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('parent signal abort cancels OpenAI SSE before iteration starts', async () => {
+  const stalled = makeStallingResponse(
+    makeOpenAIStreamFrame({ role: 'assistant', content: 'partial' }),
+  )
+  const parent = new AbortController()
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create(
+      {
+        model: 'fake-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: true,
+      },
+      { signal: parent.signal },
+    )
+    .withResponse()
+  expect(result.data).toBeDefined()
+
+  try {
+    parent.abort()
+    await waitForPromise(
+      (async () => {
+        for (let i = 0; i < 10; i++) {
+          if (stalled.cancelReasons.length > 0) return
+          await Promise.resolve()
+        }
+        throw new Error('pre-iteration parent-aborted OpenAI SSE stream did not cancel source')
+      })(),
+      500,
+      'pre-iteration parent-aborted OpenAI SSE stream did not cancel source',
+    )
+    expect(stalled.cancelReasons).toHaveLength(1)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort reaches Codex responses stream converter', async () => {
+  const stalled = makeStallingResponse(
+    `event: response.output_text.delta\ndata: ${JSON.stringify({ delta: 'partial' })}\n\n`,
+    'https://api.example.test/v1/responses',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5.4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    const outcome = await expectAbortStopsStream({
+      abort: () => stream.controller.abort(),
+      cancelReasons: stalled.cancelReasons,
+      expectedEventsBeforeAbort: 3,
+      label: 'Codex responses stream',
+      stream,
+    })
+
+    expect(outcome.events.some(event => event.type === 'content_block_delta')).toBe(true)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort cancels Codex responses stream when paused after message_start', async () => {
+  const stalled = makeStallingResponse(
+    `event: response.output_text.delta\ndata: ${JSON.stringify({ delta: 'partial' })}\n\n`,
+    'https://api.example.test/v1/responses',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5.4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    await expectPausedAbortCancelsStream({
+      cancelReasons: stalled.cancelReasons,
+      label: 'paused Codex responses stream',
+      stream,
+    })
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort reaches Gemini SSE converter', async () => {
+  const stalled = makeStallingResponse(
+    `data: ${JSON.stringify({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [{ text: 'partial' }],
+          },
+        },
+      ],
+    })}\n\n`,
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    const outcome = await expectAbortStopsStream({
+      abort: () => stream.controller.abort(),
+      cancelReasons: stalled.cancelReasons,
+      expectedEventsBeforeAbort: 3,
+      label: 'Gemini SSE stream',
+      stream,
+    })
+
+    expect(outcome.events.some(event => event.type === 'content_block_delta')).toBe(true)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort stops buffered Gemini SSE events', async () => {
+  const makeGeminiFrame = (text: string) =>
+    `data: ${JSON.stringify({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [{ text }],
+          },
+        },
+      ],
+    })}\n\n`
+  const stalled = makeStallingResponse(
+    makeGeminiFrame('first') + makeGeminiFrame('second'),
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse',
+  )
+
+  globalThis.fetch = (async () => stalled.response) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+  const stream = result.data as unknown as ShimStream
+
+  try {
+    await expectBufferedAbortRejectsNext({
+      expectedText: 'first',
+      label: 'buffered Gemini SSE stream',
+      stream,
+    })
+    expect(stalled.cancelReasons).toHaveLength(1)
+  } finally {
+    stalled.close()
+  }
+})
+
+test('controller abort reaches native Ollama converted stream', async () => {
+  const previousBaseUrl = process.env.OPENAI_BASE_URL
+  let stalled: StallingResponse | undefined
+
+  try {
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    stalled = makeStallingResponse(
+      `${JSON.stringify({
+        model: 'llama3.1:8b',
+        message: { role: 'assistant', content: 'partial' },
+        done: false,
+      })}\n`,
+      'http://localhost:11434/api/chat',
+      'application/x-ndjson',
+    )
+    const activeStalled = stalled
+
+    globalThis.fetch = (async () => activeStalled.response) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'llama3.1:8b',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+    const stream = result.data as unknown as ShimStream
+
+    const outcome = await expectAbortStopsStream({
+      abort: () => stream.controller.abort(),
+      cancelReasons: activeStalled.cancelReasons,
+      expectedEventsBeforeAbort: 1,
+      label: 'native Ollama converted stream',
+      stream,
+    })
+
+    expect(outcome.events[0]?.type).toBe('message_start')
+  } finally {
+    stalled?.close()
+    restoreEnv('OPENAI_BASE_URL', previousBaseUrl)
+  }
+})
+
+test('normal OpenAI SSE stream still completes after controller wiring', async () => {
+  globalThis.fetch = (async () =>
+    makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-normal-stream',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [
+          {
+            index: 0,
+            delta: { role: 'assistant', content: 'complete' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-normal-stream',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ]))) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas.join('')).toBe('complete')
+  expect((result.data as unknown as ShimStream).controller.signal.aborted).toBe(false)
 })
 
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {

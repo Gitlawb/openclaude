@@ -45,6 +45,7 @@ import { isPolicyAllowed, loadPolicyLimits, refreshPolicyLimits, waitForPolicyLi
 import { loadRemoteManagedSettings, refreshRemoteManagedSettings } from './services/remoteManagedSettings/index.js';
 import type { ToolInputJSONSchema } from './Tool.js';
 import { createSyntheticOutputTool, isSyntheticOutputToolEnabled } from './tools/SyntheticOutputTool/SyntheticOutputTool.js';
+import { registerTaskReportCommand } from './cli/commands/taskReport.js';
 import { getTools } from './tools.js';
 import { canUserConfigureAdvisor, getInitialAdvisorSetting, isAdvisorEnabled, isValidAdvisorModel, modelSupportsAdvisor } from './utils/advisor.js';
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js';
@@ -4215,52 +4216,7 @@ async function run(): Promise<CommanderCommand> {
     });
   }
 
-  program
-    .command('report')
-    .description(
-      'Generate a deterministic JSON task report for an OpenClaude session',
-    )
-    .option('--json', 'Print JSON output')
-    .option('--transcript <file>', 'Path to a session JSONL transcript')
-    .option(
-      '--session <id>',
-      'Session ID to report (defaults to latest session in the current project)',
-    )
-    .option('--out <file>', 'Write the report to a file')
-    .action(async (options: {
-      json?: boolean;
-      transcript?: string;
-      session?: string;
-      out?: string;
-    }) => {
-      const {
-        taskReportHandler,
-        printTaskReportError,
-      } = await import('./cli/handlers/taskReport.js');
-      try {
-        if (options.json !== true) {
-          throw new Error(
-            'Task reports currently support JSON output only. Pass --json.',
-          );
-        }
-        if (options.transcript && options.session) {
-          throw new Error(
-            'Pass either --transcript <file> or --session <id>, not both.',
-          );
-        }
-        await taskReportHandler({
-          format: 'json',
-          transcriptPath: options.transcript ?? null,
-          sessionId: options.session ?? null,
-          outFile: options.out ?? null,
-          cwd: process.cwd(),
-        });
-        process.exit(0);
-      } catch (error) {
-        await printTaskReportError(error);
-        process.exit(1);
-      }
-    });
+  registerTaskReportCommand(program);
 
   // Doctor command - check installation health
   const doctorCommand = program
