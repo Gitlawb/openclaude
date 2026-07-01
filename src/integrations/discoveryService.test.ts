@@ -460,6 +460,8 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.source).toBe('network')
     expect(capturedHeaders).toEqual({
+      'HTTP-Referer': 'https://github.com/Gitlawb/openclaude',
+      'X-Title': 'OpenClaude',
       'X-AIMLAPI-Integration-Owner': 'Gitlawb',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
       'X-AIMLAPI-Integration-Version': '1.0.0',

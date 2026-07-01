@@ -216,6 +216,8 @@ test('AIMLAPI discovery omits credentials on the public /models route', async ()
     expect(discoveryOptions?.headers).toBeUndefined()
     expect(fallbackOptions?.apiKey).toBeUndefined()
     expect(fallbackOptions?.headers).toEqual({
+      'HTTP-Referer': 'https://github.com/Gitlawb/openclaude',
+      'X-Title': 'OpenClaude',
       'X-AIMLAPI-Integration-Owner': 'Gitlawb',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
       'X-AIMLAPI-Integration-Version': '1.0.0',
