@@ -35,17 +35,7 @@ import type { ModelSetting } from '../utils/model/model.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { filterContentReplacementsForMessages, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
 import { REPL } from './REPL.js';
-function parsePrIdentifier(value: string): number | null {
-  const directNumber = parseInt(value, 10);
-  if (!isNaN(directNumber) && directNumber > 0) {
-    return directNumber;
-  }
-  const urlMatch = value.match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/);
-  if (urlMatch?.[1]) {
-    return parseInt(urlMatch[1], 10);
-  }
-  return null;
-}
+import { filterResumeLogs } from './resumeFilters.js';
 type Props = {
   commands: Command[];
   worktreePaths: string[];
@@ -114,20 +104,7 @@ export function ResumeConversation({
   // the setLogs updater (keeping it pure per React's contract).
   const logCountRef = React.useRef(0);
   const filteredLogs = React.useMemo(() => {
-    let result = logs.filter(l => !l.isSidechain);
-    if (filterByPr !== undefined) {
-      if (filterByPr === true) {
-        result = result.filter(l_0 => l_0.prNumber !== undefined);
-      } else if (typeof filterByPr === 'number') {
-        result = result.filter(l_1 => l_1.prNumber === filterByPr);
-      } else if (typeof filterByPr === 'string') {
-        const prNumber = parsePrIdentifier(filterByPr);
-        if (prNumber !== null) {
-          result = result.filter(l_2 => l_2.prNumber === prNumber);
-        }
-      }
-    }
-    return result;
+    return filterResumeLogs(logs, filterByPr);
   }, [logs, filterByPr]);
   const isResumeWithRenameEnabled = isCustomTitleEnabled();
   React.useEffect(() => {
