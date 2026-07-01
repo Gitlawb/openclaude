@@ -21,6 +21,7 @@ import * as actualProviderConfig from '../../services/api/providerConfig.js'
 import * as actualSettings from '../settings/settings.js'
 import * as actualModelAllowlist from './modelAllowlist.js'
 import * as actualOllamaModels from './ollamaModels.js'
+import * as actualNvidiaModels from './nvidiaNimModels.js'
 import type { ModelOption } from './modelOptions.js'
 import type { ProviderProfile } from '../config.js'
 import type { SettingsJson } from '../settings/types.js'
@@ -35,6 +36,7 @@ const realProviderConfig = { ...actualProviderConfig }
 const realSettings = { ...actualSettings }
 const realModelAllowlist = { ...actualModelAllowlist }
 const realOllamaModels = { ...actualOllamaModels }
+const realNvidiaModels = { ...actualNvidiaModels }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // per-test mocks installed in a harness would persist and leak into later
@@ -62,6 +64,14 @@ let activeSettingsOverride: SettingsJson | null = null
 // cross-profile test can assert the branch still appends inactive-profile
 // options (#1164). Gated + passthrough so it can't leak into other suites.
 let activeOllamaOverride: { cachedModels: ModelOption[] } | null = null
+// Pins getAPIProvider to a specific value (e.g. 'github') so the corresponding
+// early-return branch in getModelOptionsBase runs. Gated + passthrough.
+let activeApiProviderOverride: string | null = null
+// Drives the NVIDIA NIM catalog early-return branch. Gated + passthrough.
+let activeNvidiaOverride: { cachedModels: ModelOption[] } | null = null
+// Flips the Claude subscriber branch on (and optionally Max tier). Gated so it
+// doesn't leak subscriber state into sibling suites.
+let activeSubscriberOverride: { max?: boolean } | null = null
 
 mock.module('./ollamaModels.js', () => ({
   ...realOllamaModels,
@@ -71,6 +81,16 @@ mock.module('./ollamaModels.js', () => ({
     activeOllamaOverride
       ? activeOllamaOverride.cachedModels
       : realOllamaModels.getCachedOllamaModelOptions(),
+}))
+
+mock.module('./nvidiaNimModels.js', () => ({
+  ...realNvidiaModels,
+  isNvidiaNimProvider: () =>
+    activeNvidiaOverride ? true : realNvidiaModels.isNvidiaNimProvider(),
+  getCachedNvidiaNimModelOptions: () =>
+    activeNvidiaOverride
+      ? activeNvidiaOverride.cachedModels
+      : realNvidiaModels.getCachedNvidiaNimModelOptions(),
 }))
 
 mock.module('../settings/settings.js', () => ({
@@ -116,7 +136,8 @@ mock.module('../providerProfiles.js', () => ({
 mock.module('./providers.js', () => ({
   ...realProviders,
   getAPIProvider: () =>
-    activeProfilesOverride ? 'openai' : realProviders.getAPIProvider(),
+    activeApiProviderOverride ??
+    (activeProfilesOverride ? 'openai' : realProviders.getAPIProvider()),
   getAPIProviderForStatsig: () =>
     activeProfilesOverride
       ? 'openai'
@@ -138,9 +159,13 @@ mock.module('./providers.js', () => ({
 mock.module('../auth.js', () => ({
   ...realAuth,
   isClaudeAISubscriber: (...args: Parameters<typeof realAuth.isClaudeAISubscriber>) =>
-    activeProfilesOverride ? false : realAuth.isClaudeAISubscriber(...args),
+    activeSubscriberOverride
+      ? true
+      : activeProfilesOverride ? false : realAuth.isClaudeAISubscriber(...args),
   isMaxSubscriber: (...args: Parameters<typeof realAuth.isMaxSubscriber>) =>
-    activeProfilesOverride ? false : realAuth.isMaxSubscriber(...args),
+    activeSubscriberOverride
+      ? !!activeSubscriberOverride.max
+      : activeProfilesOverride ? false : realAuth.isMaxSubscriber(...args),
   isTeamPremiumSubscriber: (...args: Parameters<typeof realAuth.isTeamPremiumSubscriber>) =>
     activeProfilesOverride
       ? false
@@ -174,6 +199,9 @@ beforeEach(() => {
   activeCacheScopeOverride = null
   activeSettingsOverride = null
   activeOllamaOverride = null
+  activeApiProviderOverride = null
+  activeNvidiaOverride = null
+  activeSubscriberOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   resetModelStringsForTestingOnly()
 })
@@ -185,6 +213,9 @@ afterEach(() => {
   activeCacheScopeOverride = null
   activeSettingsOverride = null
   activeOllamaOverride = null
+  activeApiProviderOverride = null
+  activeNvidiaOverride = null
+  activeSubscriberOverride = null
   resetSettingsCache()
   resetModelStringsForTestingOnly()
 })
@@ -567,4 +598,132 @@ test('getModelOptions: allowlist filters cross-profile options by the decoded ta
       process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
     }
   }
+})
+
+// Shared fixtures for the "other provider branches also append inactive
+// profiles" cases (#1164 [P2]). Each branch previously returned before the
+// inactive-profile options were appended, dropping the cross-profile switcher.
+function activeAndInactivePair() {
+  const active = buildProviderProfileFixture({
+    id: 'profile_active',
+    name: 'Active',
+    model: 'active-model',
+  })
+  const inactive = buildProviderProfileFixture({
+    id: 'profile_remote',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.1',
+  })
+  return { active, inactive }
+}
+
+async function withProfileEnvApplied(run: () => Promise<void>) {
+  const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  try {
+    await run()
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
+    }
+  }
+}
+
+test('getModelOptionsBase: GitHub Copilot branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeApiProviderOverride = 'github'
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    const switchOptions = getModelOptions(false).filter(
+      o => o.switchToProfileId !== undefined,
+    )
+    expect(switchOptions.map(o => o.switchToProfileId)).toContain(
+      'profile_remote',
+    )
+  })
+})
+
+test('getModelOptionsBase: NVIDIA NIM catalog branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeNvidiaOverride = {
+    cachedModels: [
+      { value: 'nvidia/model', label: 'nvidia/model', description: 'NVIDIA' },
+    ],
+  }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    const options = getModelOptions(false)
+    // Catalog model still present, and the inactive switcher restored.
+    expect(options.some(o => o.value === 'nvidia/model')).toBe(true)
+    expect(
+      options
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: Claude subscriber branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeSubscriberOverride = {} // Pro/standard tier
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      getModelOptions(false)
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptions: allowlist checks a non-switch custom id verbatim, not decoded', async () => {
+  // Regression for #1164 [P2]: filterModelOptionsByAllowlist must only decode
+  // genuine switch options (identified by `switchToProfileId`), not any string
+  // that happens to start with `__switch_profile__:`. A custom model id with
+  // that literal prefix but no marker must be checked as-is — decoding it would
+  // evaluate the allowlist against the wrong (inner) model and wrongly drop it.
+  const literal = '__switch_profile__:sneaky:real-model'
+  const active = buildProviderProfileFixture({
+    id: 'profile_active',
+    name: 'Active',
+    model: literal,
+  })
+  // Allow the literal id (verbatim). Its decoded inner model `real-model` is NOT
+  // listed, so the old prefix-based decode would have dropped it.
+  activeSettingsOverride = { availableModels: [literal] } as SettingsJson
+
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active],
+      getActiveProviderProfile: () => active,
+      // Active profile's own model options are appended WITHOUT a
+      // switchToProfileId marker, so this exercises the non-switch path.
+      getProfileModelOptions: () => [
+        { value: literal, label: 'Sneaky', description: 'custom' },
+      ],
+    })
+    const values = getModelOptions(false).map(o => o.value)
+    expect(values).toContain(literal)
+  })
 })

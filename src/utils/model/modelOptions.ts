@@ -495,7 +495,11 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     : []
 
   if (getAPIProvider() === 'github') {
-    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...getCopilotModelOptions(),
+      ...inactiveProfileOptions,
+    ]
   }
 
   // When using Ollama, show models from the Ollama server instead of Claude models
@@ -526,9 +530,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const nvidiaModels = getCachedNvidiaNimModelOptions()
     if (nvidiaModels.length > 0) {
-      return [defaultOption, ...nvidiaModels]
+      return [defaultOption, ...nvidiaModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using MiniMax, show models from the MiniMax catalog
@@ -536,9 +540,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const minimaxModels = getCachedMiniMaxModelOptions()
     if (minimaxModels.length > 0) {
-      return [defaultOption, ...minimaxModels]
+      return [defaultOption, ...minimaxModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using Xiaomi MiMo, show models from the MiMo catalog
@@ -546,9 +550,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const xiaomiMimoModels = getCachedXiaomiMimoModelOptions()
     if (xiaomiMimoModels.length > 0) {
-      return [defaultOption, ...xiaomiMimoModels]
+      return [defaultOption, ...xiaomiMimoModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   if (process.env.USER_TYPE === 'ant') {
@@ -566,6 +570,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       getSonnet46Option(),
       getSonnet46_1MOption(),
       getHaiku45Option(),
+      ...inactiveProfileOptions,
     ]
   }
 
@@ -583,6 +588,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       }
 
       premiumOptions.push(MaxHaiku45Option)
+      premiumOptions.push(...inactiveProfileOptions)
       return premiumOptions
     }
 
@@ -602,6 +608,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
 
     standardOptions.push(MaxHaiku45Option)
+    standardOptions.push(...inactiveProfileOptions)
     return standardOptions
   }
 
@@ -1031,9 +1038,14 @@ function filterModelOptionsByAllowlist(options: ModelOption[]): ModelOption[] {
         // Cross-profile options carry an encoded
         // `__switch_profile__:<id>:<model>` value; evaluate the allowlist
         // against the decoded target model so an allowed model is not dropped
-        // just because of the switch wrapper.
+        // just because of the switch wrapper. Only decode genuine switch
+        // options — identified by the `switchToProfileId` marker, not the raw
+        // string prefix — so a normal custom model id that happens to start with
+        // `__switch_profile__:` is checked verbatim rather than mis-parsed.
         const effectiveModel =
-          parseSwitchProfileValue(opt.value)?.model ?? opt.value
+          opt.switchToProfileId !== undefined
+            ? parseSwitchProfileValue(opt.value)?.model ?? opt.value
+            : opt.value
         return isModelAllowed(effectiveModel)
       })
 
