@@ -768,18 +768,30 @@ export function parseUserSpecifiedModel(
     ? normalizedModel.replace(/\[1m]$/i, '').trim()
     : normalizedModel
 
+  // Re-apply the [1m] tag policy to a resolved model. The resolved value may
+  // itself carry a [1m] suffix — e.g. a custom default override like
+  // ANTHROPIC_DEFAULT_SONNET_MODEL=Deploy[1m] baked into getDefaultSonnetModel().
+  // Strip whatever tag is present, then re-attach [1m] only when a tag was
+  // requested (on the user input OR the resolved default) AND 1M context is
+  // enabled. This guarantees CLAUDE_CODE_DISABLE_1M_CONTEXT drops the tag no
+  // matter where it came from, while still honoring an env default's opt-in.
+  const applyOneMTag = (resolved: ModelName): ModelName => {
+    const base = resolved.replace(/\[1m]$/i, '').trim()
+    return has1mTag || has1mContext(resolved) ? base + '[1m]' : base
+  }
+
   if (isModelAlias(modelString)) {
     switch (modelString) {
       case 'opusplan':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '') // Sonnet is default, Opus in plan mode
+        return applyOneMTag(getDefaultSonnetModel()) // Sonnet is default, Opus in plan mode
       case 'sonnet':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultSonnetModel())
       case 'haiku':
-        return getDefaultHaikuModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultHaikuModel())
       case 'opus':
-        return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultOpusModel())
       case 'best':
-        return getBestModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getBestModel())
       default:
     }
   }
@@ -806,7 +818,7 @@ export function parseUserSpecifiedModel(
     isLegacyOpusFirstParty(modelString) &&
     isLegacyModelRemapEnabled()
   ) {
-    return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+    return applyOneMTag(getDefaultOpusModel())
   }
 
   if (process.env.USER_TYPE === 'ant') {

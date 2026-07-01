@@ -70,4 +70,56 @@ describe('parseUserSpecifiedModel — [1m] tag when 1M context is enabled', () =
       'my-custom-deploy[1m]',
     )
   })
+
+  // Mixed-case custom deployment ids keep their casing; only the [1m]/[1M] tag
+  // is normalized/reattached.
+  test('mixed-case custom id preserves casing, tag normalized to [1m]', () => {
+    expect(parseUserSpecifiedModel('MyCustomDeploy[1M]')).toBe(
+      'MyCustomDeploy[1m]',
+    )
+    expect(parseUserSpecifiedModel('MyCustomDeploy[1m]')).toBe(
+      'MyCustomDeploy[1m]',
+    )
+  })
+})
+
+// Custom default-model env overrides (ANTHROPIC_DEFAULT_SONNET_MODEL etc.) can
+// bake a [1m] suffix into the resolved alias target. The disabled-1M path must
+// strip that too, and the enabled path must honor it without duplicating it.
+describe('parseUserSpecifiedModel — [1m] on custom default env overrides', () => {
+  const KEYS = [
+    'CLAUDE_CODE_DISABLE_1M_CONTEXT',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  ] as const
+  const saved: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k]
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'MySonnetDeploy[1m]'
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'MyOpusDeploy[1M]'
+  })
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  test('disabled: alias drops the baked [1m] from the resolved default', () => {
+    process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = '1'
+    // Casing of the custom deployment id is preserved; only the tag is dropped.
+    expect(parseUserSpecifiedModel('sonnet[1m]')).toBe('MySonnetDeploy')
+    expect(parseUserSpecifiedModel('sonnet')).toBe('MySonnetDeploy')
+    expect(parseUserSpecifiedModel('opus[1M]')).toBe('MyOpusDeploy')
+  })
+
+  test('enabled: baked [1m] honored and never duplicated', () => {
+    delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+    // Bare alias honors the env default's opt-in; tag normalized to [1m].
+    expect(parseUserSpecifiedModel('sonnet')).toBe('MySonnetDeploy[1m]')
+    // Tagged alias does not double the suffix.
+    expect(parseUserSpecifiedModel('sonnet[1m]')).toBe('MySonnetDeploy[1m]')
+    expect(parseUserSpecifiedModel('opus')).toBe('MyOpusDeploy[1m]')
+  })
 })
