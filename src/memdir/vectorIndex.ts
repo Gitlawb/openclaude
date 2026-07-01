@@ -3,6 +3,7 @@
  * Provides semantic search across the auto-memory directory.
  */
 
+import { createHash } from 'crypto'
 import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { join, relative } from 'path'
 import { create, insert, search } from '@orama/orama'
@@ -32,10 +33,11 @@ export function getIndexMetaPath(memoryDir: string): string {
   return join(memoryDir, INDEX_META_FILENAME)
 }
 
-function getMdStats(memoryDir: string): { count: number; totalSize: number; latestMtime: number } {
+function getMdStats(memoryDir: string): { count: number; totalSize: number; latestMtime: number; contentHash: string } {
   let count = 0
   let totalSize = 0
   let latestMtime = 0
+  const hash = createHash('sha256')
   function walk(dir: string, depth: number) {
     if (depth > 4) return
     let entries: string[]
@@ -59,12 +61,19 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
       } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
         count++
         totalSize += stat.size
+        hash.update(`${fullPath}:${stat.size}:${stat.mtimeMs}\0`)
+        try {
+          const content = readFileSync(fullPath, 'utf-8')
+          hash.update(content)
+        } catch {
+          // skip unreadable
+        }
         if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs
       }
     }
   }
   walk(memoryDir, 0)
-  return { count, totalSize, latestMtime }
+  return { count, totalSize, latestMtime, contentHash: hash.digest('hex') }
 }
 
 async function scanMdFiles(
@@ -127,13 +136,15 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
     const stats = getMdStats(memoryDir)
     let storedFileCount = -1
     let storedTotalSize = -1
+    let storedContentHash = ''
     try {
       const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
       storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
       storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
+      storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
     } catch { /* missing or corrupt meta — rebuild */ }
 
-    if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize) {
+    if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.contentHash === storedContentHash) {
       try {
         const data = readFileSync(indexPath)
         indexDb = await restore('binary', data)
@@ -195,12 +206,14 @@ export async function searchMemdirIndex(
       const stats = getMdStats(memoryDir)
       let storedFileCount = -1
       let storedTotalSize = -1
+      let storedContentHash = ''
       try {
         const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
         storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
         storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
+        storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
       } catch { /* ignore */ }
-      if (stats.latestMtime > indexMtime || stats.count !== storedFileCount || stats.totalSize !== storedTotalSize) {
+      if (stats.latestMtime > indexMtime || stats.count !== storedFileCount || stats.totalSize !== storedTotalSize || stats.contentHash !== storedContentHash) {
         await initMemdirIndex(memoryDir)
       }
     }
@@ -235,7 +248,7 @@ export async function saveIndex(memoryDir: string): Promise<void> {
     const data = await persist(indexDb, 'binary')
     writeFileSync(indexPath, data as Buffer)
     const stats = getMdStats(memoryDir)
-    const meta = { fileCount: stats.count, totalSize: stats.totalSize }
+    const meta = { fileCount: stats.count, totalSize: stats.totalSize, contentHash: stats.contentHash }
     writeFileSync(metaPath, JSON.stringify(meta), 'utf-8')
   } catch {
     // persist failed — non-fatal
