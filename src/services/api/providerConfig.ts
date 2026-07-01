@@ -340,7 +340,9 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   const queryIndex = trimmed.indexOf('?')
   if (queryIndex === -1) {
     const alias = trimmed.toLowerCase() as CodexAlias
-    const aliasConfig = CODEX_ALIAS_MODELS[alias]
+    const aliasConfig = Object.hasOwn(CODEX_ALIAS_MODELS, alias)
+      ? CODEX_ALIAS_MODELS[alias]
+      : undefined
     if (aliasConfig) {
       return {
         raw: trimmed,
@@ -359,7 +361,9 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   const baseModel = trimmed.slice(0, queryIndex).trim()
   const params = new URLSearchParams(trimmed.slice(queryIndex + 1))
   const alias = baseModel.toLowerCase() as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
+  const aliasConfig = Object.hasOwn(CODEX_ALIAS_MODELS, alias)
+    ? CODEX_ALIAS_MODELS[alias]
+    : undefined
   const resolvedBaseModel = aliasConfig?.model ?? baseModel
   const reasoning =
     parseReasoningEffort(params.get('reasoning') ?? undefined) ??
@@ -379,7 +383,7 @@ function parseModelDescriptor(model: string): ModelDescriptor {
 export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
-  return base in CODEX_ALIAS_MODELS
+  return Object.hasOwn(CODEX_ALIAS_MODELS, base)
 }
 
 function isOpenAICodexShortcutAlias(model: string): boolean {
