@@ -231,6 +231,18 @@ describe('applyProviderFlag - cloudflare', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
+  test('does NOT mirror the token onto a general Cloudflare REST path on the same host', () => {
+    // api.cloudflare.com also serves the general Cloudflare REST API. A
+    // non-Workers-AI path (e.g. token verification) must NOT inherit Workers-AI
+    // credential mirroring just because it shares the host.
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL =
+      'https://api.cloudflare.com/client/v4/user/tokens/verify'
+    delete process.env.OPENAI_API_KEY
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
   test('clears a stale OPENAI_API_KEY when no CLOUDFLARE_API_TOKEN is set', () => {
     delete process.env.CLOUDFLARE_API_TOKEN
     delete process.env.OPENAI_BASE_URL

@@ -36,6 +36,27 @@ test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway'
     false,
   )
   expect(isCloudflareBaseUrl(undefined)).toBe(false)
+  // Same host, but a general Cloudflare REST path — NOT Workers AI. Must not
+  // match, or it would inherit Workers-AI routing + CLOUDFLARE_API_TOKEN
+  // mirroring for an unrelated Cloudflare API call.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/user/tokens/verify',
+    ),
+  ).toBe(false)
+  expect(isCloudflareBaseUrl('https://api.cloudflare.com/')).toBe(false)
+  // The descriptor's unresolved <ACCOUNT_ID> placeholder is not a real endpoint.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1',
+    ),
+  ).toBe(false)
+  // A resolved account id with the OpenAI-compatible suffix still matches.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1/chat/completions',
+    ),
+  ).toBe(true)
 })
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
@@ -227,6 +248,12 @@ test('Cloudflare Workers AI route only matches api.cloudflare.com, not the share
   expect(
     resolveRouteIdFromBaseUrl(
       'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/openai',
+    ),
+  ).toBe(null)
+  // Same-host general REST path is not the Workers AI route.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://api.cloudflare.com/client/v4/user/tokens/verify',
     ),
   ).toBe(null)
 })

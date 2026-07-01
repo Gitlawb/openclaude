@@ -379,11 +379,22 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
 }
 
 /**
- * Checks whether the given URL value targets the Cloudflare Workers AI API by
- * matching the hostname against `api.cloudflare.com`. The shared AI Gateway host
- * (`gateway.ai.cloudflare.com`) is intentionally excluded — it proxies arbitrary
- * upstream providers (OpenAI, Anthropic, …), so a profile pointed there is not
- * necessarily a Workers AI / Cloudflare-credentialed profile.
+ * Checks whether the given URL value targets the Cloudflare Workers AI
+ * OpenAI-compatible API, i.e. `api.cloudflare.com` **and** the Workers AI path
+ * `/client/v4/accounts/<account_id>/ai/v1`.
+ *
+ * The host alone is not sufficient: `api.cloudflare.com` also serves the general
+ * Cloudflare REST API (e.g. `/client/v4/user/tokens/verify`), which is not a
+ * Workers AI endpoint. Route detection and CLOUDFLARE_API_TOKEN mirroring both
+ * key on this predicate, so matching the whole host would route unrelated
+ * Cloudflare API calls through the `cloudflare` provider and leak the token into
+ * `OPENAI_API_KEY` for them.
+ *
+ * The account id must be a real value — the descriptor's literal `<ACCOUNT_ID>`
+ * placeholder (or any `<…>` placeholder) does not count, since a URL still
+ * carrying it cannot serve a request. The shared AI Gateway host
+ * (`gateway.ai.cloudflare.com`) is also excluded — it proxies arbitrary upstream
+ * providers, so a profile pointed there is not necessarily Cloudflare-credentialed.
  */
 export function isCloudflareBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
@@ -391,11 +402,28 @@ export function isCloudflareBaseUrl(value: string | undefined): boolean {
     return false
   }
 
+  let url: URL
   try {
-    return new URL(trimmed).hostname.toLowerCase() === 'api.cloudflare.com'
+    url = new URL(trimmed)
   } catch {
     return false
   }
+  if (url.hostname.toLowerCase() !== 'api.cloudflare.com') {
+    return false
+  }
+  const match = url.pathname.match(
+    /^\/client\/v4\/accounts\/([^/]+)\/ai\/v1(?:\/|$)/,
+  )
+  if (!match) {
+    return false
+  }
+  let accountId: string
+  try {
+    accountId = decodeURIComponent(match[1] ?? '')
+  } catch {
+    accountId = match[1] ?? ''
+  }
+  return accountId.length > 0 && !/[<>]/.test(accountId)
 }
 
 export function getClinePassBaseUrlOverride(
@@ -895,6 +923,13 @@ export function resolveRouteIdFromBaseUrl(
   if (normalizedHost) {
     for (const route of routes) {
       if (matchHostnameAgainstRouteHosts(normalizedHost, getValidationRoutingHosts(route))) {
+        // api.cloudflare.com also serves the general Cloudflare REST API, so a
+        // bare hostname match isn't enough for the Workers AI route — require
+        // the Workers AI path (/client/v4/accounts/<id>/ai/v1). Otherwise an
+        // unrelated Cloudflare API URL would inherit Workers-AI routing.
+        if (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) {
+          continue
+        }
         return route.id
       }
     }
