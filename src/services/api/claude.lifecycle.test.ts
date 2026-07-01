@@ -55,6 +55,7 @@ let fixturesRoot: string | undefined
 
 type FetchOverride = NonNullable<Options['fetchOverride']>
 type LifecycleSnapshot = ReturnType<QueryLifecycleOperationTracker['snapshot']>
+const TEST_STREAM_IDLE_TIMEOUT_MS = 25
 const STREAM_IDLE_RECOVERY_ASSERTION_MS = 1_000
 const STALLING_STREAM_CLEANUP_MS = 2_000
 
@@ -552,7 +553,7 @@ describe('Claude API lifecycle tracking', () => {
   test('stream idle timeout respects disabled non-streaming fallback guard', async () => {
     setClientTestEnv()
     process.env.OPENCLAUDE_MAX_RETRIES = '0'
-    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
+    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = String(TEST_STREAM_IDLE_TIMEOUT_MS)
     process.env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = '1'
     const queryLifecycle = new QueryLifecycleOperationTracker()
     const parent = new AbortController()
@@ -605,7 +606,7 @@ describe('Claude API lifecycle tracking', () => {
 
     await drain
     expect(Date.now() - startedAt).toBeLessThan(
-      STREAM_IDLE_RECOVERY_ASSERTION_MS,
+      TEST_STREAM_IDLE_TIMEOUT_MS + STREAM_IDLE_RECOVERY_ASSERTION_MS,
     )
 
     expect(drainError).toBeUndefined()
