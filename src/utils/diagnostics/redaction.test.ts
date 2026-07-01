@@ -423,6 +423,36 @@ describe("redactSensitiveInfo", () => {
     expect(redacted.nested.message).toMatch(/\[REDACTED_TOKEN\]/);
   });
 
+  // P2: jsonRedactor must not exempt non-numeric values under token keys.
+  // A string or array under { tokens: [...] } could be a credential container.
+  test("redacts non-numeric tokens array via jsonRedactor", () => {
+    const redacted = JSON.parse(
+      JSON.stringify({ tokens: ["opaque-secret-value"] }, jsonRedactor),
+    ) as Record<string, unknown>;
+    expect(redacted.tokens).toMatch(/\[REDACTED\]/);
+  });
+
+  test("redacts non-numeric tokens object via jsonRedactor", () => {
+    const redacted = JSON.parse(
+      JSON.stringify({ tokens: { secret: "opaque-value" } }, jsonRedactor),
+    ) as Record<string, unknown>;
+    expect(redacted.tokens).toMatch(/\[REDACTED\]/);
+  });
+
+  test("preserves numeric tokens count via jsonRedactor", () => {
+    const redacted = JSON.parse(
+      JSON.stringify({ tokens: 100 }, jsonRedactor),
+    ) as Record<string, unknown>;
+    expect(redacted.tokens).toBe(100);
+  });
+
+  test("preserves numeric input_tokens count via jsonRedactor", () => {
+    const redacted = JSON.parse(
+      JSON.stringify({ input_tokens: 50 }, jsonRedactor),
+    ) as Record<string, unknown>;
+    expect(redacted.input_tokens).toBe(50);
+  });
+
   // P2: known provider env-var values must be redacted — the bare Bearer
   // pattern catches "Bearer secret-value" in the value portion, while the
   // env-var pattern (which stops at the first space) independently matches
@@ -632,6 +662,22 @@ describe("redactSensitiveInfo", () => {
       "https://example.com/v1?set-cookie=secret&mode=test",
     );
     expect(result).toBe("https://example.com/v1?set-cookie=redacted&mode=test");
+  });
+
+  // P2: semicolon-delimited cookie in URL query must not be consumed by
+  // the header-style COOKIE_PATTERN, dropping safe trailing params.
+  test("preserves semicolon-delimited safe params after cookie in URL query", () => {
+    const result = redactSensitiveInfo(
+      "https://example.com/v1?foo=bar;cookie=secret;mode=test",
+    );
+    expect(result).toBe("https://example.com/v1?foo=bar;cookie=redacted;mode=test");
+  });
+
+  test("preserves semicolon-delimited safe params after set-cookie in URL query", () => {
+    const result = redactSensitiveInfo(
+      "https://example.com/v1?foo=bar;set-cookie=secret;mode=test",
+    );
+    expect(result).toBe("https://example.com/v1?foo=bar;set-cookie=redacted;mode=test");
   });
 
   // Regression: header-style cookie values should still be fully redacted.

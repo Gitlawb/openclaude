@@ -116,7 +116,7 @@ const GENERIC_HEADER_FIELD_PATTERN =
 // redactSensitiveInfo so the generic pattern below (which stops at `;`) never
 // sees partial cookie values.
 const COOKIE_PATTERN =
-  /(?<![?&])(["']?(?:cookie|set[-_]?cookie)["']?\s*[:=]\s*["']?)[^"'\n&]+/gi;
+  /(?<![?&;])(["']?(?:set[-_]?cookie|(?<!set[-_])cookie)["']?\s*[:=]\s*["']?)[^"'\n&]+/gi;
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -318,7 +318,10 @@ export function redactSensitiveInfo(text: string): string {
 export function jsonRedactor(key: string, value: unknown): unknown {
   const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
 
-  // Allow token usage fields through — they contain "token" but are not secrets
+  // Allow token usage fields through — they contain "token" but are not
+  // secrets. Non-numeric values under these keys could be credential
+  // containers (e.g. tokens: ["opaque-secret"]) so only numbers pass through;
+  // string/array/object values are collapsed to "[REDACTED]".
   const EXCLUDED_KEYS = [
     "inputtokens",
     "outputtokens",
@@ -333,7 +336,8 @@ export function jsonRedactor(key: string, value: unknown): unknown {
     "completiontokens",
   ];
   if (EXCLUDED_KEYS.includes(normalizedKey)) {
-    return value;
+    if (typeof value === "number") return value;
+    return "[REDACTED]";
   }
 
   // Exact-match for auth-style keys to avoid false positives (e.g. "author").
