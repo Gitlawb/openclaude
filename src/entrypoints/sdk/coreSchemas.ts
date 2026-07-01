@@ -1141,12 +1141,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .array(z.string())
         .optional()
         .describe(
-          'Array of allowed tool names. If omitted, inherits all tools from parent',
+          'Array of allowed tool names. If omitted or set to ["*"], inherits all tools from parent before disallowedTools is applied',
         ),
       disallowedTools: z
         .array(z.string())
         .optional()
-        .describe('Array of tool names to explicitly disallow for this agent'),
+        .describe(
+          'Array of tool names to explicitly disallow for this agent. Deny entries always override tools entries',
+        ),
       prompt: z.string().describe("The agent's system prompt"),
       model: z
         .string()
@@ -1176,6 +1178,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .optional()
         .describe(
           'Maximum number of agentic turns (API round-trips) before stopping',
+        ),
+      maxSteps: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Maximum number of subagent tool-use steps before forcing a concise final summary',
         ),
       background: z
         .boolean()

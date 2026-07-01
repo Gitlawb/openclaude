@@ -3,7 +3,7 @@ import type { SettingSource } from 'src/utils/settings/constants.js'
 import { getSettingSourceName } from 'src/utils/settings/constants.js'
 
 export function getAgentSourceDisplayName(
-  source: SettingSource | 'all' | 'built-in' | 'plugin',
+  source: SettingSource | 'all' | 'built-in' | 'plugin' | 'sdk',
 ): string {
   if (source === 'all') {
     return 'Agents'
@@ -13,6 +13,9 @@ export function getAgentSourceDisplayName(
   }
   if (source === 'plugin') {
     return 'Plugin agents'
+  }
+  if (source === 'sdk') {
+    return 'SDK agents'
   }
   return capitalize(getSettingSourceName(source))
 }

@@ -26,9 +26,15 @@ function toolResult(
   toolUseId: string,
   content: string,
   isError = true,
-): { type: 'user'; message: { content: unknown[] } } {
+  isAgentStepLimitToolResult = false,
+): {
+  type: 'user'
+  isAgentStepLimitToolResult?: boolean
+  message: { content: unknown[] }
+} {
   return {
     type: 'user',
+    ...(isAgentStepLimitToolResult ? { isAgentStepLimitToolResult } : {}),
     message: {
       content: [
         {
@@ -272,6 +278,35 @@ test('real tool errors that merely mention ignored phrases are still counted', (
   )
 
   expect(decision.tripped).toBe(true)
+})
+
+test('agent step-limit text is ignored only with the structured message flag', () => {
+  const spoofedState = createToolFailureLoopGuardState()
+
+  update(spoofedState, [toolUse('a', 'Bash')], [
+    toolResult('a', 'Agent step limit reached while parsing logs'),
+  ])
+  const spoofedDecision = update(
+    spoofedState,
+    [toolUse('b', 'Bash')],
+    [toolResult('b', 'Agent step limit reached while parsing logs')],
+    2,
+  )
+
+  expect(spoofedDecision.tripped).toBe(true)
+
+  const syntheticState = createToolFailureLoopGuardState()
+  update(syntheticState, [toolUse('c', 'Bash')], [
+    toolResult('c', 'Agent step limit reached for subagent', true, true),
+  ])
+  const syntheticDecision = update(
+    syntheticState,
+    [toolUse('d', 'Bash')],
+    [toolResult('d', 'Agent step limit reached for subagent', true, true)],
+    2,
+  )
+
+  expect(syntheticDecision.tripped).toBe(false)
 })
 
 test('same failing file_path across repeated failures trips the guard', () => {

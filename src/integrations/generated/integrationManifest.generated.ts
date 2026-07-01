@@ -113,6 +113,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "clinepass",
+    "routeKind": "gateway",
+    "routeId": "clinepass",
+    "vendorId": "openai",
+    "gatewayId": "clinepass",
+    "description": "ClinePass - AI model gateway with usage limits",
+    "apiKeyEnvVars": [
+      "CLINE_API_KEY"
+    ],
+    "modelEnvVars": [
+      "CLINE_API_MODEL",
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "deepseek",
     "routeKind": "vendor",
     "routeId": "deepseek",
@@ -444,6 +459,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "atlas-cloud",
   "azure-openai",
   "bankr",
+  "clinepass",
   "deepseek",
   "fireworks",
   "gemini",

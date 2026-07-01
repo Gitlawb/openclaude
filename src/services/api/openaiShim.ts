@@ -93,6 +93,7 @@ import {
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
   normalizeToolArguments,
   hasToolFieldMapping,
@@ -138,10 +139,44 @@ class StreamIdleTimeoutError extends Error {
   }
 }
 
-type StreamReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>
-
 function createStreamAbortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
+}
+
+function throwIfStreamAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createStreamAbortError()
+  }
+}
+
+type StreamReadResult = Awaited<
+  ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>
+>
+
+function createReaderCanceller(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): {
+    cancel: (error?: unknown) => void
+    cleanup: () => void
+  } {
+  let cancelled = false
+  const cancel = (error: unknown = createStreamAbortError()) => {
+    if (cancelled) return
+    cancelled = true
+    void reader.cancel(error).catch(() => {})
+  }
+  const onAbort = () => cancel(createStreamAbortError())
+
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) {
+    onAbort()
+  }
+
+  return {
+    cancel,
+    cleanup: () => signal?.removeEventListener('abort', onAbort),
+  }
 }
 
 export function getStreamIdleTimeoutMs(): number {
@@ -156,21 +191,23 @@ export function getStreamIdleTimeoutMs(): number {
 async function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number,
-  options: { signal?: AbortSignal; onTimeout?: () => void } = {},
+  options: {
+    signal?: AbortSignal
+    cancelReader?: (error?: unknown) => void
+    onTimeout?: () => void
+  } = {},
 ): Promise<StreamReadResult> {
   const signal = options.signal
   let timeoutId: ReturnType<typeof setTimeout> | undefined
-  let settled = false
 
-  return await new Promise<StreamReadResult>((resolve, reject) => {
+  return new Promise<StreamReadResult>((resolve, reject) => {
+    let settled = false
     const cleanup = () => {
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId)
         timeoutId = undefined
       }
-      if (signal) {
-        signal.removeEventListener('abort', onAbort)
-      }
+      signal?.removeEventListener('abort', onAbort)
     }
     const finishResolve = (value: StreamReadResult) => {
       if (settled) return
@@ -185,13 +222,14 @@ async function readWithIdleTimeout(
       reject(error)
     }
     const cancelAndReject = (error: unknown) => {
-      if (settled) return
-      void reader.cancel(error).catch(() => {})
+      if (options.cancelReader) {
+        options.cancelReader(error)
+      } else {
+        void reader.cancel(error).catch(() => {})
+      }
       finishReject(error)
     }
-    const onAbort = () => {
-      cancelAndReject(createStreamAbortError())
-    }
+    const onAbort = () => cancelAndReject(createStreamAbortError())
 
     signal?.addEventListener('abort', onAbort, { once: true })
     if (signal?.aborted) {
@@ -209,10 +247,7 @@ async function readWithIdleTimeout(
       cancelAndReject(error)
     }, timeoutMs)
 
-    reader.read().then(
-      result => finishResolve(result),
-      error => finishReject(error),
-    )
+    reader.read().then(finishResolve, finishReject)
   })
 }
 
@@ -1853,15 +1888,18 @@ async function* anthropicSsePassthrough(
   const readerOrNull = response.body?.getReader()
   if (!readerOrNull) throw new Error('Response body is not readable')
   const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
+  const readerCanceller = createReaderCanceller(reader, signal)
   const decoder = new TextDecoder()
   let buffer = ''
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
   let lastDataTime = Date.now()
+  let streamComplete = false
 
   try {
     while (true) {
       const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
         signal,
+        cancelReader: readerCanceller.cancel,
         onTimeout: () => {
           const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
           logForDebugging(
@@ -1870,14 +1908,19 @@ async function* anthropicSsePassthrough(
           )
         },
       })
-      if (done) break
+      if (done) {
+        streamComplete = true
+        break
+      }
       if (value) lastDataTime = Date.now()
 
+      throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
       const chunks = buffer.split('\n\n')
       buffer = chunks.pop() ?? ''
 
       for (const chunk of chunks) {
+        throwIfStreamAborted(signal)
         const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
         if (lines.length === 0) continue
 
@@ -1885,19 +1928,29 @@ async function* anthropicSsePassthrough(
         if (dataLines.length === 0) continue
 
         const rawData = dataLines.map(l => l.slice(6)).join('\n')
-        if (rawData === '[DONE]') return
+        if (rawData === '[DONE]') {
+          streamComplete = true
+          return
+        }
 
+        let parsed: AnthropicStreamEvent
         try {
-          const parsed = JSON.parse(rawData) as AnthropicStreamEvent
-          if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-            yield parsed
-          }
+          parsed = JSON.parse(rawData) as AnthropicStreamEvent
         } catch {
           // skip malformed frames
+          continue
+        }
+        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+          throwIfStreamAborted(signal)
+          yield parsed
         }
       }
     }
   } finally {
+    if (!streamComplete || signal?.aborted) {
+      readerCanceller.cancel(createStreamAbortError())
+    }
+    readerCanceller.cleanup()
     reader.releaseLock()
   }
 }
@@ -1913,6 +1966,7 @@ async function* geminiSseToAnthropic(
 ): AsyncGenerator<AnthropicStreamEvent> {
   const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader()
   if (!reader) throw new Error('Response body is not readable')
+  const readerCanceller = createReaderCanceller(reader, signal)
   const decoder = new TextDecoder()
   let buffer = ''
   const messageId = makeMessageId()
@@ -1924,6 +1978,7 @@ async function* geminiSseToAnthropic(
   let finishReason: string | undefined
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
   let lastDataTime = Date.now()
+  let streamComplete = false
 
   function mapFinishReason(reason: string | undefined, hasToolUse: boolean): string {
     if (hasToolUse) return 'tool_use'
@@ -1935,6 +1990,7 @@ async function* geminiSseToAnthropic(
     while (true) {
       const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
         signal,
+        cancelReader: readerCanceller.cancel,
         onTimeout: () => {
           const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
           logForDebugging(
@@ -1943,14 +1999,19 @@ async function* geminiSseToAnthropic(
           )
         },
       })
-      if (done) break
+      if (done) {
+        streamComplete = true
+        break
+      }
       if (value) lastDataTime = Date.now()
 
+      throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
       const chunks = buffer.split('\n\n')
       buffer = chunks.pop() ?? ''
 
       for (const chunk of chunks) {
+        throwIfStreamAborted(signal)
         const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
         const dataLines = lines.filter(l => l.startsWith('data: '))
         if (dataLines.length === 0) continue
@@ -1958,14 +2019,18 @@ async function* geminiSseToAnthropic(
         const rawData = dataLines.map(l => l.slice(6)).join('\n')
         if (rawData === '[DONE]') {
           if (hasEmittedTextStart || hasEmittedCurrentTool) {
+            throwIfStreamAborted(signal)
             yield { type: 'content_block_stop', index: contentBlockIndex }
           }
+          throwIfStreamAborted(signal)
           yield {
             type: 'message_delta',
             delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
             usage: usage ?? {},
           }
+          throwIfStreamAborted(signal)
           yield { type: 'message_stop' }
+          streamComplete = true
           return
         }
 
@@ -1977,6 +2042,7 @@ async function* geminiSseToAnthropic(
         }
 
         if (!hasEmittedStart) {
+          throwIfStreamAborted(signal)
           yield {
             type: 'message_start',
             message: {
@@ -2013,16 +2079,19 @@ async function* geminiSseToAnthropic(
         if (!content || !content.parts) continue
 
         for (const part of content.parts) {
+          throwIfStreamAborted(signal)
           const text = part.text as string | undefined
           const fc = part.functionCall as { name?: string; args?: unknown } | undefined
 
           if (text) {
             if (hasEmittedCurrentTool) {
+              throwIfStreamAborted(signal)
               yield { type: 'content_block_stop', index: contentBlockIndex }
               contentBlockIndex++
               hasEmittedCurrentTool = false
             }
             if (!hasEmittedTextStart) {
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_start',
                 index: contentBlockIndex,
@@ -2030,6 +2099,7 @@ async function* geminiSseToAnthropic(
               }
               hasEmittedTextStart = true
             }
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
@@ -2037,11 +2107,13 @@ async function* geminiSseToAnthropic(
             }
           } else if (fc?.name) {
             if (hasEmittedTextStart) {
+              throwIfStreamAborted(signal)
               yield { type: 'content_block_stop', index: contentBlockIndex }
               contentBlockIndex++
               hasEmittedTextStart = false
             }
             const toolId = `toolu_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_start',
               index: contentBlockIndex,
@@ -2053,6 +2125,7 @@ async function* geminiSseToAnthropic(
               },
             }
             hasEmittedCurrentTool = true
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
@@ -2067,15 +2140,23 @@ async function* geminiSseToAnthropic(
     }
 
     if (hasEmittedTextStart || hasEmittedCurrentTool) {
+      throwIfStreamAborted(signal)
       yield { type: 'content_block_stop', index: contentBlockIndex }
     }
+    throwIfStreamAborted(signal)
     yield {
       type: 'message_delta',
       delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
       usage: usage ?? {},
     }
+    throwIfStreamAborted(signal)
     yield { type: 'message_stop' }
+    streamComplete = true
   } finally {
+    if (!streamComplete || signal?.aborted) {
+      readerCanceller.cancel(createStreamAbortError())
+    }
+    readerCanceller.cleanup()
     reader.releaseLock()
   }
 }
@@ -2122,40 +2203,23 @@ async function* openaiStreamToAnthropic(
   let xmlToolCallText: string | null = null
   let xmlHoldback = ''
 
-  // Emit message_start
-  yield {
-    type: 'message_start',
-    message: {
-      id: messageId,
-      type: 'message',
-      role: 'assistant',
-      content: [],
-      model,
-      stop_reason: null,
-      stop_sequence: null,
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    },
-  }
-
   const readerOrNull = response.body?.getReader()
   if (!readerOrNull) throw new Error('Response body is not readable')
   const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
+  const readerCanceller = createReaderCanceller(reader, signal)
 
   const decoder = new TextDecoder()
   let buffer = ''
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
   let lastDataTime = Date.now()
+  let streamComplete = false
 
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
 
     const tail = thinkFilter.flush()
     if (tail) {
+      throwIfStreamAborted(signal)
       yield {
         type: 'content_block_delta',
         index: contentBlockIndex,
@@ -2163,6 +2227,7 @@ async function* openaiStreamToAnthropic(
       }
     }
 
+    throwIfStreamAborted(signal)
     yield {
       type: 'content_block_stop',
       index: contentBlockIndex,
@@ -2174,6 +2239,7 @@ async function* openaiStreamToAnthropic(
   const emitTextDelta = async function* (text: string) {
     if (!text) return
     if (!hasEmittedContentStart) {
+      throwIfStreamAborted(signal)
       yield {
         type: 'content_block_start',
         index: contentBlockIndex,
@@ -2184,6 +2250,7 @@ async function* openaiStreamToAnthropic(
 
     const visible = thinkFilter.feed(text)
     if (visible) {
+      throwIfStreamAborted(signal)
       yield {
         type: 'content_block_delta',
         index: contentBlockIndex,
@@ -2197,6 +2264,7 @@ async function* openaiStreamToAnthropic(
     toolCalls: ParsedRawToolCall[],
   ) {
     if (hasEmittedThinkingStart && !hasClosedThinking) {
+      throwIfStreamAborted(signal)
       yield { type: 'content_block_stop', index: contentBlockIndex }
       contentBlockIndex++
       hasClosedThinking = true
@@ -2206,6 +2274,7 @@ async function* openaiStreamToAnthropic(
     }
 
     for (const toolCall of toolCalls) {
+      throwIfStreamAborted(signal)
       const toolBlockIndex = contentBlockIndex
       yield {
         type: 'content_block_start',
@@ -2218,6 +2287,7 @@ async function* openaiStreamToAnthropic(
         },
       }
       contentBlockIndex++
+      throwIfStreamAborted(signal)
       yield {
         type: 'content_block_delta',
         index: toolBlockIndex,
@@ -2226,15 +2296,39 @@ async function* openaiStreamToAnthropic(
           partial_json: toolCall.argumentsJson,
         },
       }
+      throwIfStreamAborted(signal)
       yield { type: 'content_block_stop', index: toolBlockIndex }
       processStreamChunk(streamState, toolCall.argumentsJson)
     }
   }
 
   try {
+    throwIfStreamAborted(signal)
+
+    // Emit message_start
+    yield {
+      type: 'message_start',
+      message: {
+        id: messageId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    }
+
     while (true) {
       const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
         signal,
+        cancelReader: readerCanceller.cancel,
         onTimeout: () => {
           const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
           logForDebugging(
@@ -2243,14 +2337,19 @@ async function* openaiStreamToAnthropic(
           )
         },
       })
-      if (done) break
+      if (done) {
+        streamComplete = true
+        break
+      }
       if (value) lastDataTime = Date.now()
 
+      throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
 
       for (const line of lines) {
+      throwIfStreamAborted(signal)
       const trimmed = line.trim()
       if (!trimmed || trimmed === 'data: [DONE]') continue
       if (!trimmed.startsWith('data: ')) continue
@@ -2291,6 +2390,7 @@ async function* openaiStreamToAnthropic(
       const chunkUsage = convertChunkUsage(chunk.usage)
 
       for (const choice of chunk.choices ?? []) {
+        throwIfStreamAborted(signal)
         const delta = choice.delta
 
         // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
@@ -2298,6 +2398,7 @@ async function* openaiStreamToAnthropic(
         // Emit reasoning as a thinking block and content as a text block.
         if (delta.reasoning_content != null && delta.reasoning_content !== '') {
           if (!hasEmittedThinkingStart) {
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_start',
               index: contentBlockIndex,
@@ -2305,6 +2406,7 @@ async function* openaiStreamToAnthropic(
             }
             hasEmittedThinkingStart = true
           }
+          throwIfStreamAborted(signal)
           yield {
             type: 'content_block_delta',
             index: contentBlockIndex,
@@ -2317,6 +2419,7 @@ async function* openaiStreamToAnthropic(
         if (delta.content != null && delta.content !== '') {
           // Close thinking block if transitioning from reasoning to content
           if (hasEmittedThinkingStart && !hasClosedThinking) {
+            throwIfStreamAborted(signal)
             yield { type: 'content_block_stop', index: contentBlockIndex }
             contentBlockIndex++
             hasClosedThinking = true
@@ -2396,6 +2499,7 @@ async function* openaiStreamToAnthropic(
             if (tc.id && tc.function?.name) {
               // New tool call starting — close any open thinking block first
               if (hasEmittedThinkingStart && !hasClosedThinking) {
+                throwIfStreamAborted(signal)
                 yield { type: 'content_block_stop', index: contentBlockIndex }
                 contentBlockIndex++
                 hasClosedThinking = true
@@ -2406,6 +2510,7 @@ async function* openaiStreamToAnthropic(
               // instead of emitting during the streaming phase).
               if (isOllamaStream && ollamaTextBuffer) {
                 if (!hasEmittedContentStart) {
+                  throwIfStreamAborted(signal)
                   yield {
                     type: 'content_block_start',
                     index: contentBlockIndex,
@@ -2413,6 +2518,7 @@ async function* openaiStreamToAnthropic(
                   }
                   hasEmittedContentStart = true
                 }
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: contentBlockIndex,
@@ -2444,6 +2550,7 @@ async function* openaiStreamToAnthropic(
                 normalizeAtStop,
               })
 
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_start',
                 index: toolBlockIndex,
@@ -2460,6 +2567,7 @@ async function* openaiStreamToAnthropic(
 
               // Emit any initial arguments
               if (tc.function.arguments && !normalizeAtStop) {
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
@@ -2481,6 +2589,7 @@ async function* openaiStreamToAnthropic(
                   continue
                 }
 
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: active.index,
@@ -2501,6 +2610,7 @@ async function* openaiStreamToAnthropic(
 
           // Close any open thinking block that wasn't closed by content transition
           if (hasEmittedThinkingStart && !hasClosedThinking) {
+            throwIfStreamAborted(signal)
             yield { type: 'content_block_stop', index: contentBlockIndex }
             contentBlockIndex++
             hasClosedThinking = true
@@ -2529,6 +2639,7 @@ async function* openaiStreamToAnthropic(
               if (hasEmittedContentStart) {
                 // Text block was already open — emit stripped prose then close it.
                 if (strippedVisible) {
+                  throwIfStreamAborted(signal)
                   yield {
                     type: 'content_block_delta',
                     index: contentBlockIndex,
@@ -2539,12 +2650,14 @@ async function* openaiStreamToAnthropic(
               } else if (strippedVisible) {
                 // Text was buffered (Ollama path, hasEmittedContentStart === false).
                 // Open a text block, emit the visible prose before the tool call, close it.
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_start',
                   index: contentBlockIndex,
                   content_block: { type: 'text', text: '' },
                 }
                 hasEmittedContentStart = true
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: contentBlockIndex,
@@ -2553,6 +2666,7 @@ async function* openaiStreamToAnthropic(
                 yield* closeActiveContentBlock()
               }
               for (const tc of textToolCalls) {
+                throwIfStreamAborted(signal)
                 const toolBlockIndex = contentBlockIndex
                 yield {
                   type: 'content_block_start',
@@ -2560,11 +2674,13 @@ async function* openaiStreamToAnthropic(
                   content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
                 }
                 contentBlockIndex++
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
                   delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
                 }
+                throwIfStreamAborted(signal)
                 yield { type: 'content_block_stop', index: toolBlockIndex }
               }
               // Only remap finish_reason to 'tool_calls' for the normal stop case;
@@ -2577,6 +2693,7 @@ async function* openaiStreamToAnthropic(
               // Open a text block first if one is not already open (guards the edge case
               // where hasEmittedContentStart is false but the buffer has content).
               if (!hasEmittedContentStart) {
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_start',
                   index: contentBlockIndex,
@@ -2584,6 +2701,7 @@ async function* openaiStreamToAnthropic(
                 }
                 hasEmittedContentStart = true
               }
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_delta',
                 index: contentBlockIndex,
@@ -2614,6 +2732,7 @@ async function* openaiStreamToAnthropic(
                 xmlClosedContentBlock = true
               }
               for (const tc of calls) {
+                throwIfStreamAborted(signal)
                 const toolBlockIndex = contentBlockIndex
                 yield {
                   type: 'content_block_start',
@@ -2621,11 +2740,13 @@ async function* openaiStreamToAnthropic(
                   content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
                 }
                 contentBlockIndex++
+                throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
                   delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
                 }
+                throwIfStreamAborted(signal)
                 yield { type: 'content_block_stop', index: toolBlockIndex }
               }
               if (originalFinishReason === 'stop') {
@@ -2681,6 +2802,7 @@ async function* openaiStreamToAnthropic(
                 }
               }
 
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_delta',
                 index: tc.index,
@@ -2689,6 +2811,7 @@ async function* openaiStreamToAnthropic(
                   partial_json: partialJson,
                 },
               }
+              throwIfStreamAborted(signal)
               yield { type: 'content_block_stop', index: tc.index }
               continue
             }
@@ -2710,6 +2833,7 @@ async function* openaiStreamToAnthropic(
             }
 
             if (suffixToAdd) {
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_delta',
                 index: tc.index,
@@ -2720,6 +2844,7 @@ async function* openaiStreamToAnthropic(
               }
             }
 
+            throwIfStreamAborted(signal)
             yield { type: 'content_block_stop', index: tc.index }
           }
 
@@ -2733,6 +2858,7 @@ async function* openaiStreamToAnthropic(
             // Gemini/Azure content safety filter blocked the response.
             // Emit a visible text block so the user knows why output was truncated.
             if (!hasEmittedContentStart) {
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_start',
                 index: contentBlockIndex,
@@ -2740,6 +2866,7 @@ async function* openaiStreamToAnthropic(
               }
               hasEmittedContentStart = true
             }
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
@@ -2751,6 +2878,7 @@ async function* openaiStreamToAnthropic(
             // detecting a stalled stream. Either way, the user should know
             // the answer they're seeing isn't complete.
             if (!hasEmittedContentStart) {
+              throwIfStreamAborted(signal)
               yield {
                 type: 'content_block_start',
                 index: contentBlockIndex,
@@ -2758,6 +2886,7 @@ async function* openaiStreamToAnthropic(
               }
               hasEmittedContentStart = true
             }
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
@@ -2766,6 +2895,7 @@ async function* openaiStreamToAnthropic(
           }
           lastStopReason = stopReason
 
+          throwIfStreamAborted(signal)
           yield {
             type: 'message_delta',
             delta: { stop_reason: stopReason, stop_sequence: null },
@@ -2783,6 +2913,7 @@ async function* openaiStreamToAnthropic(
         (chunk.choices?.length ?? 0) === 0 &&
         lastStopReason !== null
       ) {
+        throwIfStreamAborted(signal)
         yield {
           type: 'message_delta',
           delta: { stop_reason: lastStopReason, stop_sequence: null },
@@ -2793,6 +2924,10 @@ async function* openaiStreamToAnthropic(
     }
     }
   } finally {
+    if (!streamComplete || signal?.aborted) {
+      readerCanceller.cancel(createStreamAbortError())
+    }
+    readerCanceller.cleanup()
     reader.releaseLock()
   }
 
@@ -2810,6 +2945,7 @@ async function* openaiStreamToAnthropic(
     )
   }
 
+  throwIfStreamAborted(signal)
   yield { type: 'message_stop' }
 }
 
@@ -2818,16 +2954,84 @@ async function* openaiStreamToAnthropic(
 // ---------------------------------------------------------------------------
 
 class OpenAIShimStream {
-  private generator: AsyncGenerator<AnthropicStreamEvent>
+  private makeGenerator: (signal: AbortSignal) => AsyncGenerator<AnthropicStreamEvent>
+  private parentSignal?: AbortSignal
+  private generator?: AsyncGenerator<AnthropicStreamEvent>
+  private cleanupCombinedSignal?: () => void
+  private cleanupPreIterationAbort?: () => void
   // The controller property is checked by claude.ts to distinguish streams from error messages
   controller = new AbortController()
 
-  constructor(generator: AsyncGenerator<AnthropicStreamEvent>) {
-    this.generator = generator
+  constructor(
+    makeGenerator: (signal: AbortSignal) => AsyncGenerator<AnthropicStreamEvent>,
+    parentSignal?: AbortSignal,
+    cancelBeforeIteration?: () => void,
+  ) {
+    this.makeGenerator = makeGenerator
+    this.parentSignal = parentSignal
+
+    if (cancelBeforeIteration) {
+      let cleaned = false
+      let cancelled = false
+      let onAbort: () => void = () => {}
+      const cleanup = () => {
+        if (cleaned) return
+        cleaned = true
+        this.controller.signal.removeEventListener('abort', onAbort)
+        parentSignal?.removeEventListener('abort', onAbort)
+      }
+      onAbort = () => {
+        if (!this.generator && !cancelled) {
+          cancelled = true
+          cancelBeforeIteration()
+        }
+        cleanup()
+      }
+
+      this.controller.signal.addEventListener('abort', onAbort, { once: true })
+      parentSignal?.addEventListener('abort', onAbort, { once: true })
+      this.cleanupPreIterationAbort = cleanup
+
+      if (this.controller.signal.aborted || parentSignal?.aborted) {
+        onAbort()
+      }
+    }
+  }
+
+  private getGenerator(): AsyncGenerator<AnthropicStreamEvent> {
+    if (this.generator) {
+      return this.generator
+    }
+
+    this.cleanupPreIterationAbort?.()
+    this.cleanupPreIterationAbort = undefined
+
+    const combined = createCombinedAbortSignal(this.parentSignal, {
+      signalB: this.controller.signal,
+    })
+    this.cleanupCombinedSignal = combined.cleanup
+    this.generator = this.makeGenerator(combined.signal)
+    return this.generator
   }
 
   async *[Symbol.asyncIterator]() {
-    yield* this.generator
+    const generator = this.getGenerator()
+    let completed = false
+    try {
+      yield* generator
+      completed = true
+    } finally {
+      if (!completed && !this.controller.signal.aborted) {
+        this.controller.abort()
+      }
+      this.cleanupCombinedSignal?.()
+      this.cleanupCombinedSignal = undefined
+      this.cleanupPreIterationAbort?.()
+      this.cleanupPreIterationAbort = undefined
+      if (!completed) {
+        void generator.return?.(undefined).catch(() => {})
+      }
+    }
   }
 }
 
@@ -2877,18 +3081,24 @@ class OpenAIShimMessages {
         const isResponsesStream = response.url?.includes('/responses')
         const isMessagesStream = response.url?.includes('/messages')
         const isGeminiStream = response.url?.includes('/models/gemini-')
+        const cancelBeforeIteration = () => {
+          void response.body?.cancel(createStreamAbortError()).catch(() => {})
+        }
         return new OpenAIShimStream(
-          (
-            request.transport === 'codex_responses' ||
-            request.transport === 'responses' ||
-            isResponsesStream
-          )
-            ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
-            : isMessagesStream
-              ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
-              : isGeminiStream
-                ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isLikelyOllamaEndpoint(request.baseUrl)),
+          streamSignal =>
+            (
+              request.transport === 'codex_responses' ||
+              request.transport === 'responses' ||
+              isResponsesStream
+            )
+              ? codexStreamToAnthropic(response, request.resolvedModel, streamSignal)
+              : isMessagesStream
+                ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
+                : isGeminiStream
+                  ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
+                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl)),
+          options?.signal,
+          cancelBeforeIteration,
         )
       }
 

@@ -260,6 +260,13 @@ type JsonValue = string | number | boolean | null | JsonObject | JsonArray
 type JsonObject = { [key: string]: JsonValue }
 type JsonArray = JsonValue[]
 
+class StreamIdleTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Stream idle timeout - no chunks received for ${timeoutMs / 1000}s`)
+    this.name = 'StreamIdleTimeoutError'
+  }
+}
+
 /**
  * Assemble the extra body parameters for the API request, based on the
  * CLAUDE_CODE_EXTRA_BODY environment variable if present and on any beta
@@ -718,6 +725,7 @@ export type Options = {
   taskBudget?: { total: number; remaining?: number }
   providerOverride?: { model: string; baseURL: string; apiKey: string }
   queryLifecycle?: QueryLifecycleOperationTracker
+  messageNormalizationTools?: Tools
 }
 
 export async function queryModelWithoutStreaming({
@@ -1294,7 +1302,10 @@ async function* queryModel(
   })
 
   queryCheckpoint('query_message_normalization_start')
-  let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
+  let messagesForAPI = normalizeMessagesForAPI(
+    messages,
+    options.messageNormalizationTools ?? filteredTools,
+  )
   queryCheckpoint('query_message_normalization_end')
 
   // Apply hybrid context strategy for optimal cache/fresh balance
@@ -1966,6 +1977,7 @@ async function* queryModel(
     let streamWatchdogFiredAt: number | null = null
     let streamIdleWarningTimer: ReturnType<typeof setTimeout> | null = null
     let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
+
     function clearStreamIdleTimers(): void {
       if (streamIdleWarningTimer !== null) {
         clearTimeout(streamIdleWarningTimer)
@@ -1976,41 +1988,128 @@ async function* queryModel(
         streamIdleTimer = null
       }
     }
-    function resetStreamIdleTimer(): void {
-      clearStreamIdleTimers()
-      if (!streamWatchdogEnabled) {
-        return
-      }
-      streamIdleWarningTimer = setTimeout(
-        warnMs => {
-          logForDebugging(
-            `Streaming idle warning: no chunks received for ${warnMs / 1000}s`,
-            { level: 'warn' },
-          )
-          logForDiagnosticsNoPII('warn', 'cli_streaming_idle_warning')
-        },
-        STREAM_IDLE_WARNING_MS,
-        STREAM_IDLE_WARNING_MS,
+
+    function logStreamIdleWarning(warnMs: number): void {
+      logForDebugging(
+        `Streaming idle warning: no chunks received for ${warnMs / 1000}s`,
+        { level: 'warn' },
       )
-      streamIdleTimer = setTimeout(() => {
-        streamIdleAborted = true
-        streamWatchdogFiredAt = performance.now()
-        logForDebugging(
-          `Streaming idle timeout: no chunks received for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, aborting stream`,
-          { level: 'error' },
-        )
-        logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
-        logEvent('tengu_streaming_idle_timeout', {
-          model:
-            options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          request_id: (streamRequestId ??
-            'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          timeout_ms: STREAM_IDLE_TIMEOUT_MS,
-        })
-        releaseStreamResources()
-      }, STREAM_IDLE_TIMEOUT_MS)
+      logForDiagnosticsNoPII('warn', 'cli_streaming_idle_warning')
     }
-    resetStreamIdleTimer()
+
+    function closeStreamIterator(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+      reason: Error,
+    ): void {
+      const activeStream = stream
+      releaseStreamResources()
+      try {
+        activeStream?.controller?.abort(reason)
+      } catch {
+        // Ignore - the stream may already be closed by the SDK.
+      }
+
+      try {
+        const returned = iterator.return?.()
+        if (returned) {
+          void Promise.resolve(returned).catch(() => {})
+        }
+      } catch {
+        // Ignore - iterator.return() is best-effort cleanup.
+      }
+    }
+
+    function abortTimedOutStream(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+      timeoutError: StreamIdleTimeoutError,
+    ): void {
+      streamIdleAborted = true
+      streamWatchdogFiredAt = performance.now()
+      logForDebugging(
+        `Streaming idle timeout: no chunks received for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, aborting stream`,
+        { level: 'error' },
+      )
+      logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
+      logEvent('tengu_streaming_idle_timeout', {
+        model:
+          options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        request_id: (streamRequestId ??
+          'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        timeout_ms: STREAM_IDLE_TIMEOUT_MS,
+      })
+
+      closeStreamIterator(iterator, timeoutError)
+    }
+
+    function readNextStreamPart(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+    ): Promise<IteratorResult<BetaRawMessageStreamEvent>> {
+      if (signal.aborted) {
+        const abortError = new APIUserAbortError()
+        closeStreamIterator(iterator, abortError)
+        return Promise.reject(abortError)
+      }
+
+      return new Promise((resolve, reject) => {
+        let settled = false
+        const cleanup = () => {
+          clearStreamIdleTimers()
+          signal.removeEventListener('abort', onAbort)
+        }
+        const settleResolve = (
+          result: IteratorResult<BetaRawMessageStreamEvent>,
+        ) => {
+          if (settled) return
+          settled = true
+          cleanup()
+          resolve(result)
+        }
+        const settleReject = (error: unknown) => {
+          if (settled) return
+          settled = true
+          cleanup()
+          reject(error)
+        }
+        const onAbort = () => {
+          const abortError = new APIUserAbortError()
+          closeStreamIterator(iterator, abortError)
+          settleReject(abortError)
+        }
+
+        signal.addEventListener('abort', onAbort, { once: true })
+
+        clearStreamIdleTimers()
+        if (streamWatchdogEnabled) {
+          streamIdleWarningTimer = setTimeout(
+            warnMs => {
+              logStreamIdleWarning(warnMs)
+            },
+            STREAM_IDLE_WARNING_MS,
+            STREAM_IDLE_WARNING_MS,
+          )
+          streamIdleTimer = setTimeout(() => {
+            const timeoutError = new StreamIdleTimeoutError(
+              STREAM_IDLE_TIMEOUT_MS,
+            )
+            abortTimedOutStream(iterator, timeoutError)
+            settleReject(timeoutError)
+          }, STREAM_IDLE_TIMEOUT_MS)
+        }
+
+        let nextPromise: Promise<IteratorResult<BetaRawMessageStreamEvent>>
+        try {
+          nextPromise = Promise.resolve(iterator.next())
+        } catch (error) {
+          settleReject(signal.aborted ? new APIUserAbortError() : error)
+          return
+        }
+
+        nextPromise.then(
+          result => settleResolve(result),
+          error => settleReject(signal.aborted ? new APIUserAbortError() : error),
+        )
+      })
+    }
 
     startSessionActivity('api_call')
     try {
@@ -2021,8 +2120,13 @@ async function* queryModel(
       let totalStallTime = 0
       let stallCount = 0
 
-      for await (const part of stream) {
-        resetStreamIdleTimer()
+      const streamIterator = stream[Symbol.asyncIterator]()
+      while (true) {
+        const streamResult = await readNextStreamPart(streamIterator)
+        if (streamResult.done) {
+          break
+        }
+        const part = streamResult.value
         const now = Date.now()
 
         // Detect and log streaming stalls (only after first event to avoid counting TTFB)
@@ -2697,6 +2801,11 @@ async function* queryModel(
     // an error message with no actual retry on the fallback model.
     if (errorFromRetry instanceof FallbackTriggeredError) {
       throw errorFromRetry
+    }
+
+    if (signal.aborted) {
+      releaseStreamResources()
+      return
     }
 
     // Check if this is a 404 error during stream creation that should trigger

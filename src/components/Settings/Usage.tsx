@@ -22,6 +22,7 @@ import { Byline } from '../design-system/Byline.js';
 import { ProgressBar } from '../design-system/ProgressBar.js';
 import { isEligibleForOverageCreditGrant, OverageCreditUpsell } from '../LogoV2/OverageCreditUpsell.js';
 import { CodexUsage } from './CodexUsage.js';
+import { ClinePassUsage } from './ClinePassUsage.js';
 import { MiniMaxUsage } from './MiniMaxUsage.js';
 import { UnsupportedUsage } from './UnsupportedUsage.js';
 type LimitBarProps = {
@@ -277,6 +278,7 @@ export function Usage(): React.ReactNode {
   const activeProfile = getActiveProviderProfile();
   const usageDescriptor = getUsageDescriptor(resolveActiveUsageId(process.env, {
     activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
     providerCategory: provider,
   }));
   if (provider === 'codex') {
@@ -284,6 +286,9 @@ export function Usage(): React.ReactNode {
   }
   if (usageDescriptor.resolvedId === 'minimax' && usageDescriptor.supported) {
     return <MiniMaxUsage />;
+  }
+  if (usageDescriptor.resolvedId === 'clinepass' && usageDescriptor.supported) {
+    return <ClinePassUsage />;
   }
   if (usageDescriptor.resolvedId === 'anthropic' && usageDescriptor.supported) {
     return <AnthropicUsage />;

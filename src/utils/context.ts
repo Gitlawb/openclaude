@@ -46,6 +46,91 @@ const warnedUnknownIntegrationRuntimeLimitKeys = new Set<string>()
 const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
 const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
 
+// Session-scoped context window overrides (abordagem C: module-level state)
+// Key: normalized model name (lowercase, prefix stripped)
+// Value: context window in tokens
+const sessionContextWindowOverrides = new Map<string, number>()
+
+// Minimum context window to avoid auto-compact floor paradox
+// (reservedTokensForSummary + autocompactBuffer = 20k + 13k = 33k)
+const MIN_CONTEXT_WINDOW_OVERRIDE = 33_000
+
+/**
+ * Normalize a model name for override lookup to get a single canonical key
+ * for the model family (lowercase, prefix stripped).
+ */
+function normalizeModelName(model: string): string {
+  const lowered = model.toLowerCase()
+  const stripped = stripProviderPrefix(lowered)
+  return stripped !== undefined ? stripped : lowered
+}
+
+/**
+ * Strip a leading provider prefix (e.g. openai/, anthropic/) for fallback lookup.
+ */
+function stripProviderPrefix(model: string): string | undefined {
+  const stripped = model.replace(/^[a-z][\w-]*\//, '')
+  return stripped !== model ? stripped : undefined
+}
+
+/**
+ * Set a session-scoped context window override for a specific model.
+ * Used by the /set_context_window slash command.
+ * The override is in-memory only and dies with the session.
+ *
+ * Returns the normalized model key used for storage.
+ */
+export function setSessionContextWindowOverride(
+  model: string,
+  tokens: number,
+): { ok: true; normalizedModel: string } | { ok: false; error: string } {
+  if (!Number.isFinite(tokens) || !Number.isInteger(tokens) || tokens <= 0) {
+    return { ok: false, error: 'Context window must be a positive integer' }
+  }
+  if (tokens < MIN_CONTEXT_WINDOW_OVERRIDE) {
+    return {
+      ok: false,
+      error: `Context window must be at least ${MIN_CONTEXT_WINDOW_OVERRIDE} tokens (current: ${tokens})`,
+    }
+  }
+  const normalized = normalizeModelName(model)
+  sessionContextWindowOverrides.set(normalized, tokens)
+  return { ok: true, normalizedModel: normalized }
+}
+
+/**
+ * Clear session-scoped context window overrides.
+ * If model is provided, clears the canonical key for the model family.
+ * If model is omitted, clears all overrides.
+ */
+export function clearSessionContextWindowOverride(model?: string): void {
+  if (model) {
+    const normalized = normalizeModelName(model)
+    sessionContextWindowOverrides.delete(normalized)
+  } else {
+    sessionContextWindowOverrides.clear()
+  }
+}
+
+/**
+ * Get the current session-scoped context window override for a model, if any.
+ * Resolves to the canonical key for the model family.
+ */
+export function getSessionContextWindowOverride(
+  model: string,
+): number | undefined {
+  const normalized = normalizeModelName(model)
+  return sessionContextWindowOverrides.get(normalized)
+}
+
+/**
+ * Get all current session-scoped context window overrides.
+ * Returns a copy of the internal map.
+ */
+export function getSessionContextWindowOverrides(): Map<string, number> {
+  return new Map(sessionContextWindowOverrides)
+}
+
 /**
  * Check if 1M context is disabled via environment variable.
  * Used by C4E admins to disable 1M context for HIPAA compliance.
@@ -151,6 +236,13 @@ export function getContextWindowForModel(
     if (!isNaN(override) && override > 0) {
       return override
     }
+  }
+
+  // Session-scoped override — set via /set_context_window command.
+  // Takes precedence over all resolution except the internal env var above.
+  const sessionOverride = getSessionContextWindowOverride(model)
+  if (sessionOverride !== undefined) {
+    return sessionOverride
   }
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection

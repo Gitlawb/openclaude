@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, posix } from 'node:path'
 
+import { Command as CommanderCommand } from '@commander-js/extra-typings'
+
+import { registerTaskReportCommand } from '../cli/commands/taskReport.js'
+import { taskReportHandler } from '../cli/handlers/taskReport.js'
 import {
   buildTaskReport,
   collectTaskReportGitMetadata,
+  formatTaskReport,
+  formatTaskReportAsMarkdown,
   formatTaskReportAsJson,
   type TaskReportGitMetadata,
 } from './taskReport.js'
@@ -31,13 +37,45 @@ function withTempTranscript(
   })
 }
 
-function userMessage(uuid: string, content: unknown, timestamp: string) {
+async function captureStreamWrites(
+  stream: NodeJS.WritableStream,
+  fn: () => Promise<void>,
+): Promise<string> {
+  const originalWrite = stream.write
+  let output = ''
+  ;(stream as { write: (...args: unknown[]) => boolean }).write = (
+    chunk: unknown,
+    ...args: unknown[]
+  ) => {
+    output += String(chunk)
+    const callback = args.find((arg): arg is (error?: Error) => void =>
+      typeof arg === 'function',
+    )
+    callback?.()
+    return true
+  }
+
+  try {
+    await fn()
+  } finally {
+    stream.write = originalWrite
+  }
+
+  return output
+}
+
+function userMessage(
+  uuid: string,
+  content: unknown,
+  timestamp: string,
+  messageCwd: string | null = cwd,
+) {
   return {
     type: 'user',
     uuid,
     parentUuid: null,
     isSidechain: false,
-    cwd,
+    ...(messageCwd ? { cwd: messageCwd } : {}),
     sessionId,
     timestamp,
     version: 'test',
@@ -1249,6 +1287,801 @@ describe('task report generation', () => {
         expect(report.commands[0]?.stdout?.truncated).toBe(true)
       },
     )
+  })
+
+  test('formats markdown with required sections and no-validation warning', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000096',
+          'Generate a task report for issue #123.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        for (const heading of [
+          '# Task Report',
+          '## Summary',
+          '## Session',
+          '## Branching / Worktree',
+          '## Changes',
+          '## Files changed',
+          '## Commands run',
+          '## Validation',
+          '## Errors / Warnings',
+          '## Risks / Follow-ups',
+        ]) {
+          expect(markdown).toContain(heading)
+        }
+        expect(markdown).toContain('- Validation: none observed')
+        expect(markdown).toContain(
+          '- Initial request:\n  ```text\n  Generate a task report for issue #123.\n  ```',
+        )
+        expect(markdown).toContain(
+          '- No validation commands were observed in this transcript.',
+        )
+        expect(markdown).toContain(
+          '- Not represented in task report JSON v1.',
+        )
+        expect(markdown).not.toContain('Run validation before claiming checks passed')
+      },
+    )
+  })
+
+  test('formats markdown for passing validation commands', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000097',
+          'Run the checks.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000098',
+          {
+            id: 'tool-validation-markdown-pass',
+            name: 'Bash',
+            input: {
+              command: 'bun run typecheck',
+              description: 'Run TypeScript checks',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000099',
+          'tool-validation-markdown-pass',
+          'Typecheck passed',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: 'Typecheck passed\n', stderr: '', exitCode: 0 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain('- Validation: 1 passed, 0 failed, 0 unknown')
+        expect(markdown).toContain(
+          '- `success` `bun run typecheck` - Run TypeScript checks (exit 0)',
+        )
+        expect(markdown).toContain(
+          '  - stdout:\n    ```text\n    Typecheck passed\n    \n    ```',
+        )
+        expect(markdown).toContain('- Not represented in task report JSON v1.')
+      },
+    )
+  })
+
+  test('formats markdown for failing validation and tool errors', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000100',
+          'Run the failing test.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000101',
+          {
+            id: 'tool-validation-markdown-fail',
+            name: 'Bash',
+            input: {
+              command: 'bun test src/utils/reportTask.test.ts',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000102',
+          'tool-validation-markdown-fail',
+          'Error calling tool (Bash): tests failed\nExit code 1',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: 'tests failed\n',
+            exitCode: 1,
+          },
+          true,
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain('- Validation: 0 passed, 1 failed, 0 unknown')
+        expect(markdown).toContain(
+          '- `error` `bun test src/utils/reportTask.test.ts` (exit 1)',
+        )
+        expect(markdown).toContain(
+          '- Tool error (`Bash`, `tool-validation-markdown-fail`):',
+        )
+        expect(markdown).not.toContain('Resolve failed validation')
+        expect(markdown).toContain('- Not represented in task report JSON v1.')
+      },
+    )
+  })
+
+  test('rejects unsupported task report formats', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000109',
+          'Generate a task report.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+
+        expect(() => formatTaskReport(report, 'html' as never)).toThrow(
+          'Unsupported task report format: html',
+        )
+      },
+    )
+  })
+
+  test('preserves trailing whitespace in markdown command output previews', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000110',
+          'Run a command with whitespace-sensitive output.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000111',
+          {
+            id: 'tool-whitespace-preview',
+            name: 'Bash',
+            input: {
+              command: 'bun test src/utils/reportTask.test.ts',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000112',
+          'tool-whitespace-preview',
+          'kept trailing whitespace  \n',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: 'kept trailing whitespace  \n',
+            stderr: '',
+            exitCode: 0,
+          },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          '  - stdout:\n    ```text\n    kept trailing whitespace  \n    \n    ```',
+        )
+      },
+    )
+  })
+
+  test('preserves repeated spaces in markdown command lines', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000115',
+          'Run a whitespace-sensitive command.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000116',
+          {
+            id: 'tool-command-repeated-spaces',
+            name: 'Bash',
+            input: {
+              command: "printf 'a  b'",
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000117',
+          'tool-command-repeated-spaces',
+          'a  b',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: 'a  b', stderr: '', exitCode: 0 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain("- `success` `printf 'a  b'` (exit 0)")
+        expect(markdown).not.toContain("- `success` `printf 'a b'`")
+      },
+    )
+  })
+
+  test('renders backtick-delimited markdown command spans safely', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000127',
+          'Run a command that uses command substitution.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000128',
+          {
+            id: 'tool-command-backticks',
+            name: 'Bash',
+            input: {
+              command: 'echo `date`',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000129',
+          'tool-command-backticks',
+          'Tue Jun 30',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: 'Tue Jun 30', stderr: '', exitCode: 0 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain('- `success` `` echo `date` `` (exit 0)')
+        expect(markdown).not.toContain('- `success` ``echo `date``` (exit 0)')
+      },
+    )
+  })
+
+  test('renders multiline markdown commands as fenced shell blocks', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000118',
+          'Run a multiline command.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000119',
+          {
+            id: 'tool-command-multiline',
+            name: 'Bash',
+            input: {
+              command:
+                "printf 'a  b'\nbun test src/utils/reportTask.test.ts",
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000120',
+          'tool-command-multiline',
+          'tests passed',
+          '2026-06-27T08:01:03.000Z',
+          { stdout: 'tests passed', stderr: '', exitCode: 0 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          "- `success` command (exit 0)\n  - Command:\n    ```shell\n    printf 'a  b'\n    bun test src/utils/reportTask.test.ts\n    ```",
+        )
+      },
+    )
+  })
+
+  test('escapes markdown syntax in markdown prose fields', async () => {
+    await withTempTranscript(
+      [
+        {
+          type: 'custom-title',
+          sessionId,
+          customTitle: 'Review *bold* [link](https://example.test)',
+        },
+        userMessage(
+          '00000000-0000-4000-8000-000000000121',
+          'Run a markdown-sensitive command.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000122',
+          {
+            id: 'tool-markdown-prose',
+            name: 'Bash',
+            input: {
+              command: 'node missing.js',
+              description: 'Do *not* make [claims](x)',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000123',
+          'tool-markdown-prose',
+          'Tool **failed** [details](x)',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: 'Tool **failed** [details](x)',
+            exitCode: 1,
+          },
+          true,
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        report.warnings.push('Warning with *bold* and [link](x)')
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          '- Session: Review \\*bold\\* \\[link\\](https://example.test)',
+        )
+        expect(markdown).toContain(
+          '- Title: Review \\*bold\\* \\[link\\](https://example.test)',
+        )
+        expect(markdown).toContain(
+          '- `error` `node missing.js` - Do \\*not\\* make \\[claims\\](x) (exit 1)',
+        )
+        expect(markdown).toContain(
+          '- Tool error (`Bash`, `tool-markdown-prose`): Tool \\*\\*failed\\*\\* \\[details\\](x)',
+        )
+        expect(markdown).toContain(
+          '- Warning with \\*bold\\* and \\[link\\](x)',
+        )
+      },
+    )
+  })
+
+  test('preserves multiline errors and warnings in markdown', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000124',
+          'Run a command that reports multiline diagnostics.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000125',
+          {
+            id: 'tool-multiline-diagnostic',
+            name: 'Bash',
+            input: {
+              command: 'node missing.js',
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000126',
+          'tool-multiline-diagnostic',
+          'first error line\nsecond error line',
+          '2026-06-27T08:01:03.000Z',
+          {
+            stdout: '',
+            stderr: 'first error line\nsecond error line',
+            exitCode: 1,
+          },
+          true,
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        report.warnings.push('first warning line\nsecond warning line')
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          '- Tool error (`Bash`, `tool-multiline-diagnostic`):\n  ```text\n  first error line\n  second error line\n  ```',
+        )
+        expect(markdown).toContain(
+          '- Warning:\n  ```text\n  first warning line\n  second warning line\n  ```',
+        )
+        expect(markdown).not.toContain('first error line second error line')
+        expect(markdown).not.toContain('first warning line second warning line')
+      },
+    )
+  })
+
+  test('formats markdown for changed files and branch metadata', async () => {
+    const reportCwd = join(tmpdir(), 'openclaude')
+    const worktreePath = join(tmpdir(), 'openclaude-report')
+    const reportFilePath = join(reportCwd, 'src', 'report.ts')
+    const reportSourcePath = posix.join('src', 'report.ts')
+    const reportTestPath = posix.join('src', 'report.test.ts')
+
+    await withTempTranscript(
+      [
+        {
+          type: 'custom-title',
+          sessionId,
+          customTitle: 'Generate deterministic task reports',
+        },
+        {
+          type: 'worktree-state',
+          sessionId,
+          worktreeSession: {
+            originalCwd: reportCwd,
+            worktreePath,
+            worktreeName: 'openclaude-report',
+            worktreeBranch: 'feat/session-task-report-json',
+            originalBranch: 'main',
+            originalHeadCommit: '13cf30af',
+            sessionId,
+          },
+        },
+        {
+          type: 'pr-link',
+          sessionId,
+          prNumber: 456,
+          prUrl: 'https://github.com/Gitlawb/openclaude/pull/456',
+          prRepository: 'Gitlawb/openclaude',
+          timestamp: '2026-06-27T08:01:00.000Z',
+        },
+        userMessage(
+          '00000000-0000-4000-8000-000000000103',
+          'Update src/report.ts for https://github.com/Gitlawb/openclaude/issues/123.',
+          '2026-06-27T08:00:00.000Z',
+          reportCwd,
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000104',
+          {
+            id: 'tool-edit-markdown',
+            name: 'Edit',
+            input: {
+              file_path: reportFilePath,
+              old_string: 'old',
+              new_string: 'new',
+            },
+          },
+          '2026-06-27T08:02:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000105',
+          'tool-edit-markdown',
+          'Updated src/report.ts',
+          '2026-06-27T08:02:02.000Z',
+          { filePath: reportFilePath },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () =>
+            gitMetadata({
+              cwd: reportCwd,
+              changedFiles: [reportSourcePath, reportTestPath],
+            }),
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          '- Title: Generate deterministic task reports',
+        )
+        expect(markdown).toContain('- Transcript branch: `feat/source-branch`')
+        expect(markdown).toContain(
+          '- Worktree branch: `feat/session-task-report-json`',
+        )
+        expect(markdown).toContain(
+          '- Pull request: [#456](<https://github.com/Gitlawb/openclaude/pull/456>) (`Gitlawb/openclaude`)',
+        )
+        expect(markdown).toContain(`- \`${reportSourcePath}\` (git, tool)`)
+        expect(markdown).toContain(`- \`${reportTestPath}\` (git)`)
+        expect(markdown).toContain(
+          '- pull_request: [#456](<https://github.com/Gitlawb/openclaude/pull/456>) (`Gitlawb/openclaude`)',
+        )
+      },
+    )
+  })
+
+  test('sanitizes linked reference markdown URLs', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000130',
+          'Review linked references.',
+          '2026-06-27T08:00:00.000Z',
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: false,
+        })
+        report.linkedReferences = [
+          {
+            kind: 'issue',
+            number: 321,
+            repository: 'Gitlawb/openclaude',
+            url: 'https://github.com/Gitlawb/openclaude/issues/321?label=a(b)',
+          },
+          {
+            kind: 'pull_request',
+            number: 9,
+            url: 'javascript:alert(1)',
+          },
+        ]
+
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).toContain(
+          '- issue: [#321](<https://github.com/Gitlawb/openclaude/issues/321?label=a(b)>) (`Gitlawb/openclaude`)',
+        )
+        expect(markdown).toContain('- pull_request: `#9`')
+        expect(markdown).not.toContain('javascript:alert')
+      },
+    )
+  })
+
+  test('formats markdown with redacted secrets and truncated command output', async () => {
+    const secret = 'sk-openclaude-test-secret'
+    const longOutput = `${secret}\n${'passed '.repeat(40)}`
+
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000106',
+          `Check the output for ${secret}.`,
+          '2026-06-27T08:00:00.000Z',
+        ),
+        assistantToolMessage(
+          '00000000-0000-4000-8000-000000000107',
+          {
+            id: 'tool-validation-markdown-redacted',
+            name: 'Bash',
+            input: {
+              command: `TOKEN=${secret} bun test src/utils/reportTask.test.ts`,
+            },
+          },
+          '2026-06-27T08:01:00.000Z',
+        ),
+        toolResultMessage(
+          '00000000-0000-4000-8000-000000000108',
+          'tool-validation-markdown-redacted',
+          longOutput,
+          '2026-06-27T08:01:03.000Z',
+          { stdout: longOutput, stderr: '', exitCode: 0 },
+        ),
+      ],
+      async transcriptPath => {
+        const report = await buildTaskReport({
+          transcriptPath,
+          git: async () => gitMetadata({ dirty: false, changedFiles: [] }),
+          maxPreviewChars: 64,
+        })
+        const markdown = formatTaskReportAsMarkdown(report)
+
+        expect(markdown).not.toContain(secret)
+        expect(markdown).toContain('[redacted]')
+        expect(markdown).toContain('stdout (truncated, ')
+        expect(markdown).toContain('```text\n')
+      },
+    )
+  })
+
+  test('prints markdown task reports through the CLI handler', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000113',
+          'Generate a markdown task report.',
+          '2026-06-27T08:00:00.000Z',
+          null,
+        ),
+      ],
+      async transcriptPath => {
+        const handlerCwd = dirname(transcriptPath)
+        const stdout = await captureStreamWrites(process.stdout, async () => {
+          await taskReportHandler({
+            format: 'markdown',
+            transcriptPath,
+            sessionId: null,
+            outFile: null,
+            cwd: handlerCwd,
+          })
+        })
+
+        expect(stdout).toContain('# Task Report')
+        expect(stdout).toContain('## Validation')
+        expect(stdout).toContain('- Git status: `unavailable`')
+        expect(stdout).toContain('- No validation commands were observed.')
+      },
+    )
+  })
+
+  test('writes markdown task reports through the CLI handler', async () => {
+    await withTempTranscript(
+      [
+        userMessage(
+          '00000000-0000-4000-8000-000000000114',
+          'Write a markdown task report.',
+          '2026-06-27T08:00:00.000Z',
+          null,
+        ),
+      ],
+      async transcriptPath => {
+        const handlerCwd = dirname(transcriptPath)
+        const outFile = `${transcriptPath}.md`
+        const stderr = await captureStreamWrites(process.stderr, async () => {
+          await taskReportHandler({
+            format: 'markdown',
+            transcriptPath,
+            sessionId: null,
+            outFile,
+            cwd: handlerCwd,
+          })
+        })
+
+        expect(stderr).toBe(`Task report written to ${outFile}\n`)
+        expect(readFileSync(outFile, 'utf8')).toContain('# Task Report')
+      },
+    )
+  })
+
+  test('parses markdown report options through the CLI command', async () => {
+    const calls: Array<Parameters<typeof taskReportHandler>[0]> = []
+    const exits: number[] = []
+    const program = new CommanderCommand()
+    program.exitOverride()
+    registerTaskReportCommand(program, {
+      cwd: () => '/repo',
+      exit: code => {
+        exits.push(code)
+      },
+      taskReportHandler: async options => {
+        calls.push(options)
+      },
+      printTaskReportError: async error => {
+        throw error
+      },
+    })
+
+    await program.parseAsync(
+      ['node', 'openclaude', 'report', '--markdown', '--transcript', 'session.jsonl'],
+      { from: 'node' },
+    )
+
+    expect(calls).toEqual([
+      {
+        format: 'markdown',
+        transcriptPath: 'session.jsonl',
+        sessionId: null,
+        outFile: null,
+        cwd: '/repo',
+      },
+    ])
+    expect(exits).toEqual([0])
+  })
+
+  test('parses json report options through the CLI command', async () => {
+    const calls: Array<Parameters<typeof taskReportHandler>[0]> = []
+    const exits: number[] = []
+    const program = new CommanderCommand()
+    program.exitOverride()
+    registerTaskReportCommand(program, {
+      cwd: () => '/repo',
+      exit: code => {
+        exits.push(code)
+      },
+      taskReportHandler: async options => {
+        calls.push(options)
+      },
+      printTaskReportError: async error => {
+        throw error
+      },
+    })
+
+    await program.parseAsync(
+      ['node', 'openclaude', 'report', '--json', '--session', sessionId, '--out', 'task-report.json'],
+      { from: 'node' },
+    )
+
+    expect(calls).toEqual([
+      {
+        format: 'json',
+        transcriptPath: null,
+        sessionId,
+        outFile: 'task-report.json',
+        cwd: '/repo',
+      },
+    ])
+    expect(exits).toEqual([0])
+  })
+
+  test('rejects missing and conflicting report output flags through the CLI command', async () => {
+    const missingErrors: string[] = []
+    const missingExits: number[] = []
+    const missingProgram = new CommanderCommand()
+    missingProgram.exitOverride()
+    registerTaskReportCommand(missingProgram, {
+      exit: code => {
+        missingExits.push(code)
+      },
+      taskReportHandler: async () => {
+        throw new Error('handler should not run')
+      },
+      printTaskReportError: async error => {
+        missingErrors.push(error instanceof Error ? error.message : String(error))
+      },
+    })
+
+    await missingProgram.parseAsync(['node', 'openclaude', 'report'], {
+      from: 'node',
+    })
+
+    expect(missingErrors).toEqual([
+      'Pass either --json or --markdown for task report output.',
+    ])
+    expect(missingExits).toEqual([1])
+
+    const conflictingProgram = new CommanderCommand()
+    conflictingProgram.exitOverride()
+    conflictingProgram.configureOutput({ writeErr: () => {} })
+    registerTaskReportCommand(conflictingProgram)
+
+    await expect(
+      conflictingProgram.parseAsync(
+        ['node', 'openclaude', 'report', '--json', '--markdown'],
+        { from: 'node' },
+      ),
+    ).rejects.toThrow("option '--json' cannot be used with option '--markdown'")
   })
 
   test('normalizes max preview chars in report metadata', async () => {

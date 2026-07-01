@@ -160,8 +160,10 @@ export type BuildTaskReportOptions = {
   maxPreviewChars?: number
 }
 
+export type TaskReportFormat = 'json' | 'markdown'
+
 export type TaskReportArgs = {
-  format: 'json'
+  format: TaskReportFormat
   transcriptPath?: string | null
   sessionId?: string | null
   outFile?: string | null
@@ -413,6 +415,120 @@ export function formatTaskReportAsJson(report: TaskReport): string {
   return stableStringifyJson(report, 2)
 }
 
+export function formatTaskReportAsMarkdown(report: TaskReport): string {
+  const lines: string[] = ['# Task Report', '']
+
+  lines.push('## Summary')
+  lines.push(`- Session: ${formatSessionSummary(report.session)}`)
+  lines.push(`- Validation: ${formatValidationSummary(report.validations)}`)
+  lines.push(`- Commands run: ${report.commands.length}`)
+  lines.push(`- Files changed: ${report.changedFiles.length}`)
+  lines.push(`- Tool uses: ${report.toolUses.length}`)
+  lines.push(`- Errors: ${report.errors.length}`)
+  lines.push(`- Warnings: ${report.warnings.length}`)
+  lines.push('')
+
+  lines.push('## Session')
+  lines.push(`- ID: ${formatMaybeCode(report.session.id)}`)
+  if (report.session.name) {
+    lines.push(`- Title: ${markdownText(report.session.name)}`)
+  }
+  if (report.session.tag) lines.push(`- Tag: ${codeSpan(report.session.tag)}`)
+  if (report.session.cwd) lines.push(`- CWD: ${codeSpan(report.session.cwd)}`)
+  lines.push(`- Transcript: ${codeSpan(report.source.transcriptPath)}`)
+  if (report.session.startedAt) {
+    lines.push(`- Started: ${codeSpan(report.session.startedAt)}`)
+  }
+  if (report.session.endedAt) {
+    lines.push(`- Ended: ${codeSpan(report.session.endedAt)}`)
+  }
+  if (report.session.initialRequest) {
+    lines.push('- Initial request:')
+    lines.push(
+      indentBlock(formatFencedCode(report.session.initialRequest), '  '),
+    )
+  }
+  lines.push(
+    `- Models: ${
+      report.session.models.length > 0
+        ? report.session.models.map(codeSpan).join(', ')
+        : 'none observed'
+    }`,
+  )
+  lines.push('')
+
+  lines.push('## Branching / Worktree')
+  appendBranchMarkdown(lines, report)
+  lines.push('')
+
+  lines.push('## Changes')
+  if (report.toolUses.length === 0) {
+    lines.push('- No tool uses observed.')
+  } else {
+    for (const toolUse of report.toolUses) {
+      lines.push(
+        `- ${codeSpan(toolUse.status)} ${codeSpan(toolUse.name)}${
+          toolUse.inputSummary ? ` - ${markdownText(toolUse.inputSummary)}` : ''
+        }`,
+      )
+      if (toolUse.timestamp) {
+        lines.push(`  - Time: ${codeSpan(toolUse.timestamp)}`)
+      }
+      if (toolUse.files.length > 0) {
+        lines.push(`  - Files: ${toolUse.files.map(codeSpan).join(', ')}`)
+      }
+      appendPreviewMarkdown(lines, 'result', toolUse.resultSummary)
+    }
+  }
+  lines.push('')
+
+  lines.push('## Files changed')
+  if (report.changedFiles.length === 0) {
+    lines.push('- No changed files observed.')
+  } else {
+    for (const file of report.changedFiles) {
+      lines.push(`- ${codeSpan(file.path)} (${file.sources.join(', ')})`)
+    }
+  }
+  lines.push('')
+
+  lines.push('## Commands run')
+  appendCommandsMarkdown(lines, report.commands)
+  lines.push('')
+
+  lines.push('## Validation')
+  if (report.validations.length === 0) {
+    lines.push('- No validation commands were observed.')
+  } else {
+    appendCommandsMarkdown(lines, report.validations)
+  }
+  lines.push('')
+
+  lines.push('## Errors / Warnings')
+  appendErrorsAndWarningsMarkdown(lines, report)
+  lines.push('')
+
+  lines.push('## Risks / Follow-ups')
+  lines.push('- Not represented in task report JSON v1.')
+  lines.push('')
+
+  return lines.join('\n')
+}
+
+export function formatTaskReport(
+  report: TaskReport,
+  format: TaskReportFormat,
+): string {
+  switch (format) {
+    case 'json':
+      return formatTaskReportAsJson(report)
+    case 'markdown':
+      return formatTaskReportAsMarkdown(report)
+    default:
+      throw new Error(`Unsupported task report format: ${String(format)}`)
+  }
+}
+
 export async function writeTaskReport(
   outFile: string,
   content: string,
@@ -421,6 +537,268 @@ export async function writeTaskReport(
   await mkdir(dirname(outputPath), { recursive: true })
   await writeFile(outputPath, content, 'utf8')
   return outputPath
+}
+
+function formatSessionSummary(session: TaskReportSession): string {
+  if (session.name) return markdownText(session.name)
+  if (session.id) return codeSpan(session.id)
+  return 'unknown'
+}
+
+function formatValidationSummary(validations: TaskReportValidation[]): string {
+  if (validations.length === 0) return 'none observed'
+  const passed = validations.filter(command => command.status === 'success').length
+  const failed = validations.filter(command => command.status === 'error').length
+  const unknown = validations.filter(command => command.status === 'unknown').length
+  const cancelled = validations.filter(
+    command => command.status === 'cancelled',
+  ).length
+  return `${passed} passed, ${failed} failed, ${unknown} unknown${
+    cancelled > 0 ? `, ${cancelled} cancelled` : ''
+  }`
+}
+
+function appendBranchMarkdown(lines: string[], report: TaskReport): void {
+  let hasMetadata = false
+  const branch = report.branch
+
+  if (branch.transcriptBranch) {
+    lines.push(`- Transcript branch: ${codeSpan(branch.transcriptBranch)}`)
+    hasMetadata = true
+  }
+
+  if (branch.worktree) {
+    const worktree = branch.worktree
+    if (worktree.name) lines.push(`- Worktree: ${codeSpan(worktree.name)}`)
+    if (worktree.path) lines.push(`- Worktree path: ${codeSpan(worktree.path)}`)
+    if (worktree.branch) {
+      lines.push(`- Worktree branch: ${codeSpan(worktree.branch)}`)
+    }
+    if (worktree.originalBranch) {
+      lines.push(`- Original branch: ${codeSpan(worktree.originalBranch)}`)
+    }
+    if (worktree.originalHead) {
+      lines.push(`- Original head: ${codeSpan(worktree.originalHead)}`)
+    }
+    if (worktree.originalCwd) {
+      lines.push(`- Original CWD: ${codeSpan(worktree.originalCwd)}`)
+    }
+    hasMetadata = true
+  }
+
+  if (branch.pullRequest) {
+    lines.push(`- Pull request: ${formatReference(branch.pullRequest)}`)
+    hasMetadata = true
+  }
+
+  if (report.git) {
+    lines.push(`- Git status: ${codeSpan(report.git.status)}`)
+    lines.push(`- Git CWD: ${codeSpan(report.git.cwd)}`)
+    if (report.git.branch) {
+      lines.push(`- Git branch: ${codeSpan(report.git.branch)}`)
+    }
+    if (report.git.head) lines.push(`- Git head: ${codeSpan(report.git.head)}`)
+    if (report.git.dirty !== undefined) {
+      lines.push(`- Git dirty: ${report.git.dirty ? 'yes' : 'no'}`)
+    }
+    if (report.git.error) {
+      lines.push(`- Git error: ${markdownText(report.git.error)}`)
+    }
+    hasMetadata = true
+  }
+
+  if (report.linkedReferences.length > 0) {
+    lines.push('- Linked references:')
+    for (const reference of report.linkedReferences) {
+      lines.push(`  - ${reference.kind}: ${formatReference(reference)}`)
+    }
+    hasMetadata = true
+  }
+
+  if (!hasMetadata) {
+    lines.push('- No branch, worktree, or git metadata available.')
+  }
+}
+
+function appendCommandsMarkdown(
+  lines: string[],
+  commands: TaskReportCommand[],
+): void {
+  if (commands.length === 0) {
+    lines.push('- No commands observed.')
+    return
+  }
+
+  for (const command of commands) {
+    const description = command.description
+      ? ` - ${markdownText(command.description)}`
+      : ''
+    const exitCode =
+      command.exitCode !== undefined ? ` (exit ${command.exitCode})` : ''
+    const multilineCommand = hasLineBreak(command.command)
+    const commandLabel = multilineCommand ? 'command' : codeSpan(command.command)
+    lines.push(
+      `- ${codeSpan(command.status)} ${commandLabel}${description}${exitCode}`,
+    )
+    if (multilineCommand) {
+      lines.push('  - Command:')
+      lines.push(
+        indentBlock(formatFencedCode(command.command, 'shell'), '    '),
+      )
+    }
+    if (command.timestamp) {
+      lines.push(`  - Time: ${codeSpan(command.timestamp)}`)
+    }
+    appendPreviewMarkdown(lines, 'stdout', command.stdout)
+    appendPreviewMarkdown(lines, 'stderr', command.stderr)
+  }
+}
+
+function appendPreviewMarkdown(
+  lines: string[],
+  label: string,
+  preview: TaskReportPreview | undefined,
+): void {
+  if (!preview || preview.preview.length === 0) return
+  const suffix = preview.truncated ? ` (truncated, ${preview.chars} chars)` : ''
+  lines.push(`  - ${label}${suffix}:`)
+  lines.push(indentBlock(formatFencedCode(preview.preview), '    '))
+}
+
+function appendErrorsAndWarningsMarkdown(
+  lines: string[],
+  report: TaskReport,
+): void {
+  if (report.errors.length === 0 && report.warnings.length === 0) {
+    lines.push('- none')
+    return
+  }
+
+  if (report.errors.length > 0) {
+    lines.push('### Errors')
+    for (const error of report.errors) {
+      const context =
+        error.toolName || error.toolUseId
+          ? ` (${[
+              error.toolName ? codeSpan(error.toolName) : undefined,
+              error.toolUseId ? codeSpan(error.toolUseId) : undefined,
+            ]
+              .filter(Boolean)
+              .join(', ')})`
+          : ''
+      const label = `${capitalize(error.source)} error${context}`
+      appendProseMarkdown(lines, label, error.message)
+    }
+  }
+
+  if (report.warnings.length > 0) {
+    lines.push('### Warnings')
+    for (const warning of report.warnings) {
+      if (hasLineBreak(warning)) {
+        appendProseMarkdown(lines, 'Warning', warning)
+      } else {
+        lines.push(`- ${markdownText(warning)}`)
+      }
+    }
+  }
+}
+
+function appendProseMarkdown(
+  lines: string[],
+  label: string,
+  value: string,
+): void {
+  if (hasLineBreak(value)) {
+    lines.push(`- ${label}:`)
+    lines.push(indentBlock(formatFencedCode(value), '  '))
+    return
+  }
+
+  lines.push(`- ${label}: ${markdownText(value)}`)
+}
+
+function formatReference(reference: {
+  number: number
+  url?: string
+  repository?: string
+}): string {
+  const label = `#${reference.number}`
+  const safeUrl = reference.url ? formatMarkdownUrl(reference.url) : null
+  const linked = safeUrl ? `[${label}](<${safeUrl}>)` : codeSpan(label)
+  return reference.repository
+    ? `${linked} (${codeSpan(reference.repository)})`
+    : linked
+}
+
+function formatMarkdownUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function formatMaybeCode(value: string | null | undefined): string {
+  return value ? codeSpan(value) : 'unknown'
+}
+
+function formatFencedCode(value: string, language = 'text'): string {
+  const content = value.replaceAll('\r\n', '\n')
+  const backtickRuns = content.match(/`+/g) ?? []
+  const fenceLength = Math.max(
+    3,
+    ...backtickRuns.map(run => run.length + 1),
+  )
+  const fence = '`'.repeat(fenceLength)
+  return `${fence}${language}\n${content}\n${fence}`
+}
+
+function codeSpan(value: string): string {
+  const content = value
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+    .replaceAll('\n', ' ')
+  const backtickRuns = content.match(/`+/g) ?? []
+  const fenceLength = Math.max(
+    1,
+    ...backtickRuns.map(run => run.length + 1),
+  )
+  const fence = '`'.repeat(fenceLength)
+  const needsPadding = content.startsWith('`') || content.endsWith('`')
+  return needsPadding
+    ? `${fence} ${content} ${fence}`
+    : `${fence}${content}${fence}`
+}
+
+function indentBlock(value: string, indent: string): string {
+  return value
+    .split('\n')
+    .map(line => `${indent}${line}`)
+    .join('\n')
+}
+
+function markdownText(value: string): string {
+  return escapeMarkdownText(singleLine(value))
+}
+
+function escapeMarkdownText(value: string): string {
+  return value.replace(/([\\`*_\[\]<>])/g, '\\$1')
+}
+
+function hasLineBreak(value: string): boolean {
+  return /[\r\n]/.test(value)
+}
+
+function singleLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function capitalize(value: string): string {
+  return value ? `${value[0]?.toUpperCase()}${value.slice(1)}` : value
 }
 
 async function readTranscriptEntries(

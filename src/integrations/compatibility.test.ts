@@ -48,6 +48,7 @@ const EXPECTED_PRESETS = [
   'fireworks',
   'opencode',
   'opencode-go',
+  'clinepass',
 ] as const satisfies readonly ProviderPreset[]
 
 describe('compatibility mappings', () => {

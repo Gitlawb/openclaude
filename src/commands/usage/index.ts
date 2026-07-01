@@ -47,6 +47,7 @@ export function resolveActiveUsageId(
   processEnv: NodeJS.ProcessEnv = process.env,
   options?: {
     activeProfileProvider?: string
+    activeProfileBaseUrl?: string
     providerCategory?: APIProvider | string
   },
 ): APIProvider | string {
@@ -62,6 +63,7 @@ export function resolveActiveUsageId(
 
   const routeId = resolveActiveRouteIdFromEnv(processEnv, {
     activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.activeProfileBaseUrl,
   })
 
   return routeId ?? providerCategory ?? 'firstParty'
