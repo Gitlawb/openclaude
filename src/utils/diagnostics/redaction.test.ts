@@ -12,12 +12,14 @@ import { homedir } from "node:os";
 import { getKnownProviderSecretEnvKeys } from "../providerSecrets.js";
 import {
   collectProviderSecretEnvVars,
+  jsonRedactor,
   redactDiagnosticObject,
   redactDiagnosticUrl,
   redactHomePath,
   redactJsonLines,
   redactSensitiveInfo,
   summarizeSecretEnvPresence,
+  _resetRedactionCacheForTesting,
 } from "../redaction.js";
 
 const writeToStderrMock = mock((data: string) => {});
@@ -136,7 +138,7 @@ describe("diagnostic redaction", () => {
     expect(redacted.messages).toEqual([
       "request used [REDACTED_OPENAI_KEY]",
       "google key [REDACTED_GCP_KEY]",
-      "header was [redacted]",
+      "header was [REDACTED_TOKEN]",
       "token [REDACTED_GITHUB_TOKEN]",
       "MISTRAL_API_KEY=[REDACTED]",
       "mistral api key [redacted]",
@@ -387,6 +389,61 @@ describe("redactSensitiveInfo", () => {
 
   test("redacts multi-word password value", () => {
     expect(redactSensitiveInfo("password: foo bar")).toBe("password: [REDACTED]");
+  });
+
+  // P1: bare Bearer token without preceding key name must be caught
+  test("redacts bare Bearer token in free-form text", () => {
+    expect(redactSensitiveInfo('error: {"message":"Bearer abc123456789"}')).toBe(
+      'error: {"message":"[REDACTED_TOKEN]"}',
+    );
+    expect(redactSensitiveInfo("Bearer abcdefgh.ijklmnop.qrstuvwx")).toBe(
+      "[REDACTED_TOKEN]",
+    );
+  });
+
+  // P1: bare JWT token (three base64url segments) without preceding key
+  test("redacts bare JWT token in free-form text", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNqPZNoVgM1jLkMTQw";
+    expect(redactSensitiveInfo(`token was ${jwt}`)).toMatch(/\[REDACTED_TOKEN\]/);
+    expect(redactSensitiveInfo(jwt)).toBe("[REDACTED_TOKEN]");
+  });
+
+  // P1: nested object values under non-credential keys must still redact
+  // bare Bearer/JWT tokens via jsonRedactor
+  test("redacts bare Bearer inside nested object under non-credential key", () => {
+    const obj = { nested: { message: "Bearer abc123456789" } };
+    const redacted = JSON.parse(JSON.stringify(obj, jsonRedactor)) as typeof obj;
+    expect(redacted.nested.message).toMatch(/\[REDACTED_TOKEN\]/);
+  });
+
+  test("redacts bare JWT inside nested object under non-credential key", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNqPZNoVgM1jLkMTQw";
+    const obj = { nested: { message: jwt } };
+    const redacted = JSON.parse(JSON.stringify(obj, jsonRedactor)) as typeof obj;
+    expect(redacted.nested.message).toMatch(/\[REDACTED_TOKEN\]/);
+  });
+
+  // P2: known provider env-var values must be redacted — the bare Bearer
+  // pattern catches "Bearer secret-value" in the value portion, while the
+  // env-var pattern (which stops at the first space) independently matches
+  // the OPENAI_AUTH_HEADER_VALUE=Bearer prefix. Either pass fully redacts.
+  test("redacts OPENAI_AUTH_HEADER_VALUE env-var assignment", () => {
+    // Reset cached env-var pattern so the fix to buildKnownEnvVarPattern
+    // (\\s escaping) is picked up by this test.
+    _resetRedactionCacheForTesting();
+    expect(
+      redactSensitiveInfo("OPENAI_AUTH_HEADER_VALUE=Bearer secret-value"),
+    ).toMatch(/\[REDACTED/);
+    expect(
+      redactSensitiveInfo("OPENAI_AUTH_HEADER_VALUE: Bearer secret-value"),
+    ).toMatch(/\[REDACTED/);
+    // Non-Bearer value (plain token) tests the env-var pattern directly
+    expect(
+      redactSensitiveInfo("OPENAI_AUTH_HEADER_VALUE=sk-plain-secret-999"),
+    ).toMatch(/\[REDACTED/);
+    expect(
+      redactSensitiveInfo("OPENAI_AUTH_HEADER_VALUE=nobearer-secret-value"),
+    ).toMatch(/\[REDACTED/);
   });
 
   test("redacts secrets in malformed JSONL lines via redactJsonLines fallback", () => {

@@ -83,6 +83,14 @@ const X_API_KEY_PATTERN = /(["']?x-api-key["']?\s*[:=]\s*["']?)[^"',\n&#;]+/gi;
 const AUTHORIZATION_PATTERN =
   /(["']?authorization["']?\s*[:=]\s*["']?(?:bearer\s+)?)[^"',\n&#;]+/gi;
 
+// Bare Bearer token (without preceding key name)
+const BARE_BEARER_PATTERN =
+  /(?<![A-Za-z0-9_-])Bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![A-Za-z0-9_-])/gi;
+
+// JWT tokens (three base64url segments, 8+ chars each)
+const JWT_TOKEN_PATTERN =
+  /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])/g;
+
 // AWS_* / GOOGLE_* / provider-prefixed env var redaction
 const PROVIDER_PREFIXED_ENV_PATTERN =
   /((?:AWS|GOOGLE)[_-][A-Za-z0-9_]+\s*[=:]\s*)["']?[^"',\s)}\]&#;]+["']?/gi;
@@ -150,7 +158,7 @@ function buildKnownEnvVarPattern(): RegExp {
   const sorted = [...keys].sort((a, b) => b.length - a.length);
   const escaped = sorted.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(
-    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\s*[=:]\s*)["']?[^"'\s)}\]&#;]+["']?`,
+    `(?<![A-Za-z0-9_])(${escaped.join("|")})(\\s*[=:]\\s*)["']?[^"'\\s)\\}&#;\\]]+["']?`,
     "gi",
   );
 }
@@ -213,6 +221,14 @@ export function redactSensitiveInfo(text: string): string {
 
   // Authorization: Bearer ... headers
   redacted = redacted.replace(AUTHORIZATION_PATTERN, "$1[REDACTED_TOKEN]");
+
+  // Bare Bearer token (no preceding key name) — runs before env-var patterns
+  // so OPENAI_AUTH_HEADER_VALUE=Bearer secret-value is caught by the Bearer
+  // pattern (the env-var regex stops at the first space in multi-word values).
+  redacted = redacted.replace(BARE_BEARER_PATTERN, "[REDACTED_TOKEN]");
+
+  // Bare JWT token (three base64url segments)
+  redacted = redacted.replace(JWT_TOKEN_PATTERN, "[REDACTED_TOKEN]");
 
   // AWS_*/GOOGLE_* env vars
   redacted = redacted.replace(PROVIDER_PREFIXED_ENV_PATTERN, "$1[REDACTED]");
