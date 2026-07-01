@@ -106,4 +106,40 @@ describe('recoverConfigFromBackup', () => {
       recoverConfigFromBackup(FILE, () => ({ theme: 'light' })),
     ).toBeUndefined()
   })
+
+  test('recovers an older healthy backup when the newest one is corrupt', async () => {
+    const { recoverConfigFromBackup } = await freshConfig()
+    const NEWER = `${BASE}.backup.20260630130000`
+    const OLDER = `${BASE}.backup.20260630120000`
+    installFs({
+      readdirStringSync: (dir: string) =>
+        dir.endsWith('backups') ? [OLDER, NEWER] : [],
+      readFileSync: (path: string) => {
+        const p = String(path)
+        if (p.endsWith(NEWER)) {
+          return '{ not valid json ,,,'
+        }
+        if (p.endsWith(OLDER)) {
+          return '{"theme":"solarized","customField":3}'
+        }
+        throw enoent()
+      },
+      statSync: () => {
+        throw enoent()
+      },
+    })
+
+    const recovered = recoverConfigFromBackup(FILE, () => ({
+      theme: 'light',
+      customField: 0,
+      keptDefault: true,
+    }))
+
+    // The corrupt newest backup is skipped; the older healthy one is used.
+    expect(recovered).toEqual({
+      theme: 'solarized',
+      customField: 3,
+      keptDefault: true,
+    })
+  })
 })

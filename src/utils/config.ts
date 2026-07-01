@@ -1531,8 +1531,22 @@ function saveConfigWithLock<A extends object>(
         Date.now() - mostRecentTimestamp >= MIN_BACKUP_INTERVAL_MS
 
       if (shouldCreateBackup) {
-        const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
-        fs.copyFileSync(file, backupPath)
+        // Only rotate a parseable config into the backup set. If the current
+        // file is corrupt — e.g. after getConfig recovered from a backup in
+        // memory but the healthy config has not been written back yet —
+        // copying it would poison the rotation with the same bad content
+        // recovery just worked around (#1807).
+        let currentConfigParses = false
+        try {
+          jsonParse(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
+          currentConfigParses = true
+        } catch {
+          currentConfigParses = false
+        }
+        if (currentConfigParses) {
+          const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
+          fs.copyFileSync(file, backupPath)
+        }
       }
 
       // Clean up old backups, keeping only the 5 most recent
@@ -1624,53 +1638,51 @@ function getConfigBackupDir(): string {
  * (next to the config file) for backwards compatibility.
  * Returns the full path to the most recent backup, or null if none exist.
  */
-function findMostRecentBackup(file: string): string | null {
+/**
+ * All backup paths for `file`, newest first. The dedicated backup directory
+ * takes precedence over the legacy location next to the config file; within
+ * each location, entries are ordered by descending timestamp (the numeric
+ * suffix after `.backup.` sorts lexicographically). The timestampless legacy
+ * `<file>.backup` is tried last.
+ */
+function listBackupsNewestFirst(file: string): string[] {
   const fs = getFsImplementation()
   const fileBase = basename(file)
-  const backupDir = getConfigBackupDir()
+  const paths: string[] = []
 
-  // Check the new backup directory first
-  try {
-    const backups = fs
-      .readdirStringSync(backupDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(backupDir, mostRecent)
-    }
-  } catch {
-    // Backup dir doesn't exist yet
-  }
-
-  // Fall back to legacy location (next to the config file)
-  const fileDir = dirname(file)
-
-  try {
-    const backups = fs
-      .readdirStringSync(fileDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(fileDir, mostRecent)
-    }
-
-    // Check for legacy backup file (no timestamp)
-    const legacyBackup = `${file}.backup`
+  const collect = (dir: string): void => {
     try {
-      fs.statSync(legacyBackup)
-      return legacyBackup
+      const backups = fs
+        .readdirStringSync(dir)
+        .filter(f => f.startsWith(`${fileBase}.backup.`))
+        .sort() // Timestamps sort lexicographically
+      for (const name of backups.reverse()) {
+        paths.push(join(dir, name))
+      }
     } catch {
-      // Legacy backup doesn't exist
+      // Directory doesn't exist yet.
     }
-  } catch {
-    // Ignore errors reading directory
   }
 
-  return null
+  // Check the new backup directory first, then the legacy location next to
+  // the config file.
+  collect(getConfigBackupDir())
+  collect(dirname(file))
+
+  // Legacy backup file (no timestamp), tried last.
+  const legacyBackup = `${file}.backup`
+  try {
+    fs.statSync(legacyBackup)
+    paths.push(legacyBackup)
+  } catch {
+    // Legacy backup doesn't exist.
+  }
+
+  return paths
+}
+
+function findMostRecentBackup(file: string): string | null {
+  return listBackupsNewestFirst(file)[0] ?? null
 }
 
 /**
@@ -1689,23 +1701,25 @@ export function recoverConfigFromBackup<A>(
   file: string,
   createDefault: () => A,
 ): A | undefined {
-  const backupPath = findMostRecentBackup(file)
-  if (!backupPath) {
-    return undefined
+  const fs = getFsImplementation()
+
+  // The newest backup can itself be corrupt (the #1807 scenario tends to
+  // write several bad snapshots in a row), so try each backup from newest to
+  // oldest and recover from the first one that still parses.
+  for (const backupPath of listBackupsNewestFirst(file)) {
+    try {
+      const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
+      const parsedBackup = jsonParse(stripBOM(backupContent))
+      return {
+        ...createDefault(),
+        ...parsedBackup,
+      }
+    } catch {
+      // This backup is missing or itself corrupt — try the next oldest.
+    }
   }
 
-  try {
-    const fs = getFsImplementation()
-    const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
-    const parsedBackup = jsonParse(stripBOM(backupContent))
-    return {
-      ...createDefault(),
-      ...parsedBackup,
-    }
-  } catch {
-    // Backup missing or itself corrupt — caller falls back to defaults.
-    return undefined
-  }
+  return undefined
 }
 
 function getConfig<A>(
