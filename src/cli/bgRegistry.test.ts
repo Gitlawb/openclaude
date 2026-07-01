@@ -6,11 +6,13 @@ import { join } from 'node:path'
 import {
   _setBackgroundSessionsRootForTesting,
   createBackgroundSession,
+  isBackgroundSessionProcessAlive,
   isTerminalBackgroundSession,
   listBackgroundSessions,
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
+  type BackgroundSession,
 } from './bgRegistry.js'
 
 describe('background session registry', () => {
@@ -673,5 +675,58 @@ describe('background session registry', () => {
     )
 
     expect(await listBackgroundSessions()).toEqual([])
+  })
+})
+
+describe('isBackgroundSessionProcessAlive process identity', () => {
+  const session: BackgroundSession = {
+    id: 'bg-identity',
+    pid: 4242,
+    cwd: '/repo',
+    status: 'running',
+    startedAt: '2026-07-01T08:00:00.000Z',
+    updatedAt: '2026-07-01T08:00:00.000Z',
+    // sessionId deliberately absent from the command lines below so the stored
+    // launch invocation (command) is what has to match.
+    sessionId: 'conversation-identity',
+    command: ['node', 'openclaude', '1642'],
+    stdoutLogPath: '/tmp/stdout.log',
+    stderrLogPath: '/tmp/stderr.log',
+  }
+
+  it('does not treat a reused PID whose command merely contains the arg as alive (#1770)', () => {
+    // The live process at this PID is unrelated: its final token "16420" only
+    // contains the stored selector "1642" as a substring. Ordered substring
+    // matching wrongly reported this session as alive, so `kill` could target
+    // the wrong process.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude 16420 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('still recognizes the real process by exact command tokens', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude 1642 --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('matches on the session id when it is present on the command line', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude conversation-identity',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('reports a dead process regardless of command line', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => false,
+      getProcessCommand: () => 'node openclaude 1642',
+    })
+    expect(alive).toBe(false)
   })
 })

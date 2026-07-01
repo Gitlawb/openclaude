@@ -506,11 +506,24 @@ type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
 
 function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   if (args.length === 0) return false
-  let offset = 0
+  // Match each stored arg against a whole whitespace-delimited token, in order,
+  // rather than as a raw substring. Substring matching let a stored selector
+  // like "1642" satisfy a lookup against an unrelated live token "16420" (e.g. a
+  // reused PID whose command line merely contains those digits), so a dead
+  // session stayed classified as running. See #1770.
+  const tokens = commandLine.split(/\s+/).filter(token => token.length > 0)
+  let tokenIndex = 0
   for (const arg of args) {
-    const index = commandLine.indexOf(arg, offset)
-    if (index === -1) return false
-    offset = index + arg.length
+    let matched = false
+    while (tokenIndex < tokens.length) {
+      const token = tokens[tokenIndex]
+      tokenIndex += 1
+      if (token === arg) {
+        matched = true
+        break
+      }
+    }
+    if (!matched) return false
   }
   return true
 }
