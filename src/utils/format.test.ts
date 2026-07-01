@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { formatFileSize } from './format.js'
+import { formatDuration, formatFileSize } from './format.js'
 
 test('formats sub-KB sizes as raw bytes', () => {
   expect(formatFileSize(0)).toBe('0 bytes')
@@ -29,4 +29,21 @@ test('rolls MB over to GB when the rounded value reaches 1024', () => {
 test('formats normal MB and GB sizes', () => {
   expect(formatFileSize(1024 * 1024 * 2.5)).toBe('2.5MB')
   expect(formatFileSize(1024 * 1024 * 1024 * 3)).toBe('3GB')
+})
+
+// Regression: the sub-second branch gated on `ms < 1` instead of `ms < 1000`,
+// so every 1–999ms duration fell through to Math.floor(ms/1000) === 0 and
+// rendered "0s" — despite the comment/example promising "0.5s". This showed up
+// as `/cost` printing "Total duration (API): 0s" for a fast/cached turn.
+test('formats sub-second durations with one decimal place', () => {
+  expect(formatDuration(500)).toBe('0.5s')
+  expect(formatDuration(100)).toBe('0.1s')
+  expect(formatDuration(900)).toBe('0.9s')
+})
+
+test('keeps the 0 and whole-second cases intact', () => {
+  expect(formatDuration(0)).toBe('0s')
+  expect(formatDuration(1000)).toBe('1s')
+  expect(formatDuration(1500)).toBe('1s')
+  expect(formatDuration(59000)).toBe('59s')
 })

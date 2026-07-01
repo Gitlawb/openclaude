@@ -43,7 +43,7 @@ export function formatDuration(
       return '0s'
     }
     // For durations < 1s, show 1 decimal place (e.g., 0.5s)
-    if (ms < 1) {
+    if (ms < 1000) {
       const s = (ms / 1000).toFixed(1)
       return `${s}s`
     }
