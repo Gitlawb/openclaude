@@ -431,8 +431,8 @@ export async function appendArcToSystemPrompt(
   if (getGlobalConfig().knowledgeGraphEnabled && isAutoMemoryEnabled()) {
     const lastMessage = messagesForQuery[messagesForQuery.length - 1]
     const userQueryText =
-      lastMessage?.type === 'user' && typeof lastMessage.message.content === 'string'
-        ? lastMessage.message.content
+      lastMessage?.type === 'user'
+        ? extractTextFromContent(lastMessage.message?.content)
         : ''
     const arcSummary = await getArcSummary(userQueryText)
     const { getOrchestratedMemory } = await import('./knowledgeGraph.js')
