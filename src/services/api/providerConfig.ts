@@ -1306,7 +1306,9 @@ export function getReasoningEffortForModel(model: string): ReasoningEffort | und
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   const alias = base as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
+  const aliasConfig = Object.hasOwn(CODEX_ALIAS_MODELS, alias)
+    ? CODEX_ALIAS_MODELS[alias]
+    : undefined
   return aliasConfig?.reasoningEffort
 }
 

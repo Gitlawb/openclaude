@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { isCodexAlias, shouldUseCodexTransport } from './providerConfig.js'
+import {
+  getReasoningEffortForModel,
+  isCodexAlias,
+  resolveProviderRequest,
+  shouldUseCodexTransport,
+  supportsCodexReasoningEffort,
+} from './providerConfig.js'
 
 // Regression: CODEX_ALIAS_MODELS is a plain object literal, and the alias
 // lookups keyed it with a config/CLI-controlled model string. Names inherited
@@ -37,5 +43,53 @@ describe('providerConfig — Codex alias lookup is prototype-safe', () => {
   test('non-Codex model ids are not treated as aliases', () => {
     expect(isCodexAlias('claude-opus-4-8')).toBe(false)
     expect(shouldUseCodexTransport('claude-opus-4-8', undefined)).toBe(false)
+  })
+
+  // getReasoningEffortForModel indexes the same map (feeds supportsCodexReasoningEffort,
+  // /effort, EffortPicker). It must be prototype-safe too. `constructor` /
+  // `__proto__` carry no `.reasoningEffort`, so to prove the own-property guard
+  // actually fires we plant a polluting alias on Object.prototype (cleaned up in
+  // finally) and confirm it is NOT read as a Codex reasoning default.
+  test('getReasoningEffortForModel ignores an inherited (polluted) alias', () => {
+    const key = 'polluted-effort-alias'
+    // eslint-disable-next-line no-extend-native
+    ;(Object.prototype as Record<string, unknown>)[key] = {
+      model: key,
+      reasoningEffort: 'high',
+    }
+    try {
+      expect(getReasoningEffortForModel(key)).toBeUndefined()
+      expect(supportsCodexReasoningEffort(key)).toBe(false)
+    } finally {
+      delete (Object.prototype as Record<string, unknown>)[key]
+    }
+  })
+
+  test('getReasoningEffortForModel still resolves genuine aliases', () => {
+    expect(getReasoningEffortForModel('codexplan')).toBe('high')
+    expect(getReasoningEffortForModel('gpt-5.5-mini')).toBe('medium')
+    expect(getReasoningEffortForModel('gpt-5.3-codex-spark')).toBeUndefined()
+  })
+
+  // The descriptor parsing path (parseModelDescriptor, via resolveProviderRequest)
+  // is guarded too — a proto-name model must resolve to itself, not to the
+  // inherited Object constructor's (nonexistent) `.model`, which produced an
+  // undefined resolvedModel before the guard.
+  for (const name of protoNames) {
+    test(`resolveProviderRequest keeps '${name}' as the resolved model`, () => {
+      const { resolvedModel } = resolveProviderRequest({
+        model: name,
+        processEnv: {},
+      })
+      expect(resolvedModel).toBe(name)
+    })
+  }
+
+  test('resolveProviderRequest still resolves a genuine Codex alias', () => {
+    const { resolvedModel } = resolveProviderRequest({
+      model: 'codexplan',
+      processEnv: {},
+    })
+    expect(resolvedModel).toBe('gpt-5.5')
   })
 })
