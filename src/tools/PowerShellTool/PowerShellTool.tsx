@@ -1,6 +1,8 @@
 import { feature } from 'bun:bundle';
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
-import { copyFile, stat as fsStat, truncate as fsTruncate, link } from 'fs/promises';
+import { createReadStream, createWriteStream } from 'fs';
+import { copyFile, stat as fsStat, link, unlink } from 'fs/promises';
+import { pipeline } from 'stream/promises';
 import * as React from 'react';
 import type { CanUseToolFn } from 'src/hooks/useCanUseTool.js';
 import type { AppState } from 'src/state/AppState.js';
@@ -46,6 +48,55 @@ import { renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessag
 
 // Never use os.EOL for terminal output — \r\n on Windows breaks Ink rendering
 const EOL = '\n';
+export const MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+
+export async function persistPowerShellOutputFile(
+  sourcePath: string,
+  taskId: string,
+  maxSize: number = MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
+): Promise<{ path: string; size: number; truncated: boolean } | null> {
+  try {
+    const fileStat = await fsStat(sourcePath);
+    const size = fileStat.size;
+    await ensureToolResultsDir();
+    const dest = getToolResultPath(taskId, false);
+    const truncated = size > maxSize;
+    if (truncated) {
+      try {
+        await pipeline(
+          createReadStream(sourcePath, { start: 0, end: maxSize - 1 }),
+          createWriteStream(dest),
+        );
+      } catch (e) {
+        await unlink(dest).catch(() => {});
+        throw e;
+      }
+    } else {
+      try {
+        await link(sourcePath, dest);
+      } catch {
+        await copyFile(sourcePath, dest);
+      }
+    }
+    return { path: dest, size, truncated };
+  } catch {
+    return null;
+  }
+}
+
+export function appendPersistedPowerShellOutputHint(
+  stdout: string,
+  persistedPath: string,
+  persistedSize: number,
+  truncated: boolean,
+): string {
+  const hint = truncated
+    ? `[output truncated above — first ${MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
+    : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  if (!stdout) return hint;
+  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  return `${trimmed}\n\n${hint}`;
+}
 
 /**
  * PowerShell search commands (grep equivalents) for collapsible display.
@@ -260,6 +311,7 @@ const outputSchema = lazySchema(() => z.object({
   isImage: z.boolean().optional().describe('Flag to indicate if stdout contains image data'),
   persistedOutputPath: z.string().optional().describe('Path to persisted full output when too large for inline'),
   persistedOutputSize: z.number().optional().describe('Total output size in bytes when persisted'),
+  persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)'),
   backgroundTaskId: z.string().optional().describe('ID of the background task if command is running in background'),
   backgroundedByUser: z.boolean().optional().describe('True if the user manually backgrounded the command with Ctrl+B'),
   assistantAutoBackgrounded: z.boolean().optional().describe('True if the command was auto-backgrounded by the assistant-mode blocking budget')
@@ -397,6 +449,7 @@ export const PowerShellTool = buildTool({
     isImage,
     persistedOutputPath,
     persistedOutputSize,
+    persistedOutputTruncated,
     backgroundTaskId,
     backgroundedByUser,
     assistantAutoBackgrounded,
@@ -420,7 +473,8 @@ export const PowerShellTool = buildTool({
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
         preview: preview.preview,
-        hasMore: preview.hasMore
+        hasMore: preview.hasMore,
+        truncated: persistedOutputTruncated
       });
     } else if (normalizedStdout) {
       processedStdout = normalizedStdout.replace(/^(\s*\n)+/, '');
@@ -596,7 +650,22 @@ export const PowerShellTool = buildTool({
         throw new Error(result.preSpawnError);
       }
       if (interpretation.isError && !isAbort) {
-        throw new ShellError(stdout, result.stderr || '', result.code, result.interrupted, {
+        let errorStdout = stdout;
+        if (result.outputFilePath && result.outputTaskId) {
+          const persistedForError = await persistPowerShellOutputFile(
+            result.outputFilePath,
+            result.outputTaskId,
+          );
+          if (persistedForError) {
+            errorStdout = appendPersistedPowerShellOutputHint(
+              errorStdout,
+              persistedForError.path,
+              persistedForError.size,
+              persistedForError.truncated,
+            );
+          }
+        }
+        throw new ShellError(errorStdout, result.stderr || '', result.code, result.interrupted, {
           abortReason: result.abortReason,
           abortMessage: result.abortMessage,
           isAbort: result.isAbort
@@ -605,33 +674,19 @@ export const PowerShellTool = buildTool({
 
       // Large output: file on disk has more than getMaxOutputLength() bytes.
       // stdout already contains the first chunk. Copy the output file to the
-      // tool-results dir so the model can read it via FileRead. If > 64 MB,
-      // truncate after copying. Matches BashTool.tsx:983-1005.
-      //
-      // Placed AFTER the preSpawnError/ShellError throws (matches BashTool's
-      // ordering, where persistence is post-try/finally): a failing command
-      // that also produced >maxOutputLength bytes would otherwise do 3-4 disk
-      // syscalls, store to tool-results/, then throw — orphaning the file.
-      const MAX_PERSISTED_SIZE = 64 * 1024 * 1024;
+      // tool-results dir so the model can read it via FileRead.
       let persistedOutputPath: string | undefined;
       let persistedOutputSize: number | undefined;
+      let persistedOutputTruncated: boolean | undefined;
       if (result.outputFilePath && result.outputTaskId) {
-        try {
-          const fileStat = await fsStat(result.outputFilePath);
-          persistedOutputSize = fileStat.size;
-          await ensureToolResultsDir();
-          const dest = getToolResultPath(result.outputTaskId, false);
-          if (fileStat.size > MAX_PERSISTED_SIZE) {
-            await fsTruncate(result.outputFilePath, MAX_PERSISTED_SIZE);
-          }
-          try {
-            await link(result.outputFilePath, dest);
-          } catch {
-            await copyFile(result.outputFilePath, dest);
-          }
-          persistedOutputPath = dest;
-        } catch {
-          // File may already be gone — stdout preview is sufficient
+        const persisted = await persistPowerShellOutputFile(
+          result.outputFilePath,
+          result.outputTaskId,
+        );
+        if (persisted) {
+          persistedOutputPath = persisted.path;
+          persistedOutputSize = persisted.size;
+          persistedOutputTruncated = persisted.truncated;
         }
       }
 
@@ -678,7 +733,8 @@ export const PowerShellTool = buildTool({
           returnCodeInterpretation: interpretation.message,
           isImage,
           persistedOutputPath,
-          persistedOutputSize
+          persistedOutputSize,
+          persistedOutputTruncated
         }
       };
     } finally {
