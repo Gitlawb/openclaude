@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'crypto'
-import { readFileSync, existsSync, writeFileSync, readdirSync, statSync, lstatSync, Dirent } from 'fs'
+import { readFileSync, existsSync, writeFileSync, readdirSync, statSync, Dirent } from 'fs'
 import { join, relative } from 'path'
 import { create, insert, search } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
@@ -50,11 +50,17 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
-          let st: ReturnType<typeof statSync>
-          try {
-            st = statSync(fullPath)
-          } catch { continue }
+        let st: ReturnType<typeof statSync>
+        try {
+          st = statSync(fullPath)
+        } catch {
+          continue
+        }
+        if (st.isDirectory()) {
+          if (!entry.name.startsWith('.') || entry.name === '.facts') {
+            walk(fullPath, depth + 1)
+          }
+        } else if (st.isFile() && entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
           count++
           totalSize += st.size
           hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
@@ -73,7 +79,7 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
       } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
         let st: ReturnType<typeof statSync>
         try {
-          st = lstatSync(fullPath)
+          st = statSync(fullPath)
         } catch { continue }
         count++
         totalSize += st.size
@@ -106,7 +112,17 @@ async function scanMdFiles(
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+        let st: ReturnType<typeof statSync>
+        try {
+          st = statSync(fullPath)
+        } catch {
+          continue
+        }
+        if (st.isDirectory()) {
+          if (!entry.name.startsWith('.') || entry.name === '.facts') {
+            walk(fullPath, depth + 1)
+          }
+        } else if (st.isFile() && entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
           try {
             const raw = readFileSync(fullPath, 'utf-8')
             const parsed = parseFrontmatter(raw)
