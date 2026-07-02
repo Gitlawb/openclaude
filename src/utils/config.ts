@@ -1530,26 +1530,29 @@ function saveConfigWithLock<A extends object>(
         Number.isNaN(mostRecentTimestamp) ||
         Date.now() - mostRecentTimestamp >= MIN_BACKUP_INTERVAL_MS
 
-      if (shouldCreateBackup) {
-        // Only rotate a parseable config into the backup set. If the current
-        // file is corrupt — e.g. after getConfig recovered from a backup in
-        // memory but the healthy config has not been written back yet —
-        // copying it would poison the rotation with the same bad content
-        // recovery just worked around (#1807).
-        let currentConfigParses = false
-        try {
-          jsonParse(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
-          currentConfigParses = true
-        } catch {
-          currentConfigParses = false
-        }
-        if (currentConfigParses) {
-          const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
-          fs.copyFileSync(file, backupPath)
-        }
+      // Whether the live config currently parses. If it is corrupt — e.g. after
+      // getConfig recovered from a backup in memory but the healthy config has
+      // not been written back yet (#1807) — we must neither rotate the bad
+      // content into the backup set nor prune the existing backups: an older
+      // healthy snapshot may be the only recovery source, and runMigrations()
+      // calls saveGlobalConfig() during startup before the repaired config is
+      // durably on disk.
+      let currentConfigParses = false
+      try {
+        jsonParse(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
+        currentConfigParses = true
+      } catch {
+        currentConfigParses = false
       }
 
-      // Clean up old backups, keeping only the 5 most recent
+      if (shouldCreateBackup && currentConfigParses) {
+        const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
+        fs.copyFileSync(file, backupPath)
+      }
+
+      // Clean up old backups, keeping only the 5 most recent — but never while
+      // the live config is corrupt (selectBackupsToPrune returns [] then, so a
+      // healthy older backup is not unlinked before recovery is durable).
       const MAX_BACKUPS = 5
       // Re-read if we just created one; otherwise reuse the list
       const backupsForCleanup = shouldCreateBackup
@@ -1560,7 +1563,11 @@ function saveConfigWithLock<A extends object>(
             .reverse()
         : existingBackups
 
-      for (const oldBackup of backupsForCleanup.slice(MAX_BACKUPS)) {
+      for (const oldBackup of selectBackupsToPrune(
+        backupsForCleanup,
+        MAX_BACKUPS,
+        currentConfigParses,
+      )) {
         try {
           fs.unlinkSync(join(backupDir, oldBackup))
         } catch {
@@ -1697,6 +1704,29 @@ function findMostRecentBackup(file: string): string | null {
  * to the in-memory config under NODE_ENV=test, so the recovery path is covered
  * directly against an injected filesystem.
  */
+/**
+ * Given the current backup filenames and whether the live config parses,
+ * returns the backups to unlink so only the newest `maxBackups` remain.
+ *
+ * Returns `[]` when the live config is corrupt: pruning then could delete the
+ * last healthy backup before the recovered config has been durably rewritten,
+ * which is exactly the #1807 data-loss window (runMigrations() saves during
+ * startup before recovery lands on disk). Exported for unit testing.
+ */
+export function selectBackupsToPrune(
+  backupNames: string[],
+  maxBackups: number,
+  liveConfigParses: boolean,
+): string[] {
+  if (!liveConfigParses) {
+    return []
+  }
+  return [...backupNames]
+    .sort()
+    .reverse()
+    .slice(maxBackups)
+}
+
 export function recoverConfigFromBackup<A>(
   file: string,
   createDefault: () => A,
