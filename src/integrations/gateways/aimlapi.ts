@@ -1,4 +1,5 @@
 import { defineGateway } from '../define.js'
+import { publicBuildVersion } from '../../utils/version.js'
 
 const AIMLAPI_CHAT_MODEL_TYPES = new Set([
   'openai/chat-completions',
@@ -75,7 +76,7 @@ export default defineGateway({
       headers: {
         'X-AIMLAPI-Partner-ID': 'Gitlawb',
         'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
-        'X-AIMLAPI-Integration-Version': '1.0.0',
+        'X-AIMLAPI-Integration-Version': publicBuildVersion,
       },
       supportsAuthHeaders: false,
     },

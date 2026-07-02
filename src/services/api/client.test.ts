@@ -5,6 +5,7 @@ import {
   ensureIntegrationsLoaded,
   registerGateway,
 } from '../../integrations/index.js'
+import { publicBuildVersion } from '../../utils/version.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -640,6 +641,9 @@ test('routes env-only AI/ML API requests through the OpenAI-compatible shim', as
   expect(capturedHeaders?.get('x-aimlapi-partner-id')).toBe('Gitlawb')
   expect(capturedHeaders?.get('x-aimlapi-integration-repo')).toBe(
     'Gitlawb/openclaude',
+  )
+  expect(capturedHeaders?.get('x-aimlapi-integration-version')).toBe(
+    publicBuildVersion,
   )
   expect(capturedBody?.model).toBe('gpt-4o')
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')

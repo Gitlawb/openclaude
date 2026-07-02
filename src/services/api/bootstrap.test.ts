@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { RouteDiscoveryResult } from '../../integrations/discoveryService.js'
+import { publicBuildVersion } from '../../utils/version.js'
 import { fetchLocalOpenAIModelOptions, getDiscoveredModelApiNames } from './bootstrap.js'
 
 test('uses static route models when the route has no live discovery', () => {
@@ -218,7 +219,7 @@ test('AIMLAPI discovery omits credentials on the public /models route', async ()
     expect(fallbackOptions?.headers).toEqual({
       'X-AIMLAPI-Partner-ID': 'Gitlawb',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
-      'X-AIMLAPI-Integration-Version': '1.0.0',
+      'X-AIMLAPI-Integration-Version': publicBuildVersion,
     })
   } finally {
     for (const key of envKeys) {

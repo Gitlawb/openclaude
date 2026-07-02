@@ -7,6 +7,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { publicBuildVersion } from '../utils/version.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -462,7 +463,7 @@ describe('discoverModelsForRoute', () => {
     expect(capturedHeaders).toEqual({
       'X-AIMLAPI-Partner-ID': 'Gitlawb',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
-      'X-AIMLAPI-Integration-Version': '1.0.0',
+      'X-AIMLAPI-Integration-Version': publicBuildVersion,
     })
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'gpt-4o',

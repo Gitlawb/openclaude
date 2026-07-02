@@ -39,7 +39,7 @@ export OPENAI_MODEL="gpt-4o"
 
 ## Verify
 
-- `/status` shows **AI/ML API** as the active provider with the `api.aimlapi.com/v1` base URL.
+- `/status` shows **AI/ML API** as the active provider with the `https://api.aimlapi.com/v1` base URL.
 - `/model` lists chat-capable models discovered from the catalog.
 - Send any prompt to confirm responses come back from the selected model.
 
