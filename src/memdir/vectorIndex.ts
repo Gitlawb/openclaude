@@ -50,17 +50,11 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        let st: ReturnType<typeof statSync>
-        try {
-          st = statSync(fullPath)
-        } catch {
-          continue
-        }
-        if (st.isDirectory()) {
-          if (!entry.name.startsWith('.') || entry.name === '.facts') {
-            walk(fullPath, depth + 1)
-          }
-        } else if (st.isFile() && entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+          let st: ReturnType<typeof statSync>
+          try {
+            st = statSync(fullPath)
+          } catch { continue }
           count++
           totalSize += st.size
           hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
@@ -112,17 +106,7 @@ async function scanMdFiles(
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        let st: ReturnType<typeof statSync>
-        try {
-          st = statSync(fullPath)
-        } catch {
-          continue
-        }
-        if (st.isDirectory()) {
-          if (!entry.name.startsWith('.') || entry.name === '.facts') {
-            walk(fullPath, depth + 1)
-          }
-        } else if (st.isFile() && entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
           try {
             const raw = readFileSync(fullPath, 'utf-8')
             const parsed = parseFrontmatter(raw)
