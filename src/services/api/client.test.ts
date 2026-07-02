@@ -637,7 +637,7 @@ test('routes env-only AI/ML API requests through the OpenAI-compatible shim', as
   expect(capturedHeaders?.get('authorization')).toBe(
     'Bearer aimlapi-test-key',
   )
-  expect(capturedHeaders?.get('x-aimlapi-integration-owner')).toBe('Gitlawb')
+  expect(capturedHeaders?.get('x-aimlapi-partner-id')).toBe('Gitlawb')
   expect(capturedHeaders?.get('x-aimlapi-integration-repo')).toBe(
     'Gitlawb/openclaude',
   )
