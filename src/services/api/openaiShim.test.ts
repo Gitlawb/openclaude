@@ -6106,6 +6106,50 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 
+test('sanitizes overlong or signed tool_use ids for OpenAI-compatible chat wires', async () => {
+  const { __test } = await import('./openaiShim.ts')
+  const signedToolUseId = `toolu_vertex_k9x_3~~sig~~${'S'.repeat(1700)}`
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: signedToolUseId,
+            name: 'Read',
+            input: { file_path: '/tmp/x' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: signedToolUseId,
+            content: 'done',
+          },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const assistantMessage = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  const toolMessage = messages.find(m => m.role === 'tool')
+  const wireToolCallId = assistantMessage?.tool_calls?.[0]?.id
+
+  expect(wireToolCallId).toBeDefined()
+  expect(wireToolCallId).not.toBe(signedToolUseId)
+  expect(wireToolCallId!.length).toBeLessThanOrEqual(40)
+  expect(wireToolCallId).toMatch(/^[A-Za-z0-9_-]+$/)
+  expect(toolMessage?.tool_call_id).toBe(wireToolCallId)
+})
+
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(

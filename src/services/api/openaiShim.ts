@@ -92,6 +92,7 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
+import { sanitizeToolUseIdForWire } from '../../utils/toolUseIds.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
@@ -117,6 +118,7 @@ const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
+const CHAT_TOOL_CALL_ID_MAX_LENGTH = 40
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
@@ -1093,7 +1095,12 @@ function convertMessages(
           (block as { type?: string }).type === 'tool_result' &&
           (block as { tool_use_id?: string }).tool_use_id
         ) {
-          toolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+          toolResultIds.add(
+            sanitizeToolUseIdForWire(
+              (block as { tool_use_id: string }).tool_use_id,
+              CHAT_TOOL_CALL_ID_MAX_LENGTH,
+            ),
+          )
         }
       }
     }
@@ -1129,7 +1136,10 @@ function convertMessages(
         // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
         // emitting it here would cause a "role must alternate" or "unexpected role" error.
         for (const tr of toolResults) {
-          const id = tr.tool_use_id ?? 'unknown'
+          const id = sanitizeToolUseIdForWire(
+            tr.tool_use_id ?? 'unknown',
+            CHAT_TOOL_CALL_ID_MAX_LENGTH,
+          )
           if (knownToolCallIds.has(id)) {
             result.push({
               role: 'tool',
@@ -1226,7 +1236,9 @@ function convertMessages(
                 extra_content?: Record<string, unknown>
                 signature?: string
               }) => {
-                const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+                const id = tu.id
+                  ? sanitizeToolUseIdForWire(tu.id, CHAT_TOOL_CALL_ID_MAX_LENGTH)
+                  : `call_${crypto.randomUUID().replace(/-/g, '')}`
 
                 // Only keep tool calls that have a corresponding result in the history,
                 // or if it's the last message (prefill scenario).
