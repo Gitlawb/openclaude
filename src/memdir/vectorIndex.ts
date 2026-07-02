@@ -54,6 +54,9 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
           let st: ReturnType<typeof statSync>
           try {
             st = statSync(fullPath)
+            if (!st.isFile()) {
+              continue
+            }
           } catch { continue }
           count++
           totalSize += st.size
@@ -108,6 +111,10 @@ async function scanMdFiles(
       if (entry.isSymbolicLink()) {
         if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
           try {
+            const st = statSync(fullPath)
+            if (!st.isFile()) {
+              continue
+            }
             const raw = readFileSync(fullPath, 'utf-8')
             const parsed = parseFrontmatter(raw)
             const fm = parsed?.frontmatter
