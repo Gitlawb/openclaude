@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'crypto'
-import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs'
+import { readFileSync, existsSync, writeFileSync, readdirSync, statSync, lstatSync, Dirent } from 'fs'
 import { join, relative } from 'path'
 import { create, insert, search } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
@@ -40,35 +40,48 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
   const hash = createHash('sha256')
   function walk(dir: string, depth: number) {
     if (depth > 4) return
-    let entries: string[]
+    let entries: Dirent[]
     try {
-      entries = readdirSync(dir)
+      entries = readdirSync(dir, { withFileTypes: true })
     } catch {
       return
     }
     for (const entry of entries) {
-      const fullPath = join(dir, entry)
-      let stat: ReturnType<typeof statSync>
-      try {
-        stat = statSync(fullPath)
-      } catch {
+      const fullPath = join(dir, entry.name)
+
+      if (entry.isSymbolicLink()) {
+        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+          let st: ReturnType<typeof statSync>
+          try {
+            st = statSync(fullPath)
+          } catch { continue }
+          count++
+          totalSize += st.size
+          hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
+          try {
+            hash.update(readFileSync(fullPath, 'utf-8'))
+          } catch { /* skip unreadable */ }
+          if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs
+        }
         continue
       }
-      if (stat.isDirectory()) {
-        if (!entry.startsWith('.') || entry === '.facts') {
+
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.') || entry.name === '.facts') {
           walk(fullPath, depth + 1)
         }
-      } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
-        count++
-        totalSize += stat.size
-        hash.update(`${fullPath}:${stat.size}:${stat.mtimeMs}\0`)
+      } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+        let st: ReturnType<typeof statSync>
         try {
-          const content = readFileSync(fullPath, 'utf-8')
-          hash.update(content)
-        } catch {
-          // skip unreadable
-        }
-        if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs
+          st = lstatSync(fullPath)
+        } catch { continue }
+        count++
+        totalSize += st.size
+        hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
+        try {
+          hash.update(readFileSync(fullPath, 'utf-8'))
+        } catch { /* skip unreadable */ }
+        if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs
       }
     }
   }
@@ -83,33 +96,47 @@ async function scanMdFiles(
 
   function walk(dir: string, depth: number) {
     if (depth > 4) return
-    let entries: string[]
+    let entries: Dirent[]
     try {
-      entries = readdirSync(dir)
+      entries = readdirSync(dir, { withFileTypes: true })
     } catch {
       return
     }
     for (const entry of entries) {
-      const fullPath = join(dir, entry)
-      let stat: ReturnType<typeof statSync>
-      try {
-        stat = statSync(fullPath)
-      } catch {
+      const fullPath = join(dir, entry.name)
+
+      if (entry.isSymbolicLink()) {
+        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
+          try {
+            const raw = readFileSync(fullPath, 'utf-8')
+            const parsed = parseFrontmatter(raw)
+            const fm = parsed?.frontmatter
+            results.push({
+              filename: entry.name,
+              path: relative(memoryDir, fullPath),
+              title: typeof fm?.title === 'string' ? fm.title : entry.name.replace(/\.md$/, ''),
+              type: typeof fm?.type === 'string' ? fm.type : 'reference',
+              description: typeof fm?.description === 'string' ? fm.description : '',
+              content: parsed?.content ?? '',
+            })
+          } catch { /* skip unreadable */ }
+        }
         continue
       }
-      if (stat.isDirectory()) {
-        if (!entry.startsWith('.') || entry === '.facts') {
+
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.') || entry.name === '.facts') {
           walk(fullPath, depth + 1)
         }
-      } else if (entry.endsWith('.md') && entry !== 'MEMORY.md' && !entry.startsWith('.')) {
+      } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
         try {
           const raw = readFileSync(fullPath, 'utf-8')
           const parsed = parseFrontmatter(raw)
           const fm = parsed?.frontmatter
           results.push({
-            filename: entry,
+            filename: entry.name,
             path: relative(memoryDir, fullPath),
-            title: typeof fm?.title === 'string' ? fm.title : entry.replace(/\.md$/, ''),
+            title: typeof fm?.title === 'string' ? fm.title : entry.name.replace(/\.md$/, ''),
             type: typeof fm?.type === 'string' ? fm.type : 'reference',
             description: typeof fm?.description === 'string' ? fm.description : '',
             content: parsed?.content ?? '',
