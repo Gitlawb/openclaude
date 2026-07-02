@@ -258,6 +258,45 @@ test('Cloudflare Workers AI route only matches api.cloudflare.com, not the share
   ).toBe(null)
 })
 
+test('resolveActiveRouteIdFromEnv does not claim cloudflare for a retargeted cloudflare profile (#1100)', () => {
+  // A saved `cloudflare` profile pointed at a non-Workers URL must fall back to
+  // generic openai/custom, not resolve as cloudflare via the profile-provider
+  // shortcut — otherwise the Workers AI shim config + CLOUDFLARE_API_TOKEN
+  // mirroring would be applied to the shared AI Gateway host or a general REST
+  // path.
+  const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/abc/gw/openai'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: gatewayUrl },
+      { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: gatewayUrl },
+    ),
+  ).not.toBe('cloudflare')
+
+  const restUrl = 'https://api.cloudflare.com/client/v4/user/tokens/verify'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: restUrl },
+      { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: restUrl },
+    ),
+  ).not.toBe('cloudflare')
+})
+
+test('resolveActiveRouteIdFromEnv still resolves cloudflare for a real Workers AI profile (#1100)', () => {
+  // With the env base URL unset, the profile-provider fallback runs; a genuine
+  // Workers AI profile base URL must still resolve as cloudflare.
+  const workersUrl =
+    'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1' },
+      {
+        activeProfileProvider: 'cloudflare',
+        activeProfileBaseUrl: workersUrl,
+      },
+    ),
+  ).toBe('cloudflare')
+})
+
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
   expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')

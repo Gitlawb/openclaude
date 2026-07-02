@@ -943,6 +943,26 @@ export function resolveRouteIdFromBaseUrl(
   return null
 }
 
+/**
+ * Extra boundary for resolving a route from the *active profile provider* (not
+ * from a matched base URL). Most routes are host-scoped by resolveProfileRoute,
+ * but the Cloudflare Workers AI route is path-scoped (see isCloudflareBaseUrl):
+ * a saved `cloudflare` profile retargeted to a non-Workers URL — the shared AI
+ * Gateway host, or a general api.cloudflare.com REST path — must NOT resolve as
+ * `cloudflare`, or its Workers-AI shim config and CLOUDFLARE_API_TOKEN mirroring
+ * would be applied to a generic endpoint. Returns true (route allowed) for every
+ * other route.
+ */
+function profileRouteHonorsBaseUrlBoundary(
+  routeId: string,
+  baseUrl: string | undefined,
+): boolean {
+  if (routeId === 'cloudflare') {
+    return isCloudflareBaseUrl(baseUrl)
+  }
+  return true
+}
+
 export function resolveActiveRouteIdFromEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
   options?: {
@@ -983,7 +1003,11 @@ export function resolveActiveRouteIdFromEnv(
       if (
         route.routeId !== 'unknown-fallback' &&
         route.routeId !== 'openai' &&
-        route.routeId !== 'custom'
+        route.routeId !== 'custom' &&
+        profileRouteHonorsBaseUrlBoundary(
+          route.routeId,
+          options.activeProfileBaseUrl ?? baseUrl,
+        )
       ) {
         return route.routeId
       }
@@ -1014,7 +1038,11 @@ export function resolveActiveRouteIdFromEnv(
     if (
       route.routeId !== 'unknown-fallback' &&
       route.routeId !== 'openai' &&
-      route.routeId !== 'custom'
+      route.routeId !== 'custom' &&
+      profileRouteHonorsBaseUrlBoundary(
+        route.routeId,
+        options.activeProfileBaseUrl,
+      )
     ) {
       return route.routeId
     }
