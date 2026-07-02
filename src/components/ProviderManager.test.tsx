@@ -2262,8 +2262,9 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
       readGithubModelsToken: () => storedToken,
       readGithubModelsTokenAsync: async () => storedToken,
     }))
+    const clearStartupProviderOverrides = mock(() => null)
     mock.module('../utils/providerStartupOverrides.js', () => ({
-      clearStartupProviderOverrides: () => null,
+      clearStartupProviderOverrides,
     }))
 
     const onDoneResults: Array<Record<string, unknown>> = []
@@ -2316,6 +2317,11 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
     // user-supplied GITHUB_TOKEN. Asserting the argument (not just the call)
     // means the test fails if the branch stops forwarding the stored token.
     expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+    // The restart fix depends on clearing persisted startup provider overrides
+    // after clearActiveProviderProfile(); without this the next launch replays
+    // the third-party provider. Anchor on the mocked symbol so the test fails
+    // if the Anthropic branch stops calling it.
+    expect(clearStartupProviderOverrides).toHaveBeenCalled()
   } finally {
     if (mounted) {
       await mounted.dispose()

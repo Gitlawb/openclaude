@@ -1813,43 +1813,72 @@ describe('applyActiveProviderProfileFromConfig', () => {
     const { buildStartupEnvFromProfile, DEFAULT_STARTUP_PROVIDER_ENV_VAR } =
       await import(`./providerProfile.js?ts=${Date.now()}-${Math.random()}`)
 
-    // No explicit provider selection in the environment (cold start).
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.CLAUDE_CODE_USE_GITHUB
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_MODEL
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
-
-    const applied = applyActiveProviderProfileFromConfig({
-      providerProfiles: [
-        buildProfile({
-          id: 'saved_openai',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-4o',
-        }),
-      ],
-      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
-    } as any)
-
-    // Built-in Anthropic resolves to no profile, but env is now marked handled
-    // and carries no third-party provider selection.
-    expect(applied).toBeUndefined()
-    expect(String(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-
-    // The deleted profile mirror (persisted: null) must NOT be treated as a
-    // fresh install, so no OpenGateway default is synthesized.
-    const startupEnv = await buildStartupEnvFromProfile({
-      persisted: null,
-      processEnv: process.env,
-    })
-    expect(startupEnv[DEFAULT_STARTUP_PROVIDER_ENV_VAR]).not.toBe(
-      'gitlawb-opengateway',
+    // Cold start with a fully isolated env. applyActiveProviderProfileFromConfig
+    // and buildStartupEnvFromProfile treat ANY CLAUDE_CODE_USE_* flag (OpenAI,
+    // GitHub, Gemini, Mistral, Bedrock, Vertex, Foundry) as an explicit provider
+    // selection, so an inherited flag would route this case down a different
+    // path and hide the sentinel regression. Snapshot every provider key, clear
+    // them all, and restore in finally so the test neither leaks nor depends on
+    // ambient env.
+    const providerEnvKeys = [
+      'CLAUDE_CODE_USE_OPENAI',
+      'CLAUDE_CODE_USE_GITHUB',
+      'CLAUDE_CODE_USE_GEMINI',
+      'CLAUDE_CODE_USE_MISTRAL',
+      'CLAUDE_CODE_USE_BEDROCK',
+      'CLAUDE_CODE_USE_VERTEX',
+      'CLAUDE_CODE_USE_FOUNDRY',
+      'OPENAI_BASE_URL',
+      'OPENAI_MODEL',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+    ]
+    const providerEnvSnapshot = new Map(
+      providerEnvKeys.map(key => [key, process.env[key]] as const),
     )
-    expect(startupEnv.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(startupEnv.OPENAI_BASE_URL).toBeUndefined()
+    for (const key of providerEnvKeys) {
+      delete process.env[key]
+    }
+
+    try {
+      const applied = applyActiveProviderProfileFromConfig({
+        providerProfiles: [
+          buildProfile({
+            id: 'saved_openai',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o',
+          }),
+        ],
+        activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+      } as any)
+
+      // Built-in Anthropic resolves to no profile, but env is now marked handled
+      // and carries no third-party provider selection.
+      expect(applied).toBeUndefined()
+      expect(String(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)).toBe('1')
+      expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+      expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+
+      // The deleted profile mirror (persisted: null) must NOT be treated as a
+      // fresh install, so no OpenGateway default is synthesized.
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted: null,
+        processEnv: process.env,
+      })
+      expect(startupEnv[DEFAULT_STARTUP_PROVIDER_ENV_VAR]).not.toBe(
+        'gitlawb-opengateway',
+      )
+      expect(startupEnv.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+      expect(startupEnv.OPENAI_BASE_URL).toBeUndefined()
+    } finally {
+      for (const [key, value] of providerEnvSnapshot) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
   })
 })
 
