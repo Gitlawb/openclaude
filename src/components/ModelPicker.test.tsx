@@ -248,6 +248,16 @@ const CROSS_PROFILE_OPTIONS = [
     value: `${SWITCH_PROFILE_VALUE_PREFIX}work:gpt-5.5`,
     label: 'Switch to Work · gpt-5.5',
     description: 'Inactive provider profile',
+    // Genuine switch option carries the marker (as production builds it).
+    switchToProfileId: 'work',
+  },
+  {
+    // A real custom model id that merely starts with the switch prefix but is
+    // NOT a switch option (no switchToProfileId marker). It must stay visible in
+    // inline pickers — the filter keys on the marker, not the raw value prefix.
+    value: `${SWITCH_PROFILE_VALUE_PREFIX}vendor:gpt-5.4`,
+    label: 'Prefixed Custom Model',
+    description: 'Literal custom model, not a switch',
   },
 ]
 
@@ -276,10 +286,13 @@ test('hides cross-profile switch options when allowProfileSwitch is falsy', asyn
     await waitForCondition(() => stripAnsi(getOutput()).includes('Active Model'))
     const rendered = stripAnsi(getOutput())
     expect(rendered).toContain('Active Model')
-    // The inline picker cannot honor a profile switch, so the encoded option
-    // must never surface.
+    // The inline picker cannot honor a profile switch, so the marked switch
+    // option must never surface.
     expect(rendered).not.toContain('Switch to Work')
     expect(rendered).not.toContain(SWITCH_PROFILE_VALUE_PREFIX)
+    // ...but a real custom model that merely starts with the prefix is NOT a
+    // switch (no marker) and must remain visible.
+    expect(rendered).toContain('Prefixed Custom Model')
   } finally {
     instance.unmount()
     stdin.end()

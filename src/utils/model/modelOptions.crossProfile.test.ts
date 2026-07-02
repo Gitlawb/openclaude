@@ -22,6 +22,8 @@ import * as actualSettings from '../settings/settings.js'
 import * as actualModelAllowlist from './modelAllowlist.js'
 import * as actualOllamaModels from './ollamaModels.js'
 import * as actualNvidiaModels from './nvidiaNimModels.js'
+import * as actualMiniMaxModels from './minimaxModels.js'
+import * as actualXiaomiModels from './xiaomi-mimoModels.js'
 import type { ModelOption } from './modelOptions.js'
 import type { ProviderProfile } from '../config.js'
 import type { SettingsJson } from '../settings/types.js'
@@ -37,6 +39,8 @@ const realSettings = { ...actualSettings }
 const realModelAllowlist = { ...actualModelAllowlist }
 const realOllamaModels = { ...actualOllamaModels }
 const realNvidiaModels = { ...actualNvidiaModels }
+const realMiniMaxModels = { ...actualMiniMaxModels }
+const realXiaomiModels = { ...actualXiaomiModels }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // per-test mocks installed in a harness would persist and leak into later
@@ -72,6 +76,9 @@ let activeNvidiaOverride: { cachedModels: ModelOption[] } | null = null
 // Flips the Claude subscriber branch on (and optionally Max tier). Gated so it
 // doesn't leak subscriber state into sibling suites.
 let activeSubscriberOverride: { max?: boolean } | null = null
+// Drive the MiniMax / Xiaomi MiMo catalog early-return branches. Gated + passthrough.
+let activeMiniMaxOverride: { cachedModels: ModelOption[] } | null = null
+let activeXiaomiOverride: { cachedModels: ModelOption[] } | null = null
 
 mock.module('./ollamaModels.js', () => ({
   ...realOllamaModels,
@@ -91,6 +98,26 @@ mock.module('./nvidiaNimModels.js', () => ({
     activeNvidiaOverride
       ? activeNvidiaOverride.cachedModels
       : realNvidiaModels.getCachedNvidiaNimModelOptions(),
+}))
+
+mock.module('./minimaxModels.js', () => ({
+  ...realMiniMaxModels,
+  isMiniMaxProvider: () =>
+    activeMiniMaxOverride ? true : realMiniMaxModels.isMiniMaxProvider(),
+  getCachedMiniMaxModelOptions: () =>
+    activeMiniMaxOverride
+      ? activeMiniMaxOverride.cachedModels
+      : realMiniMaxModels.getCachedMiniMaxModelOptions(),
+}))
+
+mock.module('./xiaomi-mimoModels.js', () => ({
+  ...realXiaomiModels,
+  isXiaomiMimoProvider: () =>
+    activeXiaomiOverride ? true : realXiaomiModels.isXiaomiMimoProvider(),
+  getCachedXiaomiMimoModelOptions: () =>
+    activeXiaomiOverride
+      ? activeXiaomiOverride.cachedModels
+      : realXiaomiModels.getCachedXiaomiMimoModelOptions(),
 }))
 
 mock.module('../settings/settings.js', () => ({
@@ -202,6 +229,8 @@ beforeEach(() => {
   activeApiProviderOverride = null
   activeNvidiaOverride = null
   activeSubscriberOverride = null
+  activeMiniMaxOverride = null
+  activeXiaomiOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   resetModelStringsForTestingOnly()
 })
@@ -216,6 +245,8 @@ afterEach(() => {
   activeApiProviderOverride = null
   activeNvidiaOverride = null
   activeSubscriberOverride = null
+  activeMiniMaxOverride = null
+  activeXiaomiOverride = null
   resetSettingsCache()
   resetModelStringsForTestingOnly()
 })
@@ -695,6 +726,81 @@ test('getModelOptionsBase: Claude subscriber branch appends inactive profile opt
         .map(o => o.switchToProfileId),
     ).toContain('profile_remote')
   })
+})
+
+test('getModelOptionsBase: MiniMax catalog branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeMiniMaxOverride = {
+    cachedModels: [
+      { value: 'MiniMax-M2.7', label: 'MiniMax-M2.7', description: 'MiniMax' },
+    ],
+  }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    const options = getModelOptions(false)
+    expect(options.some(o => o.value === 'MiniMax-M2.7')).toBe(true)
+    expect(
+      options
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: Xiaomi MiMo catalog branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeXiaomiOverride = {
+    cachedModels: [
+      { value: 'mimo-v2.5-pro', label: 'mimo-v2.5-pro', description: 'MiMo' },
+    ],
+  }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    const options = getModelOptions(false)
+    expect(options.some(o => o.value === 'mimo-v2.5-pro')).toBe(true)
+    expect(
+      options
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: ant branch appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  const prevUserType = process.env.USER_TYPE
+  process.env.USER_TYPE = 'ant'
+  try {
+    await withProfileEnvApplied(async () => {
+      const { getModelOptions } = await importFreshModelOptionsModule({
+        getProviderProfiles: () => [active, inactive],
+        getActiveProviderProfile: () => active,
+        getProfileModelOptions: profile => [
+          { value: profile.model, label: profile.model, description: profile.name },
+        ],
+      })
+      expect(
+        getModelOptions(false)
+          .filter(o => o.switchToProfileId !== undefined)
+          .map(o => o.switchToProfileId),
+      ).toContain('profile_remote')
+    })
+  } finally {
+    if (prevUserType === undefined) delete process.env.USER_TYPE
+    else process.env.USER_TYPE = prevUserType
+  }
 })
 
 test('getModelOptions: allowlist checks a non-switch custom id verbatim, not decoded', async () => {

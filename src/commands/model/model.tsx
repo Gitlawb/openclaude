@@ -72,6 +72,7 @@ import {
   getActiveOpenAIRouteModelOptionsCache,
   getActiveProviderProfile,
   getConfiguredProfileModelOptions,
+  getProviderProfiles,
   setActiveOpenAIRouteModelOptionsCache,
   setActiveOpenAIModelOptionsCache,
   setActiveProviderProfile,
@@ -643,7 +644,18 @@ function ModelPickerWrapper({
     // value carries the profile id; activate that profile first so subsequent
     // requests use the new OPENAI_BASE_URL / OPENAI_API_KEY, then drop down to
     // the regular model-switch path with the bare model string.
-    const switchTarget = parseSwitchProfileValue(model)
+    //
+    // Only treat the value as a switch when its decoded profile id maps to a
+    // real configured provider profile. Every synthesized switch option (built
+    // with a `switchToProfileId` marker) does; a custom model id that merely
+    // starts with the `__switch_profile__:` prefix does not, and must be applied
+    // as a literal model instead of activating a nonexistent profile.
+    const decodedSwitch = parseSwitchProfileValue(model)
+    const switchTarget =
+      decodedSwitch &&
+      getProviderProfiles().some(p => p.id === decodedSwitch.profileId)
+        ? decodedSwitch
+        : null
     if (switchTarget) {
       // Apply the org allowlist to the decoded target model, not the composite
       // value, so a permitted cross-profile model is not wrongly rejected.

@@ -11,7 +11,7 @@ import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getModelOptions, type ModelOption, parseSwitchProfileValue, SWITCH_PROFILE_VALUE_PREFIX } from '../utils/model/modelOptions.js';
+import { getModelOptions, type ModelOption, parseSwitchProfileValue } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -126,13 +126,11 @@ export function ModelPicker(t0) {
   // onSelect, which decodes the value and activates the target profile. Strip
   // them for inline pickers (allowProfileSwitch falsy) so a hotkey/Settings
   // selection never writes the raw `__switch_profile__:...` value as a model.
+  // Key on the `switchToProfileId` marker, not the raw value prefix, so a real
+  // custom model id that merely starts with `__switch_profile__:` is not hidden.
   const modelOptions = allowProfileSwitch
     ? modelOptionsBase
-    : modelOptionsBase.filter(
-        opt =>
-          typeof opt.value !== 'string' ||
-          !opt.value.startsWith(SWITCH_PROFILE_VALUE_PREFIX),
-      );
+    : modelOptionsBase.filter(opt => opt.switchToProfileId === undefined);
   let t4;
   bb0: {
     if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => optionMatchesPickerValue(opt, initial))) {
