@@ -42,6 +42,7 @@ export function redactUrlForDisplay(rawUrl: string): string {
       }
     }
 
+    parsed.hash = ''
     return parsed.toString()
   } catch {
     return rawUrl
@@ -50,5 +51,6 @@ export function redactUrlForDisplay(rawUrl: string): string {
         /([?&](?:token|access_token|refresh_token|api_key|apikey|key|password|passwd|pwd|auth|authorization|signature|sig|secret)=)[^&#]*/gi,
         '$1redacted',
       )
+      .replace(/#.*$/, '')
   }
 }

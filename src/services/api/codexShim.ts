@@ -81,6 +81,42 @@ type CodexSseEvent = {
   data: Record<string, any>
 }
 
+function createStreamAbortError(): DOMException {
+  return new DOMException('Aborted', 'AbortError')
+}
+
+function throwIfStreamAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createStreamAbortError()
+  }
+}
+
+function createReaderCanceller(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): {
+    cancel: (error?: unknown) => void
+    cleanup: () => void
+  } {
+  let cancelled = false
+  const cancel = (error: unknown = createStreamAbortError()) => {
+    if (cancelled) return
+    cancelled = true
+    void reader.cancel(error).catch(() => {})
+  }
+  const onAbort = () => cancel(createStreamAbortError())
+
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) {
+    onAbort()
+  }
+
+  return {
+    cancel,
+    cleanup: () => signal?.removeEventListener('abort', onAbort),
+  }
+}
+
 function makeUsage(usage?: Record<string, unknown>): AnthropicUsage {
   // Single source of truth for raw → Anthropic shape. Lives in
   // cacheMetrics.ts alongside the raw-shape extractor so any new
@@ -671,11 +707,13 @@ export async function performCodexRequest(options: {
 async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<CodexSseEvent> {
   const reader = response.body?.getReader()
   if (!reader) return
+  const readerCanceller = createReaderCanceller(reader, signal)
 
   const decoder = new TextDecoder()
   let buffer = ''
   const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data
   let lastDataTime = Date.now()
+  let streamComplete = false
 
   /**
    * Read from the stream with an idle timeout. Respects the caller's
@@ -684,72 +722,104 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
    */
   async function readWithTimeout(): Promise<Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>> {
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
+      let settled = false
+      let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-        reject(new Error(
+        cancelAndReject(new Error(
           `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
         ))
       }, STREAM_IDLE_TIMEOUT_MS)
 
-      let abortCleanup: (() => void) | undefined
-      if (signal) {
-        abortCleanup = () => {
+      const cleanup = () => {
+        if (timeoutId !== undefined) {
           clearTimeout(timeoutId)
+          timeoutId = undefined
         }
-        signal.addEventListener('abort', abortCleanup, { once: true })
+        signal?.removeEventListener('abort', onAbort)
+      }
+      const finishResolve = (
+        value: Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>,
+      ) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        if (value.value) lastDataTime = Date.now()
+        resolve(value)
+      }
+      const finishReject = (error: unknown) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+      const cancelAndReject = (error: unknown) => {
+        readerCanceller.cancel(error)
+        finishReject(error)
+      }
+      const onAbort = () => cancelAndReject(createStreamAbortError())
+
+      signal?.addEventListener('abort', onAbort, { once: true })
+      if (signal?.aborted) {
+        onAbort()
+        return
       }
 
       // reader is guarded non-null above; hoisted function escapes TS narrowing.
       reader!.read().then(
-        result => {
-          clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
-          if (result.value) lastDataTime = Date.now()
-          resolve(result)
-        },
-        err => {
-          clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
-          reject(err)
-        },
+        result => finishResolve(result),
+        err => finishReject(err),
       )
     })
   }
 
-  while (true) {
-    const { done, value } = await readWithTimeout()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const chunks = buffer.split('\n\n')
-    buffer = chunks.pop() ?? ''
-
-    for (const chunk of chunks) {
-      const lines = chunk
-        .split('\n')
-        .map(line => line.trim())
-        .filter(Boolean)
-      if (lines.length === 0) continue
-
-      const eventLine = lines.find(line => line.startsWith('event: '))
-      const dataLines = lines.filter(line => line.startsWith('data: '))
-      if (!eventLine || dataLines.length === 0) continue
-
-      const event = eventLine.slice(7).trim()
-      const rawData = dataLines.map(line => line.slice(6)).join('\n')
-      if (rawData === '[DONE]') continue
-
-      let data: Record<string, any>
-      try {
-        const parsed = JSON.parse(rawData)
-        if (!parsed || typeof parsed !== 'object') continue
-        data = parsed as Record<string, any>
-      } catch {
-        continue
+  try {
+    while (true) {
+      const { done, value } = await readWithTimeout()
+      if (done) {
+        streamComplete = true
+        break
       }
 
-      yield { event, data }
+      throwIfStreamAborted(signal)
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() ?? ''
+
+      for (const chunk of chunks) {
+        throwIfStreamAborted(signal)
+        const lines = chunk
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean)
+        if (lines.length === 0) continue
+
+        const eventLine = lines.find(line => line.startsWith('event: '))
+        const dataLines = lines.filter(line => line.startsWith('data: '))
+        if (!eventLine || dataLines.length === 0) continue
+
+        const event = eventLine.slice(7).trim()
+        const rawData = dataLines.map(line => line.slice(6)).join('\n')
+        if (rawData === '[DONE]') continue
+
+        let data: Record<string, any>
+        try {
+          const parsed = JSON.parse(rawData)
+          if (!parsed || typeof parsed !== 'object') continue
+          data = parsed as Record<string, any>
+        } catch {
+          continue
+        }
+
+        throwIfStreamAborted(signal)
+        yield { event, data }
+      }
     }
+  } finally {
+    if (!streamComplete || signal?.aborted) {
+      readerCanceller.cancel(createStreamAbortError())
+    }
+    readerCanceller.cleanup()
+    reader.releaseLock()
   }
 }
 
@@ -823,11 +893,17 @@ export async function* codexStreamToAnthropic(
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
+  let streamComplete = false
+  const cancelResponseBody = () => {
+    void response.body?.cancel(createStreamAbortError()).catch(() => {})
+  }
+  signal?.addEventListener('abort', cancelResponseBody, { once: true })
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
     const tail = thinkFilter.flush()
     if (tail) {
+      throwIfStreamAborted(signal)
       yield {
         type: 'content_block_delta',
         index: activeTextBlockIndex,
@@ -837,6 +913,7 @@ export async function* codexStreamToAnthropic(
         },
       }
     }
+    throwIfStreamAborted(signal)
     yield {
       type: 'content_block_stop',
       index: activeTextBlockIndex,
@@ -847,6 +924,7 @@ export async function* codexStreamToAnthropic(
   const startTextBlockIfNeeded = async function* () {
     if (activeTextBlockIndex !== null) return
     activeTextBlockIndex = nextContentBlockIndex++
+    throwIfStreamAborted(signal)
     yield {
       type: 'content_block_start',
       index: activeTextBlockIndex,
@@ -854,205 +932,229 @@ export async function* codexStreamToAnthropic(
     }
   }
 
-  yield {
-    type: 'message_start',
-    message: {
-      id: messageId,
-      type: 'message',
-      role: 'assistant',
-      content: [],
-      model,
-      stop_reason: null,
-      stop_sequence: null,
-      usage: makeUsage(),
-    },
-  }
+  try {
+    throwIfStreamAborted(signal)
 
-  for await (const event of readSseEvents(response, signal)) {
-    const payload = event.data
-
-    if (event.event === 'response.output_item.added') {
-      const item = payload.item
-      if (item?.type === 'function_call') {
-        yield* closeActiveTextBlock()
-        const blockIndex = nextContentBlockIndex++
-        const toolUseId = item.call_id ?? item.id ?? `call_${blockIndex}`
-        const initialArgs =
-          typeof item.arguments === 'string' ? item.arguments : ''
-        toolBlocksByItemId.set(String(item.id ?? toolUseId), {
-          index: blockIndex,
-          toolUseId,
-          emittedArgs: initialArgs,
-        })
-        sawToolUse = true
-
-        yield {
-          type: 'content_block_start',
-          index: blockIndex,
-          content_block: {
-            type: 'tool_use',
-            id: toolUseId,
-            name: item.name ?? 'tool',
-            input: {},
-          },
-        }
-
-        if (initialArgs) {
-          yield {
-            type: 'content_block_delta',
-            index: blockIndex,
-            delta: {
-              type: 'input_json_delta',
-              partial_json: initialArgs,
-            },
-          }
-        }
-      }
-      continue
+    yield {
+      type: 'message_start',
+      message: {
+        id: messageId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: makeUsage(),
+      },
     }
 
-    if (event.event === 'response.content_part.added') {
-      if (payload.part?.type === 'output_text') {
-        yield* startTextBlockIfNeeded()
-      }
-      continue
-    }
+    for await (const event of readSseEvents(response, signal)) {
+      throwIfStreamAborted(signal)
+      const payload = event.data
 
-    if (event.event === 'response.output_text.delta') {
-      yield* startTextBlockIfNeeded()
-      if (activeTextBlockIndex !== null) {
-        const visible = thinkFilter.feed(payload.delta ?? '')
-        if (visible) {
-          yield {
-            type: 'content_block_delta',
-            index: activeTextBlockIndex,
-            delta: {
-              type: 'text_delta',
-              text: visible,
-            },
-          }
-        }
-      }
-      continue
-    }
-
-    if (event.event === 'response.function_call_arguments.delta') {
-      const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
-      if (toolBlock) {
-        const delta = typeof payload.delta === 'string' ? payload.delta : ''
-        if (delta) {
-          toolBlock.emittedArgs += delta
-          yield {
-            type: 'content_block_delta',
-            index: toolBlock.index,
-            delta: {
-              type: 'input_json_delta',
-              partial_json: delta,
-            },
-          }
-        }
-      }
-      continue
-    }
-
-    // Some Codex Responses backends (codexspark / gpt-5.3-codex-spark) deliver
-    // the *complete* function-call arguments only via the terminal
-    // `response.function_call_arguments.done` event, with zero
-    // `response.function_call_arguments.delta` events in between. Without
-    // handling `done`, the tool block closed with `input: {}` and downstream
-    // tool validation failed with "required parameter X is missing" (#1259).
-    if (event.event === 'response.function_call_arguments.done') {
-      const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
-      if (toolBlock) {
-        const fullArgs =
-          typeof payload.arguments === 'string' ? payload.arguments : ''
-        if (fullArgs && !toolBlock.emittedArgs) {
-          toolBlock.emittedArgs = fullArgs
-          yield {
-            type: 'content_block_delta',
-            index: toolBlock.index,
-            delta: {
-              type: 'input_json_delta',
-              partial_json: fullArgs,
-            },
-          }
-        }
-      }
-      continue
-    }
-
-    if (event.event === 'response.output_item.done') {
-      const item = payload.item
-      if (item?.type === 'function_call') {
-        const toolBlock = toolBlocksByItemId.get(String(item.id ?? ''))
-        if (toolBlock) {
-          // Backstop for backends that skip the dedicated `function_call_arguments.done`
-          // event entirely and only put the full arguments on `output_item.done`.
-          // Same #1259 failure mode; trust whichever channel actually carried the data.
-          const finalArgs =
+      if (event.event === 'response.output_item.added') {
+        const item = payload.item
+        if (item?.type === 'function_call') {
+          yield* closeActiveTextBlock()
+          throwIfStreamAborted(signal)
+          const blockIndex = nextContentBlockIndex++
+          const toolUseId = item.call_id ?? item.id ?? `call_${blockIndex}`
+          const initialArgs =
             typeof item.arguments === 'string' ? item.arguments : ''
-          if (finalArgs && !toolBlock.emittedArgs) {
-            toolBlock.emittedArgs = finalArgs
+          toolBlocksByItemId.set(String(item.id ?? toolUseId), {
+            index: blockIndex,
+            toolUseId,
+            emittedArgs: initialArgs,
+          })
+          sawToolUse = true
+
+          throwIfStreamAborted(signal)
+          yield {
+            type: 'content_block_start',
+            index: blockIndex,
+            content_block: {
+              type: 'tool_use',
+              id: toolUseId,
+              name: item.name ?? 'tool',
+              input: {},
+            },
+          }
+
+          if (initialArgs) {
+            throwIfStreamAborted(signal)
+            yield {
+              type: 'content_block_delta',
+              index: blockIndex,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: initialArgs,
+              },
+            }
+          }
+        }
+        continue
+      }
+
+      if (event.event === 'response.content_part.added') {
+        if (payload.part?.type === 'output_text') {
+          yield* startTextBlockIfNeeded()
+        }
+        continue
+      }
+
+      if (event.event === 'response.output_text.delta') {
+        yield* startTextBlockIfNeeded()
+        if (activeTextBlockIndex !== null) {
+          throwIfStreamAborted(signal)
+          const visible = thinkFilter.feed(payload.delta ?? '')
+          if (visible) {
+            throwIfStreamAborted(signal)
+            yield {
+              type: 'content_block_delta',
+              index: activeTextBlockIndex,
+              delta: {
+                type: 'text_delta',
+                text: visible,
+              },
+            }
+          }
+        }
+        continue
+      }
+
+      if (event.event === 'response.function_call_arguments.delta') {
+        const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
+        if (toolBlock) {
+          const delta = typeof payload.delta === 'string' ? payload.delta : ''
+          if (delta) {
+            toolBlock.emittedArgs += delta
+            throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
               index: toolBlock.index,
               delta: {
                 type: 'input_json_delta',
-                partial_json: finalArgs,
+                partial_json: delta,
               },
             }
           }
-          yield {
-            type: 'content_block_stop',
-            index: toolBlock.index,
-          }
-          toolBlocksByItemId.delete(String(item.id))
         }
-      } else if (item?.type === 'message') {
-        yield* closeActiveTextBlock()
+        continue
       }
-      continue
+
+      // Some Codex Responses backends (codexspark / gpt-5.3-codex-spark) deliver
+      // the *complete* function-call arguments only via the terminal
+      // `response.function_call_arguments.done` event, with zero
+      // `response.function_call_arguments.delta` events in between. Without
+      // handling `done`, the tool block closed with `input: {}` and downstream
+      // tool validation failed with "required parameter X is missing" (#1259).
+      if (event.event === 'response.function_call_arguments.done') {
+        const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
+        if (toolBlock) {
+          const fullArgs =
+            typeof payload.arguments === 'string' ? payload.arguments : ''
+          if (fullArgs && !toolBlock.emittedArgs) {
+            toolBlock.emittedArgs = fullArgs
+            throwIfStreamAborted(signal)
+            yield {
+              type: 'content_block_delta',
+              index: toolBlock.index,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: fullArgs,
+              },
+            }
+          }
+        }
+        continue
+      }
+
+      if (event.event === 'response.output_item.done') {
+        const item = payload.item
+        if (item?.type === 'function_call') {
+          const toolBlock = toolBlocksByItemId.get(String(item.id ?? ''))
+          if (toolBlock) {
+            // Backstop for backends that skip the dedicated `function_call_arguments.done`
+            // event entirely and only put the full arguments on `output_item.done`.
+            // Same #1259 failure mode; trust whichever channel actually carried the data.
+            const finalArgs =
+              typeof item.arguments === 'string' ? item.arguments : ''
+            if (finalArgs && !toolBlock.emittedArgs) {
+              toolBlock.emittedArgs = finalArgs
+              throwIfStreamAborted(signal)
+              yield {
+                type: 'content_block_delta',
+                index: toolBlock.index,
+                delta: {
+                  type: 'input_json_delta',
+                  partial_json: finalArgs,
+                },
+              }
+            }
+            throwIfStreamAborted(signal)
+            yield {
+              type: 'content_block_stop',
+              index: toolBlock.index,
+            }
+            toolBlocksByItemId.delete(String(item.id))
+          }
+        } else if (item?.type === 'message') {
+          yield* closeActiveTextBlock()
+        }
+        continue
+      }
+
+      if (
+        event.event === 'response.completed' ||
+        event.event === 'response.incomplete'
+      ) {
+        finalResponse = payload.response
+        break
+      }
+
+      if (event.event === 'response.failed') {
+        const msg = payload?.response?.error?.message ??
+          payload?.error?.message ?? 'Codex response failed'
+        throw APIError.generate(500, undefined, msg, new Headers())
+      }
     }
 
-    if (
-      event.event === 'response.completed' ||
-      event.event === 'response.incomplete'
-    ) {
-      finalResponse = payload.response
-      break
+    throwIfStreamAborted(signal)
+    yield* closeActiveTextBlock()
+    for (const toolBlock of toolBlocksByItemId.values()) {
+      throwIfStreamAborted(signal)
+      yield {
+        type: 'content_block_stop',
+        index: toolBlock.index,
+      }
     }
 
-    if (event.event === 'response.failed') {
-      const msg = payload?.response?.error?.message ??
-        payload?.error?.message ?? 'Codex response failed'
-      throw APIError.generate(500, undefined, msg, new Headers())
-    }
-  }
-
-  yield* closeActiveTextBlock()
-  for (const toolBlock of toolBlocksByItemId.values()) {
+    throwIfStreamAborted(signal)
     yield {
-      type: 'content_block_stop',
-      index: toolBlock.index,
+      type: 'message_delta',
+      delta: {
+        stop_reason: determineStopReason(finalResponse, sawToolUse),
+        stop_sequence: null,
+      },
+      // Delegate to the shared normalizer so the streaming message_delta
+      // path uses the same raw→Anthropic conversion as makeUsage() above
+      // and the non-streaming response converter below. Previously this
+      // block had its own inline subtraction that missed Kimi / DeepSeek
+      // / Gemini raw shapes that the shared helper handles.
+      usage: makeUsage(
+        finalResponse?.usage as Record<string, unknown> | undefined,
+      ),
     }
+    throwIfStreamAborted(signal)
+    yield { type: 'message_stop' }
+    streamComplete = true
+  } finally {
+    if (!streamComplete || signal?.aborted) {
+      cancelResponseBody()
+    }
+    signal?.removeEventListener('abort', cancelResponseBody)
   }
-
-  yield {
-    type: 'message_delta',
-    delta: {
-      stop_reason: determineStopReason(finalResponse, sawToolUse),
-      stop_sequence: null,
-    },
-    // Delegate to the shared normalizer so the streaming message_delta
-    // path uses the same raw→Anthropic conversion as makeUsage() above
-    // and the non-streaming response converter below. Previously this
-    // block had its own inline subtraction that missed Kimi / DeepSeek
-    // / Gemini raw shapes that the shared helper handles.
-    usage: makeUsage(
-      finalResponse?.usage as Record<string, unknown> | undefined,
-    ),
-  }
-  yield { type: 'message_stop' }
 }
 
 export function convertCodexResponseToAnthropicMessage(

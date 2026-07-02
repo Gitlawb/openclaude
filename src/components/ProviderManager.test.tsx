@@ -116,6 +116,7 @@ const PRESET_ORDER = [
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
+  'ClinePass',
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
@@ -140,6 +141,7 @@ const PRESET_ORDER = [
   'Venice',
   'xAI',
   'Xiaomi MiMo',
+  'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
   'Custom',
 ] as const
@@ -251,7 +253,7 @@ function mockProviderProfilesModule(options?: {
           provider: 'hicap',
           name: 'Hicap',
           baseUrl: 'https://api.hicap.ai/v1',
-          model: 'claude-opus-4.7',
+          model: 'claude-opus-4.8',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -1000,7 +1002,7 @@ test('ProviderManager saves Hicap preset non-GPT model with Chat Completions', a
     )
 
     expect(modelOutput).toContain('Hicap')
-    expect(modelOutput).toContain('claude-opus-4.7')
+    expect(modelOutput).toContain('claude-opus-4.8')
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
@@ -1014,7 +1016,7 @@ test('ProviderManager saves Hicap preset non-GPT model with Chat Completions', a
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'hicap',
-        model: 'claude-opus-4.7',
+        model: 'claude-opus-4.8',
         apiFormat: 'chat_completions',
       }),
       expect.objectContaining({ makeActive: true }),

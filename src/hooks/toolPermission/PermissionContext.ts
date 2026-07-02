@@ -203,7 +203,7 @@ function createPermissionContext(
         logForDebugging(
           `Aborting: tool=${tool.name} isAbort=${isAbort} hasFeedback=${!!feedback} isSubagent=${sub}`,
         )
-        toolUseContext.abortController.abort()
+        toolUseContext.abortController.abort('interrupt')
       }
       return { behavior: 'ask', message, contentBlocks }
     },
@@ -282,7 +282,7 @@ function createPermissionContext(
               logForDebugging(
                 `Hook interrupt: tool=${tool.name} hookMessage=${decision.message}`,
               )
-              toolUseContext.abortController.abort()
+              toolUseContext.abortController.abort('interrupt')
             }
             return this.buildDeny(
               decision.message || 'Permission denied by hook',

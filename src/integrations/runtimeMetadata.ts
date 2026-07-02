@@ -25,12 +25,25 @@ import {
   type RouteDescriptor,
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
+import { firstUsableCredential } from '../services/api/credentialPool.js'
 
 function normalizeModelApiName(
   value: string | undefined,
 ): string | null {
-  const trimmed = value?.trim().toLowerCase()
-  return trimmed ? trimmed : null
+  const baseModel = getBaseModelApiName(value)
+  return baseModel ? baseModel.toLowerCase() : null
+}
+
+function getBaseModelApiName(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const queryIndex = trimmed.indexOf('?')
+  const baseModel =
+    queryIndex === -1 ? trimmed : trimmed.slice(0, queryIndex).trim()
+  return baseModel || null
 }
 
 function matchesCatalogEntryModel(
@@ -39,6 +52,14 @@ function matchesCatalogEntryModel(
   modelApiName: string,
 ): boolean {
   if (entry.apiName.trim().toLowerCase() === modelApiName) {
+    return true
+  }
+
+  if (
+    (entry.aliases ?? []).some(
+      alias => normalizeModelApiName(alias) === modelApiName,
+    )
+  ) {
     return true
   }
 
@@ -207,6 +228,7 @@ export function resolveOpenAIShimRuntimeContext(options?: {
   model?: string
   activeProfileProvider?: string
   treatAsLocal?: boolean
+  preferBaseUrlRoute?: boolean
 }): OpenAIShimRuntimeContext {
   const processEnv = options?.processEnv ?? process.env
   const runtimeEnv: NodeJS.ProcessEnv = {
@@ -223,13 +245,16 @@ export function resolveOpenAIShimRuntimeContext(options?: {
 
   const activeRouteId = resolveActiveRouteIdFromEnv(runtimeEnv, {
     activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
   const baseUrlRouteId = resolveRouteIdFromBaseUrl(options?.baseUrl)
   const routeId =
-    baseUrlRouteId &&
-    (!activeRouteId || activeRouteId === 'anthropic' || activeRouteId === 'openai')
+    options?.preferBaseUrlRoute && options.baseUrl !== undefined
       ? baseUrlRouteId
-      : activeRouteId
+      : baseUrlRouteId &&
+        (!activeRouteId || activeRouteId === 'anthropic' || activeRouteId === 'openai')
+        ? baseUrlRouteId
+        : activeRouteId
   const descriptor =
     routeId && routeId !== 'anthropic'
       ? getRouteDescriptor(routeId)
@@ -265,27 +290,49 @@ function getModelDescriptorForCatalogEntry(entry: ModelCatalogEntry | null) {
   return getModel(entry.modelDescriptorId) ?? null
 }
 
+function getProviderScopedModelSegments(modelApiName: string): string[] {
+  const segments = modelApiName
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean)
+  const suffixes = segments
+    .slice(1)
+    .map((_, index) => segments.slice(index + 1).join('/'))
+  const accountQualifiedSuffixes = suffixes
+    .filter(suffix => /^[^/]+\/models\//.test(suffix))
+    .map(suffix => `accounts/${suffix}`)
+
+  return [...suffixes, ...accountQualifiedSuffixes]
+}
+
 function findModelDescriptorForApiName(
   routeId: string | null,
   modelApiName: string | undefined,
 ) {
-  const trimmedModel = modelApiName?.trim()
+  const trimmedModel = getBaseModelApiName(modelApiName)
   if (!trimmedModel) {
     return null
   }
   const normalizedModel = trimmedModel.toLowerCase()
+  const providerScopedSegments = getProviderScopedModelSegments(trimmedModel)
+  const normalizedProviderScopedSegments = getProviderScopedModelSegments(
+    normalizedModel,
+  )
 
   ensureIntegrationsLoaded()
   const models = getAllModels()
     .map(model => {
+      const providerModelMap = model.providerModelMap
       const routeMappedModel = routeId
-        ? model.providerModelMap?.[routeId]
+        ? providerModelMap?.[routeId]
         : undefined
+      const hasProviderModelMap =
+        providerModelMap && Object.keys(providerModelMap).length > 0
       return {
         model,
         names: [
           model.id,
-          model.defaultModel,
+          hasProviderModelMap ? routeMappedModel : model.defaultModel,
           routeMappedModel,
         ].filter((value): value is string => Boolean(value?.trim())),
       }
@@ -309,12 +356,19 @@ function findModelDescriptorForApiName(
   }
 
   for (const candidate of models) {
+    if (candidate.names.some(name => providerScopedSegments.includes(name.trim()))) {
+      return candidate.model
+    }
+  }
+
+  for (const candidate of models) {
     if (
       candidate.names.some(name => {
         const normalizedName = name.trim().toLowerCase()
         return (
           normalizedModel === normalizedName ||
-          normalizedModel.startsWith(normalizedName)
+          normalizedModel.startsWith(normalizedName) ||
+          normalizedProviderScopedSegments.includes(normalizedName)
         )
       })
     ) {
@@ -354,11 +408,13 @@ function findCachedCatalogEntryForApiName(
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
-    apiKey: resolveRouteCredentialValue({
-      routeId,
-      baseUrl,
-      processEnv: runtimeEnv,
-    }),
+    apiKey: firstUsableCredential(
+      resolveRouteCredentialValue({
+        routeId,
+        baseUrl,
+        processEnv: runtimeEnv,
+      }),
+    ),
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
@@ -383,24 +439,26 @@ export function resolveModelRuntimeLimits(options: {
   }
 
   const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
-    activeProfileProvider: options.activeProfileProvider,
+    activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
-  const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
+  const modelApiName = getBaseModelApiName(options.model) ?? options.model
+  const catalogEntry = findCatalogEntryForApiName(routeId, modelApiName)
   const cachedCatalogEntry = findCachedCatalogEntryForApiName(
     routeId,
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
     getModelDescriptorForCatalogEntry(cachedCatalogEntry) ??
-    findModelDescriptorForApiName(routeId, options.model)
+    findModelDescriptorForApiName(routeId, modelApiName)
   const externalContextWindow = getOpenAIContextWindowMatches(
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
   const externalMaxOutputTokens = getOpenAIMaxOutputTokenMatches(
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
 

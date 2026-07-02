@@ -110,7 +110,7 @@ export function renderToScreen(
   // renderNodeToOutput queues writes into Output; .get() flushes the
   // queue into the Screen's cell arrays. Without this the screen is
   // blank (constructor-zero).
-  const rendered = output.get()
+  const rendered = output.get({ suppressHighWriteRatioDiagnostics: true })
   const t3 = performance.now()
 
   // Unmount so next call gets a fresh tree. Leaves root/container/pools.

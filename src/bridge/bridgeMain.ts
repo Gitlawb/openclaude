@@ -51,6 +51,7 @@ import {
   buildCCRv2SdkUrl,
   buildSdkUrl,
   decodeWorkSecret,
+  isInsecureHttpBaseUrl,
   registerWorker,
   sameSessionId,
 } from './workSecret.js'
@@ -2178,11 +2179,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
   const baseUrl = getBridgeBaseUrl()
 
   // For non-localhost targets, require HTTPS to protect credentials.
-  if (
-    baseUrl.startsWith('http://') &&
-    !baseUrl.includes('localhost') &&
-    !baseUrl.includes('127.0.0.1')
-  ) {
+  if (isInsecureHttpBaseUrl(baseUrl)) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(
       'Error: Remote Control base URL uses HTTP. Only HTTPS or localhost HTTP is allowed.',
@@ -2836,11 +2833,7 @@ export async function runBridgeHeadless(
 
   const { getBridgeBaseUrl } = await import('./bridgeConfig.js')
   const baseUrl = getBridgeBaseUrl()
-  if (
-    baseUrl.startsWith('http://') &&
-    !baseUrl.includes('localhost') &&
-    !baseUrl.includes('127.0.0.1')
-  ) {
+  if (isInsecureHttpBaseUrl(baseUrl)) {
     throw new BridgeHeadlessPermanentError(
       'Remote Control base URL uses HTTP. Only HTTPS or localhost HTTP is allowed.',
     )

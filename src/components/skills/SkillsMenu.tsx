@@ -7,6 +7,7 @@ import { Box, Text } from '../../ink.js';
 import { estimateSkillFrontmatterTokens, getSkillsPath } from '../../skills/loadSkillsDir.js';
 import { getDisplayPath } from '../../utils/file.js';
 import { formatTokens } from '../../utils/format.js';
+import { getUserSkillExampleDisplayPath } from '../../utils/openclaudeDisplayPaths.js';
 import { getSettingSourceName, type SettingSource } from '../../utils/settings/constants.js';
 import { plural } from '../../utils/stringUtils.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
@@ -48,6 +49,9 @@ function getSourceSubtitle(source: SkillSource, skills: SkillCommand[]): string 
 function getSkillListLabel(skill: SkillCommand): string {
   const leafName = skill.name.split(':').pop() ?? skill.name;
   return leafName === skill.name ? skill.name : `${skill.name} - ${leafName}`;
+}
+export function getEmptySkillsMenuMessage(): string {
+  return `Create skills in .claude/skills/<name>/SKILL.md or ${getUserSkillExampleDisplayPath()}`;
 }
 export function SkillsMenu(t0) {
   const $ = _c(35);
@@ -106,7 +110,7 @@ export function SkillsMenu(t0) {
   if (skills.length === 0) {
     let t3;
     if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <FullWidthRow><Text dimColor={true}>Create skills in .claude/skills/&lt;name&gt;/SKILL.md or ~/.openclaude/skills/&lt;name&gt;/SKILL.md</Text></FullWidthRow>;
+      t3 = <FullWidthRow><Text dimColor={true}>{getEmptySkillsMenuMessage()}</Text></FullWidthRow>;
       $[6] = t3;
     } else {
       t3 = $[6];

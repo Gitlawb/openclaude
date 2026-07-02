@@ -4,6 +4,7 @@ import {
   createAssistantMessage,
   createUserMessage,
   ensureToolResultPairing,
+  selectToolPairSafeMessageRange,
   validateToolResultPairing,
 } from './messages.js'
 
@@ -171,4 +172,188 @@ test('ensureToolResultPairing keeps repairing legacy mismatches', () => {
     tool_use_id: 'toolu_missing',
     is_error: true,
   })
+})
+
+test('selectToolPairSafeMessageRange expands a tool_result start boundary backward', () => {
+  const preamble = createUserMessage({ content: 'older context' })
+  const assistant = assistantWithToolUses('toolu_window_start')
+  const result = userWithToolResults('toolu_window_start')
+  const tail = createUserMessage({ content: 'current request' })
+
+  const selected = selectToolPairSafeMessageRange(
+    [preamble, assistant, result, tail],
+    2,
+    4,
+    { projectionName: 'away_summary', querySource: 'away_summary' },
+  )
+
+  expect(selected.start).toBe(1)
+  expect(selected.end).toBe(4)
+  expect(selected.messages).toEqual([assistant, result, tail])
+  expect(selected.diagnostics.requestedStartedWithToolResult).toBe(true)
+  expect(selected.diagnostics.issueKinds).toContain('orphaned_tool_result')
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange expands an assistant tool_use end boundary forward', () => {
+  const head = createUserMessage({ content: 'older context' })
+  const assistant = assistantWithToolUses('toolu_window_end')
+  const result = userWithToolResults('toolu_window_end')
+  const tail = createUserMessage({ content: 'current request' })
+
+  const selected = selectToolPairSafeMessageRange(
+    [head, assistant, result, tail],
+    0,
+    2,
+    { projectionName: 'partial_compact', querySource: 'compact' },
+  )
+
+  expect(selected.start).toBe(0)
+  expect(selected.end).toBe(3)
+  expect(selected.messages).toEqual([head, assistant, result])
+  expect(selected.diagnostics.issueKinds).toContain('missing_tool_result')
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange keeps multi-tool assistant messages with their results', () => {
+  const assistant = assistantWithToolUses('toolu_multi_a', 'toolu_multi_b')
+  const result = userWithToolResults('toolu_multi_a', 'toolu_multi_b')
+  const tail = createUserMessage({ content: 'current request' })
+
+  const selected = selectToolPairSafeMessageRange(
+    [assistant, result, tail],
+    0,
+    1,
+    { projectionName: 'summary_window', querySource: 'away_summary' },
+  )
+
+  expect(selected.messages).toEqual([assistant, result])
+  expect(selected.diagnostics.issueKinds).toContain('missing_tool_result')
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange diagnostics omit raw message content', () => {
+  const assistant = assistantWithToolUses('toolu_secret')
+  const result = userWithToolResults('toolu_secret')
+
+  const selected = selectToolPairSafeMessageRange([assistant, result], 1, 2, {
+    projectionName: 'away_summary',
+    querySource: 'away_summary',
+  })
+
+  expect(selected.diagnostics.projectionName).toBe('away_summary')
+  expect(selected.diagnostics.querySource).toBe('away_summary')
+  expect(selected.diagnostics.requestedRange).toEqual({ start: 1, end: 2 })
+  expect(selected.diagnostics.adjustedRange).toEqual({ start: 0, end: 2 })
+  expect(JSON.stringify(selected.diagnostics)).not.toContain('result for')
+})
+
+test('selectToolPairSafeMessageRange does not re-expand across a dropped orphaned tool_result', () => {
+  const earlierAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'thinking', citations: [] }],
+  })
+  const laterAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'continuing', citations: [] }],
+  })
+  laterAssistantPart.message.id = earlierAssistantPart.message.id
+  const orphanedResult = userWithToolResults('toolu_unavailable')
+  const tail = createUserMessage({ content: 'current request' })
+
+  const selected = selectToolPairSafeMessageRange(
+    [earlierAssistantPart, orphanedResult, laterAssistantPart, tail],
+    1,
+    4,
+    { projectionName: 'away_summary', querySource: 'away_summary' },
+  )
+
+  expect(selected.start).toBe(3)
+  expect(selected.messages).toEqual([tail])
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange still expands available results when pending tool uses are allowed', () => {
+  const head = createUserMessage({ content: 'older context' })
+  const assistant = assistantWithToolUses('toolu_pending_allowed')
+  const result = userWithToolResults('toolu_pending_allowed')
+
+  const selected = selectToolPairSafeMessageRange([head, assistant, result], 0, 2, {
+    projectionName: 'live_turn',
+    querySource: 'repl_main_thread',
+    allowPendingToolUse: true,
+  })
+
+  expect(selected.messages).toEqual([head, assistant, result])
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange does not treat out-of-range results as pending tool uses', () => {
+  const head = createUserMessage({ content: 'older context' })
+  const assistant = assistantWithToolUses('toolu_not_pending')
+  const filler = createUserMessage({ content: 'filler' })
+  const result = userWithToolResults('toolu_not_pending')
+
+  const selected = selectToolPairSafeMessageRange(
+    [head, assistant, filler, result],
+    0,
+    2,
+    {
+      projectionName: 'live_turn',
+      querySource: 'repl_main_thread',
+      allowPendingToolUse: true,
+      maxExtraMessages: 0,
+    },
+  )
+
+  expect(selected.messages).toEqual([head])
+  expect(validateToolResultPairing(selected.messages).valid).toBe(true)
+})
+
+test('selectToolPairSafeMessageRange drops a partial assistant group when the earlier sibling is outside the expansion budget', () => {
+  const earlierAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'thinking', citations: [] }],
+  })
+  const filler = createUserMessage({ content: 'filler' })
+  const laterAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'continuing', citations: [] }],
+  })
+  laterAssistantPart.message.id = earlierAssistantPart.message.id
+  const tail = createUserMessage({ content: 'current request' })
+
+  const selected = selectToolPairSafeMessageRange(
+    [earlierAssistantPart, filler, laterAssistantPart, tail],
+    2,
+    4,
+    {
+      projectionName: 'away_summary',
+      querySource: 'away_summary',
+      maxExtraMessages: 0,
+    },
+  )
+
+  expect(selected.messages).toEqual([tail])
+})
+
+test('selectToolPairSafeMessageRange drops a partial assistant group when the later sibling is outside the expansion budget', () => {
+  const head = createUserMessage({ content: 'older context' })
+  const earlierAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'thinking', citations: [] }],
+  })
+  const filler = createUserMessage({ content: 'filler' })
+  const laterAssistantPart = createAssistantMessage({
+    content: [{ type: 'text', text: 'continuing', citations: [] }],
+  })
+  laterAssistantPart.message.id = earlierAssistantPart.message.id
+
+  const selected = selectToolPairSafeMessageRange(
+    [head, earlierAssistantPart, filler, laterAssistantPart],
+    0,
+    2,
+    {
+      projectionName: 'partial_compact',
+      querySource: 'compact',
+      maxExtraMessages: 0,
+    },
+  )
+
+  expect(selected.messages).toEqual([head])
 })

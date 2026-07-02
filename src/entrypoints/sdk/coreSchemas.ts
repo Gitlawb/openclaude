@@ -1141,12 +1141,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .array(z.string())
         .optional()
         .describe(
-          'Array of allowed tool names. If omitted, inherits all tools from parent',
+          'Array of allowed tool names. If omitted or set to ["*"], inherits all tools from parent before disallowedTools is applied',
         ),
       disallowedTools: z
         .array(z.string())
         .optional()
-        .describe('Array of tool names to explicitly disallow for this agent'),
+        .describe(
+          'Array of tool names to explicitly disallow for this agent. Deny entries always override tools entries',
+        ),
       prompt: z.string().describe("The agent's system prompt"),
       model: z
         .string()
@@ -1176,6 +1178,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .optional()
         .describe(
           'Maximum number of agentic turns (API round-trips) before stopping',
+        ),
+      maxSteps: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Maximum number of subagent tool-use steps before forcing a concise final summary',
         ),
       background: z
         .boolean()
@@ -1770,6 +1780,43 @@ export const SDKSessionStateChangedMessageSchema = lazySchema(() =>
     ),
 )
 
+export const SDKHeartbeatMessageSchema = lazySchema(() =>
+  z
+    .object({
+      type: z.literal('system'),
+      subtype: z.literal('heartbeat'),
+      timestamp: z.string(),
+      elapsed_ms: z.number().int().nonnegative(),
+      since_last_activity_ms: z.number().int().nonnegative(),
+      state: z.enum([
+        'starting',
+        'running',
+        'requires_action',
+        'idle',
+        'shutting_down',
+      ]),
+      phase: z.enum([
+        'startup',
+        'loading_session',
+        'connecting_mcp',
+        'draining_commands',
+        'in_turn',
+        'waiting_for_permission',
+        'waiting_for_agents',
+        'flushing',
+        'shutting_down',
+      ]),
+      heartbeat_index: z.number().int().positive(),
+      pending_permission_requests: z.number().int().nonnegative(),
+      background_tasks: z.record(z.string(), z.number().int().positive()),
+      uuid: UUIDPlaceholder(),
+      session_id: z.string(),
+    })
+    .describe(
+      'Opt-in headless liveness signal emitted while --print output is quiet.',
+    ),
+)
+
 
 export const SDKTaskProgressMessageSchema = lazySchema(() =>
   z.object({
@@ -1908,6 +1955,7 @@ export const SDKMessageSchema = lazySchema(() =>
     SDKTaskStartedMessageSchema(),
     SDKTaskProgressMessageSchema(),
     SDKSessionStateChangedMessageSchema(),
+    SDKHeartbeatMessageSchema(),
     SDKFilesPersistedEventSchema(),
     SDKToolUseSummaryMessageSchema(),
     SDKRateLimitEventSchema(),

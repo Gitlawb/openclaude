@@ -140,6 +140,53 @@ export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_MODEL=llama3.3:70b
 ```
 
+#### Ollama Context Length
+
+OpenClaude sends the current conversation history to Ollama on each turn and
+uses Ollama's native chat API for Ollama endpoints. Native chat lets OpenClaude
+send `options.num_ctx` with each request, so Ollama receives a 32768-token
+context window by default instead of falling back to the smaller context often
+used by Ollama's OpenAI-compatible `/v1/chat/completions` shim.
+
+To choose a different request-level context size, set
+`OPENCLAUDE_OLLAMA_NUM_CTX` before launching OpenClaude:
+
+```bash
+export OPENCLAUDE_OLLAMA_NUM_CTX=65536
+```
+
+You can also start Ollama with a global context length:
+
+macOS / Linux:
+
+```bash
+# Stop any existing Ollama app/server first, then run:
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+```
+
+Windows PowerShell:
+
+```powershell
+# Quit any existing Ollama app/server first, then run:
+$env:OLLAMA_CONTEXT_LENGTH="32768"
+ollama serve
+```
+
+After a chat request, verify the loaded model is using the requested context:
+
+```bash
+ollama ps
+```
+
+Check the `CONTEXT` column. If it still shows a small value such as `4K` after a
+new OpenClaude request, stop the existing Ollama app/server, start it again, and
+retry the request.
+
+Use a concrete recall test after changing the setting, such as asking the model
+to repeat the first topic from the current chat. Questions like "do you remember our
+conversation?" can trigger generic local-model disclaimers even when history is
+present.
+
 ### Atomic Chat (local, Apple Silicon)
 
 ```bash
@@ -197,7 +244,7 @@ export OPENAI_MODEL=gpt-5.4
 openclaude
 ```
 
-OpenCode Zen is a pay-as-you-go AI gateway with 43 models (GPT, Claude, Gemini,
+OpenCode Zen is a pay-as-you-go AI gateway with 48 models (GPT, Claude, Gemini,
 Qwen, MiniMax, GLM, Kimi, Grok, Big Pickle, DeepSeek, Nemotron). Uses the same
 `OPENCODE_API_KEY` as OpenCode Go. Get your key from https://opencode.ai.
 
@@ -324,10 +371,12 @@ The **OpenClaude VS Code extension** can store the key in Secret Storage and set
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_USE_OPENAI` | OpenAI-compatible only | Set to `1` to enable the OpenAI-compatible provider path |
-| `OPENAI_API_KEY` | OpenAI-compatible cloud routes* | Your API key (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies) |
+| `OPENAI_API_KEYS` | One of `OPENAI_API_KEYS` or `OPENAI_API_KEY` for non-local OpenAI-compatible cloud routes* | Comma-separated OpenAI-compatible API key pool. Takes precedence over `OPENAI_API_KEY` and rotates to the next key on auth, quota, or rate-limit failures (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies). |
+| `OPENAI_API_KEY` | Required only when `OPENAI_API_KEYS` is unset or empty for non-local OpenAI-compatible cloud routes* | Your API key (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies). A comma-separated list also enables key rotation. |
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `OPENCLAUDE_OLLAMA_NUM_CTX` | Ollama only | Request-level Ollama context window. Defaults to `32768`; set a larger value for longer same-session history if your model and hardware can handle it. |
 | `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
@@ -376,6 +425,12 @@ openclaude doctor report --markdown
 # write a redacted JSON issue report for attachment
 openclaude doctor report --json --out openclaude-report.json
 
+# write a deterministic task report from a session transcript
+openclaude report --json --transcript ~/.openclaude/projects/-path-to-project/session-id.jsonl --out task-report.json
+
+# print a human-readable task report from the latest session in the current project
+openclaude report --markdown
+
 # full local hardening check (smoke + runtime doctor)
 bun run hardening:check
 
@@ -390,6 +445,7 @@ Notes:
 - Local providers such as `http://localhost:11434/v1`, `http://10.0.0.1:11434/v1`, and `http://127.0.0.1:1337/v1` can run without `OPENAI_API_KEY`.
 - Codex profiles validate `CODEX_API_KEY` or the Codex CLI auth file and probe `POST /responses` instead of `GET /models`.
 - `openclaude doctor report` is redacted by default and is intended for GitHub issues. It summarizes provider/runtime/build/settings state without prompts, transcripts, raw settings files, API keys, MCP command details, or full home-directory paths.
+- `openclaude report --json` and `openclaude report --markdown` summarize observed session facts such as tool uses, Bash commands, validation commands, changed files, branch metadata, warnings, and linked issue/PR references. Use `--transcript <file>` for an explicit transcript, `--session <id>` for a stored session, or omit both to report the latest session for the current project. Large previews are truncated and credential-shaped strings are redacted. When no validation command is observed, the report keeps `validations` empty and includes a warning instead of claiming checks passed.
 
 ## Provider Launch Profiles
 
@@ -432,7 +488,7 @@ bun run dev:profile
 # codex profile (uses CODEX_API_KEY or ~/.codex/auth.json)
 bun run dev:codex
 
-# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEY from your shell)
+# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEYS / OPENAI_API_KEY from your shell)
 bun run dev:openai
 
 # Gemini profile (uses the saved Gemini profile, or GEMINI_API_KEY / GOOGLE_API_KEY from your shell)

@@ -31,9 +31,9 @@ export default defineVendor({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['api.venice.ai'],
     },
-    credentialEnvVars: ['VENICE_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['VENICE_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'Venice auth is required. Set VENICE_API_KEY or OPENAI_API_KEY.',
+      'Venice auth is required. Set VENICE_API_KEY or OPENAI_API_KEYS / OPENAI_API_KEY.',
   },
   catalog: {
     source: 'static',

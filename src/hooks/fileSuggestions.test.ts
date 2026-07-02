@@ -36,6 +36,9 @@ let actualRipgrepModule: typeof import('../utils/ripgrep.js') | undefined
 // of this suite's spawn-scenario tests is active and cleared in afterEach. Once
 // cleared, the persisted mock falls through to the real spawn.
 let activeSpawnScenario: LoadModuleOptions['spawnScenario'] | undefined
+let actualFileIndexModule:
+  | typeof import('../native-ts/file-index/index.js')
+  | undefined
 let actualMarkdownConfigLoaderModule:
   | typeof import('../utils/markdownConfigLoader.js')
   | undefined
@@ -48,6 +51,7 @@ afterEach(() => {
   // the real spawn for any later test file's git commands.
   activeSpawnScenario = undefined
   mock.restore()
+  restoreFileSuggestionsDependencyMocks()
 })
 
 beforeAll(
@@ -76,6 +80,18 @@ function createFakeChildProcess(): FakeChildProcess {
     return true
   }) as FakeChildProcess['kill']
   return child
+}
+
+function restoreFileSuggestionsDependencyMocks(): void {
+  if (actualCrossSpawnModule) {
+    mock.module('cross-spawn', () => actualCrossSpawnModule!)
+  }
+  if (actualRipgrepModule) {
+    mock.module('../utils/ripgrep.js', () => actualRipgrepModule!)
+  }
+  if (actualFileIndexModule) {
+    mock.module('../native-ts/file-index/index.js', () => actualFileIndexModule!)
+  }
 }
 
 function createIgnoreModuleMock() {
@@ -174,13 +190,14 @@ async function loadFileSuggestionsModule(options: LoadModuleOptions = {}) {
   activeSpawnScenario = options.spawnScenario
   actualCrossSpawnModule ??= await import('cross-spawn')
   actualRipgrepModule ??= await import('../utils/ripgrep.js')
+  actualFileIndexModule ??= await import('../native-ts/file-index/index.js')
   actualMarkdownConfigLoaderModule ??= await import(
     '../utils/markdownConfigLoader.js'
   )
   installFileSuggestionsDependencyMocks(options)
   const nonce = `${Date.now()}-${Math.random()}`
   const module = await import(`./fileSuggestions.ts?ts=${nonce}`)
-  mock.restore()
+  restoreFileSuggestionsDependencyMocks()
   return module
 }
 

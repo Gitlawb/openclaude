@@ -17,7 +17,7 @@ import { createStore, type Store } from '../../state/store.js'
 import {
   type ToolPermissionContext,
 } from '../../Tool.js'
-import { getTools } from '../../tools.js'
+import { assembleToolPool, getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
 import { init } from '../init.js'
 import {
@@ -32,7 +32,10 @@ import {
   runWithSdkContext,
 } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
-import { getAgentDefinitionsWithOverrides } from '../../tools/AgentTool/loadAgentsDir.js'
+import {
+  getAgentDefinitionsWithOverrides,
+  type AgentDefinitionsResult,
+} from '../../tools/AgentTool/loadAgentsDir.js'
 import type {
   PermissionResult,
   SDKResultMessage as GeneratedSDKResultMessage,
@@ -66,6 +69,11 @@ import {
   buildConversationChain as buildChain,
   stripExtraFields as stripChainFields,
 } from './transcript.js'
+import {
+  buildSdkUserAgents,
+  mergeSdkUserAgents,
+  type SdkAgentDefinitionInput,
+} from './agentDefinitions.js'
 
 // ============================================================================
 // V2 API Types
@@ -104,6 +112,8 @@ export type SDKSessionOptions = {
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
   /** Tools to disallow (blanket deny by tool name). */
   disallowedTools?: string[]
+  /** Agent definitions to register with the session engine. */
+  agents?: Record<string, SdkAgentDefinitionInput>
 }
 
 /**
@@ -266,24 +276,65 @@ class SDKSessionImpl implements SDKSession {
 
         // Load agent definitions once (not on every sendMessage call)
         if (!self.agentsLoaded) {
-          try {
-            const agentDefs = await getAgentDefinitionsWithOverrides(self.options.cwd)
-            self.appStateStore.setState(prev => ({
-              ...prev,
-              agentDefinitions: agentDefs,
-            }))
-            if (agentDefs.activeAgents.length > 0) {
-              self.engine.injectAgents(agentDefs.activeAgents)
-            }
-          } catch (err) {
-            // Agent loading failed — continue without agents but emit failure event
-            const errorMessage = err instanceof Error ? err.message : String(err)
-            console.warn('SDK: agent loading failed:', errorMessage)
+          let agentDefs: AgentDefinitionsResult = { activeAgents: [], allAgents: [] }
+          const reportDefinitionFailure = (errorMessage: string) => {
             self.pushAgentFailure({
               type: 'agent_load_failure',
               stage: 'definitions',
               error_message: errorMessage,
             })
+          }
+          try {
+            agentDefs = await getAgentDefinitionsWithOverrides(self.options.cwd)
+            for (const failedFile of agentDefs.failedFiles ?? []) {
+              reportDefinitionFailure(
+                `Failed to load agent definition '${failedFile.path}': ${failedFile.error}`,
+              )
+            }
+          } catch (err) {
+            // Agent loading failed — continue without filesystem agents but emit failure event
+            const errorMessage = err instanceof Error ? err.message : String(err)
+            console.warn('SDK: agent loading failed:', errorMessage)
+            reportDefinitionFailure(errorMessage)
+          }
+
+          const userAgents = buildSdkUserAgents(
+            self.options.agents,
+            (name, errorMessage) => {
+              self.pushAgentFailure({
+                type: 'agent_load_failure',
+                stage: 'injection',
+                error_message: `Invalid SDK agent '${name}': ${errorMessage}`,
+              })
+            },
+          )
+          const mergedAgentDefs = mergeSdkUserAgents(agentDefs, userAgents)
+          if (mergedAgentDefs.activeAgents.length > 0) {
+            self.appStateStore.setState(prev => ({
+              ...prev,
+              agentDefinitions: mergedAgentDefs,
+            }))
+            try {
+              self.engine.injectAgents(mergedAgentDefs.activeAgents)
+            } catch (err) {
+              // Agent injection failed — continue without agents but emit failure event
+              const errorMessage = err instanceof Error ? err.message : String(err)
+              console.warn('SDK: agent injection failed:', errorMessage)
+              self.appStateStore.setState(prev => ({
+                ...prev,
+                agentDefinitions: { activeAgents: [], allAgents: [] },
+              }))
+              self.pushAgentFailure({
+                type: 'agent_load_failure',
+                stage: 'injection',
+                error_message: errorMessage,
+              })
+            }
+          } else {
+            self.appStateStore.setState(prev => ({
+              ...prev,
+              agentDefinitions: mergedAgentDefs,
+            }))
           }
           self.agentsLoaded = true
         }
@@ -297,13 +348,7 @@ class SDKSessionImpl implements SDKSession {
             }
             if (mcpTools.length > 0) {
               const permissionContext = self.appStateStore.getState().toolPermissionContext
-              const allTools = [...getTools(permissionContext)]  // Mutable copy
-              for (const mcpTool of mcpTools) {
-                if (!allTools.some(t => t.name === mcpTool.name)) {
-                  allTools.push(mcpTool)
-                }
-              }
-              self.engine.updateTools(allTools)
+              self.engine.updateTools(assembleToolPool(permissionContext, mcpTools))
             }
           } catch (err) {
             // MCP connection failed — continue without MCP tools
@@ -317,6 +362,7 @@ class SDKSessionImpl implements SDKSession {
 
         try {
           if (self._abortController?.signal.aborted) return
+          yield* self.drainAgentFailureQueue()
           for await (const engineMsg of self.engine.submitMessage(content)) {
             if (self._abortController?.signal.aborted) break
             yield engineMsg

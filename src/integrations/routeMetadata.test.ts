@@ -7,6 +7,7 @@ import {
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
@@ -32,24 +33,33 @@ test('getRouteProviderTypeLabel falls back safely for unknown routes', () => {
 })
 
 test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback for openai-compatible routes', () => {
+  expect(getRouteCredentialEnvVars('custom')).toEqual([
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('openrouter')).toEqual([
     'OPENROUTER_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('deepseek')).toEqual([
     'DEEPSEEK_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('hicap')).toEqual([
     'HICAP_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('venice')).toEqual([
     'VENICE_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
     'MIMO_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
 })
@@ -82,6 +92,61 @@ test('getRouteCredentialValue reads the first configured route credential', () =
       OPENAI_API_KEY: 'sk-openai-fallback',
     }),
   ).toBe('sk-openai-fallback')
+})
+
+test('route credential discovery reads OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      },
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+})
+
+test('route credential discovery ignores delimiter-only OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+})
+
+test('route credential discovery ignores placeholder OpenAI credentials', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'SUA_CHAVE',
+        OPENAI_API_KEY: 'SUA_CHAVE',
+      },
+    }),
+  ).toBeUndefined()
+})
+
+test('route credential discovery ignores mixed placeholder OpenAI pools before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
 })
 
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
@@ -132,12 +197,30 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
     }),
   ).toBe('venice')
 })
+
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
     resolveActiveRouteIdFromEnv({
       XAI_API_KEY: 'xai-key',
     }),
   ).toBe('xai')
+})
+
+test('resolveActiveRouteIdFromEnv treats ClinePass credential-only env as ClinePass', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLINE_API_KEY: 'cline-key',
+    }),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv prefers ClinePass key over Fireworks env-only intent', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLINE_API_KEY: 'cline-key',
+      FIREWORKS_API_KEY: 'fw-key',
+    }),
+  ).toBe('clinepass')
 })
 
 test('resolveActiveRouteIdFromEnv prefers xAI when env-only keys compete', () => {
@@ -199,7 +282,7 @@ test.each([
   ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia-nim'],
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
-  ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8', 'hicap'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(
@@ -219,11 +302,116 @@ test.each([
   },
 )
 
+test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+        OPENAI_MODEL: 'cline-pass/deepseek-v4-flash',
+      },
+      { activeProfileProvider: 'openai' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves ClinePass profile provider without env applied flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'clinepass' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves ClinePass profile provider without CLAUDE_CODE_USE_OPENAI', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLINE_API_KEY: 'cp-key',
+      },
+      { activeProfileProvider: 'clinepass' },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv still returns anthropic when no env flags and no profile provider', () => {
+  expect(resolveActiveRouteIdFromEnv({})).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv resolves Atlas Cloud profile provider without env applied flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'atlas-cloud' },
+    ),
+  ).toBe('atlas-cloud')
+})
+
+test('resolveActiveRouteIdFromEnv does not resolve custom profile provider as a known route', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      { activeProfileProvider: 'custom' },
+    ),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv resolves custom profile provider via ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {},
+      {
+        activeProfileProvider: 'custom',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv resolves openai profile provider via ClinePass base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+      },
+      {
+        activeProfileProvider: 'openai',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('clinepass')
+})
+
+test('resolveActiveRouteIdFromEnv lets explicit OPENAI_BASE_URL override saved ClinePass profile', () => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://openrouter.ai/api/v1',
+      },
+      {
+        activeProfileProvider: 'clinepass',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('openrouter')
+})
+
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {
   expect(
     resolveActiveRouteIdFromEnv({
       MINIMAX_API_KEY: 'minimax-key',
       OPENAI_API_KEY: 'openai-key',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer MiniMax with pooled OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      MINIMAX_API_KEY: 'minimax-key',
+      OPENAI_API_KEYS: 'openai-key-a,openai-key-b',
     }),
   ).toBe('anthropic')
 })

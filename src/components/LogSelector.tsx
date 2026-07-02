@@ -59,6 +59,13 @@ type LogTreeNode = TreeNode<{
   log: LogOption;
   indexInFiltered: number;
 }>;
+export type ResumeLogGroup = {
+  id: string;
+  headerLog: LogOption;
+  childLogs: LogOption[];
+  logs: LogOption[];
+  firstIndex: number;
+};
 type ViewMode = 'list' | 'preview' | 'rename' | 'search';
 type DeepSearchResult = {
   log: LogOption;
@@ -141,7 +148,7 @@ function buildLogLabel(log: LogOption, maxLabelWidth: number, options?: {
   const sessionCountSuffix = isGroupHeader && forkCount > 0 ? ` (+${forkCount} other ${forkCount === 1 ? 'session' : 'sessions'})` : '';
   const sidechainSuffix = log.isSidechain ? ' (sidechain)' : '';
   const maxSummaryWidth = maxLabelWidth - prefixWidth - sidechainSuffix.length - sessionCountSuffix.length;
-  const truncatedSummary = normalizeAndTruncateToWidth(getLogDisplayTitle(log), maxSummaryWidth);
+  const truncatedSummary = normalizeAndTruncateToWidth(getResumeLogDisplayTitle(log), maxSummaryWidth);
   return `${truncatedSummary}${sidechainSuffix}${sessionCountSuffix}`;
 }
 function buildLogMetadata(log: LogOption, options?: {
@@ -157,6 +164,72 @@ function buildLogMetadata(log: LogOption, options?: {
   const baseMetadata = formatLogMetadata(log);
   const projectSuffix = showProjectPath && log.projectPath ? ` · ${log.projectPath}` : '';
   return childPadding + baseMetadata + projectSuffix;
+}
+export function getResumeLogDisplayTitle(log: LogOption): string {
+  const branchName = log.sessionBranch?.branchName?.trim()
+  if (branchName) {
+    const sessionTitle = log.agentName || log.customTitle
+    if (sessionTitle) return getLogDisplayTitle(log)
+    return branchName
+  }
+  return getLogDisplayTitle(log)
+}
+export function logMatchesResumePickerSearch(log: LogOption, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase()
+  if (!query) return true
+  const displayedTitle = getResumeLogDisplayTitle(log).toLowerCase()
+  const baseDisplayTitle = getLogDisplayTitle(log).toLowerCase()
+  const branchName = (log.sessionBranch?.branchName || "").toLowerCase()
+  const branch = (log.gitBranch || "").toLowerCase()
+  const tag = (log.tag || "").toLowerCase()
+  const prInfo = log.prNumber ? `pr #${log.prNumber} ${log.prRepository || ""}`.toLowerCase() : ""
+  return displayedTitle.includes(query) || baseDisplayTitle.includes(query) || branchName.includes(query) || branch.includes(query) || tag.includes(query) || prInfo.includes(query)
+}
+export function shouldLoadMoreResumeLogs(options: {
+  displayedLogCount: number;
+  focusedIndex: number;
+  visibleCount: number;
+  visibleNodeCount: number;
+}): boolean {
+  const {
+    displayedLogCount,
+    focusedIndex,
+    visibleCount,
+    visibleNodeCount
+  } = options
+  const buffer = visibleCount * 2
+  return visibleNodeCount < visibleCount || focusedIndex + buffer >= displayedLogCount
+}
+export function countVisibleResumeTreeRows(
+  nodes: readonly TreeNode<unknown>[],
+  options: {
+    expandedGroupSessionIds: ReadonlySet<string>;
+    forceExpanded: boolean;
+  },
+): number {
+  const { expandedGroupSessionIds, forceExpanded } = options
+  const isExpanded = (nodeId: string | number): boolean => {
+    if (forceExpanded) return true
+    const groupSessionId = typeof nodeId === "string" && nodeId.startsWith("group:") ? nodeId.slice(6) : null
+    return groupSessionId ? expandedGroupSessionIds.has(groupSessionId) : false
+  }
+  const countNode = (node: TreeNode<unknown>): number => {
+    const children = node.children ?? []
+    if (children.length === 0 || !isExpanded(node.id)) return 1
+    return 1 + children.reduce((count, child) => count + countNode(child), 0)
+  }
+
+  return nodes.reduce((count, node) => count + countNode(node), 0)
+}
+function findContainingGroupNode(nodes: LogTreeNode[], nodeId?: string | number): LogTreeNode | null {
+  if (!nodeId) return null
+  for (const node of nodes) {
+    if (node.id === nodeId) return node
+    if (node.children?.some(child => child.id === nodeId)) {
+      return node
+    }
+  }
+  return null
 }
 export function LogSelector(t0: LogSelectorProps) {
   const $ = _c(247);
@@ -444,14 +517,7 @@ export function LogSelector(t0: LogSelectorProps) {
     }
     let t23;
     if ($[39] !== baseFilteredLogs || $[40] !== searchQuery) {
-      const query = searchQuery.toLowerCase();
-      t23 = baseFilteredLogs.filter(log_5 => {
-        const displayedTitle = getLogDisplayTitle(log_5).toLowerCase();
-        const branch_0 = (log_5.gitBranch || "").toLowerCase();
-        const tag = (log_5.tag || "").toLowerCase();
-        const prInfo = log_5.prNumber ? `pr #${log_5.prNumber} ${log_5.prRepository || ""}`.toLowerCase() : "";
-        return displayedTitle.includes(query) || branch_0.includes(query) || tag.includes(query) || prInfo.includes(query);
-      });
+      t23 = baseFilteredLogs.filter(log_5 => logMatchesResumePickerSearch(log_5, searchQuery));
       $[39] = baseFilteredLogs;
       $[40] = searchQuery;
       $[41] = t23;
@@ -596,19 +662,18 @@ export function LogSelector(t0: LogSelectorProps) {
     }
     let t30;
     if ($[66] !== displayedLogs || $[67] !== highlightColor || $[68] !== maxLabelWidth || $[69] !== showAllProjects || $[70] !== snippets) {
-      const sessionGroups = groupLogsBySessionId(displayedLogs);
-      t30 = Array.from(sessionGroups.entries()).map(t31 => {
-        const [sessionId, groupLogs] = t31;
-        const latestLog = groupLogs[0];
-        const indexInFiltered = displayedLogs.indexOf(latestLog);
+      const sessionGroups = groupLogsByResumeBranch(displayedLogs);
+      t30 = sessionGroups.map(group => {
+        const latestLog = group.headerLog;
+        const indexInFiltered = group.firstIndex;
         const snippet_0 = snippets.get(latestLog);
         const snippetStr = snippet_0 ? formatSnippet(snippet_0, highlightColor) : null;
-        if (groupLogs.length === 1) {
+        if (group.childLogs.length === 0) {
           const metadata = buildLogMetadata(latestLog, {
             showProjectPath: showAllProjects
           });
           return {
-            id: `log:${sessionId}:0`,
+            id: `log:${group.id}:0`,
             value: {
               log: latestLog,
               indexInFiltered
@@ -618,8 +683,8 @@ export function LogSelector(t0: LogSelectorProps) {
             dimDescription: true
           };
         }
-        const forkCount = groupLogs.length - 1;
-        const children = groupLogs.slice(1).map((log_8, index) => {
+        const forkCount = group.childLogs.length;
+        const children = group.childLogs.map((log_8, index) => {
           const childIndexInFiltered = displayedLogs.indexOf(log_8);
           const childSnippet = snippets.get(log_8);
           const childSnippetStr = childSnippet ? formatSnippet(childSnippet, highlightColor) : null;
@@ -628,7 +693,7 @@ export function LogSelector(t0: LogSelectorProps) {
             showProjectPath: showAllProjects
           });
           return {
-            id: `log:${sessionId}:${index + 1}`,
+            id: `log:${group.id}:${index + 1}`,
             value: {
               log: log_8,
               indexInFiltered: childIndexInFiltered
@@ -644,7 +709,7 @@ export function LogSelector(t0: LogSelectorProps) {
           showProjectPath: showAllProjects
         });
         return {
-          id: `group:${sessionId}`,
+          id: `group:${group.id}`,
           value: {
             log: latestLog,
             indexInFiltered
@@ -688,7 +753,7 @@ export function LogSelector(t0: LogSelectorProps) {
       let t32;
       if ($[79] !== highlightColor || $[80] !== maxLabelWidth || $[81] !== showAllProjects || $[82] !== snippets) {
         t32 = (log_9, index_0) => {
-          const rawSummary = getLogDisplayTitle(log_9);
+          const rawSummary = getResumeLogDisplayTitle(log_9);
           const summaryWithSidechain = rawSummary + (log_9.isSidechain ? " (sidechain)" : "");
           const summary = normalizeAndTruncateToWidth(summaryWithSidechain, maxLabelWidth);
           const baseDescription = formatLogMetadata(log_9);
@@ -725,30 +790,26 @@ export function LogSelector(t0: LogSelectorProps) {
   const flatOptions = t30;
   const focusedLog = focusedNode?.value.log ?? null;
   let t31;
-  if ($[84] !== displayedLogs || $[85] !== expandedGroupSessionIds || $[86] !== focusedLog) {
+  if ($[84] !== treeNodes || $[85] !== expandedGroupSessionIds || $[86] !== focusedNode?.id) {
     t31 = () => {
-      if (!isResumeWithRenameEnabled || !focusedLog) {
+      if (!isResumeWithRenameEnabled || !focusedNode) {
         return "";
       }
-      const sessionId_0 = getSessionIdFromLog(focusedLog);
-      if (!sessionId_0) {
+      const groupNode = findContainingGroupNode(treeNodes, focusedNode.id);
+      if (!groupNode?.children?.length || !String(groupNode.id).startsWith("group:")) {
         return "";
       }
-      const sessionLogs = displayedLogs.filter(log_10 => getSessionIdFromLog(log_10) === sessionId_0);
-      const hasMultipleLogs = sessionLogs.length > 1;
-      if (!hasMultipleLogs) {
-        return "";
-      }
-      const isExpanded = expandedGroupSessionIds.has(sessionId_0);
-      const isChildNode = sessionLogs.indexOf(focusedLog) > 0;
+      const groupId = String(groupNode.id).substring(6);
+      const isExpanded = expandedGroupSessionIds.has(groupId);
+      const isChildNode = focusedNode.id !== groupNode.id;
       if (isChildNode) {
         return "\u2190 to collapse";
       }
       return isExpanded ? "\u2190 to collapse" : "\u2192 to expand";
     };
-    $[84] = displayedLogs;
+    $[84] = treeNodes;
     $[85] = expandedGroupSessionIds;
-    $[86] = focusedLog;
+    $[86] = focusedNode?.id;
     $[87] = t31;
   } else {
     t31 = $[87];
@@ -973,10 +1034,7 @@ export function LogSelector(t0: LogSelectorProps) {
   if ($[118] !== displayedLogs) {
     t43 = (node: LogTreeNode) => {
       setFocusedNode(node);
-      const index_2 = displayedLogs.findIndex(log_12 => getSessionIdFromLog(log_12) === getSessionIdFromLog(node.value.log));
-      if (index_2 >= 0) {
-        setFocusedIndex(index_2 + 1);
-      }
+      setFocusedIndex(node.value.indexInFiltered + 1);
     };
     $[118] = displayedLogs;
     $[119] = t43;
@@ -1218,30 +1276,23 @@ export function LogSelector(t0: LogSelectorProps) {
   const showAdditionalFilterLine = filterIndicators.length > 0 && viewMode !== "search";
   const headerLines = 8 + (showAdditionalFilterLine ? 1 : 0) + tagTabsLines;
   const visibleCount = Math.max(1, Math.floor((maxHeight - headerLines - 2) / 3));
-  let t55;
-  let t56;
-  if ($[154] !== displayedLogs.length || $[155] !== focusedIndex || $[156] !== onLoadMore || $[157] !== visibleCount) {
-    t55 = () => {
-      if (!onLoadMore) {
-        return;
-      }
-      const buffer = visibleCount * 2;
-      if (focusedIndex + buffer >= displayedLogs.length) {
-        onLoadMore(visibleCount * 3);
-      }
-    };
-    t56 = [focusedIndex, visibleCount, displayedLogs.length, onLoadMore];
-    $[154] = displayedLogs.length;
-    $[155] = focusedIndex;
-    $[156] = onLoadMore;
-    $[157] = visibleCount;
-    $[158] = t55;
-    $[159] = t56;
-  } else {
-    t55 = $[158];
-    t56 = $[159];
-  }
-  React.useEffect(t55, t56);
+  const loadMoreVisibleCount = isResumeWithRenameEnabled ? countVisibleResumeTreeRows(treeNodes, {
+    expandedGroupSessionIds,
+    forceExpanded: viewMode === "search" || branchFilterEnabled
+  }) : displayedLogs.length;
+  React.useEffect(() => {
+    if (!onLoadMore) {
+      return;
+    }
+    if (shouldLoadMoreResumeLogs({
+      displayedLogCount: displayedLogs.length,
+      focusedIndex,
+      visibleCount,
+      visibleNodeCount: loadMoreVisibleCount
+    })) {
+      onLoadMore(visibleCount * 3);
+    }
+  }, [displayedLogs.length, focusedIndex, loadMoreVisibleCount, onLoadMore, visibleCount]);
   if (logs.length === 0) {
     return null;
   }
@@ -1375,7 +1426,7 @@ export function LogSelector(t0: LogSelectorProps) {
   }
   let t70;
   if ($[202] !== agenticSearchState.status || $[203] !== branchFilterEnabled || $[204] !== columns || $[205] !== displayedLogs || $[206] !== expandedGroupSessionIds || $[207] !== flatOptions || $[208] !== focusedLog || $[209] !== focusedNode?.id || $[210] !== handleFlatOptionsSelectFocus || $[211] !== handleRenameSubmit || $[212] !== handleTreeSelectFocus || $[213] !== isAgenticSearchOptionFocused || $[214] !== onCancel || $[215] !== onSelect || $[216] !== renameCursorOffset || $[217] !== renameValue || $[218] !== treeNodes || $[219] !== viewMode || $[220] !== visibleCount) {
-    t70 = agenticSearchState.status === "searching" ? null : viewMode === "rename" && focusedLog ? <Box paddingLeft={2} flexDirection="column"><Text bold={true}>Rename session:</Text><Box paddingTop={1}><TextInput value={renameValue} onChange={setRenameValue} onSubmit={handleRenameSubmit} placeholder={getLogDisplayTitle(focusedLog, "Enter new session name")} columns={columns} cursorOffset={renameCursorOffset} onChangeCursorOffset={setRenameCursorOffset} showCursor={true} /></Box></Box> : isResumeWithRenameEnabled ? <TreeSelect nodes={treeNodes} onSelect={node_0 => {
+    t70 = agenticSearchState.status === "searching" ? null : viewMode === "rename" && focusedLog ? <Box paddingLeft={2} flexDirection="column"><Text bold={true}>Rename session:</Text><Box paddingTop={1}><TextInput value={renameValue} onChange={setRenameValue} onSubmit={handleRenameSubmit} placeholder={getResumeLogDisplayTitle(focusedLog) || "Enter new session name"} columns={columns} cursorOffset={renameCursorOffset} onChangeCursorOffset={setRenameCursorOffset} showCursor={true} /></Box></Box> : isResumeWithRenameEnabled ? <TreeSelect nodes={treeNodes} onSelect={node_0 => {
       onSelect(node_0.value.log);
     }} onFocus={handleTreeSelectFocus} onCancel={onCancel} focusNodeId={focusedNode?.id} visibleOptionCount={visibleCount} layout="expanded" isDisabled={viewMode === "search" || isAgenticSearchOptionFocused} hideIndexes={false} isNodeExpanded={nodeId => {
       if (viewMode === "search" || branchFilterEnabled) {
@@ -1513,6 +1564,9 @@ function _temp2(log_1: LogOption): boolean {
   if (log_1.customTitle) {
     return true;
   }
+  if (log_1.sessionBranch?.branchName?.trim()) {
+    return true;
+  }
   const fromMessages = getFirstMeaningfulUserMessageTextContent(log_1.messages);
   if (fromMessages) {
     return true;
@@ -1558,27 +1612,65 @@ function extractSearchableText(message: SerializedMessage): string {
 function buildSearchableText(log: LogOption): string {
   const searchableMessages = log.messages.length <= DEEP_SEARCH_MAX_MESSAGES ? log.messages : [...log.messages.slice(0, DEEP_SEARCH_CROP_SIZE), ...log.messages.slice(-DEEP_SEARCH_CROP_SIZE)];
   const messageText = searchableMessages.map(extractSearchableText).filter(Boolean).join(' ');
-  const metadata = [log.customTitle, log.summary, log.firstPrompt, log.gitBranch, log.tag, log.prNumber ? `PR #${log.prNumber}` : undefined, log.prRepository].filter(Boolean).join(' ');
+  const metadata = [getResumeLogDisplayTitle(log), log.customTitle, log.sessionBranch?.branchName, log.summary, log.firstPrompt, log.gitBranch, log.tag, log.prNumber ? `PR #${log.prNumber}` : undefined, log.prRepository].filter(Boolean).join(' ');
   const fullText = `${metadata} ${messageText}`.trim();
   return fullText.length > DEEP_SEARCH_MAX_TEXT_LENGTH ? fullText.slice(0, DEEP_SEARCH_MAX_TEXT_LENGTH) : fullText;
 }
-function groupLogsBySessionId(filteredLogs: LogOption[]): Map<string, LogOption[]> {
-  const groups = new Map<string, LogOption[]>();
+export function groupLogsByResumeBranch(filteredLogs: LogOption[]): ResumeLogGroup[] {
+  type MutableGroup = {
+    id: string;
+    headerSessionId: string;
+    logs: LogOption[];
+    firstIndex: number;
+  };
+
+  const visibleSessionIds = new Set<string>();
   for (const log of filteredLogs) {
     const sessionId = getSessionIdFromLog(log);
-    if (sessionId) {
-      const existing = groups.get(sessionId);
-      if (existing) {
-        existing.push(log);
-      } else {
-        groups.set(sessionId, [log]);
-      }
-    }
+    if (sessionId) visibleSessionIds.add(sessionId);
   }
 
-  // Sort logs within each group by modified date (newest first)
-  groups.forEach(logs => logs.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime()));
-  return groups;
+  const groups = new Map<string, MutableGroup>();
+  for (const [index, log] of filteredLogs.entries()) {
+    const sessionId = getSessionIdFromLog(log);
+    if (!sessionId) continue;
+
+    const branch = log.sessionBranch;
+    let headerSessionId = sessionId;
+    if (branch?.rootSessionId && visibleSessionIds.has(branch.rootSessionId)) {
+      headerSessionId = branch.rootSessionId;
+    } else if (branch?.parentSessionId && visibleSessionIds.has(branch.parentSessionId)) {
+      headerSessionId = branch.parentSessionId;
+    }
+
+    let group = groups.get(headerSessionId);
+    if (!group) {
+      group = {
+        id: headerSessionId,
+        headerSessionId,
+        logs: [],
+        firstIndex: index,
+      };
+      groups.set(headerSessionId, group);
+    } else {
+      group.firstIndex = Math.min(group.firstIndex, index);
+    }
+    group.logs.push(log);
+  }
+
+  return Array.from(groups.values()).map(group => {
+    const headerLog =
+      group.logs.find(log => getSessionIdFromLog(log) === group.headerSessionId) ??
+      group.logs[0]!;
+    const childLogs = group.logs.filter(log => log !== headerLog);
+    return {
+      id: group.id,
+      headerLog,
+      childLogs,
+      logs: [headerLog, ...childLogs],
+      firstIndex: group.firstIndex,
+    };
+  }).sort((a, b) => a.firstIndex - b.firstIndex);
 }
 
 /**

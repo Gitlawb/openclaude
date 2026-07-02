@@ -83,7 +83,47 @@ describe('background session registry', () => {
     expect(sessions.map(s => s.id)).toEqual(['bg-test-1'])
   })
 
-  it('resolves sessions by id, id prefix, and name', async () => {
+  it('resolves exact live names before session id prefixes', async () => {
+    await createBackgroundSession({
+      id: 'bg-abcdef',
+      pid: 111,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-1',
+    })
+    await createBackgroundSession({
+      id: 'bg-named',
+      name: 'bg-abc',
+      pid: 222,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'named'],
+      sessionId: 'conversation-2',
+    })
+
+    expect((await resolveBackgroundSession('bg-abc')).id).toBe('bg-named')
+  })
+
+  it('resolves exact session ids before exact session names', async () => {
+    await createBackgroundSession({
+      id: 'bg-target',
+      pid: 111,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'id'],
+      sessionId: 'conversation-id',
+    })
+    await createBackgroundSession({
+      id: 'bg-named',
+      name: 'bg-target',
+      pid: 222,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'named'],
+      sessionId: 'conversation-name',
+    })
+
+    expect((await resolveBackgroundSession('bg-target')).id).toBe('bg-target')
+  })
+
+  it('resolves unique session id prefixes when no exact name matches', async () => {
     await createBackgroundSession({
       id: 'bg-abcdef',
       name: 'named-session',
@@ -100,7 +140,7 @@ describe('background session registry', () => {
     )
   })
 
-  it('rejects missing and ambiguous session targets', async () => {
+  it('rejects ambiguous session id prefixes', async () => {
     await createBackgroundSession({
       id: 'bg-prefix-one',
       pid: 111,
@@ -116,11 +156,99 @@ describe('background session registry', () => {
       sessionId: 'conversation-2',
     })
 
+    await expect(resolveBackgroundSession('bg-prefix')).rejects.toThrow(
+      'ambiguous',
+    )
+  })
+
+  it('preserves missing session target errors', async () => {
     await expect(resolveBackgroundSession('missing')).rejects.toThrow(
       'No background session found',
     )
-    await expect(resolveBackgroundSession('bg-prefix')).rejects.toThrow(
-      'ambiguous',
+  })
+
+  it('resolves unique terminal session names', async () => {
+    await createBackgroundSession({
+      id: 'bg-old',
+      name: 'old-name',
+      pid: 111,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'old'],
+      sessionId: 'conversation-old',
+    })
+    await markBackgroundSessionKilled('bg-old')
+
+    expect((await resolveBackgroundSession('old-name')).id).toBe('bg-old')
+  })
+
+  it('rejects duplicate terminal session names as ambiguous', async () => {
+    await createBackgroundSession({
+      id: 'bg-old-one',
+      name: 'old-shared',
+      pid: 111,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'old-one'],
+      sessionId: 'conversation-old-one',
+    })
+    await markBackgroundSessionKilled('bg-old-one')
+    await createBackgroundSession({
+      id: 'bg-old-two',
+      name: 'old-shared',
+      pid: 222,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'old-two'],
+      sessionId: 'conversation-old-two',
+    })
+    await markBackgroundSessionKilled('bg-old-two')
+
+    await expect(resolveBackgroundSession('old-shared')).rejects.toThrow(
+      'Background session name "old-shared" is ambiguous',
+    )
+  })
+
+  it('rejects duplicate live names before considering id prefixes', async () => {
+    await mkdir(join(configDir, 'bg-sessions', 'sessions'), {
+      recursive: true,
+    })
+    const base = {
+      cwd: '/repo',
+      status: 'running',
+      startedAt: '2026-06-15T08:00:00.000Z',
+      updatedAt: '2026-06-15T08:00:00.000Z',
+      command: ['openclaude', '--print', 'work'],
+      stdoutLogPath: '/tmp/stdout.log',
+      stderrLogPath: '/tmp/stderr.log',
+    }
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-live-one.json'),
+      JSON.stringify({
+        ...base,
+        id: 'bg-live-one',
+        name: 'bg-abc',
+        pid: 111,
+        sessionId: 'conversation-live-one',
+      }),
+    )
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-live-two.json'),
+      JSON.stringify({
+        ...base,
+        id: 'bg-live-two',
+        name: 'bg-abc',
+        pid: 222,
+        sessionId: 'conversation-live-two',
+      }),
+    )
+    await createBackgroundSession({
+      id: 'bg-abcdef',
+      pid: 333,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'prefix'],
+      sessionId: 'conversation-prefix',
+    })
+
+    await expect(resolveBackgroundSession('bg-abc')).rejects.toThrow(
+      'Background session name "bg-abc" is ambiguous',
     )
   })
 

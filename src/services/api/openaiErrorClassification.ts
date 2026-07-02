@@ -433,17 +433,13 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
-  if (options.status >= 400 && isMalformedProviderResponse(body)) {
-    return {
-      source: 'http',
-      category: 'malformed_provider_response',
-      retryable: false,
-      status: options.status,
-      message: body,
-      hint: 'Provider returned malformed or non-JSON response where JSON was expected.',
-    }
-  }
-
+  // 5xx errors are always server-side failures and should be retryable,
+  // even when the body is HTML (common for gateway 502/504 overload pages
+  // that would otherwise classify as malformed_provider_response below).
+  // This must run before the malformed-provider-response check so a 5xx
+  // HTML page is treated as a transient provider_unavailable rather than
+  // a dead-end malformed response. Issue: users see "Provider returned a
+  // malformed response" on overload and have to retry manually.
   if (options.status >= 500) {
     return {
       source: 'http',
@@ -452,6 +448,17 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'Provider reported a server-side failure. Retry after a short delay.',
+    }
+  }
+
+  if (options.status >= 400 && isMalformedProviderResponse(body)) {
+    return {
+      source: 'http',
+      category: 'malformed_provider_response',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider returned malformed or non-JSON response where JSON was expected.',
     }
   }
 

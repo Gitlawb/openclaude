@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, openSync } from 'node:fs'
-import { open, readFile, unlink } from 'node:fs/promises'
+import { open, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import treeKill from 'tree-kill'
 import { argsBeforeDelimiter } from '../utils/cliArgs.js'
@@ -58,6 +58,50 @@ const HEAP_RELAUNCHED_ENV = 'OPENCLAUDE_HEAP_RELAUNCHED'
 const DEFAULT_TERM_GRACE_MS = 2_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_KILL_POLL_INTERVAL_MS = 100
+// Each background-log read buffer is capped at 64 KiB to avoid whole-log allocations.
+export const LOG_STREAM_CHUNK_SIZE = 64 * 1024
+const LOG_FOLLOW_POLL_INTERVAL_MS = 500
+
+type LogOutput = {
+  destroyed?: boolean
+  writableDestroyed?: boolean
+  write(chunk: Uint8Array): boolean
+  once(event: string, listener: (...args: unknown[]) => void): unknown
+  off(event: string, listener: (...args: unknown[]) => void): unknown
+}
+
+type LogFileHandle = {
+  close(): Promise<void>
+  stat(): Promise<{ size: number }>
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>
+}
+
+type LogFollowTimer = ReturnType<typeof setInterval> | number
+
+type StreamLogOptions = {
+  output?: LogOutput
+  chunkSize?: number
+  createBuffer?: (size: number) => Buffer
+  signal?: AbortSignal
+  openFile?: (path: string, flags: 'r') => Promise<LogFileHandle>
+  continueOnFileError?: boolean
+}
+
+type FollowLogOptions = StreamLogOptions & {
+  pollIntervalMs?: number
+  setInterval?: (callback: () => void, ms: number) => LogFollowTimer
+  clearInterval?: (timer: LogFollowTimer) => void
+}
+
+type StreamLogResult = {
+  position: number
+  outputOpen: boolean
+}
 
 // This must stay in sync with value-consuming CLI flags in main.tsx and related
 // handlers. If the CLI flag definitions become centralized, move this parser
@@ -90,6 +134,7 @@ const REQUIRED_OPTION_VALUE_FLAGS = new Set([
   '--plugin-dir',
   '--prefill',
   '--provider',
+  '--provider-env-file',
   '--resume-session-at',
   '--rewind-files',
   '--session-id',
@@ -410,56 +455,216 @@ function printSessionTable(
   }
 }
 
-async function printExistingLog(path: string): Promise<number> {
+function isOutputClosed(output: LogOutput): boolean {
+  return output.destroyed === true || output.writableDestroyed === true
+}
+
+function normalizeChunkSize(chunkSize: number | undefined): number {
+  if (!Number.isFinite(chunkSize) || !chunkSize || chunkSize < 1) {
+    return LOG_STREAM_CHUNK_SIZE
+  }
+  return Math.floor(chunkSize)
+}
+
+async function waitForDrain(
+  output: LogOutput,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal?.aborted || isOutputClosed(output)) return false
+
+  return await new Promise<boolean>(resolve => {
+    let settled = false
+
+    const cleanup = () => {
+      output.off('drain', onDrain)
+      output.off('error', onError)
+      output.off('close', onClose)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const finish = (open: boolean) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(open)
+    }
+
+    const onDrain = () => finish(!isOutputClosed(output))
+    const onError = () => finish(false)
+    const onClose = () => finish(false)
+    const onAbort = () => finish(false)
+
+    output.once('drain', onDrain)
+    output.once('error', onError)
+    output.once('close', onClose)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function writeLogBuffer(
+  output: LogOutput,
+  buffer: Buffer,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (buffer.length === 0) return true
+  if (signal?.aborted || isOutputClosed(output)) return false
+
   try {
-    const contents = await readFile(path)
-    if (contents.length > 0) process.stdout.write(contents)
-    return contents.length
+    if (output.write(buffer)) return !isOutputClosed(output)
   } catch {
-    return 0
+    return false
+  }
+
+  return await waitForDrain(output, signal)
+}
+
+async function streamLogRange(
+  handle: LogFileHandle,
+  start: number,
+  endExclusive: number,
+  options: StreamLogOptions,
+): Promise<StreamLogResult> {
+  const output = options.output ?? process.stdout
+  const chunkSize = normalizeChunkSize(options.chunkSize)
+  const createBuffer = options.createBuffer ?? Buffer.allocUnsafe
+  let position = start
+
+  while (position < endExclusive) {
+    if (options.signal?.aborted) return { position, outputOpen: false }
+    const bytesToRead = Math.min(chunkSize, endExclusive - position)
+    const buffer = createBuffer(bytesToRead)
+    if (buffer.length < bytesToRead) {
+      throw new Error('Log stream buffer factory returned a short buffer')
+    }
+
+    let bytesRead: number
+    try {
+      const readResult = await handle.read(buffer, 0, bytesToRead, position)
+      bytesRead = readResult.bytesRead
+    } catch (error) {
+      if (!options.continueOnFileError) throw error
+      return { position, outputOpen: true }
+    }
+    if (bytesRead <= 0) break
+    if (options.signal?.aborted) return { position, outputOpen: false }
+
+    const chunk =
+      bytesRead === buffer.length ? buffer : buffer.subarray(0, bytesRead)
+    if (!(await writeLogBuffer(output, chunk, options.signal))) {
+      return { position, outputOpen: false }
+    }
+    position += bytesRead
+  }
+
+  return { position, outputOpen: true }
+}
+
+async function streamLogSnapshot(
+  path: string,
+  offset: number,
+  options: StreamLogOptions,
+): Promise<StreamLogResult> {
+  let handle: LogFileHandle
+  try {
+    handle = await (options.openFile ?? open)(path, 'r')
+  } catch (error) {
+    if (!options.continueOnFileError) throw error
+    // Keep following; the child may create or rotate the file later.
+    return { position: offset, outputOpen: true }
+  }
+
+  let result: StreamLogResult = { position: offset, outputOpen: true }
+  try {
+    const { size } = await handle.stat()
+    const start = size < offset ? 0 : offset
+    result =
+      size <= start
+        ? { position: start, outputOpen: true }
+        : await streamLogRange(handle, start, size, options)
+    return result
+  } catch (error) {
+    if (!options.continueOnFileError) throw error
+    return result
+  } finally {
+    if (options.continueOnFileError) {
+      await handle.close().catch(() => undefined)
+    } else {
+      await handle.close()
+    }
   }
 }
 
-async function followLogFile(path: string, offset: number): Promise<void> {
+export async function printExistingLog(
+  path: string,
+  options: StreamLogOptions = {},
+): Promise<number> {
+  const result = await streamLogSnapshot(path, 0, options)
+  return result.position
+}
+
+export async function followLogFile(
+  path: string,
+  offset: number,
+  options: FollowLogOptions = {},
+): Promise<void> {
+  const output = options.output ?? process.stdout
+  const cleanupController = new AbortController()
   let position = offset
   let reading = false
+  let stopped = false
+  let timer: LogFollowTimer | undefined
+  let activePoll: Promise<void> | undefined
 
   await new Promise<void>(resolve => {
     const cleanup = () => {
-      clearInterval(timer)
+      if (stopped) return
+      stopped = true
+      if (timer) (options.clearInterval ?? clearInterval)(timer)
+      cleanupController.abort()
       process.off('SIGINT', cleanup)
       process.off('SIGTERM', cleanup)
-      resolve()
+      options.signal?.removeEventListener('abort', cleanup)
+      const pendingPoll = activePoll
+      if (pendingPoll) {
+        void pendingPoll.finally(resolve)
+      } else {
+        resolve()
+      }
     }
 
-    const timer = setInterval(() => {
-      if (reading) return
+    const poll = () => {
+      if (stopped || reading) return
       reading = true
-      void (async () => {
+      const pollPromise = (async () => {
         try {
-          const handle = await open(path, 'r')
-          try {
-            const { size } = await handle.stat()
-            if (size < position) position = 0
-            if (size > position) {
-              const buffer = Buffer.alloc(size - position)
-              await handle.read(buffer, 0, buffer.length, position)
-              position = size
-              process.stdout.write(buffer)
-            }
-          } finally {
-            await handle.close()
-          }
-        } catch {
-          // Keep following; the child may create or rotate the file later.
+          const result = await streamLogSnapshot(path, position, {
+            ...options,
+            output,
+            signal: cleanupController.signal,
+            continueOnFileError: true,
+          })
+          position = result.position
+          if (!result.outputOpen) cleanup()
         } finally {
           reading = false
         }
       })()
-    }, 500)
+      activePoll = pollPromise
+      void pollPromise.finally(() => {
+        if (activePoll === pollPromise) activePoll = undefined
+      })
+    }
 
     process.once('SIGINT', cleanup)
     process.once('SIGTERM', cleanup)
+    if (options.signal?.aborted) {
+      cleanup()
+      return
+    }
+    options.signal?.addEventListener('abort', cleanup, { once: true })
+    timer = (options.setInterval ?? setInterval)(
+      poll,
+      options.pollIntervalMs ?? LOG_FOLLOW_POLL_INTERVAL_MS,
+    )
   })
 }
 
@@ -571,7 +776,14 @@ export async function logsHandler(
     fail(`Log file does not exist: ${logPath}`)
   }
 
-  const offset = await printExistingLog(logPath)
+  let offset: number
+  try {
+    offset = await printExistingLog(logPath, {
+      continueOnFileError: parsed.follow,
+    })
+  } catch (error) {
+    fail(`Failed to read log file: ${errorMessage(error)}`)
+  }
   if (parsed.follow) {
     await followLogFile(logPath, offset)
   }

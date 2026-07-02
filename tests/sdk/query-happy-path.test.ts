@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { MockQueryEngine } from './helpers/mock-engine.js'
-import { query } from '../../src/entrypoints/sdk/index.js'
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+} from '../../src/entrypoints/sdk/index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -129,6 +133,195 @@ describe('Query happy-path — full lifecycle', () => {
       (c: any) => c?.type === 'text',
     )
     expect(textContent?.text).toContain(prompt)
+  })
+
+  test('invalid SDK agent definitions are emitted before engine output', async () => {
+    const mockEngine = new MockQueryEngine()
+    const q = query({
+      prompt: 'agent failure visibility',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          broken: {
+            description: 'Use for broken SDK agent coverage',
+            prompt: 2 as unknown as string,
+          },
+          badLimit: {
+            description: 'Use for invalid SDK agent step limit coverage',
+            prompt: 'bad limit prompt',
+            maxSteps: 0,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    expect(messages[0]).toMatchObject({
+      type: 'agent_load_failure',
+      stage: 'injection',
+    })
+    expect(messages[0].error_message).toContain("Invalid SDK agent 'broken'")
+    const loadFailures = messages.filter(
+      message => message?.type === 'agent_load_failure',
+    )
+    expect(loadFailures).toHaveLength(2)
+    expect(loadFailures[1].error_message).toContain(
+      "Invalid SDK agent 'badLimit'",
+    )
+    expect(loadFailures[1].error_message).toContain('maxSteps')
+    const assistantIndex = messages.findIndex(
+      message => message?.type === 'assistant',
+    )
+    expect(assistantIndex).toBeGreaterThan(1)
+    expect(
+      loadFailures.every(failure => messages.indexOf(failure) < assistantIndex),
+    ).toBe(true)
+    expect(messages.some(message => message?.type === 'assistant')).toBe(true)
+    expect(
+      mockEngine.config.agents.some(
+        (agent: any) => agent?.agentType === 'badLimit',
+      ),
+    ).toBe(false)
+  })
+
+  test('valid SDK agents are exposed after successful engine injection', async () => {
+    const mockEngine = new MockQueryEngine()
+    const q = query({
+      prompt: 'agent injection success',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          helper: {
+            description: 'Use for successful SDK agent injection coverage',
+            prompt: 'Help with SDK agent injection coverage',
+            maxSteps: 2,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: unknown[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    expect(messages.some((message: any) => message?.type === 'assistant')).toBe(
+      true,
+    )
+    expect(
+      mockEngine.config.agents.some(
+        (agent: any) => agent?.agentType === 'helper' && agent?.maxSteps === 2,
+      ),
+    ).toBe(true)
+    expect(
+      (q as any).appStateStore
+        .getState()
+        .agentDefinitions.allAgents.some(
+          (agent: any) => agent?.agentType === 'helper',
+        ),
+    ).toBe(true)
+    expect(q.supportedAgents()).toContain('helper')
+  })
+
+  test('failed SDK agent injection does not expose uninjected user agents', async () => {
+    const mockEngine = new MockQueryEngine()
+    mockEngine.injectAgents = () => {
+      throw new Error('injection rejected')
+    }
+    const q = query({
+      prompt: 'agent injection failure',
+      options: {
+        cwd: process.cwd(),
+        agents: {
+          leaky: {
+            description: 'Use for failed SDK agent injection coverage',
+            prompt: 'Help with SDK agent injection failure coverage',
+            maxSteps: 2,
+          },
+        },
+      },
+    })
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    const failureIndex = messages.findIndex(
+      message =>
+        message?.type === 'agent_load_failure' &&
+        message?.stage === 'injection' &&
+        message?.error_message === 'injection rejected',
+    )
+    const assistantIndex = messages.findIndex(
+      message => message?.type === 'assistant',
+    )
+    expect(failureIndex).toBeGreaterThanOrEqual(0)
+    expect(failureIndex).toBeLessThan(assistantIndex)
+    expect(q.supportedAgents()).not.toContain('leaky')
+    expect(
+      (q as any).appStateStore
+        .getState()
+        .agentDefinitions.allAgents.some(
+          (agent: any) => agent?.agentType === 'leaky',
+        ),
+    ).toBe(false)
+  })
+
+  test('denied SDK MCP tools are filtered before engine updateTools', async () => {
+    const mockEngine = new MockQueryEngine()
+    const deniedBash = tool(
+      'Bash',
+      'Denied MCP duplicate of Bash',
+      { type: 'object', properties: {} },
+      async () => ({ content: [{ type: 'text', text: 'denied' }] }),
+    )
+    const allowedSdkTool = tool(
+      'sdkAllowed',
+      'Allowed SDK MCP tool',
+      { type: 'object', properties: {} },
+      async () => ({ content: [{ type: 'text', text: 'allowed' }] }),
+    )
+    const q = query({
+      prompt: 'mcp deny filtering',
+      options: {
+        cwd: process.cwd(),
+        disallowedTools: ['Bash'],
+        mcpServers: {
+          'sdk-tools': createSdkMcpServer({
+            type: 'sdk',
+            name: 'sdk-tools',
+            tools: [deniedBash, allowedSdkTool],
+          }),
+        },
+      },
+    })
+    const initialToolNames = (q as any).engine.config.tools.map(
+      (entry: any) => entry?.name,
+    )
+    expect(initialToolNames.length).toBeGreaterThan(0)
+    mockEngine.config.tools = [...(q as any).engine.config.tools]
+    ;(q as any).setEngine(mockEngine)
+
+    const messages: any[] = []
+    for await (const msg of q) {
+      messages.push(msg)
+    }
+
+    const toolNames = mockEngine.config.tools.map((entry: any) => entry?.name)
+    for (const initialToolName of initialToolNames) {
+      expect(toolNames).toContain(initialToolName)
+    }
+    expect(toolNames).toContain('sdkAllowed')
+    expect(toolNames).not.toContain('Bash')
+    expect(messages.some(message => message?.type === 'assistant')).toBe(true)
   })
 })
 

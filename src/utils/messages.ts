@@ -471,6 +471,7 @@ export function createUserMessage({
   isCollapseSummary,
   summarizeMetadata,
   toolUseResult,
+  isAgentStepLimitToolResult,
   mcpMeta,
   uuid,
   timestamp,
@@ -486,6 +487,7 @@ export function createUserMessage({
   isCompactSummary?: boolean
   isCollapseSummary?: boolean
   toolUseResult?: unknown // Matches tool's `Output` type
+  isAgentStepLimitToolResult?: boolean
   /** MCP protocol metadata to pass through to SDK consumers (never sent to model) */
   mcpMeta?: {
     _meta?: Record<string, unknown>
@@ -526,6 +528,7 @@ export function createUserMessage({
     uuid: (uuid as UUID | undefined) || randomUUID(),
     timestamp: timestamp ?? new Date().toISOString(),
     toolUseResult,
+    isAgentStepLimitToolResult,
     mcpMeta,
     imagePasteIds,
     sourceToolAssistantUUID,
@@ -834,6 +837,101 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
       }
     }
   })
+}
+
+// Per-element cache for normalizeMessages. The only cross-message state in
+// normalizeMessages is the monotonic isNewChain flag, so each message's
+// normalized output is fully determined by (message identity, entry flag).
+// Caching on the message object keeps output identity stable across calls,
+// which preserves downstream WeakMap caches and React.memo bailouts, and
+// reduces each unchanged message to an O(1) cache hit (reused blocks, no
+// re-splitting or re-allocation) instead of a full renormalization. The call
+// itself still scans the message list and reassembles the output array, so it
+// stays O(n) per render — this is an allocation/object-identity optimization,
+// not an O(1) append. Entries GC together with their messages.
+type NormalizedCacheEntry = {
+  entryFlag: boolean
+  exitFlag: boolean
+  out: NormalizedMessage[]
+}
+const normalizedMessageCache = new WeakMap<Message, NormalizedCacheEntry>()
+
+// Drop-in replacement for normalizeMessages on render hot paths. Reuses each
+// message's previously normalized blocks (preserving object identity) when the
+// incoming isNewChain flag matches the cached run; recomputes only changed or
+// new messages. Messages are treated as immutable, matching the assumptions of
+// the React.memo comparators downstream.
+export function normalizeMessagesCached(
+  messages: Message[],
+): NormalizedMessage[] {
+  const out: NormalizedMessage[] = []
+  let flag = false
+  for (const message of messages) {
+    const cached = normalizedMessageCache.get(message)
+    if (cached && cached.entryFlag === flag) {
+      for (const m of cached.out) {
+        out.push(m)
+      }
+      flag = cached.exitFlag
+      continue
+    }
+    const entryFlag = flag
+    // Reuse normalizeMessages for the actual block-splitting logic so the two
+    // implementations cannot drift. isNewChain only transitions false -> true,
+    // so seeding the single-element run with the current flag is equivalent to
+    // running the whole list: pass a synthetic multi-block predecessor when the
+    // flag is already set.
+    const normalized = normalizeSingleMessageWithFlag(message, entryFlag)
+    normalizedMessageCache.set(message, {
+      entryFlag,
+      exitFlag: normalized.exitFlag,
+      out: normalized.out,
+    })
+    for (const m of normalized.out) {
+      out.push(m)
+    }
+    flag = normalized.exitFlag
+  }
+  return out
+}
+
+function normalizeSingleMessageWithFlag(
+  message: Message,
+  entryFlag: boolean,
+): { out: NormalizedMessage[]; exitFlag: boolean } {
+  const exitFlag =
+    entryFlag ||
+    ((message.type === 'assistant' ||
+      (message.type === 'user' && typeof message.message.content !== 'string')) &&
+      message.message.content.length > 1)
+
+  if (!entryFlag) {
+    return { out: normalizeMessages([message]), exitFlag }
+  }
+
+  // normalizeMessages keys UUID derivation off its internal isNewChain flag;
+  // when the chain flag is already set for this position, every produced block
+  // must get a derived UUID. Recreate that by normalizing the single message
+  // and re-deriving UUIDs the same way the full pass would.
+  switch (message.type) {
+    case 'attachment':
+    case 'progress':
+    case 'system':
+      return { out: [message], exitFlag }
+    default: {
+      const normalized = normalizeMessages([message])
+      return {
+        out: normalized.map(
+          (m, index) =>
+            ({
+              ...m,
+              uuid: deriveUUID(message.uuid, index),
+            }) as NormalizedMessage,
+        ),
+        exitFlag,
+      }
+    }
+  }
 }
 
 type ToolUseRequestMessage = NormalizedAssistantMessage & {
@@ -3234,17 +3332,22 @@ export function handleMessageFromStream(
           const index = message.event.index
           onUpdateLength(delta)
           onStreamingToolUses(_ => {
-            const element = _.find(_ => _.index === index)
-            if (!element) {
-              return _
-            }
-            return [
-              ..._.filter(_ => _ !== element),
-              {
+            // Update in place (preserve array order). The previous
+            // filter-then-append moved the updated tool to the end, which
+            // shuffled concurrently-streaming tools and broke the index-aligned
+            // contentBlock check in the Messages memo comparator.
+            let found = false
+            const next = _.map(element => {
+              if (element.index !== index) {
+                return element
+              }
+              found = true
+              return {
                 ...element,
                 unparsedToolInput: element.unparsedToolInput + delta,
-              },
-            ]
+              }
+            })
+            return found ? next : _
           })
           return
         }
@@ -5328,6 +5431,34 @@ export type ToolResultPairingValidationResult = {
   issues: ToolResultPairingIssue[]
 }
 
+export type ToolPairSafeMessageRangeOptions = {
+  projectionName: string
+  querySource?: string
+  allowPendingToolUse?: boolean
+  minStart?: number
+  maxEnd?: number
+  maxExtraMessages?: number
+}
+
+export type ToolPairSafeMessageRangeDiagnostics = {
+  projectionName: string
+  querySource?: string
+  messageCountBefore: number
+  messageCountAfter: number
+  requestedRange: { start: number; end: number }
+  adjustedRange: { start: number; end: number }
+  issueKinds: ToolResultPairingIssueKind[]
+  requestedStartedWithToolResult: boolean
+  adjusted: boolean
+}
+
+export type ToolPairSafeMessageRangeResult<T extends Message> = {
+  messages: T[]
+  start: number
+  end: number
+  diagnostics: ToolPairSafeMessageRangeDiagnostics
+}
+
 function getToolUseId(block: unknown): string | null {
   if (
     typeof block === 'object' &&
@@ -5389,6 +5520,328 @@ function getToolResultIdsFromUserMessage(message: UserMessage): string[] {
   return message.message.content
     .map(block => getToolResultId(block))
     .filter((id): id is string => id !== null)
+}
+
+function isUserOrAssistantMessage(
+  message: Message,
+): message is UserMessage | AssistantMessage {
+  return message.type === 'user' || message.type === 'assistant'
+}
+
+function getToolUseIdsFromAssistantMessage(message: Message): string[] {
+  if (message.type !== 'assistant') {
+    return []
+  }
+  return message.message.content
+    .map(block => getToolUseId(block))
+    .filter((id): id is string => id !== null)
+}
+
+function getToolResultIdsFromMessage(message: Message): string[] {
+  if (message.type !== 'user') {
+    return []
+  }
+  const content = message.message.content
+  if (!Array.isArray(content)) {
+    return []
+  }
+  return content
+    .map(block => getToolResultId(block))
+    .filter((id): id is string => id !== null)
+}
+
+function collectToolUseIdsInRange(
+  messages: Message[],
+  start: number,
+  end: number,
+): Set<string> {
+  const ids = new Set<string>()
+  for (let i = start; i < end; i++) {
+    for (const id of getToolUseIdsFromAssistantMessage(messages[i]!)) {
+      ids.add(id)
+    }
+  }
+  return ids
+}
+
+function collectToolResultIdsInRange(
+  messages: Message[],
+  start: number,
+  end: number,
+): Set<string> {
+  const ids = new Set<string>()
+  for (let i = start; i < end; i++) {
+    for (const id of getToolResultIdsFromMessage(messages[i]!)) {
+      ids.add(id)
+    }
+  }
+  return ids
+}
+
+function clampRangeIndex(index: number, min: number, max: number): number {
+  if (!Number.isFinite(index)) return min
+  return Math.max(min, Math.min(max, Math.trunc(index)))
+}
+
+function findToolUseMessageIndex(
+  messages: Message[],
+  toolUseId: string,
+  fromInclusive: number,
+  toExclusive: number,
+): number {
+  for (let i = toExclusive - 1; i >= fromInclusive; i--) {
+    if (getToolUseIdsFromAssistantMessage(messages[i]!).includes(toolUseId)) {
+      return i
+    }
+  }
+  return -1
+}
+
+function findToolResultMessageIndex(
+  messages: Message[],
+  toolUseId: string,
+  fromInclusive: number,
+  toExclusive: number,
+): number {
+  for (let i = fromInclusive; i < toExclusive; i++) {
+    if (getToolResultIdsFromMessage(messages[i]!).includes(toolUseId)) {
+      return i
+    }
+  }
+  return -1
+}
+
+function findEarliestAssistantWithSameMessageId(
+  messages: Message[],
+  messageId: string,
+  fromInclusive: number,
+  toExclusive: number,
+): number {
+  let result = -1
+  for (let i = fromInclusive; i < toExclusive; i++) {
+    const message = messages[i]!
+    if (message.type === 'assistant' && message.message.id === messageId) {
+      result = i
+      break
+    }
+  }
+  return result
+}
+
+function findLatestAssistantWithSameMessageId(
+  messages: Message[],
+  messageId: string,
+  fromInclusive: number,
+  toExclusive: number,
+): number {
+  let result = -1
+  for (let i = fromInclusive; i < toExclusive; i++) {
+    const message = messages[i]!
+    if (message.type === 'assistant' && message.message.id === messageId) {
+      result = i
+    }
+  }
+  return result
+}
+
+function getPairingIssueKinds(messages: Message[]): ToolResultPairingIssueKind[] {
+  const pairable = messages.filter(isUserOrAssistantMessage)
+  if (pairable.length === 0) return []
+  const validation = validateToolResultPairing(pairable)
+  return [...new Set(validation.issues.map(issue => issue.kind))]
+}
+
+function messageHasToolResult(message: Message | undefined): boolean {
+  return message ? getToolResultIdsFromMessage(message).length > 0 : false
+}
+
+/**
+ * Selects a contiguous message range without cutting through tool_use/tool_result
+ * pairs. Projection producers should call this before slicing history for
+ * summary, compaction, or forked-query contexts.
+ */
+export function selectToolPairSafeMessageRange<T extends Message>(
+  messages: readonly T[],
+  requestedStart: number,
+  requestedEnd: number,
+  options: ToolPairSafeMessageRangeOptions,
+): ToolPairSafeMessageRangeResult<T> {
+  const messageList = [...messages]
+  const minStart = clampRangeIndex(options.minStart ?? 0, 0, messageList.length)
+  const maxEnd = clampRangeIndex(
+    options.maxEnd ?? messageList.length,
+    minStart,
+    messageList.length,
+  )
+  const clampedStart = clampRangeIndex(requestedStart, minStart, maxEnd)
+  const clampedEnd = clampRangeIndex(requestedEnd, clampedStart, maxEnd)
+  const maxExtraMessages =
+    options.maxExtraMessages === undefined
+      ? messageList.length
+      : Math.max(0, Math.trunc(options.maxExtraMessages))
+  let expansionMinStart = Math.max(minStart, clampedStart - maxExtraMessages)
+  let expansionMaxEnd = Math.min(maxEnd, clampedEnd + maxExtraMessages)
+
+  let start = clampedStart
+  let end = clampedEnd
+  const requestedMessages = messageList.slice(clampedStart, clampedEnd)
+  const issueKinds = getPairingIssueKinds(requestedMessages)
+  const requestedStartedWithToolResult = messageHasToolResult(
+    messageList[clampedStart],
+  )
+
+  for (let guard = 0; guard < messageList.length * 2 + 2; guard++) {
+    let changed = false
+
+    for (let i = start; i < end; i++) {
+      const message = messageList[i]!
+      if (message.type !== 'assistant') continue
+      const messageId = message.message.id
+      if (!messageId) continue
+
+      const earlier = findEarliestAssistantWithSameMessageId(
+        messageList,
+        messageId,
+        0,
+        start,
+      )
+      if (earlier !== -1) {
+        if (earlier >= expansionMinStart) {
+          start = earlier
+        } else {
+          const lastInRange = findLatestAssistantWithSameMessageId(
+            messageList,
+            messageId,
+            start,
+            end,
+          )
+          start = lastInRange + 1
+          expansionMinStart = Math.max(expansionMinStart, start)
+        }
+        changed = true
+        break
+      }
+
+      const later = findLatestAssistantWithSameMessageId(
+        messageList,
+        messageId,
+        end,
+        messageList.length,
+      )
+      if (later !== -1) {
+        if (later < expansionMaxEnd) {
+          end = later + 1
+        } else {
+          const firstInRange = findEarliestAssistantWithSameMessageId(
+            messageList,
+            messageId,
+            start,
+            end,
+          )
+          end = firstInRange
+          expansionMaxEnd = Math.min(expansionMaxEnd, end)
+        }
+        changed = true
+        break
+      }
+    }
+    if (changed) continue
+
+    const toolUseIds = collectToolUseIdsInRange(messageList, start, end)
+    const toolResultIds = collectToolResultIdsInRange(messageList, start, end)
+
+    for (let i = start; i < end; i++) {
+      const resultIds = getToolResultIdsFromMessage(messageList[i]!)
+      const orphanedResultId = resultIds.find(id => !toolUseIds.has(id))
+      if (!orphanedResultId) continue
+
+      const toolUseIndex = findToolUseMessageIndex(
+        messageList,
+        orphanedResultId,
+        expansionMinStart,
+        start,
+      )
+      if (toolUseIndex !== -1) {
+        start = toolUseIndex
+        changed = true
+        break
+      }
+
+      start = i + 1
+      expansionMinStart = Math.max(expansionMinStart, start)
+      changed = true
+      break
+    }
+    if (changed) continue
+
+    for (let i = start; i < end; i++) {
+      const toolUseIdsForMessage = getToolUseIdsFromAssistantMessage(
+        messageList[i]!,
+      )
+      const missingToolUseId = toolUseIdsForMessage.find(
+        id => !toolResultIds.has(id),
+      )
+      if (!missingToolUseId) continue
+
+      const toolResultIndex = findToolResultMessageIndex(
+        messageList,
+        missingToolUseId,
+        end,
+        expansionMaxEnd,
+      )
+      if (toolResultIndex !== -1) {
+        end = toolResultIndex + 1
+        changed = true
+        break
+      }
+
+      const hasResultOutsideRange =
+        findToolResultMessageIndex(
+          messageList,
+          missingToolUseId,
+          0,
+          messageList.length,
+        ) !== -1
+      if (options.allowPendingToolUse && !hasResultOutsideRange) continue
+
+      end = i
+      expansionMaxEnd = Math.min(expansionMaxEnd, end)
+      changed = true
+      break
+    }
+    if (!changed) break
+  }
+
+  const selectedMessages = messageList.slice(start, end)
+  const diagnostics: ToolPairSafeMessageRangeDiagnostics = {
+    projectionName: options.projectionName,
+    querySource: options.querySource,
+    messageCountBefore: clampedEnd - clampedStart,
+    messageCountAfter: selectedMessages.length,
+    requestedRange: { start: clampedStart, end: clampedEnd },
+    adjustedRange: { start, end },
+    issueKinds,
+    requestedStartedWithToolResult,
+    adjusted: start !== clampedStart || end !== clampedEnd,
+  }
+
+  if (diagnostics.adjusted || issueKinds.length > 0) {
+    logForDebugging(
+      `[messageProjection] tool-pair-safe range projection=${options.projectionName} ` +
+        `querySource=${options.querySource ?? 'unknown'} ` +
+        `before=${diagnostics.messageCountBefore} after=${diagnostics.messageCountAfter} ` +
+        `requested=${clampedStart}:${clampedEnd} adjusted=${start}:${end} ` +
+        `issueKinds=${issueKinds.join(',') || 'none'} ` +
+        `requestedStartedWithToolResult=${requestedStartedWithToolResult}`,
+    )
+  }
+
+  return {
+    messages: selectedMessages as T[],
+    start,
+    end,
+    diagnostics,
+  }
 }
 
 export function validateToolResultPairing(

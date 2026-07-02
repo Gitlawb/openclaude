@@ -1,6 +1,7 @@
 import { isBareMode, isEnvTruthy } from './envUtils.js'
 import { getSecureStorage } from './secureStorage/index.js'
 import { exchangeForCopilotToken } from '../services/github/deviceFlow.js'
+import { logForDebugging } from './debug.js'
 
 /** JSON key in the shared OpenClaude secure storage blob. */
 export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
@@ -10,6 +11,7 @@ export const GITHUB_MODELS_HYDRATED_ENV_MARKER =
 export type GithubModelsCredentialBlob = {
   accessToken: string
   oauthAccessToken?: string
+  credentialType?: 'copilot_token' | 'copilot_key'
 }
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
@@ -44,13 +46,23 @@ function checkGithubTokenStatus(token: string): GithubTokenStatus {
 }
 
 export function readGithubModelsToken(): string | undefined {
+  return readGithubModelsCredentialBlob()?.accessToken
+}
+
+function readGithubModelsCredentialBlob(): GithubModelsCredentialBlob | undefined {
   if (isBareMode()) return undefined
   try {
     const data = getSecureStorage().read() as
       | ({ githubModels?: GithubModelsCredentialBlob } & Record<string, unknown>)
       | null
-    const t = data?.githubModels?.accessToken?.trim()
-    return t || undefined
+    const blob = data?.githubModels
+    const accessToken = blob?.accessToken?.trim()
+    if (!accessToken) return undefined
+    return {
+      ...blob,
+      accessToken,
+      oauthAccessToken: blob?.oauthAccessToken?.trim() || undefined,
+    }
   } catch {
     return undefined
   }
@@ -78,6 +90,20 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
+  if (process.env.GITHUB_COPILOT_KEY?.trim()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    return
+  }
+  if (isBareMode()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    return
+  }
+  const stored = readGithubModelsCredentialBlob()
+  if (stored?.credentialType === 'copilot_key') {
+    process.env.GITHUB_COPILOT_KEY = stored.accessToken
+    process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] = '1'
+    return
+  }
   if (process.env.GH_TOKEN?.trim()) {
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
@@ -86,13 +112,8 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
-  if (isBareMode()) {
-    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
-    return
-  }
-  const t = readGithubModelsToken()
-  if (t) {
-    process.env.GITHUB_TOKEN = t
+  if (stored?.accessToken) {
+    process.env.GITHUB_TOKEN = stored.accessToken
     process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] = '1'
     return
   }
@@ -104,12 +125,19 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
  *
  * If a stored Copilot token is expired/invalid and an OAuth token is present,
  * exchange the OAuth token for a fresh Copilot token and persist it.
+ *
+ * For GHE instances, the token exchange is routed through the GHE endpoint.
  */
 export async function refreshGithubModelsTokenIfNeeded(): Promise<boolean> {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     return false
   }
   if (isBareMode()) {
+    return false
+  }
+
+  // GITHUB_COPILOT_KEY is a direct API key, no refresh needed
+  if (process.env.GITHUB_COPILOT_KEY?.trim()) {
     return false
   }
 
@@ -121,6 +149,13 @@ export async function refreshGithubModelsTokenIfNeeded(): Promise<boolean> {
     const blob = data?.githubModels
     const accessToken = blob?.accessToken?.trim() || ''
     const oauthToken = blob?.oauthAccessToken?.trim() || ''
+
+    if (blob?.credentialType === 'copilot_key') {
+      if (accessToken && !process.env.GITHUB_COPILOT_KEY?.trim()) {
+        process.env.GITHUB_COPILOT_KEY = accessToken
+      }
+      return false
+    }
 
     if (!accessToken && !oauthToken) {
       return false
@@ -138,7 +173,10 @@ export async function refreshGithubModelsTokenIfNeeded(): Promise<boolean> {
       return false
     }
 
-    const refreshed = await exchangeForCopilotToken(oauthToken)
+    // Get GHE URL for token exchange if in enterprise mode
+    const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim() || undefined
+
+    const refreshed = await exchangeForCopilotToken(oauthToken, undefined, gheUrl)
     const saved = saveGithubModelsToken(refreshed.token, oauthToken)
     if (!saved.success) {
       return false
@@ -154,6 +192,7 @@ export async function refreshGithubModelsTokenIfNeeded(): Promise<boolean> {
 export function saveGithubModelsToken(
   token: string,
   oauthToken?: string,
+  options?: { credentialType?: GithubModelsCredentialBlob['credentialType'] },
 ): {
   success: boolean
   warning?: string
@@ -173,6 +212,7 @@ export function saveGithubModelsToken(
   const oauthTrimmed = oauthToken?.trim()
   const mergedBlob: GithubModelsCredentialBlob = {
     accessToken: trimmed,
+    credentialType: options?.credentialType ?? 'copilot_token',
   }
   if (oauthTrimmed) {
     mergedBlob.oauthAccessToken = oauthTrimmed
@@ -184,6 +224,52 @@ export function saveGithubModelsToken(
     [GITHUB_MODELS_STORAGE_KEY]: mergedBlob,
   }
   return secureStorage.update(merged as typeof prev)
+}
+
+/**
+ * Force-refresh the Copilot token on 401.
+ *
+ * Only refreshes when the failing credential matches the stored Copilot
+ * token — silently skipping when a provider override, route credential,
+ * or custom auth header is in use, preventing credential substitution.
+ *
+ * Returns true if the refresh succeeded.
+ */
+export async function refreshCopilotTokenOn401(): Promise<boolean> {
+  if (isBareMode()) return false
+
+  // Direct API key users cannot refresh — they need to update the key manually
+  if (process.env.GITHUB_COPILOT_KEY?.trim()) return false
+
+  try {
+    const blob = readGithubModelsCredentialBlob()
+    if (!blob) return false
+    if (blob.credentialType === 'copilot_key') return false
+
+    // Only refresh when the failing credential IS the stored Copilot token.
+    // A provider override, route credential, or manually-set GITHUB_TOKEN
+    // will not match, preventing silent credential substitution.
+    const currentCredential = process.env.OPENAI_API_KEY?.trim()
+    if (!currentCredential || currentCredential !== blob.accessToken) return false
+
+    const oauthToken = blob.oauthAccessToken
+    if (!oauthToken) return false
+
+    const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim() || undefined
+    const refreshed = await exchangeForCopilotToken(oauthToken, undefined, gheUrl)
+    const saved = saveGithubModelsToken(refreshed.token, oauthToken)
+    if (!saved.success) return false
+
+    process.env.GITHUB_TOKEN = refreshed.token
+    process.env.OPENAI_API_KEY = refreshed.token
+    return true
+  } catch (error) {
+    logForDebugging(
+      `[refreshCopilotTokenOn401] failed: ${error instanceof Error ? error.message : String(error)}`,
+      { level: 'warn' },
+    )
+    return false
+  }
 }
 
 export function clearGithubModelsToken(): { success: boolean; warning?: string } {

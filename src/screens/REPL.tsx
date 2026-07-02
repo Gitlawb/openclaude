@@ -36,6 +36,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
+import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -121,14 +122,14 @@ import { WEB_FETCH_TOOL_NAME } from '../tools/WebFetchTool/prompt.js';
 import { SLEEP_TOOL_NAME } from '../tools/SleepTool/prompt.js';
 import { clearSpeculativeChecks } from '../tools/BashTool/bashPermissions.js';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
-import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
+import { getGlobalConfig, saveGlobalConfig, saveGlobalConfigDeferred } from '../utils/config.js';
 import { hasConsoleBillingAccess } from '../utils/billing.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js';
 import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags } from '../utils/messages.js';
 import { getCurrentTurnCacheMetrics, resetCurrentTurn } from '../services/api/cacheStatsTracker.js';
 import { formatCacheMetricsCompact, formatCacheMetricsFull } from '../services/api/cacheMetrics.js';
-import { generateSessionTitle } from '../utils/sessionTitle.js';
+import { generateSessionTitle, titleOrNullForPromptFallback } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
@@ -197,6 +198,7 @@ const SUGGEST_BG_PR_NOOP = (_p: string, _n: string): boolean => false;
 const useScheduledTasks = require('../hooks/useScheduledTasks.js').useScheduledTasks;
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js';
+import { decideStreamingTextUpdate } from './streamingTextPublish.js';
 import type { SandboxAskCallback, NetworkHostPattern } from '../utils/sandbox/sandbox-adapter.js';
 import { type IDEExtensionInstallationStatus, closeOpenDiffs, getConnectedIdeClient, type IdeType } from '../utils/ide.js';
 import { useIDEIntegration } from '../hooks/useIDEIntegration.js';
@@ -550,6 +552,34 @@ function _temp2(setFrame_0) {
 }
 function _temp(f) {
   return (f + 1) % TITLE_ANIMATION_FRAMES.length;
+}
+function getAbortReasonLabel(reason: unknown): string | undefined {
+  if (reason === undefined) return undefined;
+  if (typeof reason === 'string') return reason;
+  if (reason instanceof Error) return reason.name;
+  return String(reason);
+}
+function getQueryTerminalReason(signal: AbortSignal, didThrow: boolean): QueryTerminalReason {
+  if (!signal.aborted) return didThrow ? 'unknown' : 'ok';
+  switch (getAbortReasonLabel(signal.reason)) {
+    case 'query-timeout':
+      return 'query-timeout';
+    case 'user-cancel':
+    case 'interrupt':
+      return 'user-abort';
+    case 'background':
+      return 'parent-ended';
+    default:
+      return 'unknown';
+  }
+}
+function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): string {
+  const apiIds = snapshot.apiCalls.map(call => call.requestId ?? call.clientRequestId ?? 'unknown').join(',');
+  const toolIds = snapshot.toolUses.map(tool => `${tool.toolName}:${tool.toolUseId}`).join(',');
+  return `activeApiCalls=${snapshot.apiCalls.length} activeToolUses=${snapshot.toolUses.length}` + (apiIds ? ` apiIds=${apiIds}` : '') + (toolIds ? ` toolIds=${toolIds}` : '');
+}
+function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras = ''): void {
+  logForDebugging(formatQueryLifecycleLogMessage(event, context, extras));
 }
 export type Props = {
   commands: Command[];
@@ -1449,6 +1479,7 @@ export function REPL({
   }, [setLocalCommands]);
   const [inProgressToolUseIDs, setInProgressToolUseIDs] = useState<Set<string>>(new Set());
   const hasInterruptibleToolInProgressRef = useRef(false);
+  const queryLifecycleTrackerRef = useRef(new QueryLifecycleOperationTracker());
 
   // Remote session hook - manages WebSocket connection and message handling for --remote mode
   const remoteSession = useRemoteSession({
@@ -1513,15 +1544,37 @@ export function REPL({
     responseLengthRef.current = f(responseLengthRef.current);
   }, []);
 
-  // Streaming text display: set state directly per delta (Ink's 16ms render
-  // throttle batches rapid updates). Cleared on message arrival (messages.ts)
-  // so displayedMessages switches from deferredMessages to messages atomically.
+  // Streaming text display. streamingTextRef holds the full accumulated text
+  // (eager, per delta); streamingText state is only published when the visible
+  // (newline-truncated) preview actually changes. The Ink root is a LegacyRoot,
+  // so every setState from a stream event commits a synchronous REPL render —
+  // and because the preview hides the in-progress trailing line, deltas between
+  // newlines never change anything on screen. Publishing only on newline (and
+  // on clear) drops those no-op renders entirely under fast streams
+  // (100-300 deltas/sec) while keeping the displayed text byte-identical.
+  // Cleared on message arrival (messages.ts) so displayedMessages switches from
+  // deferredMessages to messages atomically.
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  const streamingTextRef = useRef<string | null>(null);
+  const lastFlushedStreamingVisibleRef = useRef<string | null>(null);
   const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   const showStreamingText = !reducedMotion && !hasCursorUpViewportYankBug();
   const onStreamingText = useCallback((f: (current: string | null) => string | null) => {
-    if (!showStreamingText) return;
-    setStreamingText(f);
+    // decideStreamingTextUpdate keeps the ref current even when the live preview
+    // is disabled (reduced-motion / cursor-up yank bug) — the Esc handler
+    // recovers partial assistant output from it — and publishes to state only
+    // when the newline-truncated visible preview changes.
+    const decision = decideStreamingTextUpdate(
+      streamingTextRef.current,
+      f,
+      showStreamingText,
+      lastFlushedStreamingVisibleRef.current,
+    );
+    streamingTextRef.current = decision.nextText;
+    if (decision.publish) {
+      lastFlushedStreamingVisibleRef.current = decision.nextVisible;
+      setStreamingText(decision.nextText);
+    }
   }, [showStreamingText]);
 
   // Hide the in-progress source line so text streams line-by-line, not
@@ -1600,15 +1653,21 @@ export function REPL({
       bashTools.current.add(tool);
     }
     bashToolsProcessedIdx.current = messagesRef.current.length;
-    void getTipToShowOnSpinner({
+    // The viewer's latest prompt — used only by the opt-in earning tip for
+    // contextual ad matching (sanitized + sent only when sponsored tips are on).
+    const lastUserMsg = messagesRef.current.findLast(selectableUserMessagesFilter);
+    const latestUserMessage = lastUserMsg
+      ? getContentText(lastUserMsg.message.content) ?? undefined
+      : undefined;
+    const tipCtx = {
       theme,
       readFileState: readFileState.current,
-      bashTools: bashTools.current
-    }).then(async tip => {
+      bashTools: bashTools.current,
+      latestUserMessage
+    };
+    void getTipToShowOnSpinner(tipCtx).then(async tip => {
       if (tip) {
-        const content = await tip.content({
-          theme
-        });
+        const content = await tip.content(tipCtx);
         setAppState(prev => ({
           ...prev,
           spinnerTip: content
@@ -1639,6 +1698,8 @@ export function REPL({
     // does not leave the progress bar rendered in the idle UI.
     setCompactProgressRatio(null);
     responseLengthRef.current = 0;
+    streamingTextRef.current = null;
+    lastFlushedStreamingVisibleRef.current = null;
     setStreamingText(null);
     setStreamingToolUses([]);
     setSpinnerMessage(null);
@@ -1689,7 +1750,9 @@ export function REPL({
       if (count >= 3) return;
       const timer = setTimeout((ref, setMessages) => {
         ref.current = true;
-        saveGlobalConfig(prev => {
+        // Loss-tolerant notification counter — coalesce the write so it can't
+        // contend on the config lock with other writers.
+        saveGlobalConfigDeferred(prev => {
           const prevCount = prev.autoPermissionsNotificationCount ?? 0;
           if (prevCount >= 3) return prev;
           return {
@@ -1723,13 +1786,32 @@ export function REPL({
     const inProgressToolUses = lastAssistant.message.content.filter(b => b.type === 'tool_use' && inProgressToolUseIDs.has(b.id));
     return inProgressToolUses.length > 0 && inProgressToolUses.every(b => b.type === 'tool_use' && b.name === SLEEP_TOOL_NAME);
   }, [messages, inProgressToolUseIDs]);
+  // Surface the currently-executing tool in the spinner so long-running tools
+  // (subagents, typecheck, installs) don't look frozen during the elapsed
+  // crunch. Reuses the spinnerSuffix channel; stop-hook progress takes
+  // precedence when both apply (stop hooks run after the turn's tools).
+  const activeToolSpinnerSuffix = useMemo(() => {
+    if (!isLoading || inProgressToolUseIDs.size === 0) return null;
+    const lastAssistant = messages.findLast(m => m.type === 'assistant');
+    if (lastAssistant?.type !== 'assistant') return null;
+    const active = lastAssistant.message.content.filter(b => b.type === 'tool_use' && inProgressToolUseIDs.has(b.id));
+    const first = active[0];
+    if (!first || first.type !== 'tool_use') return null;
+    return active.length > 1 ? `${first.name} +${active.length - 1}` : first.name;
+  }, [messages, inProgressToolUseIDs, isLoading]);
   const mrOnBeforeQuery = useCallback(async (_input: string, _allMessages: MessageType[], _newMessageCount: number) => true, []);
   const mrOnTurnComplete = useCallback(async (_allMessages: MessageType[], _aborted: boolean) => { }, []);
   const mrRender = useCallback(() => null, []);
-  const abortTimedOutQuery = useCallback(() => {
+  const abortTimedOutQuery = useCallback((timeout: QueryGuardTimeoutInfo) => {
+    const timeoutOperations = summarizeActiveOperations(timeout.activeOperations);
+    logQueryLifecycle('timeout', timeout.context, timeoutOperations);
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
+      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
       activeAbortController.abort('query-timeout');
+    }
+    if (timeout.activeOperations.apiCalls.length > 0) {
+      logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
     }
     if (feature('TOKEN_BUDGET')) {
       snapshotOutputTokensForTurn(null);
@@ -1738,6 +1820,7 @@ export function REPL({
     // QueryGuard calls this before forceEnd(); defer UI cleanup until after
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
+      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
@@ -2162,7 +2245,7 @@ export function REPL({
     // Onboarding dialogs (special conditions)
     if (allowDialogsWithAnimation && showIdeOnboarding) return 'ide-onboarding';
 
-    // Effort callout (shown once for Opus 4.6 users when effort is enabled)
+    // Effort callout (shown once for recent Opus users when effort is enabled)
     if (allowDialogsWithAnimation && showEffortCallout) return 'effort-callout';
 
     // Remote callout (shown once before first bridge enable)
@@ -2229,16 +2312,30 @@ export function REPL({
     if (feature('PROACTIVE') || feature('KAIROS')) {
       proactiveModule?.pauseProactive();
     }
-    queryGuard.forceEnd();
+    const cancelContext = queryGuard.activeContext;
+    const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
+    const completedCancelContext = cancelContext ? {
+      ...cancelContext,
+      terminalReason: 'user-abort' as const,
+      abortReason: 'user-cancel'
+    } : null;
+    if (cancelContext) {
+      logQueryLifecycle('abort_requested', cancelContext, formatQueryLifecycleAbortSignalReason('user-cancel'));
+    }
+    queryGuard.forceEnd('user-abort', 'user-cancel');
     skipIdleCheckRef.current = false;
 
     // Preserve partially-streamed text so the user can read what was
-    // generated before pressing Esc. Pushed before resetLoadingState clears
-    // streamingText, and before query.ts yields the async interrupt marker,
-    // giving final order [user, partial-assistant, [Request interrupted by user]].
-    if (streamingText?.trim()) {
+    // generated before pressing Esc. Read the ref, not streamingText state:
+    // state only holds up to the last published newline, while the ref has the
+    // full text including the in-progress trailing line. Pushed before
+    // resetLoadingState clears streamingText, and before query.ts yields the
+    // async interrupt marker, giving final order
+    // [user, partial-assistant, [Request interrupted by user]].
+    const partialStreamedText = streamingTextRef.current;
+    if (partialStreamedText?.trim()) {
       setMessages(prev => [...prev, createAssistantMessage({
-        content: streamingText
+        content: partialStreamedText
       })]);
     }
     resetLoadingState();
@@ -2264,6 +2361,16 @@ export function REPL({
       activeRemote.cancelRequest();
     } else {
       abortController?.abort('user-cancel');
+    }
+    if (cancelContext) {
+      logQueryLifecycle('abort_acknowledged', cancelContext, formatQueryLifecycleAbortSignalReason('user-cancel'));
+    }
+    if (completedCancelContext) {
+      const cancelOperationSummary = summarizeActiveOperations(cancelOperations);
+      if (cancelOperations.apiCalls.length > 0) {
+        logForDebugging(`api.call.active_on_abort queryId=${completedCancelContext.queryId} generation=${completedCancelContext.queryGeneration} ${cancelOperationSummary}`);
+      }
+      logQueryLifecycle('end', completedCancelContext, cancelOperationSummary);
     }
 
     // Clear the controller so subsequent Escape presses don't see a stale
@@ -2503,7 +2610,7 @@ export function REPL({
       reject
     }]);
   }), []);
-  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string): ProcessUserInputContext => {
+  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string, queryGeneration?: number, queryLifecycle?: QueryLifecycleOperationTracker): ProcessUserInputContext => {
     // Read mutable values fresh from the store rather than closure-capturing
     // useAppState() snapshots. Same values today (closure is refreshed by the
     // render between turns); decouples freshness from React's render cycle for
@@ -2522,8 +2629,15 @@ export function REPL({
       if (!mainThreadAgentDefinition) return merged;
       return resolveAgentTools(mainThreadAgentDefinition, merged, false, true).resolvedTools;
     };
+    const queryActivity = queryGeneration === undefined ? undefined : {
+      registerActivity: (reason: string) => {
+        queryGuard.registerActivity(reason, queryGeneration);
+      },
+      acquireLease: (input) => queryGuard.acquireLease(input, queryGeneration)
+    } satisfies ProcessUserInputContext['queryActivity'];
     return {
       abortController,
+      ...(queryLifecycle ? { queryLifecycle } : {}),
       options: {
         commands,
         tools: computeTools(),
@@ -2623,6 +2737,7 @@ export function REPL({
       setHasInterruptibleToolInProgress: (v: boolean) => {
         hasInterruptibleToolInProgressRef.current = v;
       },
+      queryActivity,
       resume,
       setConversationId,
       setActiveSessionAgent: agent => {
@@ -2654,7 +2769,7 @@ export function REPL({
       contentReplacementState: contentReplacementStateRef.current,
       syncToolResultReplacements
     };
-  }, [commands, combinedInitialTools, mainThreadAgentDefinition, debug, initialMcpClients, ideInstallationStatus, dynamicMcpConfig, theme, allowedAgentTypes, store, setAppState, reverify, addNotification, setMessages, onChangeDynamicMcpConfig, resume, requestPrompt, disabled, customSystemPrompt, appendSystemPrompt, setConversationId, syncToolResultReplacements]);
+  }, [commands, combinedInitialTools, mainThreadAgentDefinition, debug, initialMcpClients, ideInstallationStatus, dynamicMcpConfig, theme, allowedAgentTypes, store, setAppState, reverify, addNotification, setMessages, onChangeDynamicMcpConfig, resume, requestPrompt, disabled, customSystemPrompt, appendSystemPrompt, setConversationId, syncToolResultReplacements, queryGuard]);
 
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
@@ -2786,7 +2901,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, effort?: EffortValue) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -2819,7 +2934,8 @@ export function REPL({
       if (text && !text.startsWith(`<${LOCAL_COMMAND_STDOUT_TAG}>`) && !text.startsWith(`<${COMMAND_MESSAGE_TAG}>`) && !text.startsWith(`<${COMMAND_NAME_TAG}>`) && !text.startsWith(`<${BASH_INPUT_TAG}>`)) {
         haikuTitleAttemptedRef.current = true;
         void generateSessionTitle(text, new AbortController().signal).then(title => {
-          if (title) setHaikuTitle(title); else haikuTitleAttemptedRef.current = false;
+          const generatedTitle = titleOrNullForPromptFallback(title);
+          if (generatedTitle) setHaikuTitle(generatedTitle); else haikuTitleAttemptedRef.current = false;
         }, () => {
           haikuTitleAttemptedRef.current = false;
         });
@@ -2872,7 +2988,7 @@ export function REPL({
       setAbortController(null);
       return;
     }
-    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam);
+    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam, queryGeneration, queryLifecycle);
     const querySessionId = getSessionId();
     const queryAutoCompactTracking = getAutoCompactTrackingForSession(querySessionId);
     // getToolUseContext reads tools/mcpClients fresh from store.getState()
@@ -2938,6 +3054,7 @@ export function REPL({
         }
       }
     })) {
+      queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
       onQueryEvent(event);
     }
     if (isBuddyEnabled()) {
@@ -2955,7 +3072,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
@@ -2968,10 +3085,17 @@ export function REPL({
     }
 
     // Concurrent guard via state machine. tryStart() atomically checks
-    // and transitions idle→running, returning the generation number.
+    // and transitions idle→running, returning lifecycle context.
     // Returns null if already running — no separate check-then-set.
-    const thisGeneration = queryGuard.tryStart();
-    if (thisGeneration === null) {
+    const lifecycleTracker = queryLifecycleTrackerRef.current;
+    const querySource = getQuerySourceForREPL();
+    const startResult = queryGuard.tryStart({
+      queryId: randomUUID(),
+      querySource,
+      startedAt: Date.now(),
+      getActiveOperations: () => lifecycleTracker.snapshot()
+    });
+    if (startResult === null) {
       logEvent('tengu_concurrent_onquery_detected', {});
 
       // Extract and enqueue user message text, skipping meta messages
@@ -2988,6 +3112,12 @@ export function REPL({
       });
       return;
     }
+    lifecycleTracker.clear();
+    const thisGeneration = startResult.generation;
+    const queryContext = startResult.context;
+    logQueryLifecycle('start', queryContext);
+    logQueryLifecycle('guard_start', queryContext);
+    let didThrow = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3006,6 +3136,8 @@ export function REPL({
         snapshotOutputTokensForTurn(parsedBudget ?? getCurrentTurnTokenBudget());
       }
       setStreamingToolUses([]);
+      streamingTextRef.current = null;
+      lastFlushedStreamingVisibleRef.current = null;
       setStreamingText(null);
 
       // messagesRef is updated synchronously by the setMessages wrapper
@@ -3025,12 +3157,36 @@ export function REPL({
           return;
         }
       }
-      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, effort);
+      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
+    } catch (error) {
+      didThrow = true;
+      throw error;
     } finally {
+      const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
+      const abortReason = getAbortReasonLabel(abortController.signal.reason);
+      const activeOperations = lifecycleTracker.snapshot();
+      const completedContext = {
+        ...queryContext,
+        terminalReason,
+        ...(abortReason !== undefined && {
+          abortReason
+        })
+      };
+      const activeOperationSummary = summarizeActiveOperations(activeOperations);
+      const logCompletedLifecycle = (context: QueryLifecycleContext) => {
+        logQueryLifecycle('end', context, activeOperationSummary);
+        if (activeOperations.apiCalls.length > 0) {
+          logForDebugging(`api.call.orphaned_on_query_end queryId=${queryContext.queryId} generation=${thisGeneration} ${activeOperationSummary}`, {
+            level: 'warn'
+          });
+        }
+      };
       // queryGuard.end() atomically checks generation and transitions
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
-      if (queryGuard.end(thisGeneration)) {
+      if (queryGuard.end(thisGeneration, terminalReason, abortReason)) {
+        logCompletedLifecycle(completedContext);
+        lifecycleTracker.clear();
         setLastQueryCompletionTime(Date.now());
         skipIdleCheckRef.current = false;
         // Always reset loading state in finally - this ensures cleanup even
@@ -3116,6 +3272,15 @@ export function REPL({
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
         setAbortController(null);
+      } else {
+        const guardCompletedContext = queryGuard.lastContext;
+        if ((guardCompletedContext?.terminalReason === 'query-timeout' || guardCompletedContext?.terminalReason === 'hard-max-query-timeout') && guardCompletedContext.queryGeneration === thisGeneration) {
+          logCompletedLifecycle(guardCompletedContext);
+          setLastQueryCompletionTime(Date.now());
+          lifecycleTracker.clear();
+        } else if (!queryGuard.isActive) {
+          lifecycleTracker.clear();
+        }
       }
 
       // Auto-restore: if the user interrupted before any meaningful response
@@ -3961,7 +4126,10 @@ export function REPL({
     }
     if (hasCountedQueueUseRef.current) return;
     hasCountedQueueUseRef.current = true;
-    saveGlobalConfig(current => ({
+    // Loss-tolerant analytics counter. Deferring it coalesces the write so a
+    // render loop (see comment above) can no longer drive the lock contention
+    // that triggers GH #3117.
+    saveGlobalConfigDeferred(current => ({
       ...current,
       promptQueueUseCount: (current.promptQueueUseCount ?? 0) + 1
     }));
@@ -4649,7 +4817,7 @@ export function REPL({
         </Box>}
         {feature('WEB_BROWSER_TOOL') ? WebBrowserPanelModule && <WebBrowserPanelModule.WebBrowserPanel /> : null}
         <Box flexGrow={1} />
-        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
+        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix ?? activeToolSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {/* Permanently mounted: it observes the isLoading transition to flash
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}

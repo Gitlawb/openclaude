@@ -34,6 +34,7 @@
 
 import { existsSync } from 'fs'
 import { homedir } from 'os'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { join } from 'path'
 
 export type DetectedProviderKind =
@@ -69,9 +70,23 @@ function envHasNonEmpty(env: EnvLike, key: string): boolean {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function envHasUsableOpenAICredential(env: EnvLike, key: string): boolean {
+  return hasUsableOpenAICredential(env[key])
+}
+
 function firstSet(env: EnvLike, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     if (envHasNonEmpty(env, key)) return key
+  }
+  return undefined
+}
+
+function firstOpenAICredentialSet(
+  env: EnvLike,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (envHasUsableOpenAICredential(env, key)) return key
   }
   return undefined
 }
@@ -146,7 +161,10 @@ export function detectProviderFromEnv(
     }
   }
 
-  const openaiKey = firstSet(env, ['OPENAI_API_KEYS', 'OPENAI_API_KEY'])
+  const openaiKey = firstOpenAICredentialSet(env, [
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   if (openaiKey) {
     return {
       kind: 'openai',

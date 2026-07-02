@@ -1,8 +1,11 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import {
-  getTokenCountFromUsage,
-} from './tokens.js'
+  roughTokenCountEstimationForMessage,
+  roughTokenCountEstimationForMessages,
+} from '../services/tokenEstimation.js'
+import { getCurrentUsage, getUnreportedSessionUsage } from './tokens.js'
 import { IncrementalTokenCounter } from './incrementalTokenCounter.js'
+import type { AssistantMessage, Message } from '../types/message.js'
 
 interface FakeUsage {
   input_tokens: number
@@ -12,6 +15,199 @@ interface FakeUsage {
 }
 
 describe('tokens', () => {
+  const assistantMessage = (
+    usage: FakeUsage,
+    content = 'assistant response',
+    id = 'msg_1',
+  ): AssistantMessage =>
+    ({
+      type: 'assistant',
+      uuid: '00000000-0000-0000-0000-000000000001',
+      timestamp: '2026-06-28T00:00:00.000Z',
+      message: {
+        id,
+        type: 'message',
+        role: 'assistant',
+        model: 'mimo-v2.5-pro',
+        content: [{ type: 'text', text: content }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage,
+      },
+    }) as unknown as AssistantMessage
+
+  const userMessage = (content: string): Message =>
+    ({
+      type: 'user',
+      uuid: '00000000-0000-0000-0000-000000000002',
+      timestamp: '2026-06-28T00:00:00.000Z',
+      message: {
+        role: 'user',
+        content,
+      },
+    }) as Message
+
+  it('returns reported API usage for non-zero assistant usage', () => {
+    expect(
+      getCurrentUsage([
+        userMessage('hello'),
+        assistantMessage({
+          input_tokens: 120,
+          output_tokens: 30,
+          cache_creation_input_tokens: 10,
+          cache_read_input_tokens: 5,
+        }),
+      ]),
+    ).toEqual({
+      input_tokens: 120,
+      output_tokens: 30,
+      cache_creation_input_tokens: 10,
+      cache_read_input_tokens: 5,
+    })
+  })
+
+  it('estimates current context when the latest provider usage is all zero', () => {
+    const prompt = userMessage('Please summarize this repository structure.')
+    const reply = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'The repository contains source files and tests.',
+    )
+    const usage = getCurrentUsage([prompt, reply])
+
+    expect(usage).toEqual({
+      input_tokens: Math.max(1, roughTokenCountEstimationForMessages([prompt])),
+      output_tokens: Math.max(1, roughTokenCountEstimationForMessage(reply)),
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      is_estimated: true,
+    })
+  })
+
+  it('does not fall back to stale older API usage after all-zero provider usage', () => {
+    const older = assistantMessage(
+      {
+        input_tokens: 5000,
+        output_tokens: 250,
+      },
+      'Older Anthropic response.',
+      'msg_reported',
+    )
+    const prompt = userMessage('Now use a provider that does not report usage.')
+    const latest = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'Latest response from unsupported usage provider.',
+      'msg_unsupported',
+    )
+    const usage = getCurrentUsage([older, prompt, latest])
+
+    expect(usage).toEqual({
+      input_tokens: Math.max(
+        1,
+        roughTokenCountEstimationForMessages([older, prompt]),
+      ),
+      output_tokens: Math.max(1, roughTokenCountEstimationForMessage(latest)),
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      is_estimated: true,
+    })
+  })
+
+  it('estimates split assistant response siblings as output tokens', () => {
+    const prompt = userMessage('Please run a tool and summarize the result.')
+    const firstChunk = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'First split response chunk with substantial text explaining the result.',
+      'msg_split',
+    )
+    const lastChunk = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'Final chunk.',
+      'msg_split',
+    )
+
+    const messages = [prompt, firstChunk, userMessage('tool result payload'), lastChunk]
+    const usage = getCurrentUsage(messages)
+    const expectedInputTokens = Math.max(
+      1,
+      roughTokenCountEstimationForMessages([prompt]),
+    )
+    const expectedOutputTokens = Math.max(
+      1,
+      roughTokenCountEstimationForMessage(firstChunk) +
+        roughTokenCountEstimationForMessage(lastChunk),
+    )
+
+    expect(usage?.is_estimated).toBe(true)
+    expect(usage?.input_tokens).toBe(expectedInputTokens)
+    expect(usage?.output_tokens).toBe(expectedOutputTokens)
+    expect(getUnreportedSessionUsage(messages)).toMatchObject({
+      input_tokens: expectedInputTokens,
+      output_tokens: expectedOutputTokens,
+    })
+  })
+
+  it('estimates cumulative unreported session usage from all-zero responses', () => {
+    const firstUser = userMessage('First user request.')
+    const firstAssistant = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'First unsupported provider response.',
+      'msg_first',
+    )
+    const secondUser = userMessage('Second user request.')
+    const secondAssistant = assistantMessage(
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      'Second unsupported provider response.',
+      'msg_second',
+    )
+
+    const messages = [firstUser, firstAssistant, secondUser, secondAssistant]
+
+    expect(getUnreportedSessionUsage(messages)).toEqual({
+      input_tokens:
+        Math.max(1, roughTokenCountEstimationForMessages([firstUser])) +
+        Math.max(
+          1,
+          roughTokenCountEstimationForMessages([
+            firstUser,
+            firstAssistant,
+            secondUser,
+          ]),
+        ),
+      output_tokens:
+        Math.max(1, roughTokenCountEstimationForMessage(firstAssistant)) +
+        Math.max(1, roughTokenCountEstimationForMessage(secondAssistant)),
+    })
+  })
 })
 
 describe('IncrementalTokenCounter', () => {

@@ -29,24 +29,11 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: python/requirements.txt
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Smoke and full unit test suite
         run: bun run check
-
-      - name: Install Python test dependencies
-        run: python -m pip install -r python/requirements.txt
-
-      - name: Python unit tests
-        run: python -m pytest -q python/tests
 
       - name: Suspicious PR intent scan
         env:

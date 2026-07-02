@@ -33,6 +33,7 @@ import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
 import type { ProviderProfile } from '../../utils/config.js'
 import type { AppState } from '../../state/AppState.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
@@ -327,11 +328,13 @@ function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
   })
 
   return {
-    apiKey: resolveRouteCredentialValue({
-      routeId,
-      baseUrl: request.baseUrl,
-      processEnv: process.env,
-    }),
+    apiKey: firstUsableCredential(
+      resolveRouteCredentialValue({
+        routeId,
+        baseUrl: request.baseUrl,
+        processEnv: process.env,
+      }),
+    ),
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
   }
@@ -852,7 +855,7 @@ function SetModelAndClose({
 
       if (model && isOpus1mUnavailable(model)) {
         onDone(
-          'Opus 4.6 with 1M context is not available for your account. Learn more: https://code.claude.com/docs/en/model-config#extended-context-with-1m',
+          'Opus with 1M context is not available for your account. Learn more: https://code.claude.com/docs/en/model-config#extended-context-with-1m',
           {
             display: 'system',
           },

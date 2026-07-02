@@ -27,6 +27,8 @@ test('getWikiStatus reports uninitialized wiki state', async () => {
   expect(status.initialized).toBe(false)
   expect(status.pageCount).toBe(0)
   expect(status.sourceCount).toBe(0)
+  expect(status.hasConventions).toBe(false)
+  expect(status.conventionsScannedAt).toBeNull()
   expect(status.lastUpdatedAt).toBeNull()
 })
 
@@ -46,10 +48,12 @@ test('getWikiStatus counts pages and sources for initialized wiki', async () => 
   const status = await getWikiStatus(cwd)
 
   expect(status.initialized).toBe(true)
-  expect(status.pageCount).toBe(2)
+  expect(status.pageCount).toBe(3)
   expect(status.sourceCount).toBe(1)
   expect(status.hasSchema).toBe(true)
   expect(status.hasIndex).toBe(true)
   expect(status.hasLog).toBe(true)
+  expect(status.hasConventions).toBe(true)
+  expect(status.conventionsScannedAt).toBeNull()
   expect(status.lastUpdatedAt).not.toBeNull()
 })

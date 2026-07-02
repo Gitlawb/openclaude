@@ -72,6 +72,19 @@ openclaude
 
 No API key is needed for Ollama local models.
 
+OpenClaude asks Ollama for a 32768-token context window on each chat request.
+If you need a different size, set `OPENCLAUDE_OLLAMA_NUM_CTX` before launching
+OpenClaude, or start Ollama with a global context setting:
+
+```bash
+# Stop any existing Ollama app/server first, then run:
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+```
+
+After a chat request, run `ollama ps` in another terminal and check the
+`CONTEXT` column. It should show the requested size. If it still shows a small
+value such as `4K`, restart the Ollama app/server and try again.
+
 ### Option D: LM Studio
 
 Install LM Studio first from:
@@ -99,6 +112,17 @@ Replace `your-model-name` with the model name shown in LM Studio.
 
 No API key is needed for LM Studio local models (but uncomment the `OPENAI_API_KEY` line if you hit auth errors).
 
+### Option E: Using a .env file (Optional)
+
+If you prefer to keep your keys in a `.env` file instead of exporting them individually, note that OpenClaude does not load `.env` files automatically. You must explicitly pass it:
+
+```bash
+openclaude --provider-env-file .env
+```
+
+Keep `.env` out of git because it contains secrets.
+The explicit loader accepts provider/setup variables. Export runtime/debug variables from your shell or launcher instead.
+
 ## 4. If `openclaude` Is Not Found
 
 Close the terminal, open a new one, and try again:
@@ -121,6 +145,8 @@ Check the basics:
 - make sure Ollama is installed
 - make sure Ollama is running
 - make sure the model was pulled successfully
+- if same-session chat history appears missing, verify the active `CONTEXT`
+  value with `ollama ps`; OpenClaude requests 32K by default
 
 ### For LM Studio
 

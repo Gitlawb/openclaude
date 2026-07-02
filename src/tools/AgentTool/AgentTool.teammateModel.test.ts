@@ -288,6 +288,34 @@ test('passes routed agentModels keys to teammate spawns by subagent type', async
   expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
 })
 
+test('applies a model-only route to a teammate spawn without a cross-provider override', async () => {
+  // Regression: the model-only teammate fix is otherwise only covered at the
+  // resolveOutOfProcessTeammateModelOnly() helper level. If AgentTool stops
+  // passing routedTeammateModelOnly into spawnTeammate(), pane/window teammates
+  // silently fall back to inheriting the parent model. A model-only route
+  // resolves to the model VALUE (gpt-5-mini), not the agentModels key (mini),
+  // which is how this differs from the cross-provider key-passing path above.
+  settingsForTest = {
+    agentModels: {
+      mini: { model: 'gpt-5-mini' },
+    },
+    agentRouting: {
+      verification: 'mini',
+    },
+  } as unknown as SettingsJson
+  allowedModelsForTest = new Set(['gpt-5-mini'])
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'verification' },
+    { activeAgents: [createAgentDefinition('verification')] },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('gpt-5-mini')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
 test('uses default agentRouting only when no explicit teammate model is provided', async () => {
   settingsForTest = {
     agentModels: {

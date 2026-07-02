@@ -1114,7 +1114,9 @@ export default class Ink {
       offsetY: -elTop,
       prevScreen: undefined
     });
-    const rendered = output.get();
+    const rendered = output.get({
+      suppressHighWriteRatioDiagnostics: true
+    });
     // renderNodeToOutput wrote our offset positions to nodeCache —
     // corrupts the main render (it'd blit from wrong coords). Mark the
     // subtree dirty so the next main render repaints + re-caches

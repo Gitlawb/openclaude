@@ -13,6 +13,7 @@ import type { QuerySource } from '../../constants/querySource.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { query } from '../../query.js'
+import type { Terminal } from '../../query/transitions.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { getDumpPromptsPath } from '../../services/api/dumpPrompts.js'
 import { cleanupAgentTracking } from '../../services/api/promptCacheBreakDetection.js'
@@ -254,6 +255,7 @@ export async function* runAgent({
   override,
   model,
   maxTurns,
+  maxSteps,
   preserveToolUseResults,
   availableTools,
   allowedTools,
@@ -265,6 +267,7 @@ export async function* runAgent({
   transcriptSubdir,
   onQueryProgress,
   agentName,
+  routingSubagentType,
 }: {
   agentDefinition: AgentDefinition
   promptMessages: Message[]
@@ -285,6 +288,7 @@ export async function* runAgent({
   }
   model?: string
   maxTurns?: number
+  maxSteps?: number
   /** Preserve toolUseResult on messages for subagents with viewable transcripts */
   preserveToolUseResults?: boolean
   /** Precomputed tool pool for the worker agent. Computed by the caller
@@ -326,6 +330,11 @@ export async function* runAgent({
   onQueryProgress?: () => void
   /** Agent name (team member name) for routing resolution */
   agentName?: string
+  /** Routing key for per-agent provider resolution. In-process teammates build a
+   *  synthetic agentDefinition whose agentType is the teammate's display name,
+   *  which drops the original subagent_type that agentRouting is keyed on. Pass
+   *  the original subagent_type here so the configured route still resolves. */
+  routingSubagentType?: string
 }): AsyncGenerator<Message, void> {
   // Track subagent usage for feature discovery
 
@@ -350,11 +359,13 @@ export async function* runAgent({
   const { mainLoopModel: effectiveModel, providerOverride } =
     resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: model,
       agentName,
-      subagentType: agentDefinition.agentType,
+      subagentType: routingSubagentType ?? agentDefinition.agentType,
       agentDefinitionModel: agentDefinition.model,
       settings,
+      permissionMode,
     })
 
   if (
@@ -735,6 +746,9 @@ export async function* runAgent({
     readFileState: agentReadFileState,
     abortController: agentAbortController,
     getAppState: agentGetAppState,
+    ...(!isAsync && toolUseContext.queryLifecycle
+      ? { queryLifecycle: toolUseContext.queryLifecycle }
+      : {}),
     // Sync agents share these callbacks with parent
     shareSetAppState: !isAsync,
     shareSetResponseLength: true, // Both sync and async contribute to response metrics
@@ -775,7 +789,15 @@ export async function* runAgent({
   let lastRecordedUuid: UUID | null = initialMessages.at(-1)?.uuid ?? null
 
   try {
-    for await (const message of query({
+    let queryTerminal: Terminal | undefined
+    const configuredMaxSteps =
+      Number.isSafeInteger(maxSteps) && maxSteps! > 0
+        ? maxSteps
+        : Number.isSafeInteger(agentDefinition.maxSteps) &&
+            agentDefinition.maxSteps! > 0
+          ? agentDefinition.maxSteps
+          : undefined
+    const queryIterator = query({
       messages: initialMessages,
       systemPrompt: agentSystemPrompt,
       userContext: resolvedUserContext,
@@ -784,55 +806,74 @@ export async function* runAgent({
       toolUseContext: agentToolUseContext,
       querySource,
       maxTurns: maxTurns ?? agentDefinition.maxTurns,
-    })) {
-      onQueryProgress?.()
-      // Forward subagent API request starts to parent's metrics display
-      // so TTFT/OTPS update during subagent execution.
-      if (
-        message.type === 'stream_event' &&
-        message.event.type === 'message_start' &&
-        message.ttftMs != null
-      ) {
-        toolUseContext.pushApiMetricsEntry?.(message.ttftMs)
-        continue
-      }
+      agentStepLimit:
+        configuredMaxSteps !== undefined
+          ? {
+              maxSteps: configuredMaxSteps,
+              agentType: agentDefinition.agentType,
+            }
+          : undefined,
+    })[Symbol.asyncIterator]()
 
-      // Yield attachment messages (e.g., structured_output) without recording them
-      if (message.type === 'attachment') {
-        // Handle max turns reached signal from query.ts
-        if (message.attachment.type === 'max_turns_reached') {
-          logForDebugging(
-            `[Agent
-: $
-{
-  agentDefinition.agentType
-}
-] Reached max turns limit ($
-{
-  message.attachment.maxTurns
-}
-)`,
-          )
+    try {
+      while (true) {
+        const next = await queryIterator.next()
+        if (next.done) {
+          queryTerminal = next.value
           break
         }
-        yield message
-        continue
-      }
 
-      if (isRecordableMessage(message)) {
-        // Record only the new message with correct parent (O(1) per message)
-        await recordSidechainTranscript(
-          [message],
-          agentId,
-          lastRecordedUuid,
-        ).catch(err =>
-          logForDebugging(`Failed to record sidechain transcript: ${err}`),
-        )
-        if (message.type !== 'progress') {
-          lastRecordedUuid = message.uuid
+        const message = next.value
+        onQueryProgress?.()
+        // Forward subagent API request starts to parent's metrics display
+        // so TTFT/OTPS update during subagent execution.
+        if (
+          message.type === 'stream_event' &&
+          message.event.type === 'message_start' &&
+          message.ttftMs != null
+        ) {
+          toolUseContext.pushApiMetricsEntry?.(message.ttftMs)
+          continue
         }
-        yield message
+
+        // Yield attachment messages (e.g., structured_output) without recording them
+        if (message.type === 'attachment') {
+          // Handle max turns reached signal from query.ts
+          if (message.attachment.type === 'max_turns_reached') {
+            logForDebugging(
+              `[Agent: ${agentDefinition.agentType}] Reached max turns limit (${message.attachment.maxTurns})`,
+            )
+            break
+          }
+          yield message
+          continue
+        }
+
+        if (isRecordableMessage(message)) {
+          // Record only the new message with correct parent (O(1) per message)
+          await recordSidechainTranscript(
+            [message],
+            agentId,
+            lastRecordedUuid,
+          ).catch(err =>
+            logForDebugging(`Failed to record sidechain transcript: ${err}`),
+          )
+          if (message.type !== 'progress') {
+            lastRecordedUuid = message.uuid
+          }
+          yield message
+        }
       }
+    } finally {
+      if (queryTerminal === undefined) {
+        await queryIterator.return?.(undefined as never)
+      }
+    }
+
+    if (queryTerminal?.reason === 'agent_step_limit') {
+      logForDebugging(
+        `[Agent: ${agentDefinition.agentType}] Stopped after reaching maxSteps (${queryTerminal.stepsUsed}/${queryTerminal.maxSteps})`,
+      )
     }
 
     if (agentAbortController.signal.aborted) {

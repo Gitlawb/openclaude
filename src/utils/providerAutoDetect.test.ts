@@ -76,6 +76,23 @@ describe('detectProviderFromEnv — priority order', () => {
     ).toEqual({ kind: 'openai', source: 'OPENAI_API_KEYS set' })
   })
 
+  test('delimiter-only OPENAI_API_KEYS does not block lower-priority providers', () => {
+    expect(
+      scan({
+        OPENAI_API_KEYS: ', ,',
+        GEMINI_API_KEY: 'gemini-key',
+      }),
+    ).toEqual({ kind: 'gemini', source: 'GEMINI_API_KEY set' })
+  })
+
+  test('placeholder OPENAI_API_KEYS does not block lower-priority providers', () => {
+    expect(
+      scan({
+        OPENAI_API_KEYS: 'sk-a,SUA_CHAVE',
+        GEMINI_API_KEY: 'gemini-key',
+      }),
+    ).toEqual({ kind: 'gemini', source: 'GEMINI_API_KEY set' })
+  })
   test('OPENAI_API_KEY reports baseUrl when set', () => {
     expect(
       scan({

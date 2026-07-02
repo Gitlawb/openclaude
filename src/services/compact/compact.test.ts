@@ -45,6 +45,9 @@ const _realDiskOutputModule = await import(
 const _realMessagesModule = await import(
   `../../utils/messages.js?real=${Date.now()}-${Math.random()}`
 )
+const _realSlowOperationsModule = await import(
+  `../../utils/slowOperations.js?real=${Date.now()}-${Math.random()}`
+)
 const _realBootstrapStateModule = await import(
   `../../bootstrap/state.js?real=${Date.now()}-${Math.random()}`
 )
@@ -93,6 +96,60 @@ function assistantMessage(text: string): Message {
     uuid: randomUUID(),
     timestamp: new Date().toISOString(),
   }
+}
+
+function assistantToolUseMessage(toolUseId: string): Message {
+  return {
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      id: `msg-${toolUseId}`,
+      model: 'claude-sonnet-4-5',
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      content: [
+        {
+          type: 'tool_use',
+          id: toolUseId,
+          name: 'Read',
+          input: { file_path: '/tmp/example.txt' },
+        },
+      ],
+    } as never,
+    uuid: randomUUID(),
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function toolResultMessage(toolUseId: string): Message {
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: 'file contents',
+        },
+      ],
+    },
+    uuid: randomUUID(),
+    timestamp: new Date().toISOString(),
+  } as Message
+}
+
+function hasToolResultBlock(message: Message): boolean {
+  const content =
+    message.type === 'user' ? message.message.content : undefined
+  return (
+    Array.isArray(content) &&
+    content.some(block => block.type === 'tool_result')
+  )
 }
 
 function toolUseContext() {
@@ -320,6 +377,8 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
     getMessagesAfterCompactBoundary: mock((msgs: Message[]) => msgs),
     isCompactBoundaryMessage: mock(() => false),
     normalizeMessagesForAPI: mock((msgs: Message[]) => msgs),
+    selectToolPairSafeMessageRange:
+      _realMessagesModule.selectToolPairSafeMessageRange,
   }))
 
   // --- API / streaming (DEFENSIVE) ---
@@ -604,6 +663,9 @@ afterAll(async () => {
     MAX_TASK_OUTPUT_BYTES_DISPLAY: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES_DISPLAY,
   }))
   mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
+  mock.module('../../utils/slowOperations.js', () => ({
+    ..._realSlowOperationsModule,
+  }))
   mock.module('../../bootstrap/state.js', () => ({ ..._realBootstrapStateModule }))
   mock.module('../../utils/settings/settings.js', () => ({ ..._realSettingsModule }))
   mock.module('../../utils/model/model.js', () => ({ ..._realModelModule }))
@@ -767,5 +829,51 @@ describe('compactConversation compactModel override', () => {
     ]
     expect(streamOptions.model).toBe(resolvedCompactModel)
     expect(streamOptions.maxOutputTokensOverride).toBe(4096)
+  })
+})
+
+describe('partialCompactConversation tool-pair-safe boundaries', () => {
+  test('up_to pivot on a tool_result keeps the dangling result out of the kept side', async () => {
+    const { partialCompactConversation } = await importCompact({})
+    const toolUseId = 'toolu_partial_up_to'
+    const head = userMessage('older context')
+    const assistant = assistantToolUseMessage(toolUseId)
+    const result = toolResultMessage(toolUseId)
+    const tail = userMessage('current context')
+    const messages = [head, assistant, result, tail]
+
+    const compacted = await partialCompactConversation(
+      messages,
+      2,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      undefined,
+      'up_to',
+    )
+
+    expect(compacted.messagesToKeep.map(m => m.uuid)).toEqual([tail.uuid])
+    expect(compacted.messagesToKeep.some(hasToolResultBlock)).toBe(false)
+  })
+
+  test('from pivot on a tool_result expands the summarized side backward to include the tool_use', async () => {
+    const { partialCompactConversation } = await importCompact({})
+    const toolUseId = 'toolu_partial_from'
+    const head = userMessage('older context')
+    const assistant = assistantToolUseMessage(toolUseId)
+    const result = toolResultMessage(toolUseId)
+    const tail = userMessage('current context')
+    const messages = [head, assistant, result, tail]
+
+    const compacted = await partialCompactConversation(
+      messages,
+      2,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      undefined,
+      'from',
+    )
+
+    expect(compacted.messagesToKeep.map(m => m.uuid)).toEqual([head.uuid])
+    expect(compacted.messagesToKeep.some(hasToolResultBlock)).toBe(false)
   })
 })

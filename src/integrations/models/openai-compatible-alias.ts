@@ -36,6 +36,13 @@ function aliasModel(
 }
 
 const aliasModels: readonly AliasModel[] = [
+  ['deepseek-ai/DeepSeek-V3.2-Exp', 'DeepSeek V3.2 Exp', 163_840, 163_840],
+  ['bytedance/doubao-seed-2.0-pro-260215', 'Doubao Seed 2.0 Pro', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-code-preview-260215', 'Doubao Seed 2.0 Code Preview', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-lite-260428', 'Doubao Seed 2.0 Lite', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-mini-260428', 'Doubao Seed 2.0 Mini', 262_144, 131_072],
+  ['kwaipilot/kat-coder-pro-v2', 'KAT Coder Pro V2', 262_144, 144_000],
+  ['owl', 'OWL', 1_048_576, 262_144],
   ['github:copilot', 'GitHub Copilot', 128_000, 16_384],
   ['github:copilot:claude-sonnet-4', 'GitHub Copilot Claude Sonnet 4', 216_000, 16_000],
   ['github:copilot:claude-haiku-4', 'GitHub Copilot Claude Haiku 4', 200_000, 64_000],

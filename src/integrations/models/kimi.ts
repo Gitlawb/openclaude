@@ -30,6 +30,7 @@ function kimiModel(
 
 export default [
   kimiModel('kimi-for-coding', 'Kimi for Coding', 262_144, 32_768),
+  kimiModel('kimi-k2.7-code', 'Kimi K2.7 Code', 262_144, 262_144),
   kimiModel('kimi-k2.6', 'Kimi K2.6', 262_144, 32_768),
   kimiModel('kimi-k2.5', 'Kimi K2.5', 262_144, 32_768),
   kimiModel('kimi-k2-thinking', 'Kimi K2 Thinking', 262_144, 32_768),

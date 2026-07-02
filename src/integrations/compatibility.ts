@@ -6,7 +6,7 @@ import type { ProviderPresetManifestEntry } from './descriptors.js'
 import {
   PROVIDER_PRESET_MANIFEST,
   type ProviderPreset,
-} from './generated/integrationArtifacts.generated.js'
+} from './generated/integrationManifest.generated.js'
 
 export const PRESET_VENDOR_MAP: Array<{
   preset: ProviderPreset

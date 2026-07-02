@@ -20,6 +20,7 @@ import {
 const FAKE_OPENAI_KEY = 'sk-fake-openai-1234567890abcdef'
 const FAKE_GEMINI_KEY = 'AIzaSyFAKEGEMINIkey1234567890abcdefghijklmnopqr'
 const FAKE_GITHUB_PAT = 'ghp_FAKEgithubPat0123456789abcdefghij'
+const FAKE_GITHUB_USER_TOKEN = 'ghu_1234567890abcdef1234567890abcdef1234'
 const FAKE_LONG_OPAQUE = 'live-pr-1234567890abcdefABCDEF1234567890abcdef'
 const FAKE_JWT_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
 
@@ -139,6 +140,25 @@ describe('getKnownProviderSecretEnvKeys', () => {
     const missing = representative.filter((key) => !known.has(key))
     expect(missing, `representative provider keys missing from redaction set: ${missing.join(', ')}`).toEqual([])
   })
+
+  test('does not statically import the heavy descriptor artifacts at module load', async () => {
+    // Regression guard: providerSecrets sits on the bootstrap startup path
+    // (bootstrap -> providerConfig -> providerProfile -> providerSecrets), so a
+    // static import of integrationArtifacts.generated would eagerly evaluate the
+    // whole descriptor graph and undo the lazy-loading win. The descriptor
+    // arrays must instead be pulled in via a lazy require inside the function.
+    const source = await Bun.file(
+      new URL('./providerSecrets.ts', import.meta.url),
+    ).text()
+    // Strip comments so a benign mention of the module in a comment can neither
+    // satisfy nor trip these assertions, and match imports regardless of
+    // indentation/aliasing rather than only at column 0.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '')
+    expect(code).not.toMatch(/\bimport\b[\s\S]*?\bfrom\b\s*['"][^'"]*integrationArtifacts\.generated/)
+    expect(code).toMatch(/\brequire\(\s*['"][^'"]*integrationArtifacts\.generated/)
+  })
 })
 
 describe('sanitizeApiKey', () => {
@@ -179,6 +199,7 @@ describe('redactSecretValueForDisplay', () => {
     expect(redactSecretValueForDisplay('sk-ant-fakeAnthropicToken-1234567890')).toBe('sk-...890')
     expect(redactSecretValueForDisplay('AIzaSyFAKEGEMINIkey1234567890abcdefghijklmnopqr')).toBe('AIz...pqr')
     expect(redactSecretValueForDisplay(FAKE_GITHUB_PAT)).toBe('ghp...hij')
+    expect(redactSecretValueForDisplay(FAKE_GITHUB_USER_TOKEN)).toBe('ghu...234')
     expect(redactSecretValueForDisplay(FAKE_LONG_OPAQUE)).toBe('liv...def')
     expect(redactSecretValueForDisplay(FAKE_JWT_TOKEN)).toBe('eyJ...w5c')
   })
@@ -216,6 +237,19 @@ describe('redactSecretValueForDisplay', () => {
     expect(redactSecretValueForDisplay(token, { GEMINI_ACCESS_TOKEN: token })).toBe('gem...ken')
   })
 
+  test('redacts individual members of pooled OpenAI credentials', () => {
+    const pool = 'lowercasecredentialaaaaaaaaaaaa,lowercasecredentialbbbbbbbbbbbb'
+    expect(
+      redactSecretValueForDisplay('lowercasecredentialaaaaaaaaaaaa', {
+        OPENAI_API_KEYS: pool,
+      }),
+    ).toBe('low...aaa')
+    expect(
+      sanitizeProviderConfigValue('lowercasecredentialbbbbbbbbbbbb', {
+        OPENAI_API_KEYS: pool,
+      }),
+    ).toBeUndefined()
+  })
   test('redacts configured provider secrets after trimming source env values', () => {
     const providerSecret = 'ogw-provider-secret'
     expect(
@@ -242,11 +276,12 @@ describe('redactSecretSubstringsForDisplay', () => {
     const leakedKey = 'sk-liveLeakToken1234567890ABCdef'
 
     const redacted = redactSecretSubstringsForDisplay(
-      `Invalid API key: ${leakedKey}`,
+      `Invalid API key: ${leakedKey}; GitHub token: ${FAKE_GITHUB_USER_TOKEN}`,
     )
 
-    expect(redacted).toBe('Invalid API key: sk-...def')
+    expect(redacted).toBe('Invalid API key: sk-...def; GitHub token: ghu...234')
     expect(redacted).not.toContain(leakedKey)
+    expect(redacted).not.toContain(FAKE_GITHUB_USER_TOKEN)
   })
 
   test('redacts JWT-shaped values embedded in longer messages', () => {
@@ -285,6 +320,7 @@ describe('sanitizeProviderConfigValue', () => {
     expect(sanitizeProviderConfigValue('sk-ant-looks-like-a-key-1234567890')).toBeUndefined()
     expect(sanitizeProviderConfigValue('AIzaSySomeGeminiKey1234567890abcdefghijklmnopqr')).toBeUndefined()
     expect(sanitizeProviderConfigValue(FAKE_GITHUB_PAT)).toBeUndefined()
+    expect(sanitizeProviderConfigValue(FAKE_GITHUB_USER_TOKEN)).toBeUndefined()
     expect(sanitizeProviderConfigValue(FAKE_JWT_TOKEN)).toBeUndefined()
   })
 

@@ -7,8 +7,12 @@ import {
 } from '../../test/sharedMutationLock.js'
 import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import {
+  _test,
   bashToolHasPermission,
   checkSandboxAutoAllow,
+  clearSpeculativeChecks,
+  consumeSpeculativeClassifierCheck,
+  peekSpeculativeClassifierCheck,
   stripAllLeadingEnvVars,
 } from './bashPermissions.js'
 
@@ -206,5 +210,110 @@ describe('stripAllLeadingEnvVars — SEC-02 subscript expansion guard', () => {
 
   test('still strips a safe identifier array subscript', () => {
     expect(stripAllLeadingEnvVars('ARR[idx]=x ls')).toBe('ls')
+  })
+})
+
+describe('speculative cache eviction', () => {
+  beforeEach(() => {
+    clearSpeculativeChecks()
+  })
+
+  test('evictSpeculativeChecks removes oldest entries when over cap', () => {
+    const { speculativeChecks, evictSpeculativeChecks, MAX_SPECULATIVE_CHECKS_SIZE } = _test
+
+    // Fill just under the cap
+    for (let i = 0; i < MAX_SPECULATIVE_CHECKS_SIZE; i++) {
+      speculativeChecks.set(`cmd-${i}`, Promise.resolve('allow' as never))
+    }
+    expect(speculativeChecks.size).toBe(MAX_SPECULATIVE_CHECKS_SIZE)
+
+    // Add one more and evict
+    speculativeChecks.set('overflow', Promise.resolve('allow' as never))
+    evictSpeculativeChecks()
+    expect(speculativeChecks.size).toBe(MAX_SPECULATIVE_CHECKS_SIZE)
+    expect(speculativeChecks.has('cmd-0')).toBe(false)
+    expect(speculativeChecks.has('overflow')).toBe(true)
+  })
+
+  test('FIFO eviction removes entries in insertion order', () => {
+    const { speculativeChecks, evictSpeculativeChecks, MAX_SPECULATIVE_CHECKS_SIZE } = _test
+
+    for (let i = 0; i < MAX_SPECULATIVE_CHECKS_SIZE; i++) {
+      speculativeChecks.set(`cmd-${i}`, Promise.resolve('allow' as never))
+    }
+
+    // Add 3 more - should evict cmd-0, cmd-1, cmd-2
+    speculativeChecks.set('extra-1', Promise.resolve('allow' as never))
+    speculativeChecks.set('extra-2', Promise.resolve('allow' as never))
+    speculativeChecks.set('extra-3', Promise.resolve('allow' as never))
+    evictSpeculativeChecks()
+
+    expect(speculativeChecks.has('cmd-0')).toBe(false)
+    expect(speculativeChecks.has('cmd-1')).toBe(false)
+    expect(speculativeChecks.has('cmd-2')).toBe(false)
+    expect(speculativeChecks.has('cmd-3')).toBe(true)
+    expect(speculativeChecks.has('cmd-999')).toBe(true)
+    expect(speculativeChecks.has('extra-1')).toBe(true)
+    expect(speculativeChecks.has('extra-2')).toBe(true)
+    expect(speculativeChecks.has('extra-3')).toBe(true)
+  })
+
+  test('peek and consume return undefined for evicted entries', () => {
+    const { speculativeChecks, evictSpeculativeChecks, MAX_SPECULATIVE_CHECKS_SIZE } = _test
+
+    for (let i = 0; i < MAX_SPECULATIVE_CHECKS_SIZE; i++) {
+      speculativeChecks.set(`cmd-${i}`, Promise.resolve('allow' as never))
+    }
+
+    speculativeChecks.set('survivor', Promise.resolve('allow' as never))
+    evictSpeculativeChecks()
+
+    expect(peekSpeculativeClassifierCheck('cmd-0')).toBeUndefined()
+    expect(consumeSpeculativeClassifierCheck('cmd-0')).toBeUndefined()
+    expect(peekSpeculativeClassifierCheck('survivor')).toBeDefined()
+  })
+
+  test('eviction handles exact boundary without removing entries', () => {
+    const { speculativeChecks, evictSpeculativeChecks, MAX_SPECULATIVE_CHECKS_SIZE } = _test
+
+    for (let i = 0; i < MAX_SPECULATIVE_CHECKS_SIZE; i++) {
+      speculativeChecks.set(`cmd-${i}`, Promise.resolve('allow' as never))
+    }
+
+    evictSpeculativeChecks()
+    expect(speculativeChecks.size).toBe(MAX_SPECULATIVE_CHECKS_SIZE)
+    expect(speculativeChecks.has('cmd-0')).toBe(true)
+    expect(speculativeChecks.has('cmd-999')).toBe(true)
+  })
+
+  test('empty map survives eviction without error', () => {
+    const { evictSpeculativeChecks } = _test
+    expect(() => evictSpeculativeChecks()).not.toThrow()
+  })
+
+  test('peeking and consuming still works at boundary conditions', () => {
+    const { speculativeChecks, evictSpeculativeChecks, MAX_SPECULATIVE_CHECKS_SIZE } = _test
+
+    for (let i = 0; i < MAX_SPECULATIVE_CHECKS_SIZE; i++) {
+      speculativeChecks.set(`cmd-${i}`, Promise.resolve('allow' as never))
+    }
+
+    expect(peekSpeculativeClassifierCheck('cmd-0')).toBeDefined()
+    expect(peekSpeculativeClassifierCheck(`cmd-${MAX_SPECULATIVE_CHECKS_SIZE - 1}`)).toBeDefined()
+
+    speculativeChecks.set('overflow', Promise.resolve('allow' as never))
+    evictSpeculativeChecks()
+
+    expect(peekSpeculativeClassifierCheck('cmd-0')).toBeUndefined()
+    expect(peekSpeculativeClassifierCheck('cmd-1')).toBeDefined()
+    expect(peekSpeculativeClassifierCheck('overflow')).toBeDefined()
+
+    const consumed1 = consumeSpeculativeClassifierCheck('cmd-1')
+    expect(consumed1).toBeDefined()
+    expect(peekSpeculativeClassifierCheck('cmd-1')).toBeUndefined()
+
+    const consumedOverflow = consumeSpeculativeClassifierCheck('overflow')
+    expect(consumedOverflow).toBeDefined()
+    expect(peekSpeculativeClassifierCheck('overflow')).toBeUndefined()
   })
 })

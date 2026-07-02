@@ -1532,6 +1532,7 @@ export type AgentDefinition = {
   skills?: string[]
   initialPrompt?: string
   maxTurns?: number
+  maxSteps?: number
   background?: boolean
   memory?: "user" | "project" | "local"
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | number
@@ -2001,6 +2002,22 @@ export type SDKSessionStateChangedMessage = {
   session_id: string
 }
 
+/** Opt-in headless liveness signal emitted while --print output is quiet. */
+export type SDKHeartbeatMessage = {
+  type: "system"
+  subtype: "heartbeat"
+  timestamp: string
+  elapsed_ms: number
+  since_last_activity_ms: number
+  state: "starting" | "running" | "requires_action" | "idle" | "shutting_down"
+  phase: "startup" | "loading_session" | "connecting_mcp" | "draining_commands" | "in_turn" | "waiting_for_permission" | "waiting_for_agents" | "flushing" | "shutting_down"
+  heartbeat_index: number
+  pending_permission_requests: number
+  background_tasks: Record<string, number>
+  uuid: string
+  session_id: string
+}
+
 export type SDKToolUseSummaryMessage = {
   type: "tool_use_summary"
   summary: string
@@ -2290,6 +2307,19 @@ export type SDKMessage = ({
   type: "system"
   subtype: "session_state_changed"
   state: "idle" | "running" | "requires_action"
+  uuid: string
+  session_id: string
+}) | ({
+  type: "system"
+  subtype: "heartbeat"
+  timestamp: string
+  elapsed_ms: number
+  since_last_activity_ms: number
+  state: "starting" | "running" | "requires_action" | "idle" | "shutting_down"
+  phase: "startup" | "loading_session" | "connecting_mcp" | "draining_commands" | "in_turn" | "waiting_for_permission" | "waiting_for_agents" | "flushing" | "shutting_down"
+  heartbeat_index: number
+  pending_permission_requests: number
+  background_tasks: Record<string, number>
   uuid: string
   session_id: string
 }) | ({
