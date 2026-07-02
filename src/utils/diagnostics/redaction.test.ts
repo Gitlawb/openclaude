@@ -694,6 +694,19 @@ describe("redactSensitiveInfo", () => {
     );
     expect(result).toBe("Set-Cookie: [REDACTED]");
   });
+
+  // Regression: keep generic secret values whole outside URLs and preserve URL safe params inside URLs
+  test("keeps generic env secret values whole in non-URL contexts", () => {
+    expect(redactSensitiveInfo("DATABASE_PASSWORD=correct&horse=battery")).toBe("DATABASE_PASSWORD=[REDACTED]");
+    expect(redactSensitiveInfo("x-api-key: abc&def=ghi")).toBe("x-api-key: [REDACTED]");
+    expect(redactSensitiveInfo("token=abc;def=ghi")).toBe("token=[REDACTED]");
+  });
+
+  test("preserves safe URL parameters inside URL query strings for generic/provider keys", () => {
+    expect(redactSensitiveInfo("https://example.com/v1?OPENAI_API_KEY=secret&mode=test")).toBe(
+      "https://example.com/v1?OPENAI_API_KEY=redacted&mode=test"
+    );
+  });
 });
 
 describe("logForDebugging", () => {

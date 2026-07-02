@@ -282,16 +282,6 @@ export function redactSensitiveInfo(text: string): string {
     "[REDACTED]",
   );
 
-  // Post-processing: absorb `&<text>` that trails a redacted placeholder but
-  // does NOT contain `=` (guaranteed by the regex) — such text is likely a
-  // continuation of the value rather than a subsequent URL query parameter.
-  // This prevents partial leakage when a credential value contains literal
-  // `&` (e.g. a compound API token like `abc&def`).
-  redacted = redacted.replace(
-    /(\[REDACTED(?:_[A-Z_]+)?\])(&[^&=\s]+)(?=[&#;\s]|$)/g,
-    "$1",
-  );
-
   // Redact sensitive query params in `https?://` and protocol-relative `//`
   // URLs embedded in free-form text, log lines, and error messages. This
   // catches query params like `signature=SECRET123` that the generic key-value
@@ -300,6 +290,16 @@ export function redactSensitiveInfo(text: string): string {
   redacted = redacted.replace(
     /(?:https?:)?\/\/[^\s"',)}>]+/gi,
     (url) => redactUrlForDisplay(url),
+  );
+
+  // Post-processing: absorb any `&<text>` or `;<text>` segments that trail a
+  // redacted placeholder. These appear only in non-URL contexts (URL redaction
+  // above converts `[REDACTED]` → `redacted` before this pass runs), so safe
+  // URL query params like `&mode=test` are preserved and non-URL value
+  // continuations like `DATABASE_PASSWORD=correct&horse=battery` are collapsed.
+  redacted = redacted.replace(
+    /(\[REDACTED(?:_[A-Z_]+)?\])([&;][^\s"'&;]+)*/g,
+    "$1",
   );
 
   return redacted;
