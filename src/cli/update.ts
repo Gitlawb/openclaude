@@ -18,6 +18,7 @@ import {
   installOrUpdateClaudePackage,
   localInstallationExists,
 } from 'src/utils/localInstaller.js'
+import { hasNativeDistribution } from 'src/utils/nativeDistribution.js'
 import {
   installLatest as installLatestNative,
   removeInstalledSymlink,
@@ -26,7 +27,7 @@ import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
-import { isThirdPartyBuildBlocked } from 'src/utils/updateStrategy.js'
+import { isThirdPartyBuildBlocked, planUpdate } from 'src/utils/updateStrategy.js'
 
 export async function update() {
   // Block updates for third-party providers using upstream Anthropic builds.
@@ -235,8 +236,10 @@ export async function update() {
     }
   }
 
-  // Handle native installation updates first
-  if (diagnostic.installationType === 'native') {
+  // Handle native installation updates first. npm-only builds fall through to
+  // the npm update path even when the running binary looks native — they have
+  // no native distribution to update from.
+  if (diagnostic.installationType === 'native' && hasNativeDistribution()) {
     logForDebugging(
       'update: Detected native installation, using native updater',
     )
@@ -347,33 +350,33 @@ export async function update() {
   let useLocalUpdate = false
   let updateMethodName = ''
 
-  switch (diagnostic.installationType) {
-    case 'npm-local':
-      useLocalUpdate = true
-      updateMethodName = 'local'
-      break
-    case 'npm-global':
-      useLocalUpdate = false
-      updateMethodName = 'global'
-      break
-    case 'unknown': {
-      // Fallback to detection if we can't determine installation type
-      const isLocal = await localInstallationExists()
-      useLocalUpdate = isLocal
-      updateMethodName = isLocal ? 'local' : 'global'
+  const strategy = planUpdate({
+    thirdPartyBlocked: false,
+    installationType: diagnostic.installationType,
+    nativeDistributionAvailable: hasNativeDistribution(),
+    packageManager: 'unknown',
+    localInstallExists:
+      diagnostic.installationType === 'unknown'
+        ? await localInstallationExists()
+        : false,
+  })
+
+  if (strategy.action === 'npm') {
+    useLocalUpdate = strategy.method === 'local'
+    updateMethodName = strategy.method
+    if (diagnostic.installationType === 'unknown') {
       writeToStdout(
         chalk.yellow('Warning: Could not determine installation type') + '\n',
       )
       writeToStdout(
         `Attempting ${updateMethodName} update based on file detection...\n`,
       )
-      break
     }
-    default:
-      process.stderr.write(
-        `Error: Cannot update ${diagnostic.installationType} installation\n`,
-      )
-      await gracefulShutdown(1)
+  } else {
+    process.stderr.write(
+      `Error: Cannot update ${diagnostic.installationType} installation\n`,
+    )
+    await gracefulShutdown(1)
   }
 
   writeToStdout(`Using ${updateMethodName} installation update method...\n`)

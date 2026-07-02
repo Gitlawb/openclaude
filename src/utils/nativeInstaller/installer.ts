@@ -47,6 +47,7 @@ import { execFileNoThrowWithCwd } from '../execFileNoThrow.js'
 import { getShellType } from '../localInstaller.js'
 import * as lockfile from '../lockfile.js'
 import { logError } from '../log.js'
+import { hasNativeDistribution } from '../nativeDistribution.js'
 import { gt, gte } from '../semver.js'
 import {
   filterClaudeAliases,
@@ -499,6 +500,13 @@ async function versionIsAvailable(version: string): Promise<boolean> {
 }
 
 export async function repairNativeLauncher(version: string): Promise<void> {
+  if (!hasNativeDistribution()) {
+    logForDebugging(
+      'Native installer: no native distribution; skipping launcher repair',
+    )
+    return
+  }
+
   const dirs = getBaseDirectories()
   const installPath = join(dirs.versions, version)
 
@@ -830,6 +838,13 @@ export async function checkInstall(
     return []
   }
 
+  // npm-only builds have no native launcher to validate — a leftover
+  // installMethod:'native' config from a previous build would otherwise
+  // produce "command not found at ~/.local/bin/…" warnings every session.
+  if (!hasNativeDistribution()) {
+    return []
+  }
+
   // Get the actual installation type and config
   const installationType = await getCurrentInstallationType()
 
@@ -1002,6 +1017,13 @@ async function installLatestImpl(
   channelOrVersion: string,
   forceReinstall: boolean = false,
 ): Promise<InstallLatestResult> {
+  if (!hasNativeDistribution()) {
+    logForDebugging(
+      'Native installer: this build has no native distribution (NATIVE_PACKAGE_URL unset); skipping native install',
+    )
+    return { latestVersion: null, wasUpdated: false, lockFailed: false }
+  }
+
   const updateResult = await updateLatest(channelOrVersion, forceReinstall)
 
   if (!updateResult.success) {
@@ -1209,6 +1231,19 @@ async function forceRemoveLock(versionFilePath: string): Promise<void> {
 export async function cleanupOldVersions(): Promise<void> {
   // Yield to ensure we don't block startup
   await Promise.resolve()
+
+  // The versions/staging/locks directories live under the shared
+  // ~/.local/share/claude (etc.) paths, so on a machine that also has the
+  // first-party native Claude Code installed they hold THAT product's version
+  // binaries. An npm-only build must not garbage-collect them: the protection
+  // logic only recognizes its own launcher symlink, so it would delete
+  // binaries a coexisting `claude` launcher still points to.
+  if (!hasNativeDistribution()) {
+    logForDebugging(
+      'Native installer: no native distribution; skipping version cleanup',
+    )
+    return
+  }
 
   const dirs = getBaseDirectories()
   const oneHourAgo = Date.now() - 3600000
@@ -1693,6 +1728,15 @@ export async function cleanupNpmInstallations(): Promise<{
   errors: string[]
   warnings: string[]
 }> {
+  if (!hasNativeDistribution()) {
+    // npm IS the distribution for this build — uninstalling it would remove
+    // the copy the user is running.
+    logForDebugging(
+      'Native installer: no native distribution; keeping npm installation in place',
+    )
+    return { removed: 0, errors: [], warnings: [] }
+  }
+
   const errors: string[] = []
   const warnings: string[] = []
   let removed = 0

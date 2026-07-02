@@ -2,9 +2,11 @@ import { c as _c } from "react-compiler-runtime";
 import { feature } from 'bun:bundle';
 import * as React from 'react';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
+import { shouldUseNativeAutoUpdater } from '../utils/autoUpdaterRouting.js';
 import { isAutoUpdaterDisabled } from '../utils/config.js';
 import { logForDebugging } from '../utils/debug.js';
 import { getCurrentInstallationType } from '../utils/doctorDiagnostic.js';
+import { hasNativeDistribution } from '../utils/nativeDistribution.js';
 import { AutoUpdater } from './AutoUpdater.js';
 import { NativeAutoUpdater } from './NativeAutoUpdater.js';
 import { PackageManagerAutoUpdater } from './PackageManagerAutoUpdater.js';
@@ -39,7 +41,9 @@ export function AutoUpdaterWrapper(t0) {
         }
         const installationType = await getCurrentInstallationType();
         logForDebugging(`AutoUpdaterWrapper: Installation type: ${installationType}`);
-        setUseNativeInstaller(installationType === "native");
+        setUseNativeInstaller(
+          shouldUseNativeAutoUpdater(installationType, hasNativeDistribution()),
+        );
         setIsPackageManager(installationType === "package-manager");
       };
       checkInstallation();
