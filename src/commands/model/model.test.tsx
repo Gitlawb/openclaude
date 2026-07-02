@@ -2756,6 +2756,15 @@ test('cross-profile /model switch drops latched fast mode before activating an u
     clearFastModeCooldown: () => {},
   }))
   mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      },
+    ],
     setActiveProviderProfile: (profileId: string) => {
       targetProfileActivated = true
       return {
@@ -2844,6 +2853,15 @@ test('cross-profile /model switch drops fast mode when the target provider canno
     clearFastModeCooldown: () => {},
   }))
   mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_shim',
+        name: 'Custom Shim',
+        provider: 'openai',
+        baseUrl: 'https://shim.example/v1',
+        model: 'claude-opus-4-6',
+      },
+    ],
     setActiveProviderProfile: (profileId: string) => {
       targetProfileActivated = true
       return {
@@ -2926,6 +2944,15 @@ test('cross-profile /model switch surfaces the selected effort and extra-usage n
     isBilledAsExtraUsage: () => true,
   }))
   mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      },
+    ],
     setActiveProviderProfile: (profileId: string) => ({
       id: profileId,
       name: 'OpenAI',
