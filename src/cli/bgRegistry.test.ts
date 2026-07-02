@@ -722,6 +722,53 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
     expect(alive).toBe(true)
   })
 
+  it('does not match the session id as a substring of a larger token (#1770)', () => {
+    // A short id must not match an unrelated live command that merely contains
+    // it inside a longer token — the same reused-PID collision class as the
+    // command-arg path. Command args are absent from the live line so only the
+    // session-id branch can produce a match here.
+    const shortIdSession: BackgroundSession = {
+      ...session,
+      sessionId: 'sess-1',
+      command: ['node', 'openclaude', 'unused-token'],
+    }
+    const alive = isBackgroundSessionProcessAlive(shortIdSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude sess-100 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('matches the session id only as a whole token', () => {
+    const shortIdSession: BackgroundSession = {
+      ...session,
+      sessionId: 'sess-1',
+      command: ['node', 'openclaude', 'unused-token'],
+    }
+    const alive = isBackgroundSessionProcessAlive(shortIdSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude sess-1 --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('matches a stored multi-word prompt arg across command tokens (#1770)', () => {
+    // A prompt like "refactor auth" is stored as a single argv entry but `ps`
+    // renders it as separate words; the matcher must span both. The session id
+    // is absent from the live line so the command args are what must match.
+    const promptSession: BackgroundSession = {
+      ...session,
+      sessionId: 'conversation-absent',
+      command: ['node', 'openclaude', '--print', 'refactor auth'],
+    }
+    const alive = isBackgroundSessionProcessAlive(promptSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        'node openclaude --print refactor auth --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
   it('reports a dead process regardless of command line', () => {
     const alive = isBackgroundSessionProcessAlive(session, {
       isProcessAlive: () => false,

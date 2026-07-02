@@ -506,19 +506,28 @@ type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
 
 function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   if (args.length === 0) return false
-  // Match each stored arg against a whole whitespace-delimited token, in order,
+  // Match the stored args against whole whitespace-delimited tokens, in order,
   // rather than as a raw substring. Substring matching let a stored selector
   // like "1642" satisfy a lookup against an unrelated live token "16420" (e.g. a
   // reused PID whose command line merely contains those digits), so a dead
   // session stayed classified as running. See #1770.
+  //
+  // A stored arg can itself contain whitespace — a prompt like "refactor auth"
+  // is a single argv entry but `ps` renders it as separate words — so expand
+  // each arg into its own tokens and match the flattened sequence as an ordered
+  // subsequence of whole command tokens.
   const tokens = commandLine.split(/\s+/).filter(token => token.length > 0)
+  const argTokens = args.flatMap(arg =>
+    arg.split(/\s+/).filter(token => token.length > 0),
+  )
+  if (argTokens.length === 0) return false
   let tokenIndex = 0
-  for (const arg of args) {
+  for (const argToken of argTokens) {
     let matched = false
     while (tokenIndex < tokens.length) {
       const token = tokens[tokenIndex]
       tokenIndex += 1
-      if (token === arg) {
+      if (token === argToken) {
         matched = true
         break
       }
@@ -532,7 +541,10 @@ function commandLineMatchesBackgroundSession(
   commandLine: string,
   session: BackgroundSession,
 ): boolean {
-  if (commandLine.includes(session.sessionId)) return true
+  // Match the session id as a whole token, not a raw substring: an id like
+  // "sess-1" must not match an unrelated live command that merely contains
+  // "sess-100" (the same reused-PID collision this guard fixes for #1770).
+  if (commandLineContainsArgs(commandLine, [session.sessionId])) return true
   // PR resume launches write to the resumed transcript id without carrying
   // that id on argv, so use the stored launch invocation as the PID guard.
   return commandLineContainsArgs(commandLine, session.command)
