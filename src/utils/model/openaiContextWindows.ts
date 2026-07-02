@@ -6,7 +6,13 @@
  * override path for custom/private deployments and a `modelLimits` settings
  * map for the same effect via settings.json.
  *
- * Resolution order: env var → settings.json `modelLimits` → built-in catalog.
+ * This module only produces the *override candidates* (exact/prefix env-var
+ * matches and the settings `modelLimits` match); it does not decide the overall
+ * precedence. The authoritative runtime chain — exact env override, then the
+ * catalog/discovery cache, then the prefix env override, then settings
+ * `modelLimits`, then the descriptor default — is applied by
+ * resolveModelRuntimeLimits in integrations/runtimeMetadata.ts. Keep precedence
+ * changes there, not duplicated here.
  */
 
 import { getInitialSettings } from '../settings/settings.js'
@@ -16,13 +22,14 @@ type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
 
 export type OpenAILimitOverrideMatches = {
-  // Exact env-var override match (highest precedence).
+  // Exact env-var override match.
   exact?: number
-  // settings.json `modelLimits` match (exact or prefix). Sits between the exact
-  // env override and the built-in catalog, mirroring the documented resolution
-  // order env → settings → catalog.
+  // settings.json `modelLimits` match (exact or prefix). Just a candidate here;
+  // its position in the overall precedence is decided by resolveModelRuntimeLimits
+  // (integrations/runtimeMetadata.ts), which applies settings after the exact and
+  // prefix env overrides and the catalog/discovery cache.
   settings?: number
-  // Prefix env-var override match (lowest precedence among overrides).
+  // Prefix env-var override match.
   prefix?: number
 }
 
