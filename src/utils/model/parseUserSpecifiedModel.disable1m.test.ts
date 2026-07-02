@@ -43,6 +43,24 @@ describe('parseUserSpecifiedModel — [1m] tag when 1M context is disabled', () 
       'my-custom-deploy',
     )
   })
+
+  test('mixed-case custom id drops [1m]/[1M] but preserves casing when disabled', () => {
+    expect(parseUserSpecifiedModel('MyCustomDeploy[1M]')).toBe('MyCustomDeploy')
+    expect(parseUserSpecifiedModel('MyCustomDeploy[1m]')).toBe('MyCustomDeploy')
+  })
+
+  // Codex aliases are resolved by a separate branch from the Claude-family
+  // aliases, so they need their own disabled-1M coverage.
+  test('codex aliases drop the [1m] tag when 1M is disabled', () => {
+    const codexplan = parseUserSpecifiedModel('codexplan')
+    const codexspark = parseUserSpecifiedModel('codexspark')
+    expect(parseUserSpecifiedModel('codexplan[1m]')).toBe(codexplan)
+    expect(parseUserSpecifiedModel('codexspark[1M]')).toBe(codexspark)
+    expect(parseUserSpecifiedModel('codexplan[1m]').endsWith('[1m]')).toBe(false)
+    expect(parseUserSpecifiedModel('codexspark[1M]').endsWith('[1m]')).toBe(
+      false,
+    )
+  })
 })
 
 // Guard the opposite direction: with 1M enabled (default), the tag is preserved.
