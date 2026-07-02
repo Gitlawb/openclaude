@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import { z } from 'zod/v4'
 
+import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { getEmptyToolPermissionContext, type Tool, type ToolUseContext } from '../../Tool.js'
 import {
   getReplayIndexBuilder,
   resetAllReplayIndexBuilders,
 } from '../../bootstrap/state.js'
 import { getDefaultAppState } from '../../state/AppStateStore.js'
+import { createToolFixture } from '../../test/toolFixtures.js'
 import { SkillTool } from '../../tools/SkillTool/SkillTool.js'
 import { AskUserQuestionTool } from '../../tools/AskUserQuestionTool/AskUserQuestionTool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
@@ -14,6 +17,11 @@ import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
 import { AbortError } from '../../utils/errors.js'
+import { createAssistantMessage } from '../../utils/messages.js'
+import {
+  type QueryActiveOperationSnapshot,
+  QueryLifecycleOperationTracker,
+} from '../../utils/queryLifecycle.js'
 import { ReplayIndexBuilder } from '../../utils/replayIndexBuilder.js'
 import {
   getReplayResultStatusForError,
@@ -21,14 +29,103 @@ import {
   getSchemaValidationErrorOverride,
   getSchemaValidationToolUseResult,
   checkPermissionsAndCallTool,
+  type MessageUpdateLazy,
   normalizeReplayToolInput,
   normalizeToolInputForValidation,
+  runToolUse,
 } from './toolExecution.js'
 
 afterEach(() => {
   delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
   resetAllReplayIndexBuilders()
 })
+
+class CountingQueryLifecycleTracker extends QueryLifecycleOperationTracker {
+  startCount = 0
+  updateCount = 0
+  endCount = 0
+
+  override startToolUse(
+    toolUse: Parameters<QueryLifecycleOperationTracker['startToolUse']>[0],
+  ): void {
+    this.startCount++
+    super.startToolUse(toolUse)
+  }
+
+  override updateToolUse(
+    toolUse: Parameters<QueryLifecycleOperationTracker['updateToolUse']>[0],
+  ): void {
+    this.updateCount++
+    super.updateToolUse(toolUse)
+  }
+
+  override endToolUse(toolUseId: string): void {
+    this.endCount++
+    super.endToolUse(toolUseId)
+  }
+}
+
+function createLifecycleToolUseContext(
+  tools: readonly Tool[],
+  queryLifecycle: QueryLifecycleOperationTracker,
+  abortController = new AbortController(),
+): ToolUseContext {
+  const appState = getDefaultAppState()
+  return {
+    options: {
+      commands: [],
+      debug: false,
+      mainLoopModel: 'test-model',
+      tools,
+      verbose: false,
+      thinkingConfig: {},
+      mcpClients: [],
+      mcpResources: {},
+      isNonInteractiveSession: true,
+      agentDefinitions: { agents: [], errors: [] },
+    },
+    abortController,
+    queryLifecycle,
+    readFileState: {},
+    getAppState: () => ({
+      ...appState,
+      sessionHooks: new Map(),
+      toolPermissionContext: getEmptyToolPermissionContext(),
+    }),
+    setAppState: () => {},
+    setInProgressToolUseIDs: () => {},
+    setResponseLength: () => {},
+    updateFileHistoryState: () => {},
+    updateAttributionState: () => {},
+    messages: [],
+  } as unknown as ToolUseContext
+}
+
+async function collectRunToolUse(
+  tool: Tool,
+  input: Record<string, unknown>,
+  context: ToolUseContext,
+  canUseTool: CanUseToolFn = async (_tool, toolInput) => ({
+    behavior: 'allow',
+    updatedInput: toolInput,
+  }),
+) {
+  const updates: MessageUpdateLazy[] = []
+  for await (const update of runToolUse(
+    {
+      type: 'tool_use',
+      id: 'toolu_lifecycle',
+      name: tool.name,
+      input,
+    } as ToolUseBlock,
+    createAssistantMessage({ content: 'run tool' }),
+    canUseTool,
+    context,
+  )) {
+    updates.push(update)
+  }
+  return updates
+}
 
 describe('getSchemaValidationErrorOverride', () => {
   test('returns actionable missing-skill error for SkillTool', () => {
@@ -295,6 +392,235 @@ describe('replay tool lifecycle records', () => {
     expect(step.resultStatus).toBe('error')
     expect(step.resultPreview).toBe('mapping failed')
     expect(step.input).toEqual({ value: 'final' })
+  })
+})
+
+describe('query lifecycle tool-use cleanup', () => {
+  const lifecycleInputSchema = z.object({ value: z.string() })
+
+  test('successful tool execution leaves no active lifecycle tool use', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    let lifecycleSnapshotDuringCall: QueryActiveOperationSnapshot | undefined
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleSuccessTool',
+      async call() {
+        lifecycleSnapshotDuringCall = queryLifecycle.snapshot()
+        return { data: 'ok' }
+      },
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, { value: 'ok' }, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(lifecycleSnapshotDuringCall?.toolUses).toMatchObject([
+      {
+        toolUseId: 'toolu_lifecycle',
+        toolName: 'LifecycleSuccessTool',
+      },
+    ])
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('custom validation failure leaves no active lifecycle tool use', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleValidationTool',
+      async validateInput() {
+        return {
+          result: false,
+          message: 'invalid value',
+          errorCode: 1,
+        }
+      },
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, { value: 'bad' }, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('schema validation failure does not end a lifecycle entry that never started', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleSchemaTool',
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, {}, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(0)
+    expect(queryLifecycle.updateCount).toBe(0)
+    expect(queryLifecycle.endCount).toBe(0)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('unknown tool does not end a lifecycle entry that never started', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleUnknownTool',
+    })
+    const context = createLifecycleToolUseContext([], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, { value: 'ok' }, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(0)
+    expect(queryLifecycle.updateCount).toBe(0)
+    expect(queryLifecycle.endCount).toBe(0)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('permission denial leaves no active lifecycle tool use', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleDeniedTool',
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+    const denyToolUse: CanUseToolFn = async () => ({
+      behavior: 'deny',
+      message: 'Denied by test',
+      decisionReason: {
+        type: 'other',
+        reason: 'Denied by test',
+      },
+    })
+
+    const updates = await collectRunToolUse(
+      tool,
+      { value: 'blocked' },
+      context,
+      denyToolUse,
+    )
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.updateCount).toBeGreaterThan(0)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('thrown tool error leaves no active lifecycle tool use', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleThrowTool',
+      async call() {
+        throw new Error('tool exploded')
+      },
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, { value: 'boom' }, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('aborted tool execution leaves no active lifecycle tool use', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleAbortTool',
+      async call() {
+        throw new AbortError('interrupted')
+      },
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+
+    const updates = await collectRunToolUse(tool, { value: 'abort' }, context)
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('permission-updated input can retrack lifecycle metadata and still ends once', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    let lifecycleSnapshotDuringCall: QueryActiveOperationSnapshot | undefined
+    const tool = createToolFixture(
+      z.object({ value: z.string(), timeout: z.number().optional() }),
+      {
+        name: BASH_TOOL_NAME,
+        async call() {
+          lifecycleSnapshotDuringCall = queryLifecycle.snapshot()
+          return { data: 'ok' }
+        },
+      },
+    )
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+    const updateInput: CanUseToolFn = async () => ({
+      behavior: 'allow',
+      updatedInput: { value: 'updated', timeout: 20 },
+    })
+
+    const updates = await collectRunToolUse(
+      tool,
+      { value: 'initial', timeout: 10 },
+      context,
+      updateInput,
+    )
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(lifecycleSnapshotDuringCall?.toolUses).toEqual([
+      {
+        toolUseId: 'toolu_lifecycle',
+        toolName: BASH_TOOL_NAME,
+        startedAt: expect.any(Number),
+        isBash: true,
+        timeoutMs: 20,
+      },
+    ])
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.updateCount).toBeGreaterThan(0)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('permission-updated input does not resurrect externally ended lifecycle tracking', async () => {
+    const queryLifecycle = new CountingQueryLifecycleTracker()
+    const tool = createToolFixture(lifecycleInputSchema, {
+      name: 'LifecycleExternallyEndedTool',
+    })
+    const context = createLifecycleToolUseContext([tool], queryLifecycle)
+    let lifecycleSnapshotBeforeExternalEnd:
+      | QueryActiveOperationSnapshot
+      | undefined
+    const endBeforeUpdatingInput: CanUseToolFn = async () => {
+      lifecycleSnapshotBeforeExternalEnd = queryLifecycle.snapshot()
+      queryLifecycle.endToolUse('toolu_lifecycle')
+      return {
+        behavior: 'allow',
+        updatedInput: { value: 'updated' },
+      }
+    }
+
+    const updates = await collectRunToolUse(
+      tool,
+      { value: 'initial' },
+      context,
+      endBeforeUpdatingInput,
+    )
+
+    expect(updates.length).toBeGreaterThan(0)
+    expect(lifecycleSnapshotBeforeExternalEnd?.toolUses).toMatchObject([
+      {
+        toolUseId: 'toolu_lifecycle',
+        toolName: 'LifecycleExternallyEndedTool',
+      },
+    ])
+    expect(queryLifecycle.startCount).toBe(1)
+    expect(queryLifecycle.updateCount).toBe(0)
+    expect(queryLifecycle.endCount).toBe(1)
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
   })
 })
 

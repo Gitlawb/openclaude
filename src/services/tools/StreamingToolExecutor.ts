@@ -70,9 +70,16 @@ export class StreamingToolExecutor {
     if (this.discarded) return
     this.discarded = true
     this.siblingAbortController.abort('streaming_fallback')
+    const activeLifecycleToolUseIds = new Set(
+      this.toolUseContext.queryLifecycle
+        ?.snapshot()
+        .toolUses.map(toolUse => toolUse.toolUseId) ?? [],
+    )
     for (const tool of this.tools) {
       if (tool.status === 'yielded') continue
-      this.toolUseContext.queryLifecycle?.endToolUse(tool.id)
+      if (activeLifecycleToolUseIds.has(tool.id)) {
+        this.toolUseContext.queryLifecycle?.endToolUse(tool.id)
+      }
       markToolUseAsComplete(this.toolUseContext, tool.id)
       tool.pendingProgress.length = 0
       tool.status = 'yielded'

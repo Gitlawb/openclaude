@@ -139,6 +139,11 @@ export class QueryLifecycleOperationTracker {
     this.toolUses.set(toolUse.toolUseId, toSafeToolUseSnapshot(toolUse))
   }
 
+  updateToolUse(toolUse: QueryActiveToolUse): void {
+    if (!this.toolUses.has(toolUse.toolUseId)) return
+    this.toolUses.set(toolUse.toolUseId, toSafeToolUseSnapshot(toolUse))
+  }
+
   endToolUse(toolUseId: string): void {
     this.toolUses.delete(toolUseId)
   }
