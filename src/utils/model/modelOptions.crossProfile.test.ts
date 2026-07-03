@@ -803,6 +803,92 @@ test('getModelOptionsBase: ant branch appends inactive profile options', async (
   }
 })
 
+test('getModelOptionsBase: Max/Team Premium subscriber branch appends inactive profile options', async () => {
+  // The Pro/standard subscriber branch is covered above; this locks the
+  // separate Max / Team Premium early return (isMaxSubscriber ||
+  // isTeamPremiumSubscriber), which builds its own premiumOptions array and
+  // must push ...inactiveProfileOptions before returning.
+  const { active, inactive } = activeAndInactivePair()
+  activeSubscriberOverride = { max: true }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      getModelOptions(false)
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: NVIDIA NIM empty-catalog fallback still appends inactive profile options', async () => {
+  // The catalog branch above exercises the non-empty return; this locks the
+  // `[defaultOption, ...inactiveProfileOptions]` fallback taken when the cached
+  // catalog is empty, which previously dropped the inactive switch options.
+  const { active, inactive } = activeAndInactivePair()
+  activeNvidiaOverride = { cachedModels: [] }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    const options = getModelOptions(false)
+    // No catalog model surfaced, but the inactive switcher is still restored.
+    expect(options.some(o => o.value === 'nvidia/model')).toBe(false)
+    expect(
+      options
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: MiniMax empty-catalog fallback still appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeMiniMaxOverride = { cachedModels: [] }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      getModelOptions(false)
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
+test('getModelOptionsBase: Xiaomi MiMo empty-catalog fallback still appends inactive profile options', async () => {
+  const { active, inactive } = activeAndInactivePair()
+  activeXiaomiOverride = { cachedModels: [] }
+  await withProfileEnvApplied(async () => {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      getModelOptions(false)
+        .filter(o => o.switchToProfileId !== undefined)
+        .map(o => o.switchToProfileId),
+    ).toContain('profile_remote')
+  })
+})
+
 test('getModelOptions: allowlist checks a non-switch custom id verbatim, not decoded', async () => {
   // Regression for #1164 [P2]: filterModelOptionsByAllowlist must only decode
   // genuine switch options (identified by `switchToProfileId`), not any string
