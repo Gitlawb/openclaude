@@ -759,7 +759,7 @@ function normalizeGitCommitCommand(command: string): string | null {
 
   let rest = normalizedInput.slice(gitMatch[0].length)
   for (;;) {
-    const commitMatch = rest.match(/^commit(?=[ \t])/)
+    const commitMatch = rest.match(/^commit(?=$|[ \t])/)
     if (commitMatch) {
       return `git commit${rest.slice(commitMatch[0].length)}`
     }

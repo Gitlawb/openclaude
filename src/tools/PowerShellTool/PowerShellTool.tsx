@@ -219,7 +219,7 @@ function normalizePowerShellGitCommitCommand(command: string): string | null {
 
   let rest = normalizedInput.slice(gitMatch[0].length);
   for (;;) {
-    const commitMatch = rest.match(/^commit(?=\s)/i);
+    const commitMatch = rest.match(/^commit(?=$|\s)/i);
     if (commitMatch) {
       return `git commit${rest.slice(commitMatch[0].length)}`;
     }

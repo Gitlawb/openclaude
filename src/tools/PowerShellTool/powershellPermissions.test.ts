@@ -260,6 +260,7 @@ describe('PowerShell git commit governance policy', () => {
     await withProjectSettings(
       { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
       checkPowerShellCommitMessagePolicy => {
+        const editorDefault = checkPowerShellCommitMessagePolicy('git commit')
         const reuseShort = checkPowerShellCommitMessagePolicy(
           'git commit -C HEAD',
         )
@@ -276,6 +277,7 @@ describe('PowerShell git commit governance policy', () => {
           'git commit --amend',
         )
 
+        expectPowerShellAskMessage(editorDefault, 'cannot be checked')
         expectPowerShellAskMessage(reuseShort, 'cannot be checked')
         expectPowerShellAskMessage(reuseLong, 'cannot be checked')
         expectPowerShellAskMessage(reeditShort, 'cannot be checked')

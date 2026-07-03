@@ -281,6 +281,7 @@ describe('git commit governance policy (#1326)', () => {
     await withProjectSettings(
       { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
       () => {
+        const editorDefault = bashCommandIsSafe_DEPRECATED('git commit')
         const reuseShort = bashCommandIsSafe_DEPRECATED('git commit -C HEAD')
         const reuseLong = bashCommandIsSafe_DEPRECATED(
           'git commit --reuse-message=HEAD',
@@ -291,6 +292,7 @@ describe('git commit governance policy (#1326)', () => {
         )
         const editor = bashCommandIsSafe_DEPRECATED('git commit --amend')
 
+        expectAskMessage(editorDefault, 'cannot be checked')
         expectAskMessage(reuseShort, 'cannot be checked')
         expectAskMessage(reuseLong, 'cannot be checked')
         expectAskMessage(reeditShort, 'cannot be checked')
