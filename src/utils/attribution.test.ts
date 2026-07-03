@@ -500,4 +500,25 @@ describe('getEnhancedPRAttribution', () => {
       defaultPrAttribution,
     )
   })
+
+  it('uses git.addGeneratedWithFooter as an explicit opt-in to generated PR attribution', async () => {
+    useSettings({ git: { addGeneratedWithFooter: true } })
+
+    await expect(getEnhancedPRAttribution(() => ({} as never))).resolves.toBe(
+      defaultPrAttribution,
+    )
+  })
+
+  it('lets git.addGeneratedWithFooter false block legacy generated PR attribution', async () => {
+    useSettings({
+      includeCoAuthoredBy: true,
+      git: { addGeneratedWithFooter: false },
+    })
+
+    await expect(
+      getEnhancedPRAttribution(() => {
+        throw new Error('app state should not be read when PR attribution is blocked')
+      }),
+    ).resolves.toBe('')
+  })
 })

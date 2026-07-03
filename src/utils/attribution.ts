@@ -403,9 +403,14 @@ export async function getEnhancedPRAttribution(
     return ''
   }
 
-  // Backward compatibility: deprecated includeCoAuthoredBy setting is now an
-  // explicit opt-in for the old generated attribution behavior.
-  if (settings.includeCoAuthoredBy !== true) {
+  const optIns = getGitAttributionOptIns()
+  const includeGeneratedPr =
+    (settings.includeCoAuthoredBy === true || optIns.addGeneratedWithFooter) &&
+    !isGeneratedPrAttributionBlocked()
+
+  // Backward compatibility: deprecated includeCoAuthoredBy remains an explicit
+  // opt-in, and git.addGeneratedWithFooter is the new generated-PR opt-in.
+  if (!includeGeneratedPr) {
     return ''
   }
 
