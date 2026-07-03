@@ -639,20 +639,29 @@ function ModelPickerWrapper({
     })
   }
 
-  const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+  const handleSelect = (
+    model: string | null,
+    effort: EffortLevel | undefined,
+    switchToProfileId?: string,
+  ) => {
     // Cross-profile switch from /model picker (issue #1119). The composite
     // value carries the profile id; activate that profile first so subsequent
     // requests use the new OPENAI_BASE_URL / OPENAI_API_KEY, then drop down to
     // the regular model-switch path with the bare model string.
     //
-    // Only treat the value as a switch when its decoded profile id maps to a
-    // real configured provider profile. Every synthesized switch option (built
-    // with a `switchToProfileId` marker) does; a custom model id that merely
-    // starts with the `__switch_profile__:` prefix does not, and must be applied
-    // as a literal model instead of activating a nonexistent profile.
+    // Only treat the value as a switch when the SELECTED OPTION carried the
+    // `switchToProfileId` marker (threaded here by the picker) — not merely
+    // because the value parses as `__switch_profile__:<profileId>:<model>` for
+    // an existing profile. A real custom model id such as
+    // `__switch_profile__:profile_openai:gpt-5-mini` (where `profile_openai`
+    // happens to exist) is a plain option with no marker, and must be applied
+    // as a literal model rather than activating the provider. Cross-check the
+    // decoded profile id against the threaded marker and a real configured
+    // profile before switching.
     const decodedSwitch = parseSwitchProfileValue(model)
     const switchTarget =
       decodedSwitch &&
+      switchToProfileId === decodedSwitch.profileId &&
       getProviderProfiles().some(p => p.id === decodedSwitch.profileId)
         ? decodedSwitch
         : null

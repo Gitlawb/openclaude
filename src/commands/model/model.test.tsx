@@ -2778,11 +2778,15 @@ test('cross-profile /model switch drops latched fast mode before activating an u
   } as never)
 
   let capturedOnSelect:
-    | ((model: string | null, effort: unknown) => void)
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
     | undefined
   mock.module('../../components/ModelPicker.js', () => ({
     ModelPicker: function MockModelPicker(props: {
-      onSelect?: (model: string | null, effort: unknown) => void
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
     }): React.ReactNode {
       capturedOnSelect = props.onSelect
       return null
@@ -2824,6 +2828,9 @@ test('cross-profile /model switch drops latched fast mode before activating an u
     capturedOnSelect?.(
       encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
       undefined,
+      // The real ModelPicker threads the selected switch option's marker; the
+      // mock picker mirrors that so handleSelect activates the profile.
+      'profile_openai',
     )
 
     await waitForCondition(() =>
@@ -2875,11 +2882,15 @@ test('cross-profile /model switch drops fast mode when the target provider canno
   } as never)
 
   let capturedOnSelect:
-    | ((model: string | null, effort: unknown) => void)
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
     | undefined
   mock.module('../../components/ModelPicker.js', () => ({
     ModelPicker: function MockModelPicker(props: {
-      onSelect?: (model: string | null, effort: unknown) => void
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
     }): React.ReactNode {
       capturedOnSelect = props.onSelect
       return null
@@ -2921,6 +2932,9 @@ test('cross-profile /model switch drops fast mode when the target provider canno
     capturedOnSelect?.(
       encodeSwitchProfileValue('profile_shim', 'claude-opus-4-6'),
       undefined,
+      // The real ModelPicker threads the selected switch option's marker; the
+      // mock picker mirrors that so handleSelect activates the profile.
+      'profile_shim',
     )
 
     await waitForCondition(() =>
@@ -2963,11 +2977,15 @@ test('cross-profile /model switch surfaces the selected effort and extra-usage n
   } as never)
 
   let capturedOnSelect:
-    | ((model: string | null, effort: unknown) => void)
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
     | undefined
   mock.module('../../components/ModelPicker.js', () => ({
     ModelPicker: function MockModelPicker(props: {
-      onSelect?: (model: string | null, effort: unknown) => void
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
     }): React.ReactNode {
       capturedOnSelect = props.onSelect
       return null
@@ -3009,6 +3027,9 @@ test('cross-profile /model switch surfaces the selected effort and extra-usage n
     capturedOnSelect?.(
       encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
       'high',
+      // The real ModelPicker threads the selected switch option's marker; the
+      // mock picker mirrors that so handleSelect activates the profile.
+      'profile_openai',
     )
 
     await waitForCondition(() => doneMessage !== undefined)
@@ -3018,5 +3039,102 @@ test('cross-profile /model switch surfaces the selected effort and extra-usage n
   } finally {
     instance.unmount()
     mock.module('../../utils/extraUsage.js', () => REAL_EXTRA_USAGE_FOR_MODEL_TEST)
+  }
+})
+
+test('cross-profile /model does NOT switch a literal prefixed model id lacking the switch marker (#1164)', async () => {
+  // jatmn [P2]: a real custom model id such as
+  // `__switch_profile__:profile_openai:gpt-5-mini` parses like a switch value
+  // and `profile_openai` exists — but the selected option carried NO
+  // switchToProfileId marker, so it must be applied as a literal model, never
+  // activating the provider. The mock picker mirrors the real one by threading
+  // an UNDEFINED marker for this non-switch option.
+  let activatedProfileId: string | null = null
+  mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      },
+    ],
+    setActiveProviderProfile: (profileId: string) => {
+      activatedProfileId = profileId
+      return {
+        id: profileId,
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      }
+    },
+  } as never)
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+
+  const { getDefaultAppState } = await import('../../state/AppState.js')
+  let doneMessage: string | undefined
+  const { call } = await importFreshModelModule('literal-prefixed-no-switch')
+  const element = await call(
+    (message?: string) => {
+      doneMessage = message
+    },
+    {} as never,
+    '',
+  )
+  const { AppStateProvider } = await import('../../state/AppState.js')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider
+      initialState={
+        {
+          ...getDefaultAppState(),
+          fastMode: false,
+          mainLoopModel: 'claude-sonnet-4-6',
+        } as never
+      }
+      onChangeAppState={() => {}}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    // Same encoded string, but NO marker threaded — this is a literal custom id.
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+      undefined,
+      undefined,
+    )
+
+    await waitForCondition(() => doneMessage !== undefined)
+    // Applied as a literal model, provider never activated.
+    expect(activatedProfileId).toBeNull()
+    expect(doneMessage).not.toContain('Switched to')
+    expect(doneMessage).toContain(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+    )
+  } finally {
+    instance.unmount()
   }
 })
