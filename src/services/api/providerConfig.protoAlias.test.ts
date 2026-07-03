@@ -85,6 +85,39 @@ describe('providerConfig — Codex alias lookup is prototype-safe', () => {
     })
   }
 
+  // The descriptor path reads CODEX_ALIAS_MODELS twice: the no-query branch
+  // above, and the `baseModel?reasoning=...` query branch, which is a separate
+  // guarded read. Removing the own-property guard from the query branch must
+  // also red-green here. `constructor`/`__proto__` carry no `.model`, so to
+  // exercise the query branch we plant an inherited alias whose `.model`
+  // differs from the key, then confirm a `<key>?reasoning=...` request keeps
+  // the literal base model instead of the inherited alias's `.model`.
+  test('resolveProviderRequest query branch ignores an inherited (polluted) alias', () => {
+    const key = 'polluted-descriptor-alias'
+    // eslint-disable-next-line no-extend-native
+    ;(Object.prototype as Record<string, unknown>)[key] = {
+      model: 'gpt-5.5',
+      reasoningEffort: 'high',
+    }
+    try {
+      const { resolvedModel } = resolveProviderRequest({
+        model: `${key}?reasoning=medium`,
+        processEnv: {},
+      })
+      expect(resolvedModel).toBe(key)
+    } finally {
+      delete (Object.prototype as Record<string, unknown>)[key]
+    }
+  })
+
+  test('resolveProviderRequest query branch still resolves a genuine Codex alias', () => {
+    const { resolvedModel } = resolveProviderRequest({
+      model: 'codexplan?reasoning=medium',
+      processEnv: {},
+    })
+    expect(resolvedModel).toBe('gpt-5.5')
+  })
+
   test('resolveProviderRequest still resolves a genuine Codex alias', () => {
     const { resolvedModel } = resolveProviderRequest({
       model: 'codexplan',
