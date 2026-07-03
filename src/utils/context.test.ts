@@ -21,6 +21,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
@@ -42,6 +43,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_API_KEY
+  delete process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
@@ -95,6 +97,11 @@ afterEach(() => {
       delete process.env.OPENAI_API_KEY
     } else {
       process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY
+    }
+    if (originalEnv.AIMLAPI_API_KEY === undefined) {
+      delete process.env.AIMLAPI_API_KEY
+    } else {
+      process.env.AIMLAPI_API_KEY = originalEnv.AIMLAPI_API_KEY
     }
     if (originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === undefined) {
       delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED

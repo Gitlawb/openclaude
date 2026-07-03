@@ -230,6 +230,54 @@ test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML 
   ).toBe('aimlapi')
 })
 
+test('resolveActiveRouteIdFromEnv prefers dedicated AI/ML API key over ambient OpenAI keys', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      OPENAI_API_KEY: 'ambient-openai-key',
+      OPENAI_API_KEYS: 'ambient-openai-key-a,ambient-openai-key-b',
+    }),
+  ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv prefers dedicated AI/ML API key over ambient compatible-provider keys', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      XAI_API_KEY: 'ambient-xai-key',
+      MINIMAX_API_KEY: 'ambient-minimax-key',
+    }),
+  ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with AI/ML API key-only setup', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      CLAUDE_CODE_USE_OPENAI: '1',
+    }),
+  ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer AI/ML API with a conflicting OpenAI base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      OPENAI_API_KEY: 'ambient-openai-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv keeps an explicit non-OpenAI provider over AI/ML API key-only setup', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      CLAUDE_CODE_USE_GEMINI: '1',
+    }),
+  ).toBe('gemini')
+})
+
 test('resolveActiveRouteIdFromEnv ignores placeholder AI/ML API credential-only env', () => {
   expect(
     resolveActiveRouteIdFromEnv({

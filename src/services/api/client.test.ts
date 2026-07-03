@@ -579,7 +579,7 @@ test('env-only MiniMax fallback ignores non-MiniMax base overrides', async () =>
   expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
 })
 
-test('routes env-only AI/ML API requests through the OpenAI-compatible shim', async () => {
+test('routes env-only AI/ML API requests through the OpenAI-compatible shim despite an ambient OpenAI key', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined
   let capturedBody: Record<string, unknown> | undefined
@@ -589,6 +589,7 @@ test('routes env-only AI/ML API requests through the OpenAI-compatible shim', as
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_AUTH_MODE
+  process.env.OPENAI_API_KEY = 'ambient-openai-key'
   process.env.AIMLAPI_API_KEY = 'aimlapi-test-key'
 
   globalThis.fetch = (async (input, init) => {

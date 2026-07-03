@@ -514,21 +514,26 @@ function hasNoExplicitNonOpenAICompatibleProvider(
   )
 }
 
+function hasNoExplicitNonOpenAIProvider(
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  return (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
 export function hasAimlapiEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return (
     hasUsableOpenAICredential(processEnv.AIMLAPI_API_KEY) &&
-    !hasAnyUsableOpenAICredential(processEnv) &&
-    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isAimlapiBaseUrl) &&
-    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+    hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
 
@@ -663,16 +668,16 @@ export function resolveEnvOnlyProviderRouteId(
     return 'minimax'
   }
 
+  if (hasAimlapiEnvOnlyProviderIntent(processEnv)) {
+    return 'aimlapi'
+  }
+
   if (hasXaiEnvOnlyProviderIntent(processEnv)) {
     return 'xai'
   }
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
     return 'minimax'
-  }
-
-  if (hasAimlapiEnvOnlyProviderIntent(processEnv)) {
-    return 'aimlapi'
   }
 
   if (hasVeniceEnvOnlyProviderIntent(processEnv)) {

@@ -22,6 +22,7 @@ import {
 import { EMPTY_USAGE } from './emptyUsage.js'
 
 const envKeys = [
+  'AIMLAPI_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
