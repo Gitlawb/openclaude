@@ -44,6 +44,24 @@ const GREP_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
 })
 
 /**
+ * Linters / formatters (ruff, eslint): 0 = clean, 1 = violations/diffs found
+ * (reported in the output, not a crash), 2+ = a real error (invalid config,
+ * bad arguments). Treating exit 1 as an error makes the model retry a command
+ * that already did its job.
+ */
+const LINT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
+  isError: exitCode >= 2,
+  message: exitCode === 1 ? 'Lint violations found' : undefined,
+})
+
+/**
+ * Wrapper runners that execute another tool (`uvx ruff check`, `npx eslint .`).
+ * The wrapped tool determines $LASTEXITCODE, so we inherit its semantics when
+ * it is one we recognize.
+ */
+const WRAPPER_COMMANDS = new Set(['uvx', 'npx'])
+
+/**
  * Command-specific semantics for external executables.
  * Keys are lowercase command names WITHOUT .exe suffix.
  *
@@ -91,6 +109,12 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
             : undefined,
     }),
   ],
+
+  // ruff / eslint (external executables): 1 = lint violations found (reported,
+  // not a crash), 2+ = real error. Also applied to `uvx ruff` / `npx eslint`
+  // via the wrapper unwrap in interpretCommandResult.
+  ['ruff', LINT_SEMANTIC],
+  ['eslint', LINT_SEMANTIC],
 ])
 
 /**
@@ -127,6 +151,38 @@ function heuristicallyExtractBaseCommand(command: string): string {
 /**
  * Interpret command result based on semantic rules
  */
+/**
+ * For a wrapper invocation (`uvx <tool> ...`, `npx <tool> ...`) return the
+ * normalized name of the wrapped tool — the first non-flag token after the
+ * wrapper — so its exit-code semantics can be applied. Returns undefined when
+ * no such token exists; an unrecognized wrapped name falls back to default.
+ */
+function extractWrappedCommand(
+  command: string,
+  wrapper: string,
+): string | undefined {
+  const segments = command.split(/[;|]/).filter(s => s.trim())
+  const last = segments[segments.length - 1] || command
+  const tokens = last
+    .trim()
+    .split(/\s+/)
+    .filter(t => t && !/^[&.]$/.test(t))
+  const wrapperIndex = tokens.findIndex(t => extractBaseCommand(t) === wrapper)
+  if (wrapperIndex === -1) {
+    return undefined
+  }
+  for (let i = wrapperIndex + 1; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token && !token.startsWith('-')) {
+      return extractBaseCommand(token)
+    }
+  }
+  return undefined
+}
+
+/**
+ * Interpret command result based on semantic rules
+ */
 export function interpretCommandResult(
   command: string,
   exitCode: number,
@@ -137,6 +193,12 @@ export function interpretCommandResult(
   message?: string
 } {
   const baseCommand = heuristicallyExtractBaseCommand(command)
-  const semantic = COMMAND_SEMANTICS.get(baseCommand) ?? DEFAULT_SEMANTIC
-  return semantic(exitCode, stdout, stderr)
+  let semantic = COMMAND_SEMANTICS.get(baseCommand)
+  if (semantic === undefined && WRAPPER_COMMANDS.has(baseCommand)) {
+    const wrapped = extractWrappedCommand(command, baseCommand)
+    if (wrapped !== undefined) {
+      semantic = COMMAND_SEMANTICS.get(wrapped)
+    }
+  }
+  return (semantic ?? DEFAULT_SEMANTIC)(exitCode, stdout, stderr)
 }
