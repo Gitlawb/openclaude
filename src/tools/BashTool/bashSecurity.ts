@@ -825,6 +825,11 @@ function extractGitCommitMessages(command: string): {
   for (const match of normalizedCommand.matchAll(unquotedMessagePattern)) {
     const message = match[1] ?? match[2] ?? ''
     if (message === '$(cat') {
+      const rest = normalizedCommand.slice((match.index ?? 0) + match[0].length)
+      if (/^[ \t]+<</.test(rest)) {
+        continue
+      }
+      hasUninspectableSource = true
       continue
     }
     if (hasExpandableShellText(message) || /[<>()]/.test(message)) {
