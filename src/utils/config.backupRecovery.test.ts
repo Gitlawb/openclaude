@@ -144,6 +144,45 @@ describe('recoverConfigFromBackup', () => {
       keptDefault: true,
     })
   })
+
+  test('skips a valid-but-non-object newest backup for an older healthy one', async () => {
+    const { recoverConfigFromBackup } = await freshConfig()
+    const NEWER = `${BASE}.backup.20260630130000`
+    const OLDER = `${BASE}.backup.20260630120000`
+    installFs({
+      readdirStringSync: (dir: string) =>
+        dir.endsWith('backups') ? [OLDER, NEWER] : [],
+      readFileSync: (path: string) => {
+        const p = String(path)
+        if (p.endsWith(NEWER)) {
+          // Parses as valid JSON, but `null` is not a config object. Spreading
+          // it would return bare defaults and stop, discarding the older
+          // healthy snapshot below.
+          return 'null'
+        }
+        if (p.endsWith(OLDER)) {
+          return '{"theme":"solarized","customField":3}'
+        }
+        throw enoent()
+      },
+      statSync: () => {
+        throw enoent()
+      },
+    })
+
+    const recovered = recoverConfigFromBackup(FILE, () => ({
+      theme: 'light',
+      customField: 0,
+      keptDefault: true,
+    }))
+
+    // The valid-but-unusable newest backup is skipped; the older healthy one wins.
+    expect(recovered).toEqual({
+      theme: 'solarized',
+      customField: 3,
+      keptDefault: true,
+    })
+  })
 })
 
 describe('getConfig recovery (production path)', () => {

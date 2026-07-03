@@ -1740,6 +1740,18 @@ export function recoverConfigFromBackup<A>(
     try {
       const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
       const parsedBackup = jsonParse(stripBOM(backupContent))
+      // A backup can parse as valid JSON yet not be a config object (`null`,
+      // an array, a bare string/number). Spreading such a value would either
+      // return bare defaults or splice index/char keys into the result and
+      // then stop, discarding the older healthy snapshots we still have. Skip
+      // it and keep looking so recovery falls through to a usable backup.
+      if (
+        typeof parsedBackup !== 'object' ||
+        parsedBackup === null ||
+        Array.isArray(parsedBackup)
+      ) {
+        continue
+      }
       return {
         ...createDefault(),
         ...parsedBackup,
