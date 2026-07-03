@@ -125,4 +125,36 @@ describe('clearHydratedGithubModelsTokenFromEnv', () => {
       delete process.env.GITHUB_TOKEN
     }
   })
+
+  test('drops a hydrated Copilot key that matches secure storage, with its marker', async () => {
+    const { clearHydratedGithubModelsTokenFromEnv, GITHUB_MODELS_HYDRATED_ENV_MARKER } =
+      await importFreshGithubModelsCredentials('clear-hydrated-copilot-match')
+
+    process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] = '1'
+    process.env.GITHUB_COPILOT_KEY = 'stored-key'
+    try {
+      clearHydratedGithubModelsTokenFromEnv('stored-key')
+      expect(process.env.GITHUB_COPILOT_KEY).toBeUndefined()
+      expect(process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]).toBeUndefined()
+    } finally {
+      delete process.env.GITHUB_COPILOT_KEY
+      delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    }
+  })
+
+  test('preserves a user-supplied Copilot key that differs from secure storage', async () => {
+    const { clearHydratedGithubModelsTokenFromEnv, GITHUB_MODELS_HYDRATED_ENV_MARKER } =
+      await importFreshGithubModelsCredentials('clear-hydrated-copilot-user')
+
+    process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] = '1'
+    process.env.GITHUB_COPILOT_KEY = 'user-supplied'
+    try {
+      clearHydratedGithubModelsTokenFromEnv('stored-key')
+      expect(process.env.GITHUB_COPILOT_KEY).toBe('user-supplied')
+      expect(process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]).toBeUndefined()
+    } finally {
+      delete process.env.GITHUB_COPILOT_KEY
+      delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    }
+  })
 })
