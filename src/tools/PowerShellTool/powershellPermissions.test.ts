@@ -298,6 +298,9 @@ describe('PowerShell git commit governance policy', () => {
         const expandableHereString = checkPowerShellCommitMessagePolicy(
           'git commit -m @"\n$msg\n"@',
         )
+        const unquotedVariable = checkPowerShellCommitMessagePolicy(
+          'git commit -m $msg',
+        )
         const literalHereString = checkPowerShellCommitMessagePolicy(
           "git commit -m @'\nsafe literal\n'@",
         )
@@ -305,6 +308,7 @@ describe('PowerShell git commit governance policy', () => {
         expectPowerShellAskMessage(variable, 'cannot be checked')
         expectPowerShellAskMessage(subexpression, 'cannot be checked')
         expectPowerShellAskMessage(expandableHereString, 'cannot be checked')
+        expectPowerShellAskMessage(unquotedVariable, 'cannot be checked')
         expect(literalHereString).toBeNull()
       },
     )

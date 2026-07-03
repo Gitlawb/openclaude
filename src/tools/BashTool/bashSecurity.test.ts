@@ -311,10 +311,14 @@ describe('git commit governance policy (#1326)', () => {
         const backtick = bashCommandIsSafe_DEPRECATED(
           'git commit -m "`cat .git/OPENCLAUDE_COMMIT_MSG`"',
         )
+        const unquoted = bashCommandIsSafe_DEPRECATED(
+          'git commit -m fix$VAR',
+        )
 
         expectAskMessage(envVar, 'cannot be checked')
         expectAskMessage(commandSubstitution, 'cannot be checked')
         expectAskMessage(backtick, 'cannot be checked')
+        expectAskMessage(unquoted, 'cannot be checked')
       },
     )
   })

@@ -274,7 +274,12 @@ function extractPowerShellGitCommitMessages(command: string): {
 
   const unquotedPattern = /(?:^|\s)(?:-m|--message)\s+([^"'\s;|&()]+)|(?:^|\s)--message=([^"'\s;|&()]+)/g;
   for (const match of normalizedCommand.matchAll(unquotedPattern)) {
-    messages.push(match[1] ?? match[2] ?? '');
+    const message = match[1] ?? match[2] ?? '';
+    if (hasExpandablePowerShellText(message)) {
+      hasUninspectableSource = true;
+      continue;
+    }
+    messages.push(message);
   }
 
   const hereStringPattern = /(?:^|\s)(?:-m|--message)\s+@'\r?\n([\s\S]*?)\r?\n'@|(?:^|\s)--message=@'\r?\n([\s\S]*?)\r?\n'@/g;

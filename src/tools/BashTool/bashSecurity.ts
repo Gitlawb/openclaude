@@ -821,9 +821,17 @@ function extractGitCommitMessages(command: string): {
   }
 
   const unquotedMessagePattern =
-    /(?:^|[ \t])(?:-m|--message)[ \t]+([^"' \t\n\r;&|`$<>()]+)|(?:^|[ \t])--message=([^"' \t\n\r;&|`$<>()]+)/g
+    /(?:^|[ \t])(?:-m|--message)[ \t]+([^"' \t\n\r;&|]+)|(?:^|[ \t])--message=([^"' \t\n\r;&|]+)/g
   for (const match of normalizedCommand.matchAll(unquotedMessagePattern)) {
-    messages.push(match[1] ?? match[2] ?? '')
+    const message = match[1] ?? match[2] ?? ''
+    if (message === '$(cat') {
+      continue
+    }
+    if (hasExpandableShellText(message) || /[<>()]/.test(message)) {
+      hasUninspectableSource = true
+      continue
+    }
+    messages.push(message)
   }
 
   const heredocMessagePattern =
