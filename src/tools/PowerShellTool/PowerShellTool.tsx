@@ -248,14 +248,28 @@ function normalizePowerShellGitCommitCommand(command: string): string | null {
   }
 }
 
-function extractPowerShellGitCommitMessages(command: string): string[] {
+function hasExpandablePowerShellText(message: string): boolean {
+  return /(^|[^`])\$\w|(^|[^`])\$\{[^}]+\}|(^|[^`])\$\(/.test(message);
+}
+
+function extractPowerShellGitCommitMessages(command: string): {
+  messages: string[];
+  hasUninspectableSource: boolean;
+} {
   const normalizedCommand = normalizePowerShellGitCommitCommand(command);
-  if (!normalizedCommand) return [];
+  if (!normalizedCommand) return { messages: [], hasUninspectableSource: false };
 
   const messages: string[] = [];
+  let hasUninspectableSource = false;
   const quotedPattern = /(?:^|\s)(?:-m|--message)\s+(["'])([\s\S]*?)\1|(?:^|\s)--message=(["'])([\s\S]*?)\3/g;
   for (const match of normalizedCommand.matchAll(quotedPattern)) {
-    messages.push(match[2] ?? match[4] ?? '');
+    const quote = match[1] ?? match[3];
+    const message = match[2] ?? match[4] ?? '';
+    if (quote === '"' && hasExpandablePowerShellText(message)) {
+      hasUninspectableSource = true;
+      continue;
+    }
+    messages.push(message);
   }
 
   const unquotedPattern = /(?:^|\s)(?:-m|--message)\s+([^"'\s;|&()]+)|(?:^|\s)--message=([^"'\s;|&()]+)/g;
@@ -268,7 +282,17 @@ function extractPowerShellGitCommitMessages(command: string): string[] {
     messages.push(match[1] ?? match[2] ?? '');
   }
 
-  return messages;
+  const expandableHereStringPattern = /(?:^|\s)(?:-m|--message)\s+@"\r?\n([\s\S]*?)\r?\n"@|(?:^|\s)--message=@"\r?\n([\s\S]*?)\r?\n"@/g;
+  for (const match of normalizedCommand.matchAll(expandableHereStringPattern)) {
+    const message = match[1] ?? match[2] ?? '';
+    if (hasExpandablePowerShellText(message)) {
+      hasUninspectableSource = true;
+      continue;
+    }
+    messages.push(message);
+  }
+
+  return { messages, hasUninspectableSource };
 }
 
 function powerShellGitCommitUsesFileMessage(command: string): boolean {
@@ -351,8 +375,8 @@ function checkPowerShellCommitMessagePolicyForStatement(command: string): Permis
     return commitPolicyAsk('Git commit message is loaded from a file and cannot be checked against commit-message policy');
   }
 
-  const messages = extractPowerShellGitCommitMessages(command);
-  if (messages.length === 0 && hasPolicyRestrictions) {
+  const { messages, hasUninspectableSource } = extractPowerShellGitCommitMessages(command);
+  if ((hasUninspectableSource || messages.length === 0) && hasPolicyRestrictions) {
     return commitPolicyAsk('Git commit message source cannot be checked against commit-message policy');
   }
 

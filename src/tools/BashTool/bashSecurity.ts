@@ -789,15 +789,35 @@ function normalizeGitCommitCommand(command: string): string | null {
   }
 }
 
-function extractGitCommitMessages(command: string): string[] {
+function hasExpandableShellText(message: string): boolean {
+  return /(^|[^\\])(?:\$[\w{(]|`)/.test(message)
+}
+
+function extractGitCommitMessages(command: string): {
+  messages: string[]
+  hasUninspectableSource: boolean
+} {
   const normalizedCommand = normalizeGitCommitCommand(command)
-  if (!normalizedCommand) return []
+  if (!normalizedCommand) {
+    return { messages: [], hasUninspectableSource: false }
+  }
 
   const messages: string[] = []
+  let hasUninspectableSource = false
   const simpleMessagePattern =
     /(?:^|[ \t])(?:-m|--message)[ \t]+(["'])([\s\S]*?)\1|(?:^|[ \t])--message=(["'])([\s\S]*?)\3/g
   for (const match of normalizedCommand.matchAll(simpleMessagePattern)) {
-    messages.push(match[2] ?? match[4] ?? '')
+    const quote = match[1] ?? match[3]
+    const message = match[2] ?? match[4] ?? ''
+    if (
+      quote === '"' &&
+      hasExpandableShellText(message) &&
+      !/^\$\(cat[ \t]+<</.test(message)
+    ) {
+      hasUninspectableSource = true
+      continue
+    }
+    messages.push(message)
   }
 
   const unquotedMessagePattern =
@@ -807,12 +827,18 @@ function extractGitCommitMessages(command: string): string[] {
   }
 
   const heredocMessagePattern =
-    /(?:^|[ \t])(?:-m|--message)[ \t]+(["']?)\$\(cat[ \t]+<<['\\]?([A-Za-z_][A-Za-z0-9_-]*)['\\]?\n([\s\S]*?)\n\2\n?\)\1|(?:^|[ \t])--message=(["']?)\$\(cat[ \t]+<<['\\]?([A-Za-z_][A-Za-z0-9_-]*)['\\]?\n([\s\S]*?)\n\5\n?\)\4/g
+    /(?:^|[ \t])(?:-m|--message)[ \t]+(["']?)\$\(cat[ \t]+<<(['\\]?)([A-Za-z_][A-Za-z0-9_-]*)\2\n([\s\S]*?)\n\3\n?\)\1|(?:^|[ \t])--message=(["']?)\$\(cat[ \t]+<<(['\\]?)([A-Za-z_][A-Za-z0-9_-]*)\6\n([\s\S]*?)\n\7\n?\)\5/g
   for (const match of normalizedCommand.matchAll(heredocMessagePattern)) {
-    messages.push(match[3] ?? match[6] ?? '')
+    const delimiterQuote = match[2] ?? match[6] ?? ''
+    const message = match[4] ?? match[8] ?? ''
+    if (delimiterQuote !== "'" && delimiterQuote !== '\\') {
+      hasUninspectableSource = true
+      continue
+    }
+    messages.push(message)
   }
 
-  return messages
+  return { messages, hasUninspectableSource }
 }
 
 function gitCommitUsesFileMessage(command: string): boolean {
@@ -857,8 +883,11 @@ export function checkBashCommitMessagePolicy(
     )
   }
 
-  const messages = extractGitCommitMessages(command)
-  if (messages.length === 0 && hasPolicyRestrictions) {
+  const { messages, hasUninspectableSource } = extractGitCommitMessages(command)
+  if (
+    (hasUninspectableSource || messages.length === 0) &&
+    hasPolicyRestrictions
+  ) {
     return commitPolicyAsk(
       'Git commit message source cannot be checked against commit-message policy',
     )

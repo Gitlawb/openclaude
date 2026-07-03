@@ -300,6 +300,42 @@ describe('git commit governance policy (#1326)', () => {
     )
   })
 
+  test('asks for expandable commit messages when commit-message policy is active', async () => {
+    await withProjectSettings(
+      { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
+      () => {
+        const envVar = bashCommandIsSafe_DEPRECATED('git commit -m "$MSG"')
+        const commandSubstitution = bashCommandIsSafe_DEPRECATED(
+          'git commit --message="$(cat .git/OPENCLAUDE_COMMIT_MSG)"',
+        )
+        const backtick = bashCommandIsSafe_DEPRECATED(
+          'git commit -m "`cat .git/OPENCLAUDE_COMMIT_MSG`"',
+        )
+
+        expectAskMessage(envVar, 'cannot be checked')
+        expectAskMessage(commandSubstitution, 'cannot be checked')
+        expectAskMessage(backtick, 'cannot be checked')
+      },
+    )
+  })
+
+  test('asks for expandable heredoc commit messages when commit-message policy is active', async () => {
+    await withProjectSettings(
+      { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
+      () => {
+        const unquotedHeredoc = bashCommandIsSafe_DEPRECATED(
+          'git commit -m $(cat <<EOF\n$MSG\nEOF\n)',
+        )
+        const literalHeredocWithForbiddenText = bashCommandIsSafe_DEPRECATED(
+          "git commit -m $(cat <<'EOF'\nGenerated with OpenClaude\nEOF\n)",
+        )
+
+        expectAskMessage(unquotedHeredoc, 'cannot be checked')
+        expectAskMessage(literalHeredocWithForbiddenText, 'Generated with')
+      },
+    )
+  })
+
   test('does not treat PR footer opt-out as a generated commit attribution block', async () => {
     await withProjectSettings(
       { git: { addGeneratedWithFooter: false } },

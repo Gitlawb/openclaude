@@ -285,6 +285,31 @@ describe('PowerShell git commit governance policy', () => {
     )
   })
 
+  test('asks for expandable commit messages when commit-message policy is active', async () => {
+    await withProjectSettings(
+      { git: { forbiddenCommitMessagePatterns: ['Generated with'] } },
+      checkPowerShellCommitMessagePolicy => {
+        const variable = checkPowerShellCommitMessagePolicy(
+          'git commit -m "$msg"',
+        )
+        const subexpression = checkPowerShellCommitMessagePolicy(
+          'git commit --message="$(Get-Content .git/OPENCLAUDE_COMMIT_MSG)"',
+        )
+        const expandableHereString = checkPowerShellCommitMessagePolicy(
+          'git commit -m @"\n$msg\n"@',
+        )
+        const literalHereString = checkPowerShellCommitMessagePolicy(
+          "git commit -m @'\nsafe literal\n'@",
+        )
+
+        expectPowerShellAskMessage(variable, 'cannot be checked')
+        expectPowerShellAskMessage(subexpression, 'cannot be checked')
+        expectPowerShellAskMessage(expandableHereString, 'cannot be checked')
+        expect(literalHereString).toBeNull()
+      },
+    )
+  })
+
   test('uses the commit-specific attribution blocker', async () => {
     await withProjectSettings(
       { git: { addGeneratedWithFooter: false } },
