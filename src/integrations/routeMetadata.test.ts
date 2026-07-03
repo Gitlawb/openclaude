@@ -57,6 +57,14 @@ test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway'
       'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1/chat/completions',
     ),
   ).toBe(true)
+  // Workers AI is HTTPS-only. A plaintext http:// endpoint on the same host and
+  // path must NOT match, or the Cloudflare route would mirror
+  // CLOUDFLARE_API_TOKEN into OPENAI_API_KEY over cleartext.
+  expect(
+    isCloudflareBaseUrl(
+      'http://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    ),
+  ).toBe(false)
 })
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {

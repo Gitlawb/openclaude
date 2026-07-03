@@ -15,6 +15,7 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  isCloudflareBaseUrl,
   matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -266,6 +267,19 @@ function getRuntimeValidationTarget(
   const baseUrlMatchedTarget = validationTargets.find(target => {
     const routing = getValidationRouting(target)
     if (!routing?.matchDefaultBaseUrl && !routing?.matchBaseUrlHosts?.length) {
+      return false
+    }
+
+    // The Cloudflare Workers AI route is path-scoped, not just host-scoped:
+    // `api.cloudflare.com` also serves the REST management API. A host-only
+    // match on a non-Workers path (e.g. `.../client/v4/user/tokens/verify`)
+    // would pick the Cloudflare validation target and demand its Workers-AI
+    // auth instead of falling back to generic OpenAI validation. Mirror the
+    // runtime route resolver's boundary here.
+    if (
+      target.descriptor.id === 'cloudflare' &&
+      !isCloudflareBaseUrl(request.baseUrl)
+    ) {
       return false
     }
 

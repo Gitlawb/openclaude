@@ -408,6 +408,12 @@ export function isCloudflareBaseUrl(value: string | undefined): boolean {
   } catch {
     return false
   }
+  // Workers AI is only served over HTTPS. Requiring `https:` here keeps the
+  // Cloudflare route — and the CLOUDFLARE_API_TOKEN it mirrors into
+  // OPENAI_API_KEY — off a plaintext `http://api.cloudflare.com/...` endpoint.
+  if (url.protocol !== 'https:') {
+    return false
+  }
   if (url.hostname.toLowerCase() !== 'api.cloudflare.com') {
     return false
   }

@@ -47,6 +47,7 @@ const ENV_KEYS = [
   'XAI_API_KEY',
   'XAI_CREDENTIAL_SOURCE',
   'NEARAI_API_KEY',
+  'CLOUDFLARE_API_TOKEN',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -137,6 +138,42 @@ test('openai missing key error includes recovery guidance and config locations',
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
   )
   expect(message!).toContain('Saved startup settings can come from')
+})
+
+test('cloudflare Workers AI URL selects the Cloudflare validation target', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.CLOUDFLARE_API_TOKEN
+  delete process.env.OPENAI_MODEL
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Cloudflare Workers AI auth is required. Set CLOUDFLARE_API_TOKEN or OPENAI_API_KEY.',
+  )
+})
+
+test('non-Workers Cloudflare path falls back to generic OpenAI validation', async () => {
+  // Same api.cloudflare.com host, but the REST management path — NOT Workers
+  // AI. Host-only matching would demand Cloudflare Workers AI auth; the path
+  // guard must let this fall through to the generic OpenAI credential error.
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.cloudflare.com/client/v4/user/tokens/verify'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.CLOUDFLARE_API_TOKEN
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CODEX_API_KEY
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).not.toBeNull()
+  expect(message!).not.toContain('Cloudflare Workers AI auth is required')
+  expect(message!).toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1',
+  )
 })
 
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
