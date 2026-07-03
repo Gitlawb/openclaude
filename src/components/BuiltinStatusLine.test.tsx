@@ -97,14 +97,36 @@ describe('fitSegments', () => {
     expect(fitSegments(segments, 120)).toHaveLength(4)
   })
 
-  it('drops highest-priority-number segments first when narrow', () => {
+  it('degrades segments to short forms before dropping any', () => {
+    // 'Opus 4.8 · 37% · $1 · 5h 42%' = 28 cols — all four survive at 30
     const fitted = fitSegments(segments, 30)
-    expect(fitted.map(s => s.key)).toEqual(['model', 'context', 'cost'])
+    expect(fitted.map(s => s.key)).toEqual([
+      'model',
+      'context',
+      'cost',
+      'rateLimit',
+    ])
+    expect(fitted.find(s => s.key === 'context')?.text).toBe('37%')
+    expect(fitted.find(s => s.key === 'cost')?.text).toBe('$1')
   })
 
-  it('keeps only the model at very narrow widths', () => {
+  it('marks dropped segments with a trailing ellipsis', () => {
+    // Too narrow for all four even degraded; hidden data must be visible as hidden
+    const fitted = fitSegments(segments, 22)
+    expect(fitted.at(-1)?.key).toBe('truncated')
+    expect(fitted.at(-1)?.text).toBe('…')
+    expect(fitted.map(s => s.key)).toContain('context')
+  })
+
+  it('keeps only the model at very narrow widths, skipping the marker if it will not fit', () => {
     const fitted = fitSegments(segments, 10)
     expect(fitted.map(s => s.key)).toEqual(['model'])
+  })
+
+  it('does not mutate the caller-visible segment text', () => {
+    const before = segments.map(s => s.text)
+    fitSegments(segments, 22)
+    expect(segments.map(s => s.text)).toEqual(before)
   })
 
   it('returns empty when even the model does not fit', () => {

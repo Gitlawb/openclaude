@@ -38,6 +38,8 @@ export type StatusSegment = {
   /** Lower survives longer when the terminal narrows. */
   priority: number;
   text: string;
+  /** Compact form swapped in before the segment is dropped entirely. */
+  shortText?: string;
   color?: keyof Theme;
 };
 const SEPARATOR = ' · ';
@@ -66,6 +68,7 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
       key: 'context',
       priority: 1,
       text: `ctx ${pctText}%`,
+      shortText: `${pctText}%`,
       // Thresholds align with the auto-compact warnings
       color: roundedPct >= 90 ? 'error' : roundedPct >= 70 ? 'warning' : undefined
     });
@@ -75,7 +78,8 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
     segments.push({
       key: 'cost',
       priority: 2,
-      text: cost >= 100 ? `$${cost.toFixed(0)}` : `$${cost.toFixed(2)}`
+      text: cost >= 100 ? `$${cost.toFixed(0)}` : `$${cost.toFixed(2)}`,
+      shortText: `$${cost.toFixed(0)}`
     });
   }
   if (data.rateLimit) {
@@ -90,21 +94,51 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
   return segments;
 }
 
-/** Drops the highest-priority-number segments until the joined line fits. */
+/** Trailing marker signalling that segments were hidden for width. */
+const TRUNCATION_MARKER: StatusSegment = {
+  key: 'truncated',
+  priority: Number.MAX_SAFE_INTEGER,
+  text: '…'
+};
+
+/**
+ * Fits segments into maxWidth without lying about it: first swaps in each
+ * segment's shortText (highest priority number first), then drops segments,
+ * appending a dim `…` so hidden data is visible as hidden. The marker is
+ * best-effort — at extreme widths showing the model beats showing nothing.
+ */
 export function fitSegments(segments: StatusSegment[], maxWidth: number): StatusSegment[] {
   const fits = (segs: StatusSegment[]): boolean => {
     if (segs.length === 0) return true;
     const width = segs.reduce((sum, s) => sum + s.text.length, 0) + (segs.length - 1) * SEPARATOR.length;
     return width <= maxWidth;
   };
-  const result = [...segments];
-  while (result.length > 1 && !fits(result)) {
+  const result = segments.map(s => ({
+    ...s
+  }));
+  let droppedAny = false;
+  const withMarker = () => droppedAny ? [...result, TRUNCATION_MARKER] : result;
+
+  // Degrade before dropping.
+  if (!fits(withMarker())) {
+    const byPriorityDesc = [...result].sort((a, b) => b.priority - a.priority);
+    for (const seg of byPriorityDesc) {
+      if (seg.shortText !== undefined && seg.shortText.length < seg.text.length) {
+        seg.text = seg.shortText;
+        if (fits(withMarker())) break;
+      }
+    }
+  }
+  while (result.length > 1 && !fits(withMarker())) {
     let dropIndex = 0;
     for (let i = 1; i < result.length; i++) {
       if (result[i]!.priority > result[dropIndex]!.priority) dropIndex = i;
     }
     result.splice(dropIndex, 1);
+    droppedAny = true;
   }
+  const final = withMarker();
+  if (fits(final)) return final;
   return fits(result) ? result : [];
 }
 
