@@ -78,6 +78,8 @@ export function getNoProxy(env: EnvLike = process.env): string | undefined {
  * Check if a URL should bypass the proxy based on NO_PROXY environment variable
  * Supports:
  * - Exact hostname matches (e.g., "localhost")
+ * - Bare domain matches, covering the domain and its subdomains
+ *   (e.g., "example.com" matches "example.com" and "api.example.com")
  * - Domain suffix matches with leading dot (e.g., ".example.com")
  * - Wildcard "*" to bypass all
  * - Port-specific matches (e.g., "example.com:8080")
@@ -121,8 +123,16 @@ export function shouldBypassProxy(
         return hostname === pattern.substring(1) || hostname.endsWith(suffix)
       }
 
-      // Check for exact hostname match or IP address
-      return hostname === pattern
+      // Bare domain: match the host exactly OR any subdomain of it. This
+      // mirrors the undici EnvHttpProxyAgent path this module also drives via
+      // getProxyAgent (which bypasses subdomains for a bare NO_PROXY entry),
+      // as well as the curl/Go/deno NO_PROXY convention. Without the subdomain
+      // arm, `NO_PROXY=example.com` bypasses the proxy for `api.example.com`
+      // on the fetch/undici path but routes it THROUGH the proxy on the
+      // axios/WebSocket path — the same env var, two different decisions.
+      // `notexample.com` still does not match (the leading `.` is required).
+      // For IP-address patterns the subdomain arm can never fire.
+      return hostname === pattern || hostname.endsWith(`.${pattern}`)
     })
   } catch {
     // If URL parsing fails, don't bypass proxy
