@@ -46,6 +46,10 @@ export const LINUX_CLIPBOARD_IMAGE_MIME_TYPES = [
 const WIN32_CLIPBOARD_HAS_IMAGE_CMD =
   'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::ContainsImage()'
 
+function escapePowerShellSingleQuotedString(value: string): string {
+  return value.replace(/'/g, "''")
+}
+
 export function buildLinuxClipboardCheckCommand(): string {
   const mimePattern = LINUX_CLIPBOARD_IMAGE_MIME_TYPES.map(mimeType =>
     mimeType.replace('/', '\\/'),
@@ -103,7 +107,7 @@ function getClipboardCommands() {
     },
     win32: {
       checkImage: `powershell -NoProfile -Command "${WIN32_CLIPBOARD_HAS_IMAGE_CMD}"`,
-      saveImage: `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $img.Save('${screenshotPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
+      saveImage: `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $img.Save('${escapePowerShellSingleQuotedString(screenshotPath)}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
       getPath: 'powershell -NoProfile -Command "Get-Clipboard"',
       deleteFile: `del /f "${screenshotPath}"`,
     },
@@ -229,14 +233,17 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
   const { commands, screenshotPath } = getClipboardCommands()
   try {
     // Check if clipboard has image.
-    // Note: on Windows, ContainsImage() always exits 0 (stdout is "True"/"False")
-    // so this check is effectively a no-op — the real "no image" detection happens
-    // downstream when readFileBytesSync throws because saveImage didn't create the file.
     const checkResult = await execa(commands.checkImage, {
       shell: true,
       reject: false,
     })
     if (checkResult.exitCode !== 0) {
+      return null
+    }
+    if (
+      process.platform === 'win32' &&
+      checkResult.stdout.trim() !== 'True'
+    ) {
       return null
     }
 
