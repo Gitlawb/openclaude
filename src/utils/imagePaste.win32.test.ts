@@ -6,6 +6,7 @@ import { join } from 'path'
 type ImagePasteModule = typeof import('./imagePaste.js')
 type ExecFileModule = typeof import('./execFileNoThrow.js')
 type ExecaModule = typeof import('execa')
+type ImageResizerModule = typeof import('./imageResizer.js')
 type ExecaCall = [string, ...unknown[]]
 
 const originalPlatform = process.platform
@@ -14,6 +15,7 @@ const originalClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR
 
 let actualExecFileModule: ExecFileModule | undefined
 let actualExecaModule: ExecaModule | undefined
+let actualImageResizerModule: ImageResizerModule | undefined
 let tempDirs: string[] = []
 
 function setPlatform(platform: NodeJS.Platform): void {
@@ -29,8 +31,12 @@ async function restoreMocks(): Promise<void> {
   actualExecaModule ??= await import(
     `execa?actual=${Date.now()}-${Math.random()}`
   )
+  actualImageResizerModule ??= await import(
+    `./imageResizer.js?actual=${Date.now()}-${Math.random()}`
+  )
   mock.module('./execFileNoThrow.js', () => actualExecFileModule!)
   mock.module('execa', () => actualExecaModule!)
+  mock.module('./imageResizer.js', () => actualImageResizerModule!)
 }
 
 async function importImagePaste(): Promise<ImagePasteModule> {
@@ -156,21 +162,41 @@ describe('Windows clipboard image handling', () => {
       }
     })
 
+    actualImageResizerModule ??= await import(
+      `./imageResizer.js?actual=${Date.now()}-${Math.random()}`
+    )
+    const maybeResizeAndDownsampleImageBuffer = mock(async () => ({
+      buffer: imageBuffer,
+      mediaType: 'png',
+      dimensions: {
+        originalWidth: 1,
+        originalHeight: 1,
+        displayWidth: 1,
+        displayHeight: 1,
+      },
+    }))
     mock.module('execa', () => ({ execa }))
+    mock.module('./imageResizer.js', () => ({
+      ...actualImageResizerModule!,
+      maybeResizeAndDownsampleImageBuffer,
+    }))
 
     const { getImageFromClipboard } = await importImagePaste()
 
     const image = await getImageFromClipboard()
     expect(image?.base64).toEqual(expect.any(String))
     expect(image?.mediaType).toBe('image/png')
-    if (image?.dimensions !== undefined) {
-      expect(image.dimensions).toEqual({
-        originalWidth: 1,
-        originalHeight: 1,
-        displayWidth: 1,
-        displayHeight: 1,
-      })
-    }
+    expect(image?.dimensions).toEqual({
+      originalWidth: 1,
+      originalHeight: 1,
+      displayWidth: 1,
+      displayHeight: 1,
+    })
+    expect(maybeResizeAndDownsampleImageBuffer).toHaveBeenCalledWith(
+      imageBuffer,
+      imageBuffer.length,
+      'png',
+    )
     expect(image?.base64.length).toBeGreaterThan(0)
     expect(execa).toHaveBeenCalledTimes(3)
     const saveCall = execa.mock.calls[1] as unknown as ExecaCall | undefined
