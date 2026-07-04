@@ -48,6 +48,12 @@ describe('formatShellPrefixCommand', () => {
     ).toBe("'/opt/shell -x64/bin/bash' -l -c 'echo hi'")
   })
 
+  test('executable basename containing space-dash with single flag', () => {
+    expect(formatShellPrefixCommand('/opt/my -shell -c', 'echo hi')).toBe(
+      "'/opt/my -shell' -c 'echo hi'",
+    )
+  })
+
   test('windows path containing space-dash before args', () => {
     expect(
       formatShellPrefixCommand(
@@ -55,6 +61,29 @@ describe('formatShellPrefixCommand', () => {
         'echo hi',
       ),
     ).toBe("'C:\\Program Files - x64\\Git\\bin\\bash.exe' -l -c 'echo hi'")
+  })
+
+  test('windows executable basename containing space-dash with single flag', () => {
+    expect(
+      formatShellPrefixCommand('C:\\Tools\\my -shell.exe -c', 'echo hi'),
+    ).toBe("'C:\\Tools\\my -shell.exe' -c 'echo hi'")
+  })
+
+  test('path with long double-dash flag still splits before args', () => {
+    expect(formatShellPrefixCommand('/usr/bin/bash --login -c', 'echo hi')).toBe(
+      "/usr/bin/bash --login -c 'echo hi'",
+    )
+  })
+
+  test('known shell path with long single-dash flags still splits before args', () => {
+    expect(
+      formatShellPrefixCommand(
+        'C:\\Program Files\\PowerShell\\7\\pwsh.exe -NoProfile -Command',
+        'echo hi',
+      ),
+    ).toBe(
+      "'C:\\Program Files\\PowerShell\\7\\pwsh.exe' -NoProfile -Command 'echo hi'",
+    )
   })
 
   test('prefix with no dash flags returns prefix then quoted command', () => {
