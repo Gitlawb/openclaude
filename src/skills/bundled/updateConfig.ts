@@ -63,17 +63,6 @@ Settings load in order: user → project → local (later overrides earlier).
 }
 \`\`\`
 
-### Attribution (Commits & PRs)
-\`\`\`json
-{
-  "attribution": {
-    "commit": "Custom commit trailer text",
-    "pr": "Custom PR description text"
-  }
-}
-\`\`\`
-Set \`commit\` or \`pr\` to empty string \`""\` to hide that attribution.
-
 ### MCP Server Management
 \`\`\`json
 {

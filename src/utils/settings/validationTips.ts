@@ -86,7 +86,7 @@ const TIP_MATCHERS: TipMatcher[] = [
       ctx.code === 'invalid_type' && ctx.expected === 'boolean',
     tip: {
       suggestion:
-        'Use true or false without quotes. Example: "includeCoAuthoredBy": true',
+        'Use true or false without quotes. Example: "includeGitInstructions": true',
     },
   },
   {

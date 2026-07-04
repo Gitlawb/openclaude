@@ -1,8 +1,4 @@
 import type { Command } from '../commands.js'
-import {
-  getAttributionTexts,
-  getEnhancedPRAttribution,
-} from '../utils/attribution.js'
 import { getDefaultBranch } from '../utils/git.js'
 import { executeShellCommandsInPrompt } from '../utils/promptShellExecution.js'
 import { getUndercoverInstructions, isUndercover } from '../utils/undercover.js'
@@ -25,12 +21,7 @@ const ALLOWED_TOOLS = [
 
 function getPromptContent(
   defaultBranch: string,
-  prAttribution?: string,
 ): string {
-  const { commit: commitAttribution, pr: defaultPrAttribution } =
-    getAttributionTexts()
-  // Use provided PR attribution or fall back to default
-  const effectivePrAttribution = prAttribution ?? defaultPrAttribution
   const safeUser = process.env.SAFEUSER || ''
   const username = process.env.USER || ''
 
@@ -79,10 +70,10 @@ Analyze all changes that will be included in the pull request, making sure to lo
 
 Based on the above changes:
 1. Create a new branch if on ${defaultBranch} (use SAFEUSER from context above for the branch name prefix, falling back to whoami if SAFEUSER is empty, e.g., \`username/feature-name\`)
-2. Create a single commit with an appropriate message using heredoc syntax${commitAttribution ? `, ending with the attribution text shown in the example below` : ''}:
+2. Create a single commit with an appropriate message using heredoc syntax:
 \`\`\`
 git commit -m "$(cat <<'EOF'
-Commit message here.${commitAttribution ? `\n\n${commitAttribution}` : ''}
+Commit message here.
 EOF
 )"
 \`\`\`
@@ -95,7 +86,7 @@ gh pr create --title "Short, descriptive title" --body "$(cat <<'EOF'
 <1-3 bullet points>
 
 ## Test plan
-[Bulleted markdown checklist of TODOs for testing the pull request...]${changelogSection}${effectivePrAttribution ? `\n\n${effectivePrAttribution}` : ''}
+[Bulleted markdown checklist of TODOs for testing the pull request...]${changelogSection}
 EOF
 )"
 \`\`\`
@@ -117,12 +108,8 @@ const command = {
   progressMessage: 'creating commit and PR',
   source: 'builtin',
   async getPromptForCommand(args, context) {
-    // Get default branch and enhanced PR attribution
-    const [defaultBranch, prAttribution] = await Promise.all([
-      getDefaultBranch(),
-      getEnhancedPRAttribution(context.getAppState),
-    ])
-    let promptContent = getPromptContent(defaultBranch, prAttribution)
+    const defaultBranch = await getDefaultBranch()
+    let promptContent = getPromptContent(defaultBranch)
 
     // Append user instructions if args provided
     const trimmedArgs = args?.trim()

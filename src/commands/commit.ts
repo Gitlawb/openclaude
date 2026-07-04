@@ -1,5 +1,4 @@
 import type { Command } from '../commands.js'
-import { getAttributionTexts } from '../utils/attribution.js'
 import { executeShellCommandsInPrompt } from '../utils/promptShellExecution.js'
 import { getUndercoverInstructions, isUndercover } from '../utils/undercover.js'
 
@@ -10,8 +9,6 @@ const ALLOWED_TOOLS = [
 ]
 
 function getPromptContent(): string {
-  const { commit: commitAttribution } = getAttributionTexts()
-
   let prefix = ''
   if (process.env.USER_TYPE === 'ant' && isUndercover()) {
     prefix = getUndercoverInstructions() + '\n'
@@ -46,7 +43,7 @@ Based on the above changes, create a single git commit:
 2. Stage relevant files and create the commit using HEREDOC syntax:
 \`\`\`
 git commit -m "$(cat <<'EOF'
-Commit message here.${commitAttribution ? `\n\n${commitAttribution}` : ''}
+Commit message here.
 EOF
 )"
 \`\`\`
