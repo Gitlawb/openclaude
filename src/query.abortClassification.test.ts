@@ -62,9 +62,10 @@ function abort(controller: AbortController, reason: AbortInput): void {
   controller.abort(reason)
 }
 
-function makeParams(reason: AbortInput, tools: Tools = []): QueryParams {
-  const toolUseContext = makeToolUseContext(tools)
-
+function makeBaseParams(
+  toolUseContext: QueryParams['toolUseContext'],
+  callModel: QueryDeps['callModel'],
+): QueryParams {
   return {
     messages: [createUserMessage({ content: 'run tool' })],
     systemPrompt: asSystemPrompt([]),
@@ -75,19 +76,7 @@ function makeParams(reason: AbortInput, tools: Tools = []): QueryParams {
     querySource: 'agent:builtin:general-purpose',
     agentStepLimit: { maxSteps: 999, agentType: 'general-purpose' },
     deps: {
-      callModel: async function* () {
-        yield createAssistantMessage({
-          content: [
-            {
-              type: 'tool_use',
-              id: 'toolu_timeout_1',
-              name: 'SlowTool',
-              input: {},
-            },
-          ],
-        })
-        abort(toolUseContext.abortController, reason)
-      },
+      callModel,
       microcompact: async messages => ({ messages }),
       autocompact: async () => ({
         compactionResult: null,
@@ -96,6 +85,24 @@ function makeParams(reason: AbortInput, tools: Tools = []): QueryParams {
       uuid: () => '00000000-0000-4000-8000-000000000000',
     } as unknown as QueryDeps,
   }
+}
+
+function makeParams(reason: AbortInput, tools: Tools = []): QueryParams {
+  const toolUseContext = makeToolUseContext(tools)
+
+  return makeBaseParams(toolUseContext, async function* () {
+    yield createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_timeout_1',
+          name: 'SlowTool',
+          input: {},
+        },
+      ],
+    })
+    abort(toolUseContext.abortController, reason)
+  })
 }
 
 function makeToolAbortParams(reason: AbortInput): QueryParams {
@@ -109,36 +116,18 @@ function makeToolAbortParams(reason: AbortInput): QueryParams {
   })
   toolUseContext = makeToolUseContext([tool])
 
-  return {
-    messages: [createUserMessage({ content: 'run tool' })],
-    systemPrompt: asSystemPrompt([]),
-    userContext: {},
-    systemContext: {},
-    canUseTool: async () => ({ behavior: 'allow' }),
-    toolUseContext,
-    querySource: 'agent:builtin:general-purpose',
-    agentStepLimit: { maxSteps: 999, agentType: 'general-purpose' },
-    deps: {
-      callModel: async function* () {
-        yield createAssistantMessage({
-          content: [
-            {
-              type: 'tool_use',
-              id: 'toolu_abort_during_tool_1',
-              name: 'AbortDuringTool',
-              input: {},
-            },
-          ],
-        })
-      },
-      microcompact: async messages => ({ messages }),
-      autocompact: async () => ({
-        compactionResult: null,
-        consecutiveFailures: undefined,
-      }),
-      uuid: () => '00000000-0000-4000-8000-000000000000',
-    } as unknown as QueryDeps,
-  }
+  return makeBaseParams(toolUseContext, async function* () {
+    yield createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_abort_during_tool_1',
+          name: 'AbortDuringTool',
+          input: {},
+        },
+      ],
+    })
+  })
 }
 
 async function drainWithReturn(params: QueryParams): Promise<{
