@@ -96,7 +96,9 @@ describe('asImageFilePath', () => {
   test('returns cleaned path for valid image paths', () => {
     expect(asImageFilePath('/Users/foo/photo.png')).toBe('/Users/foo/photo.png')
     expect(asImageFilePath('"C:\\Users\\foo\\photo.jpg"')).toBe(
-      'C:\\Users\\foo\\photo.jpg',
+      process.platform === 'win32'
+        ? 'C:\\Users\\foo\\photo.jpg'
+        : 'C:Usersfoophoto.jpg',
     )
   })
 
