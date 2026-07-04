@@ -150,9 +150,9 @@ describe('Windows clipboard image handling', () => {
         writeFileSync(screenshotPath, imageBuffer)
       }
       return {
-      exitCode: 0,
-      stdout: 'True\r\n',
-      stderr: '',
+        exitCode: 0,
+        stdout: 'True\r\n',
+        stderr: '',
       }
     })
 
@@ -164,7 +164,12 @@ describe('Windows clipboard image handling', () => {
     expect(image).toEqual({
       base64: expect.any(String),
       mediaType: 'image/png',
-      dimensions: undefined,
+      dimensions: {
+        originalWidth: 1,
+        originalHeight: 1,
+        displayWidth: 1,
+        displayHeight: 1,
+      },
     })
     expect(image?.base64.length).toBeGreaterThan(0)
     expect(execa).toHaveBeenCalledTimes(3)
