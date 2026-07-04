@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   type AbortReason,
+  getMissingToolResultAbortMessage,
+  getQueryAbortSystemMessage,
   getShellAbortMessage,
+  getStreamingAbortMessage,
   isQueryLevelAbort,
   normalizeAbortReason,
+  shouldCreateUserInterruptionMessage,
 } from './abortReasons.js'
 
 describe('abort reason normalization', () => {
@@ -16,6 +20,11 @@ describe('abort reason normalization', () => {
     expect(normalizeAbortReason('interrupt')).toBe('interrupt')
     expect(normalizeAbortReason('background')).toBe('background')
     expect(normalizeAbortReason('parent-ended')).toBe('parent-ended')
+    expect(normalizeAbortReason('hard_max')).toBe('hard-max-query-timeout')
+    expect(normalizeAbortReason('streaming_fallback')).toBe(
+      'side-task-cancelled',
+    )
+    expect(normalizeAbortReason('sibling_error')).toBe('side-task-cancelled')
   })
 
   test('keeps tool timeout distinct from abort cancellations', () => {
@@ -50,6 +59,69 @@ describe('abort reason normalization', () => {
     )
   })
 
+  test('formats streaming abort logs from normalized abort reasons', () => {
+    expect(getStreamingAbortMessage('user-cancel', 'Request was aborted.')).toBe(
+      'Streaming aborted by user: Request was aborted.',
+    )
+    expect(
+      getStreamingAbortMessage('query-timeout', 'Request was aborted.'),
+    ).toBe('Streaming aborted by query timeout: Request was aborted.')
+    expect(getStreamingAbortMessage('hard_max', 'Request was aborted.')).toBe(
+      'Streaming aborted by query hard timeout: Request was aborted.',
+    )
+    expect(getStreamingAbortMessage('background', 'Request was aborted.')).toBe(
+      'Streaming aborted for backgrounding: Request was aborted.',
+    )
+    expect(
+      getStreamingAbortMessage('streaming_fallback', 'Request was aborted.'),
+    ).toBe(
+      'Streaming aborted because side task was cancelled: Request was aborted.',
+    )
+  })
+
+  test('only actual user cancellation creates user interruption transcript text', () => {
+    const defaultAbort = new AbortController()
+    defaultAbort.abort()
+
+    expect(shouldCreateUserInterruptionMessage('user-cancel')).toBe(true)
+    expect(shouldCreateUserInterruptionMessage('user-abort')).toBe(true)
+    expect(
+      shouldCreateUserInterruptionMessage(defaultAbort.signal.reason),
+    ).toBe(true)
+    expect(shouldCreateUserInterruptionMessage('interrupt')).toBe(false)
+    expect(shouldCreateUserInterruptionMessage('query-timeout')).toBe(false)
+    expect(shouldCreateUserInterruptionMessage('hard_max')).toBe(false)
+    expect(shouldCreateUserInterruptionMessage('background')).toBe(false)
+    expect(shouldCreateUserInterruptionMessage('streaming_fallback')).toBe(
+      false,
+    )
+    expect(getQueryAbortSystemMessage('query-timeout')).toBe(
+      'Query timed out before completion.',
+    )
+    expect(getQueryAbortSystemMessage('hard_max')).toBe(
+      'Query reached the hard maximum runtime and was stopped before completion.',
+    )
+    expect(getQueryAbortSystemMessage('background')).toBe(
+      'Query was backgrounded before completion.',
+    )
+    expect(getQueryAbortSystemMessage('streaming_fallback')).toBe(
+      'Query stopped because a side task was cancelled.',
+    )
+    expect(getQueryAbortSystemMessage('parent-ended')).toBe(
+      'Query stopped because the parent query ended.',
+    )
+    expect(getQueryAbortSystemMessage('user-cancel')).toBeNull()
+    expect(getMissingToolResultAbortMessage('query-timeout')).toBe(
+      'Tool use was interrupted because the query timed out.',
+    )
+    expect(getMissingToolResultAbortMessage('hard_max')).toBe(
+      'Tool use was interrupted because the query reached its hard maximum runtime.',
+    )
+    expect(getMissingToolResultAbortMessage('user-cancel')).toBe(
+      'Interrupted by user',
+    )
+  })
+
   test('returns a message for every abort reason', () => {
     const abortReasons: Record<AbortReason, true> = {
       'query-timeout': true,
@@ -57,6 +129,7 @@ describe('abort reason normalization', () => {
       'user-abort': true,
       interrupt: true,
       background: true,
+      'side-task-cancelled': true,
       'tool-timeout': true,
       'parent-ended': true,
       'unknown-abort': true,

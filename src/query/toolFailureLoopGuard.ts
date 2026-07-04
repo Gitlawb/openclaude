@@ -1,9 +1,21 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 
 import type { AttachmentMessage, UserMessage } from '../types/message.js'
+import { getMissingToolResultAbortMessage } from '../utils/abortReasons.js'
 
 const DEFAULT_TOOL_FAILURE_LOOP_THRESHOLD = 3
 const MAX_FALLBACK_CATEGORY_LENGTH = 120
+// Parent-query aborts are synthetic cleanup results, not tool failures.
+// Deliberately exclude tool-timeout: that is the tool's own failure mode.
+const SYNTHETIC_ABORT_TOOL_RESULT_PREFIXES = [
+  getMissingToolResultAbortMessage('interrupt'),
+  getMissingToolResultAbortMessage('query-timeout'),
+  getMissingToolResultAbortMessage('hard-max-query-timeout'),
+  getMissingToolResultAbortMessage('background'),
+  getMissingToolResultAbortMessage('side-task-cancelled'),
+  getMissingToolResultAbortMessage('parent-ended'),
+  getMissingToolResultAbortMessage('unknown-abort'),
+].map(message => message.toLowerCase())
 
 export type ToolFailureLoopGuardState = {
   persistentSignatureCounts: Map<string, number>
@@ -327,6 +339,9 @@ function isIgnoredSyntheticToolResult(content: string): boolean {
     ) ||
     withoutErrorPrefix.startsWith(
       "the user doesn't want to take this action right now",
+    ) ||
+    SYNTHETIC_ABORT_TOOL_RESULT_PREFIXES.some(prefix =>
+      withoutErrorPrefix.startsWith(prefix),
     ) ||
     withoutErrorPrefix === 'streaming fallback - tool execution discarded' ||
     withoutErrorPrefix.startsWith('cancelled: parallel tool call')

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
+import { getMissingToolResultAbortMessage } from '../utils/abortReasons.js'
 import {
   createToolFailureLoopGuardState,
   getToolFailureLoopThreshold,
@@ -173,6 +174,13 @@ test('user aborts, user rejections, and streaming fallback discards are ignored'
     'User rejected tool use',
     "The user doesn't want to proceed with this tool use",
     "The user doesn't want to take this action right now",
+    getMissingToolResultAbortMessage('interrupt'),
+    getMissingToolResultAbortMessage('query-timeout'),
+    getMissingToolResultAbortMessage('hard-max-query-timeout'),
+    getMissingToolResultAbortMessage('background'),
+    getMissingToolResultAbortMessage('side-task-cancelled'),
+    getMissingToolResultAbortMessage('parent-ended'),
+    getMissingToolResultAbortMessage('unknown-abort'),
     'Streaming fallback - tool execution discarded',
     'Cancelled: parallel tool call abc was skipped',
   ]
@@ -189,6 +197,49 @@ test('user aborts, user rejections, and streaming fallback discards are ignored'
     toolResult('real', 'Error writing file: failed to replace text'),
   ])
   expect(decision.tripped).toBe(false)
+})
+
+test('reason-aware synthetic aborts are ignored through wrappers and memory hints', () => {
+  const state = createToolFailureLoopGuardState()
+
+  const ignoredMessages = [
+    `<tool_use_error>${getMissingToolResultAbortMessage('query-timeout')}</tool_use_error>`,
+    `Error: ${getMissingToolResultAbortMessage('hard-max-query-timeout')}`,
+    `[${getMissingToolResultAbortMessage('background')}]`,
+    `${getMissingToolResultAbortMessage('unknown-abort')}\n\nNote: memory hint`,
+  ]
+
+  for (const [index, message] of ignoredMessages.entries()) {
+    const id = `reason-aware-${index}`
+    const decision = update(state, [toolUse(id, 'Bash')], [
+      toolResult(id, message),
+    ])
+    expect(decision.tripped).toBe(false)
+  }
+
+  const decision = update(
+    state,
+    [toolUse('real', 'Bash')],
+    [toolResult('real', 'Error: command exited 1')],
+    2,
+  )
+
+  expect(decision.tripped).toBe(false)
+})
+
+test('tool timeout messages still count as real tool failures', () => {
+  const state = createToolFailureLoopGuardState()
+  const timeoutMessage = getMissingToolResultAbortMessage('tool-timeout')
+
+  update(state, [toolUse('a', 'Bash')], [toolResult('a', timeoutMessage)], 2)
+  const decision = update(
+    state,
+    [toolUse('b', 'Bash')],
+    [toolResult('b', timeoutMessage)],
+    2,
+  )
+
+  expect(decision.tripped).toBe(true)
 })
 
 test('synthetic tool errors are recognized through wrappers', () => {

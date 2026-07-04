@@ -35,7 +35,9 @@ import { registerPrunableCache } from '../utils/memoryPressure.js';
 import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, resetTurnHookDuration, resetTurnToolDuration, resetTurnClassifierDuration, setMainLoopModelOverride, setMainThreadAgentType } from '../bootstrap/state.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
+import { normalizeAbortReason } from '../utils/abortReasons.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
+import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
@@ -561,13 +563,17 @@ function getAbortReasonLabel(reason: unknown): string | undefined {
 }
 function getQueryTerminalReason(signal: AbortSignal, didThrow: boolean): QueryTerminalReason {
   if (!signal.aborted) return didThrow ? 'unknown' : 'ok';
-  switch (getAbortReasonLabel(signal.reason)) {
+  switch (normalizeAbortReason(signal.reason)) {
     case 'query-timeout':
       return 'query-timeout';
-    case 'user-cancel':
+    case 'hard-max-query-timeout':
+      return 'hard-max-query-timeout';
+    case 'user-abort':
     case 'interrupt':
       return 'user-abort';
     case 'background':
+    case 'parent-ended':
+    case 'side-task-cancelled':
       return 'parent-ended';
     default:
       return 'unknown';
@@ -1002,7 +1008,11 @@ export function REPL({
   // Synchronous state machine for the query lifecycle. Replaces the
   // error-prone dual-state pattern where isLoading (React state, async
   // batched) and isQueryRunning (ref, sync) could desync. See QueryGuard.ts.
-  const queryGuard = React.useRef(new QueryGuard()).current;
+  const queryGuardRef = React.useRef<QueryGuard | null>(null);
+  if (queryGuardRef.current === null) {
+    queryGuardRef.current = new QueryGuard(getQueryGuardOptionsFromEnv());
+  }
+  const queryGuard = queryGuardRef.current;
 
   // Subscribe to the guard — true during dispatching or running.
   // This is the single source of truth for "is a local query in flight".
@@ -1804,11 +1814,12 @@ export function REPL({
   const mrRender = useCallback(() => null, []);
   const abortTimedOutQuery = useCallback((timeout: QueryGuardTimeoutInfo) => {
     const timeoutOperations = summarizeActiveOperations(timeout.activeOperations);
+    const timeoutAbortReason = timeout.context.terminalReason ?? 'query-timeout';
     logQueryLifecycle('timeout', timeout.context, timeoutOperations);
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
-      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
-      activeAbortController.abort('query-timeout');
+      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason(timeoutAbortReason));
+      activeAbortController.abort(timeoutAbortReason);
     }
     if (timeout.activeOperations.apiCalls.length > 0) {
       logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
@@ -1820,7 +1831,7 @@ export function REPL({
     // QueryGuard calls this before forceEnd(); defer UI cleanup until after
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
-      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
+      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason(timeoutAbortReason));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);

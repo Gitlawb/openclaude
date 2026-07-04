@@ -49,6 +49,11 @@ import {
 } from './services/api/errors.js'
 import { logAntError, logForDebugging } from './utils/debug.js'
 import {
+  getMissingToolResultAbortMessage,
+  getQueryAbortSystemMessage,
+  shouldCreateUserInterruptionMessage,
+} from './utils/abortReasons.js'
+import {
   createAssistantMessage,
   createUserMessage,
   createUserInterruptionMessage,
@@ -1393,6 +1398,7 @@ async function* queryLoop(
     // executor can generate synthetic tool_result blocks for queued/in-progress tools.
     // Without this, tool_use blocks would lack matching tool_result blocks.
     if (toolUseContext.abortController.signal.aborted) {
+      const abortReason = toolUseContext.abortController.signal.reason
       if (streamingToolExecutor) {
         // Consume remaining results - executor generates synthetic tool_results for
         // aborted tools since it checks the abort signal in executeTool()
@@ -1404,7 +1410,7 @@ async function* queryLoop(
       } else {
         yield* yieldMissingToolResultBlocks(
           assistantMessages,
-          'Interrupted by user',
+          getMissingToolResultAbortMessage(abortReason),
         )
       }
       // chicago MCP: auto-unhide + lock release on interrupt. Same cleanup
@@ -1421,9 +1427,12 @@ async function* queryLoop(
         }
       }
 
-      // Skip the interruption message for submit-interrupts — the queued
-      // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+      const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
+      if (abortSystemMessage) {
+        yield createSystemMessage(abortSystemMessage, 'warning')
+      }
+
+      if (shouldCreateUserInterruptionMessage(abortReason)) {
         yield createUserInterruptionMessage({
           toolUse: false,
         })
@@ -2117,6 +2126,7 @@ async function* queryLoop(
 
     // We were aborted during tool calls
     if (toolUseContext.abortController.signal.aborted) {
+      const abortReason = toolUseContext.abortController.signal.reason
       // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
       // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
       // Main thread only — see stopHooks.ts for the subagent rationale.
@@ -2130,9 +2140,12 @@ async function* queryLoop(
           // Failures are silent — this is dogfooding cleanup, not critical path
         }
       }
-      // Skip the interruption message for submit-interrupts — the queued
-      // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+      const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
+      if (abortSystemMessage) {
+        yield createSystemMessage(abortSystemMessage, 'warning')
+      }
+
+      if (shouldCreateUserInterruptionMessage(abortReason)) {
         yield createUserInterruptionMessage({
           toolUse: true,
         })

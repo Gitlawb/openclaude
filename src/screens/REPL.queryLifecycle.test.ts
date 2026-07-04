@@ -23,6 +23,13 @@ function getQueryFinallyBody(): string {
 }
 
 describe('REPL query lifecycle timeout logging', () => {
+  test('constructs QueryGuard with resolved hard max config', () => {
+    expect(source).toContain(
+      "import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js'",
+    )
+    expect(source).toContain('new QueryGuard(getQueryGuardOptionsFromEnv())')
+  })
+
   test('does not emit terminal timeout end from timeout handler', () => {
     const body = getAbortTimedOutQueryBody()
     const queueMicrotaskIndex = body.indexOf('queueMicrotask(() => {')

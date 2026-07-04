@@ -1,5 +1,5 @@
 import { afterEach, describe, test, expect, vi } from 'vitest'
-import { QueryGuard } from './QueryGuard.js'
+import { DEFAULT_QUERY_HARD_MAX_MS, QueryGuard } from './QueryGuard.js'
 import { QueryLifecycleOperationTracker } from './queryLifecycle.js'
 
 describe('QueryGuard', () => {
@@ -339,6 +339,48 @@ describe('QueryGuard', () => {
         generation: gen,
         reason: 'hard_max',
         timeoutMs: 1_000,
+        context: expect.objectContaining({
+          terminalReason: 'hard-max-query-timeout',
+          abortReason: 'hard_max',
+        }),
+      }),
+    )
+  })
+
+  test('larger hard maximum does not abort at the default hard max boundary', () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const configuredHardMaxMs = DEFAULT_QUERY_HARD_MAX_MS + 1_000
+    const guard = new QueryGuard({
+      idleTimeoutMs: 100,
+      hardMaxQueryMs: configuredHardMaxMs,
+      toolLeaseGraceMs: 0,
+    })
+    const onTimeout = vi.fn()
+    guard.setTimeoutHandler(onTimeout)
+    const gen = guard.tryStart()!
+    guard.acquireLease(
+      {
+        owner: 'api',
+        id: 'stream',
+        timeoutMs: configuredHardMaxMs,
+      },
+      gen,
+    )
+
+    vi.advanceTimersByTime(DEFAULT_QUERY_HARD_MAX_MS)
+
+    expect(guard.isActive).toBe(true)
+    expect(onTimeout).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1_000)
+
+    expect(guard.isActive).toBe(false)
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen,
+        reason: 'hard_max',
+        timeoutMs: configuredHardMaxMs,
         context: expect.objectContaining({
           terminalReason: 'hard-max-query-timeout',
           abortReason: 'hard_max',

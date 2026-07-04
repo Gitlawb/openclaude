@@ -17,7 +17,7 @@ import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
 import { AbortError } from '../../utils/errors.js'
-import { createAssistantMessage } from '../../utils/messages.js'
+import { CANCEL_MESSAGE, createAssistantMessage } from '../../utils/messages.js'
 import {
   type QueryActiveOperationSnapshot,
   QueryLifecycleOperationTracker,
@@ -34,6 +34,23 @@ import {
   normalizeToolInputForValidation,
   runToolUse,
 } from './toolExecution.js'
+
+function firstToolResultText(message: unknown): string {
+  const content = (message as { message?: { content?: unknown } }).message
+    ?.content
+  if (!Array.isArray(content)) return ''
+  const toolResult = content.find(
+    block =>
+      typeof block === 'object' &&
+      block !== null &&
+      (block as { type?: unknown }).type === 'tool_result',
+  ) as { content?: unknown } | undefined
+  return String(toolResult?.content ?? '')
+}
+
+function toolUseResultText(message: unknown): string {
+  return String((message as { toolUseResult?: unknown }).toolUseResult ?? '')
+}
 
 afterEach(() => {
   delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
@@ -506,6 +523,57 @@ describe('query lifecycle tool-use cleanup', () => {
     expect(queryLifecycle.endCount).toBe(1)
     expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
   })
+
+  test.each([
+    [
+      'query-timeout',
+      'Tool use was interrupted because the query timed out.',
+      false,
+    ],
+    [
+      'hard_max',
+      'Tool use was interrupted because the query reached its hard maximum runtime.',
+      false,
+    ],
+    [
+      'background',
+      'Tool use was interrupted because the query was backgrounded.',
+      false,
+    ],
+    ['interrupt', CANCEL_MESSAGE, true],
+    ['user-abort', CANCEL_MESSAGE, true],
+  ])(
+    'already-aborted tool execution uses reason-aware result for %s',
+    async (abortReason, expectedMessage, isUserCancel) => {
+      const queryLifecycle = new CountingQueryLifecycleTracker()
+      const tool = createToolFixture(lifecycleInputSchema, {
+        name: `LifecycleAlreadyAbortedTool_${abortReason}`,
+        async call() {
+          throw new Error('tool should not run after parent abort')
+        },
+      })
+      const abortController = new AbortController()
+      abortController.abort(abortReason)
+      const context = createLifecycleToolUseContext(
+        [tool],
+        queryLifecycle,
+        abortController,
+      )
+
+      const updates = await collectRunToolUse(tool, { value: 'abort' }, context)
+      const message = updates.find(update => update.message)?.message
+
+      expect(message).toBeDefined()
+      expect(firstToolResultText(message)).toContain(expectedMessage)
+      expect(toolUseResultText(message)).toBe(expectedMessage)
+      expect(firstToolResultText(message)).not.toContain('User rejected')
+      if (!isUserCancel) {
+        expect(firstToolResultText(message)).not.toContain(
+          "The user doesn't want",
+        )
+      }
+    },
+  )
 
   test('thrown tool error leaves no active lifecycle tool use', async () => {
     const queryLifecycle = new CountingQueryLifecycleTracker()

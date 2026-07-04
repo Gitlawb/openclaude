@@ -25,6 +25,23 @@ const assistantMessage = {
   },
 } as unknown as AssistantMessage
 
+function firstToolResultText(message: unknown): string {
+  const content = (message as { message?: { content?: unknown } }).message
+    ?.content
+  if (!Array.isArray(content)) return ''
+  const toolResult = content.find(
+    block =>
+      typeof block === 'object' &&
+      block !== null &&
+      (block as { type?: unknown }).type === 'tool_result',
+  ) as { content?: unknown } | undefined
+  return String(toolResult?.content ?? '')
+}
+
+function toolUseResultText(message: unknown): string {
+  return String((message as { toolUseResult?: unknown }).toolUseResult ?? '')
+}
+
 class CountingQueryLifecycleTracker extends QueryLifecycleOperationTracker {
   endCount = 0
 
@@ -225,4 +242,67 @@ describe('StreamingToolExecutor lifecycle tracking', () => {
     expect(observedAbortReason).toBe('streaming_fallback')
     expect([...executor.getCompletedResults()]).toEqual([])
   })
+
+  test.each([
+    [
+      'query-timeout',
+      'Tool use was interrupted because the query timed out.',
+    ],
+    [
+      'hard_max',
+      'Tool use was interrupted because the query reached its hard maximum runtime.',
+    ],
+    [
+      'background',
+      'Tool use was interrupted because the query was backgrounded.',
+    ],
+  ])(
+    'already-aborted streaming tool uses reason-aware result for %s',
+    async (abortReason, expectedMessage) => {
+      const queryLifecycle = new QueryLifecycleOperationTracker()
+      const inProgressToolUseIds = { current: new Set<string>() }
+      const hasInterruptibleToolInProgress = { current: false }
+      const tool = createToolFixture(z.object({}), {
+        name: `AbortedStreamingTool_${abortReason}`,
+        async call() {
+          throw new Error('tool should not run after parent abort')
+        },
+      })
+      const toolUseContext = makeToolUseContext(
+        [tool],
+        queryLifecycle,
+        inProgressToolUseIds,
+        hasInterruptibleToolInProgress,
+      )
+      toolUseContext.abortController.abort(abortReason)
+      const executor = new StreamingToolExecutor(
+        [tool],
+        (async () => ({ behavior: 'allow' })) as CanUseToolFn,
+        toolUseContext,
+      )
+
+      executor.addTool(
+        {
+          type: 'tool_use',
+          id: `tool-use-${abortReason}`,
+          name: tool.name,
+          input: {},
+        } as ToolUseBlock,
+        assistantMessage,
+      )
+
+      const updates: unknown[] = []
+      for await (const update of executor.getRemainingResults()) {
+        if (update.message) updates.push(update.message)
+      }
+
+      expect(updates).toHaveLength(1)
+      expect(firstToolResultText(updates[0])).toContain(expectedMessage)
+      expect(toolUseResultText(updates[0])).toBe(expectedMessage)
+      expect(firstToolResultText(updates[0])).not.toContain('User rejected')
+      expect(firstToolResultText(updates[0])).not.toContain(
+        "The user doesn't want",
+      )
+    },
+  )
 })

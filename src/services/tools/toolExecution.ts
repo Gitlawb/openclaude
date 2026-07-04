@@ -62,6 +62,10 @@ import type {
 } from '../../types/message.js'
 import { count } from '../../utils/array.js'
 import { createAttachmentMessage } from '../../utils/attachments.js'
+import {
+  getMissingToolResultAbortMessage,
+  shouldCreateUserInterruptionMessage,
+} from '../../utils/abortReasons.js'
 import { logForDebugging } from '../../utils/debug.js'
 import {
   AbortError,
@@ -131,6 +135,13 @@ export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
 /** Log a debug warning when hooks/permission-decision block for this long. Matches
  * BashTool's PROGRESS_THRESHOLD_MS — the collapsed view feels stuck past this. */
 const SLOW_PHASE_LOG_THRESHOLD_MS = 2000
+
+function getAlreadyAbortedToolResultMessage(reason: unknown): string {
+  if (reason === 'interrupt' || shouldCreateUserInterruptionMessage(reason)) {
+    return CANCEL_MESSAGE
+  }
+  return getMissingToolResultAbortMessage(reason)
+}
 
 export function getReplayModifiedFiles(
   toolName: string,
@@ -472,6 +483,9 @@ export async function* runToolUse(
   const toolInput = toolUse.input as { [key: string]: string }
   try {
     if (toolUseContext.abortController.signal.aborted) {
+      const abortMessage = getAlreadyAbortedToolResultMessage(
+        toolUseContext.abortController.signal.reason,
+      )
       logEvent('tengu_tool_use_cancelled', {
         toolName: sanitizeToolNameForAnalytics(tool.name),
         toolUseID:
@@ -500,11 +514,11 @@ export async function* runToolUse(
         ),
       })
       const content = createToolResultStopMessage(toolUse.id)
-      content.content = withMemoryCorrectionHint(CANCEL_MESSAGE)
+      content.content = withMemoryCorrectionHint(abortMessage)
       yield {
         message: createUserMessage({
           content: [content],
-          toolUseResult: CANCEL_MESSAGE,
+          toolUseResult: abortMessage,
           sourceToolAssistantUUID: assistantMessage.uuid,
         }),
       }
