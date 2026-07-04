@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 type ImagePasteModule = typeof import('./imagePaste.js')
 type ExecFileModule = typeof import('./execFileNoThrow.js')
@@ -7,9 +10,11 @@ type ExecaCall = [string, ...unknown[]]
 
 const originalPlatform = process.platform
 const originalTemp = process.env.TEMP
+const originalClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR
 
 let actualExecFileModule: ExecFileModule | undefined
 let actualExecaModule: ExecaModule | undefined
+let tempDirs: string[] = []
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', {
@@ -39,6 +44,15 @@ afterEach(async () => {
   } else {
     process.env.TEMP = originalTemp
   }
+  if (originalClaudeCodeTmpdir === undefined) {
+    delete process.env.CLAUDE_CODE_TMPDIR
+  } else {
+    process.env.CLAUDE_CODE_TMPDIR = originalClaudeCodeTmpdir
+  }
+  for (const tempDir of tempDirs) {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+  tempDirs = []
   await restoreMocks()
   mock.restore()
 })
@@ -119,5 +133,44 @@ describe('Windows clipboard image handling', () => {
     expect(saveCommand).toContain(
       '[System.Windows.Forms.Clipboard]::GetImage()',
     )
+  })
+
+  test('getImageFromClipboard returns image data when Windows check and save succeed', async () => {
+    setPlatform('win32')
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-image-paste-'))
+    tempDirs.push(tempDir)
+    process.env.CLAUDE_CODE_TMPDIR = tempDir
+    const screenshotPath = join(tempDir, 'claude_cli_latest_screenshot.png')
+    const imageBuffer = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    const execa = mock(async (command: string) => {
+      if (command.includes('Clipboard]::GetImage()')) {
+        writeFileSync(screenshotPath, imageBuffer)
+      }
+      return {
+      exitCode: 0,
+      stdout: 'True\r\n',
+      stderr: '',
+      }
+    })
+
+    mock.module('execa', () => ({ execa }))
+
+    const { getImageFromClipboard } = await importImagePaste()
+
+    const image = await getImageFromClipboard()
+    expect(image).toEqual({
+      base64: expect.any(String),
+      mediaType: 'image/png',
+      dimensions: undefined,
+    })
+    expect(image?.base64.length).toBeGreaterThan(0)
+    expect(execa).toHaveBeenCalledTimes(3)
+    const saveCall = execa.mock.calls[1] as unknown as ExecaCall | undefined
+    expect(String(saveCall?.[0] ?? '')).toContain(screenshotPath)
+    const deleteCall = execa.mock.calls[2] as unknown as ExecaCall | undefined
+    expect(deleteCall?.[0]).toContain('del /f')
   })
 })
