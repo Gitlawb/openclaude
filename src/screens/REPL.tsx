@@ -35,10 +35,9 @@ import { registerPrunableCache } from '../utils/memoryPressure.js';
 import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, resetTurnHookDuration, resetTurnToolDuration, resetTurnClassifierDuration, setMainLoopModelOverride, setMainThreadAgentType } from '../bootstrap/state.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
-import { normalizeAbortReason } from '../utils/abortReasons.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
-import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -560,24 +559,6 @@ function getAbortReasonLabel(reason: unknown): string | undefined {
   if (typeof reason === 'string') return reason;
   if (reason instanceof Error) return reason.name;
   return String(reason);
-}
-function getQueryTerminalReason(signal: AbortSignal, didThrow: boolean): QueryTerminalReason {
-  if (!signal.aborted) return didThrow ? 'unknown' : 'ok';
-  switch (normalizeAbortReason(signal.reason)) {
-    case 'query-timeout':
-      return 'query-timeout';
-    case 'hard-max-query-timeout':
-      return 'hard-max-query-timeout';
-    case 'user-abort':
-    case 'interrupt':
-      return 'user-abort';
-    case 'background':
-    case 'parent-ended':
-    case 'side-task-cancelled':
-      return 'parent-ended';
-    default:
-      return 'unknown';
-  }
 }
 function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): string {
   const apiIds = snapshot.apiCalls.map(call => call.requestId ?? call.clientRequestId ?? 'unknown').join(',');

@@ -805,6 +805,13 @@ export async function* queryModelWithStreaming({
   })
 }
 
+export function getClaudeStreamingAbortLogMessage(
+  signal: Pick<AbortSignal, 'reason'>,
+  streamingError: unknown,
+): string {
+  return getStreamingAbortMessage(signal.reason, errorMessage(streamingError))
+}
+
 /**
  * Determines if an LSP tool should be deferred (tool appears with defer_loading: true)
  * because LSP initialization is not yet complete.
@@ -2630,10 +2637,7 @@ async function* queryModel(
         // If not, it's likely a timeout from the SDK
         if (signal.aborted) {
           logForDebugging(
-            getStreamingAbortMessage(
-              signal.reason,
-              errorMessage(streamingError),
-            ),
+            getClaudeStreamingAbortLogMessage(signal, streamingError),
           )
           if (
             isAdvisorInProgress &&
@@ -2661,7 +2665,7 @@ async function* queryModel(
 
       if (signal.aborted) {
         logForDebugging(
-          getStreamingAbortMessage(signal.reason, errorMessage(streamingError)),
+          getClaudeStreamingAbortLogMessage(signal, streamingError),
         )
         throw new APIUserAbortError()
       }

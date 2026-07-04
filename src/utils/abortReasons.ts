@@ -39,7 +39,16 @@ export function normalizeAbortReason(reason: unknown): AbortReason {
       : 'unknown-abort'
   }
 
-  if (reason instanceof Error && reason.name === 'TimeoutError') {
+  const name =
+    typeof reason === 'object' && reason !== null
+      ? (reason as { name?: unknown }).name
+      : undefined
+
+  if (name === 'AbortError') {
+    return 'user-abort'
+  }
+
+  if (name === 'TimeoutError') {
     return 'tool-timeout'
   }
 
@@ -100,18 +109,7 @@ export function getStreamingAbortMessage(
 }
 
 export function shouldCreateUserInterruptionMessage(reason: unknown): boolean {
-  if (normalizeAbortReason(reason) === 'user-abort') {
-    return true
-  }
-
-  // AbortController.abort() without an explicit reason was historically used
-  // for user cancellation in some entrypoints. Preserve that legacy signal,
-  // while explicit timeout/background reasons remain non-user aborts.
-  return (
-    typeof reason === 'object' &&
-    reason !== null &&
-    (reason as { name?: unknown }).name === 'AbortError'
-  )
+  return normalizeAbortReason(reason) === 'user-abort'
 }
 
 export function getQueryAbortSystemMessage(reason: unknown): string | null {

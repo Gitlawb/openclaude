@@ -1,65 +1,260 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { z } from 'zod/v4'
 
-const source = readFileSync(join(import.meta.dirname, 'query.ts'), 'utf8')
+import { query, type QueryParams } from './query.js'
+import type { QueryDeps } from './query/deps.js'
+import { createToolFixture } from './test/toolFixtures.js'
+import type { Tools } from './Tool.js'
+import {
+  createAssistantMessage,
+  createUserMessage,
+  INTERRUPT_MESSAGE,
+} from './utils/messages.js'
+import { asSystemPrompt } from './utils/systemPromptType.js'
 
-function getAbortBlocks(): string[] {
-  const blocks: string[] = []
-  let searchFrom = 0
-  const needle = 'if (toolUseContext.abortController.signal.aborted) {'
+const DEFAULT_ABORT = Symbol('default abort')
 
-  while (true) {
-    const start = source.indexOf(needle, searchFrom)
-    if (start === -1) break
+type AbortInput = string | typeof DEFAULT_ABORT
 
-    let depth = 0
-    let end = -1
-    for (
-      let i = start + source.slice(start).indexOf('{');
-      i < source.length;
-      i++
-    ) {
-      const ch = source[i]
-      if (ch === '{') depth++
-      else if (ch === '}') {
-        depth--
-        if (depth === 0) {
-          end = i + 1
-          break
-        }
-      }
-    }
-    expect(end).toBeGreaterThan(start)
-    blocks.push(source.slice(start, end))
-    searchFrom = end
-  }
+function makeToolUseContext(tools: Tools = []): QueryParams['toolUseContext'] {
+  const abortController = new AbortController()
 
-  return blocks
+  return {
+    abortController,
+    agentId: 'agent-test',
+    getAppState: () => ({
+      fastMode: false,
+      mcp: { tools: [], clients: [] },
+      toolPermissionContext: { mode: 'default' },
+      sessionHooks: new Map(),
+      mainLoopModel: 'gpt-4o',
+      effortValue: undefined,
+      advisorModel: undefined,
+    }),
+    options: {
+      commands: [],
+      debug: false,
+      thinkingConfig: { type: 'disabled' },
+      tools,
+      verbose: false,
+      mcpClients: [],
+      mcpResources: {},
+      isNonInteractiveSession: false,
+      agentDefinitions: { activeAgents: [], allowedAgentTypes: undefined },
+      appendSystemPrompt: undefined,
+      providerOverride: undefined,
+      mainLoopModel: 'gpt-4o',
+    },
+    addNotification: () => {},
+    messages: [],
+    setInProgressToolUseIDs: () => {},
+    setResponseLength: () => {},
+    updateFileHistoryState: () => {},
+    updateAttributionState: () => {},
+  } as unknown as QueryParams['toolUseContext']
 }
 
-describe('query abort classification wiring', () => {
-  test('uses abort reason helpers instead of treating every abort as user interruption', () => {
-    expect(source).toContain("from './utils/abortReasons.js'")
-    expect(source).toContain('getMissingToolResultAbortMessage')
-    expect(source).toContain('getQueryAbortSystemMessage')
-    expect(source).toContain('shouldCreateUserInterruptionMessage')
+function abort(controller: AbortController, reason: AbortInput): void {
+  if (reason === DEFAULT_ABORT) {
+    controller.abort()
+    return
+  }
+  controller.abort(reason)
+}
 
-    const abortBlocks = getAbortBlocks().filter(block =>
-      block.includes('createUserInterruptionMessage'),
-    )
-    expect(abortBlocks).toHaveLength(2)
+function makeParams(reason: AbortInput, tools: Tools = []): QueryParams {
+  const toolUseContext = makeToolUseContext(tools)
 
-    for (const block of abortBlocks) {
-      expect(block).toContain('shouldCreateUserInterruptionMessage(')
-      expect(block).toContain('getQueryAbortSystemMessage(')
-      if (block.includes('yieldMissingToolResultBlocks')) {
-        expect(block).toContain('getMissingToolResultAbortMessage(')
-      }
-      expect(block).not.toContain(
-        "toolUseContext.abortController.signal.reason !== 'interrupt'",
-      )
-      expect(block).not.toContain("'Interrupted by user'")
+  return {
+    messages: [createUserMessage({ content: 'run tool' })],
+    systemPrompt: asSystemPrompt([]),
+    userContext: {},
+    systemContext: {},
+    canUseTool: async () => ({ behavior: 'allow' }),
+    toolUseContext,
+    querySource: 'agent:builtin:general-purpose',
+    agentStepLimit: { maxSteps: 999, agentType: 'general-purpose' },
+    deps: {
+      callModel: async function* () {
+        yield createAssistantMessage({
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_timeout_1',
+              name: 'SlowTool',
+              input: {},
+            },
+          ],
+        })
+        abort(toolUseContext.abortController, reason)
+      },
+      microcompact: async messages => ({ messages }),
+      autocompact: async () => ({
+        compactionResult: null,
+        consecutiveFailures: undefined,
+      }),
+      uuid: () => '00000000-0000-4000-8000-000000000000',
+    } as unknown as QueryDeps,
+  }
+}
+
+function makeToolAbortParams(reason: AbortInput): QueryParams {
+  let toolUseContext!: QueryParams['toolUseContext']
+  const tool = createToolFixture(z.object({}), {
+    name: 'AbortDuringTool',
+    async call() {
+      abort(toolUseContext.abortController, reason)
+      return { data: 'aborted during tool execution' }
+    },
+  })
+  toolUseContext = makeToolUseContext([tool])
+
+  return {
+    messages: [createUserMessage({ content: 'run tool' })],
+    systemPrompt: asSystemPrompt([]),
+    userContext: {},
+    systemContext: {},
+    canUseTool: async () => ({ behavior: 'allow' }),
+    toolUseContext,
+    querySource: 'agent:builtin:general-purpose',
+    agentStepLimit: { maxSteps: 999, agentType: 'general-purpose' },
+    deps: {
+      callModel: async function* () {
+        yield createAssistantMessage({
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_abort_during_tool_1',
+              name: 'AbortDuringTool',
+              input: {},
+            },
+          ],
+        })
+      },
+      microcompact: async messages => ({ messages }),
+      autocompact: async () => ({
+        compactionResult: null,
+        consecutiveFailures: undefined,
+      }),
+      uuid: () => '00000000-0000-4000-8000-000000000000',
+    } as unknown as QueryDeps,
+  }
+}
+
+async function drainWithReturn(params: QueryParams): Promise<{
+  yielded: any[]
+  returned: any
+}> {
+  const yielded: any[] = []
+  const generator = query(params)
+  while (true) {
+    const next = await generator.next()
+    if (next.done) return { yielded, returned: next.value }
+    yielded.push(next.value)
+  }
+}
+
+function toolResultContents(yielded: any[]): string[] {
+  return yielded.flatMap(message => {
+    if (message.type !== 'user' || !Array.isArray(message.message.content)) {
+      return []
     }
+    return message.message.content
+      .filter((part: any) => part.type === 'tool_result')
+      .map((part: any) => part.content)
+  })
+}
+
+function systemMessages(yielded: any[]) {
+  return yielded.filter(message => message.type === 'system')
+}
+
+function interruptionMessages(yielded: any[]) {
+  return yielded.filter(
+    message =>
+      message.type === 'user' &&
+      Array.isArray(message.message.content) &&
+      message.message.content.some(
+        (part: any) => part.type === 'text' && part.text === INTERRUPT_MESSAGE,
+      ),
+  )
+}
+
+describe('query abort classification', () => {
+  test('query timeout aborts produce timeout transcript text without user interruption', async () => {
+    const { yielded, returned } = await drainWithReturn(
+      makeParams('query-timeout'),
+    )
+
+    expect(returned.reason).toBe('aborted_streaming')
+    expect(toolResultContents(yielded)).toEqual([
+      'Tool use was interrupted because the query timed out.',
+    ])
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content: 'Query timed out before completion.',
+        level: 'warning',
+      },
+    ])
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+  })
+
+  test('hard max aborts produce hard-timeout transcript text without user interruption', async () => {
+    const { yielded, returned } = await drainWithReturn(makeParams('hard_max'))
+
+    expect(returned.reason).toBe('aborted_streaming')
+    expect(toolResultContents(yielded)).toEqual([
+      'Tool use was interrupted because the query reached its hard maximum runtime.',
+    ])
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content:
+          'Query reached the hard maximum runtime and was stopped before completion.',
+        level: 'warning',
+      },
+    ])
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+  })
+
+  test('background aborts produce background transcript text without user interruption', async () => {
+    const { yielded, returned } = await drainWithReturn(makeParams('background'))
+
+    expect(returned.reason).toBe('aborted_streaming')
+    expect(toolResultContents(yielded)).toEqual([
+      'Tool use was interrupted because the query was backgrounded.',
+    ])
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content: 'Query was backgrounded before completion.',
+        level: 'warning',
+      },
+    ])
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+  })
+
+  test('legacy bare abort remains classified as a user interruption', async () => {
+    const { yielded, returned } = await drainWithReturn(
+      makeParams(DEFAULT_ABORT),
+    )
+
+    expect(returned.reason).toBe('aborted_streaming')
+    expect(toolResultContents(yielded)).toEqual(['Interrupted by user'])
+    expect(systemMessages(yielded)).toHaveLength(0)
+    expect(interruptionMessages(yielded)).toHaveLength(1)
+  })
+
+  test('mid-tool query timeout aborts without creating user interruption text', async () => {
+    const { yielded, returned } = await drainWithReturn(
+      makeToolAbortParams('query-timeout'),
+    )
+
+    expect(returned.reason).toBe('aborted_tools')
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content: 'Query timed out before completion.',
+        level: 'warning',
+      },
+    ])
+    expect(interruptionMessages(yielded)).toHaveLength(0)
   })
 })

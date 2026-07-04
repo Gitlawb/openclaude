@@ -28,9 +28,22 @@ describe('abort reason normalization', () => {
   })
 
   test('keeps tool timeout distinct from abort cancellations', () => {
+    expect(normalizeAbortReason(new DOMException('', 'AbortError'))).toBe(
+      'user-abort',
+    )
+    expect(
+      normalizeAbortReason({
+        name: 'AbortError',
+      }),
+    ).toBe('user-abort')
     expect(normalizeAbortReason(new DOMException('', 'TimeoutError'))).toBe(
       'tool-timeout',
     )
+    expect(
+      normalizeAbortReason({
+        name: 'TimeoutError',
+      }),
+    ).toBe('tool-timeout')
     expect(isQueryLevelAbort('tool-timeout')).toBe(false)
     expect(isQueryLevelAbort('query-timeout')).toBe(true)
   })
@@ -85,6 +98,7 @@ describe('abort reason normalization', () => {
 
     expect(shouldCreateUserInterruptionMessage('user-cancel')).toBe(true)
     expect(shouldCreateUserInterruptionMessage('user-abort')).toBe(true)
+    expect(normalizeAbortReason(defaultAbort.signal.reason)).toBe('user-abort')
     expect(
       shouldCreateUserInterruptionMessage(defaultAbort.signal.reason),
     ).toBe(true)
@@ -120,6 +134,15 @@ describe('abort reason normalization', () => {
     expect(getMissingToolResultAbortMessage('user-cancel')).toBe(
       'Interrupted by user',
     )
+    expect(
+      getMissingToolResultAbortMessage(defaultAbort.signal.reason),
+    ).toBe('Interrupted by user')
+    expect(
+      getStreamingAbortMessage(
+        defaultAbort.signal.reason,
+        'Request was aborted.',
+      ),
+    ).toBe('Streaming aborted by user: Request was aborted.')
   })
 
   test('returns a message for every abort reason', () => {

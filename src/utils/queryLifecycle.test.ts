@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   formatQueryLifecycleAbortSignalReason,
   formatQueryLifecycleLogMessage,
+  getQueryTerminalReason,
   type QueryLifecycleContext,
 } from './queryLifecycle.js'
 
@@ -26,5 +27,70 @@ describe('query lifecycle log formatting', () => {
     expect(line).toContain('abortSignalReason=query-timeout')
     expect(line).not.toContain('abortReason=query-timeout')
     expect(line.match(/\babortReason=/g)).toHaveLength(1)
+  })
+})
+
+describe('query terminal reason classification', () => {
+  test('classifies non-aborted completion from throw state', () => {
+    expect(
+      getQueryTerminalReason({ aborted: false, reason: undefined }, false),
+    ).toBe('ok')
+    expect(
+      getQueryTerminalReason({ aborted: false, reason: undefined }, true),
+    ).toBe('unknown')
+  })
+
+  test('passes timeout aborts through as terminal reasons', () => {
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'query-timeout' }, false),
+    ).toBe('query-timeout')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: 'hard-max-query-timeout' },
+        false,
+      ),
+    ).toBe('hard-max-query-timeout')
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'hard_max' }, false),
+    ).toBe('hard-max-query-timeout')
+  })
+
+  test('groups user-style aborts as user aborts', () => {
+    const defaultAbort = new AbortController()
+    defaultAbort.abort()
+
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'user-cancel' }, false),
+    ).toBe('user-abort')
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'interrupt' }, false),
+    ).toBe('user-abort')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: defaultAbort.signal.reason },
+        false,
+      ),
+    ).toBe('user-abort')
+  })
+
+  test('groups background and side-task aborts under parent-ended', () => {
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'background' }, false),
+    ).toBe('parent-ended')
+    expect(
+      getQueryTerminalReason({ aborted: true, reason: 'parent-ended' }, false),
+    ).toBe('parent-ended')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: 'side-task-cancelled' },
+        false,
+      ),
+    ).toBe('parent-ended')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: 'streaming_fallback' },
+        false,
+      ),
+    ).toBe('parent-ended')
   })
 })
