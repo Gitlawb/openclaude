@@ -42,6 +42,21 @@ describe('formatShellPrefixCommand', () => {
     ).toBe("'C:\\Program Files\\Git\\bin\\bash.exe' -l -c 'echo hi'")
   })
 
+  test('path containing space-dash before args', () => {
+    expect(
+      formatShellPrefixCommand('/opt/shell -x64/bin/bash -l -c', 'echo hi'),
+    ).toBe("'/opt/shell -x64/bin/bash' -l -c 'echo hi'")
+  })
+
+  test('windows path containing space-dash before args', () => {
+    expect(
+      formatShellPrefixCommand(
+        'C:\\Program Files - x64\\Git\\bin\\bash.exe -l -c',
+        'echo hi',
+      ),
+    ).toBe("'C:\\Program Files - x64\\Git\\bin\\bash.exe' -l -c 'echo hi'")
+  })
+
   test('prefix with no dash flags returns prefix then quoted command', () => {
     expect(formatShellPrefixCommand('/usr/bin/bash', 'echo hi')).toBe(
       "/usr/bin/bash 'echo hi'",

@@ -16,8 +16,14 @@ export function formatShellPrefixCommand(
   prefix: string,
   command: string,
 ): string {
-  // Split on the first space before a dash to separate executable from arguments
-  const spaceBeforeDash = prefix.indexOf(' -')
+  const lastPathSeparator = Math.max(
+    prefix.lastIndexOf('/'),
+    prefix.lastIndexOf('\\'),
+  )
+  let spaceBeforeDash = prefix.indexOf(' -')
+  while (spaceBeforeDash > 0 && spaceBeforeDash < lastPathSeparator) {
+    spaceBeforeDash = prefix.indexOf(' -', spaceBeforeDash + 2)
+  }
   if (spaceBeforeDash > 0) {
     const execPath = prefix.substring(0, spaceBeforeDash)
     const args = prefix.substring(spaceBeforeDash + 1)
