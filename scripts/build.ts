@@ -9,12 +9,59 @@
  */
 
 import { readFileSync } from 'fs'
+import { createRequire } from 'module'
+import { dirname, join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 import { canonicalStub, collectBundleStubs } from './stubMarkerGuard.js'
 
+const nodeRequire = createRequire(import.meta.url)
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
+const reactPackageDir = dirname(nodeRequire.resolve('react/package.json'))
+const reactReconcilerPackageDir = dirname(
+  nodeRequire.resolve('react-reconciler/package.json'),
+)
+const schedulerPackageDir = dirname(nodeRequire.resolve('scheduler/package.json'))
+const productionReactModules = new Map<string, string>([
+  ['react', join(reactPackageDir, 'cjs/react.production.js')],
+  [
+    'react/jsx-runtime',
+    join(reactPackageDir, 'cjs/react-jsx-runtime.production.js'),
+  ],
+  [
+    'react/jsx-dev-runtime',
+    join(reactPackageDir, 'cjs/react-jsx-dev-runtime.production.js'),
+  ],
+  [
+    'react-reconciler',
+    join(reactReconcilerPackageDir, 'cjs/react-reconciler.production.js'),
+  ],
+  [
+    'react-reconciler/constants.js',
+    join(
+      reactReconcilerPackageDir,
+      'cjs/react-reconciler-constants.production.js',
+    ),
+  ],
+  ['scheduler', join(schedulerPackageDir, 'cjs/scheduler.production.js')],
+])
+
+const productionReactPlugin = {
+  name: 'production-react-bundle',
+  setup(build) {
+    build.onResolve(
+      {
+        filter:
+          /^(react|react\/jsx-runtime|react\/jsx-dev-runtime|react-reconciler|react-reconciler\/constants\.js|scheduler)$/,
+      },
+      args => {
+        const path = productionReactModules.get(args.path)
+        return path ? { path } : null
+      },
+    )
+  },
+}
 
 // Feature flags for the open build.
 // Most Anthropic-internal features stay off; open-build features can be
@@ -146,6 +193,7 @@ result = await Bun.build({
   plugins: [
     noTelemetryPlugin,
     featureFlagPreprocessPlugin,
+    productionReactPlugin,
     {
       name: 'bun-bundle-shim',
       setup(build) {
