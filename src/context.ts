@@ -127,12 +127,18 @@ export const getRepoMapContext = memoize(
       const startTime = Date.now()
       logForDiagnosticsNoPII('info', 'repo_map_started')
       const { buildRepoMap } = await import('./context/repoMap/index.js')
+      let timeout: ReturnType<typeof setTimeout> | undefined
       const result = await Promise.race([
         buildRepoMap({ root: getCwd(), maxTokens: 1024 }),
-        new Promise<typeof REPO_MAP_TIMEOUT>(resolve =>
-          setTimeout(() => resolve(REPO_MAP_TIMEOUT), REPO_MAP_CONTEXT_TIMEOUT_MS),
-        ),
-      ])
+        new Promise<typeof REPO_MAP_TIMEOUT>(resolve => {
+          timeout = setTimeout(
+            () => resolve(REPO_MAP_TIMEOUT),
+            REPO_MAP_CONTEXT_TIMEOUT_MS,
+          )
+        }),
+      ]).finally(() => {
+        if (timeout) clearTimeout(timeout)
+      })
       if (result === REPO_MAP_TIMEOUT) {
         logForDiagnosticsNoPII('warn', 'repo_map_timeout', {
           duration_ms: Date.now() - startTime,

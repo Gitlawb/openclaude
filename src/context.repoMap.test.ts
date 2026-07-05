@@ -100,6 +100,38 @@ describe('getRepoMapContext', () => {
     }
   })
 
+  test('auto-injection does not leave the timeout timer active after a fast build', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const { getRepoMapContext } = await import('./context.js')
+    const { invalidateCache } = await import('./context/repoMap/index.js')
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-timer-'))
+    process.env.REPO_MAP = '1'
+    setCwdState(tempDir)
+    getRepoMapContext.cache.clear?.()
+
+    try {
+      writeFileSync(
+        join(tempDir, 'timer-root.ts'),
+        'export function TimerRoot(): void {}\n',
+      )
+
+      const getActiveHandles = (process as unknown as {
+        _getActiveHandles: () => unknown[]
+      })._getActiveHandles
+      const before = getActiveHandles().length
+      await getRepoMapContext()
+      const after = getActiveHandles().length
+
+      expect(after).toBeLessThanOrEqual(before)
+    } finally {
+      invalidateCache(tempDir)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('getSystemContext does not include repoMap key when flag is off', async () => {
     const { getRepoMapContext, getSystemContext } = await import('./context.js')
     const previousRepoMap = process.env.REPO_MAP
