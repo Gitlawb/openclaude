@@ -94,7 +94,7 @@ export function getSkillsPath(
   }
 }
 
-function getProjectSkillsPaths(dir: string): string[] {
+export function getProjectSkillsPaths(dir: string): string[] {
   return PROJECT_CONFIG_DIR_NAMES.map(configDirName =>
     join(dir, configDirName, 'skills'),
   )
@@ -525,7 +525,7 @@ async function findSkillMarkdownFiles(basePath: string): Promise<string[]> {
  * Loads skills from a /skills/ directory path.
  * Supports nested directory format: category/skill/SKILL.md
  */
-async function loadSkillsFromSkillsDir(
+export async function loadSkillsFromSkillsDir(
   basePath: string,
   source: SettingSource,
 ): Promise<SkillWithPath[]> {

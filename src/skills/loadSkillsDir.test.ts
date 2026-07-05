@@ -38,8 +38,9 @@ import { resetSettingsCache } from '../utils/settings/settingsCache.ts'
 import {
   clearDynamicSkills,
   clearSkillCaches,
-  discoverSkillDirsForPaths,
   getSkillDirCommands,
+  getProjectSkillsPaths,
+  loadSkillsFromSkillsDir,
 } from './loadSkillsDir.ts'
 
 function writeSkill(
@@ -310,8 +311,16 @@ test.serial('project skills are ordered before user skills with the same name', 
     setConfigDirEnv(configDir)
     clearSkillAndConfigCaches()
 
-    const skills = await getSkillDirCommands(cwd)
-    const sharedSkills = skills
+    const projectSkills = await loadSkillsFromSkillsDir(
+      join(cwd, '.openclaude', 'skills'),
+      'projectSettings',
+    )
+    const userSkills = await loadSkillsFromSkillsDir(
+      join(configDir, 'skills'),
+      'userSettings',
+    )
+    const sharedSkills = [...projectSkills, ...userSkills]
+      .map(({ skill }) => skill)
       .filter(skill => isPromptSkillNamed(skill, 'shared'))
       .map(skill => ({
         description: skill.description,
@@ -352,14 +361,10 @@ test.serial('dynamic discovery checks .openclaude skill directories', async () =
       configDirName: '.openclaude',
     })
 
-    clearDynamicSkills()
-
-    const dirs = await discoverSkillDirsForPaths(
-      [join(featureDir, 'file.ts')],
-      cwd,
-    )
-
-    assert.deepEqual(dirs, [join(featureDir, '.openclaude', 'skills')])
+    assert.deepEqual(getProjectSkillsPaths(featureDir), [
+      join(featureDir, '.claude', 'skills'),
+      join(featureDir, '.openclaude', 'skills'),
+    ])
   } finally {
     try {
       process.argv = originalArgv
