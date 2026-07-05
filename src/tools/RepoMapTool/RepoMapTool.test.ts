@@ -58,6 +58,20 @@ describe('RepoMapTool schema', () => {
 })
 
 describe('RepoMapTool call', () => {
+  test('call returns the declared output shape', async () => {
+    const result = await RepoMapTool.call(
+      { max_tokens: 256 },
+      { abortController: new AbortController() } as Parameters<typeof RepoMapTool.call>[1],
+    )
+
+    expect(typeof result.data.rendered).toBe('string')
+    expect(typeof result.data.token_count).toBe('number')
+    expect(typeof result.data.file_count).toBe('number')
+    expect(typeof result.data.total_file_count).toBe('number')
+    expect(typeof result.data.cache_hit).toBe('boolean')
+    expect(typeof result.data.build_time_ms).toBe('number')
+  })
+
   test('returns a rendered map for a directory', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
     try {

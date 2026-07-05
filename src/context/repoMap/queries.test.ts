@@ -24,6 +24,10 @@ describe('bundled query drift guard', () => {
     },
   )
 
+  test('tsx reuses the TypeScript query with the TSX grammar', () => {
+    expect(getBundledQuery('tsx')).toBe(getBundledQuery('typescript'))
+  })
+
   test('returns null for unknown language', () => {
     expect(getBundledQuery('unknown' as SupportedLanguage)).toBeNull()
   })

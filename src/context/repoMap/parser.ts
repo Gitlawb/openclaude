@@ -1,9 +1,11 @@
 import { join, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
 import { getBundledQuery } from './queries.js'
 import type { SupportedLanguage } from './types.js'
 import type { Language } from 'web-tree-sitter'
 
+const require = createRequire(import.meta.url)
 const __filename = fileURLToPath(import.meta.url)
 const __projectRoot = __filename.includes('/src/context/repoMap/')
   ? join(__filename, '../../../../')
@@ -47,6 +49,7 @@ function getTreeSitterWasmPath(): string {
 /** Resolve the path to a language WASM grammar file. */
 function getLanguageWasmPath(language: SupportedLanguage): string {
   const wasmName = language === 'typescript' ? 'tree-sitter-typescript' :
+    language === 'tsx' ? 'tree-sitter-tsx' :
     language === 'javascript' ? 'tree-sitter-javascript' :
       `tree-sitter-${language}`
 

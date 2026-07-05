@@ -1,4 +1,7 @@
-import type { LocalCommandCall } from '../../types/command.js'
+import type {
+  LocalCommandCall,
+  LocalCommandResult,
+} from '../../types/command.js'
 import { getCwd } from '../../utils/cwd.js'
 
 /** Parse CLI-style arguments from the command string. */
@@ -37,7 +40,14 @@ export function parseArgs(args: string): {
 
 export const call: LocalCommandCall = async (args) => {
   const root = getCwd()
-  const { tokens, focus, invalidate, stats } = parseArgs(args ?? '')
+  return runRepoMapCommand(args ?? '', root)
+}
+
+export async function runRepoMapCommand(
+  args: string,
+  root: string,
+): Promise<LocalCommandResult> {
+  const { tokens, focus, invalidate, stats } = parseArgs(args)
 
   // Lazy import to avoid loading tree-sitter at startup
   const {

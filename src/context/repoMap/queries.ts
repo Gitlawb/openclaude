@@ -173,6 +173,7 @@ const PYTHON_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/aider
 
 const QUERIES: Record<SupportedLanguage, string> = {
   typescript: TYPESCRIPT_TAGS,
+  tsx: TYPESCRIPT_TAGS,
   javascript: JAVASCRIPT_TAGS,
   python: PYTHON_TAGS,
 }

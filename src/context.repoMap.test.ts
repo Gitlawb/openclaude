@@ -82,8 +82,40 @@ describe('getRepoMapContext', () => {
 describe('REPO_MAP feature flag', () => {
   test('flag defaults to false in build config', async () => {
     const { readFileSync } = await import('fs')
-    const buildScript = readFileSync('scripts/build.ts', 'utf-8')
-    const match = buildScript.match(/REPO_MAP:\s*(true|false)/)
-    expect(match?.[1]).toBe('false')
+    const ts = await import('typescript')
+    const source = ts.createSourceFile(
+      'scripts/build.ts',
+      readFileSync('scripts/build.ts', 'utf-8'),
+      ts.ScriptTarget.Latest,
+      true,
+    )
+
+    let repoMapFlag: boolean | null = null
+    source.forEachChild(node => {
+      if (!ts.isVariableStatement(node)) return
+      for (const declaration of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === 'featureFlags' &&
+          declaration.initializer &&
+          ts.isObjectLiteralExpression(declaration.initializer)
+        ) {
+          const property = declaration.initializer.properties.find(prop =>
+            ts.isPropertyAssignment(prop) &&
+            ts.isIdentifier(prop.name) &&
+            prop.name.text === 'REPO_MAP',
+          )
+          if (
+            property &&
+            ts.isPropertyAssignment(property) &&
+            property.initializer.kind === ts.SyntaxKind.FalseKeyword
+          ) {
+            repoMapFlag = false
+          }
+        }
+      }
+    })
+
+    expect(repoMapFlag as boolean | null).toBe(false)
   })
 })

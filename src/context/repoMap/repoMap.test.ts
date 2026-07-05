@@ -3,7 +3,8 @@ import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { invalidateCache, buildRepoMap } from './index.js'
-import { extractTags } from './symbolExtractor.js'
+import { getCachedTags, loadCache, statFile } from './cache.js'
+import { clearSymbolExtractorCaches, extractTags } from './symbolExtractor.js'
 import { buildGraph } from './graph.js'
 import { rankFiles } from './pagerank.js'
 import { initParser } from './parser.js'
@@ -21,6 +22,7 @@ beforeAll(async () => {
 // Clean up cache between tests to avoid cross-test interference
 afterEach(() => {
   invalidateCache(FIXTURE_ROOT)
+  clearSymbolExtractorCaches()
 })
 
 describe('symbol extraction', () => {
@@ -51,6 +53,29 @@ describe('symbol extraction', () => {
     // fileA imports CacheLayer from fileB and StoreConfig from fileC
     expect(refNames).toContain('CacheLayer')
     expect(refNames).toContain('StoreConfig')
+  })
+
+  test('parses TSX files with the TSX grammar', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tsx-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'Widget.tsx'),
+        [
+          'export function Widget(): JSX.Element {',
+          '  return <div className="widget">Hello</div>',
+          '}',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('Widget.tsx', tempDir)
+      expect(result).not.toBeNull()
+      expect(result!.tags.some(tag =>
+        tag.kind === 'def' && tag.name === 'Widget',
+      )).toBe(true)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -289,6 +314,20 @@ describe('cache', () => {
       const targetFile = join(tempDir, 'fileE.ts')
       const now = new Date()
       utimesSync(targetFile, now, now)
+
+      const cacheBeforeSecondBuild = loadCache(tempDir)
+      expect(getCachedTags(
+        cacheBeforeSecondBuild,
+        'fileA.ts',
+        tempDir,
+        statFile(tempDir, 'fileA.ts') ?? undefined,
+      )).not.toBeNull()
+      expect(getCachedTags(
+        cacheBeforeSecondBuild,
+        'fileE.ts',
+        tempDir,
+        statFile(tempDir, 'fileE.ts') ?? undefined,
+      )).toBeNull()
 
       // Second build — rendered cache should be invalidated because the map
       // hash includes file stats, but unchanged files can still reuse tag cache.

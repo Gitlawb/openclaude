@@ -1,5 +1,5 @@
 import type Graph from 'graphology'
-import pagerank from 'graphology-pagerank'
+import pagerank from 'graphology-metrics/centrality/pagerank'
 
 export interface RankedFile {
   path: string
@@ -49,7 +49,7 @@ export function rankFiles(
   const expandedFocusFiles = expandFocusFiles(graph, focusFiles)
   const hasPersonalization = expandedFocusFiles.length > 0
 
-  // graphology-pagerank accepts getEdgeWeight option
+  // graphology-metrics PageRank accepts getEdgeWeight option
   const scores: Record<string, number> = pagerank(graph, {
     alpha: 0.85,
     maxIterations: 100,

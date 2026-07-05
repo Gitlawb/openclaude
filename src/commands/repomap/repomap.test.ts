@@ -1,5 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { parseArgs } from './repomap.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { invalidateCache } from '../../context/repoMap/index.js'
+import { parseArgs, runRepoMapCommand } from './repomap.js'
+
+async function runTextCommand(args: string, root: string): Promise<string> {
+  const result = await runRepoMapCommand(args, root)
+  if (result.type !== 'text') {
+    throw new Error(`/repomap must return type:'text', got ${result.type}`)
+  }
+  return result.value
+}
 
 describe('/repomap argument parsing', () => {
   test('defaults to 2048 tokens with no flags', () => {
@@ -52,5 +64,57 @@ describe('/repomap argument parsing', () => {
     expect(result.tokens).toBe(2048)
     expect(result.focus).toEqual(['src/tools/'])
     expect(result.invalidate).toBe(true)
+  })
+})
+
+describe('/repomap command', () => {
+  test('builds a repository map using the default token budget', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-command-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function main(): string { return "hello" }\n',
+      )
+
+      const value = await runTextCommand('', tempDir)
+
+      expect(value).toContain('Repository map:')
+      expect(value).toContain('main.ts:')
+      expect(value).toContain('Tokens:')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('reports cache stats without building a map', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-command-'))
+    try {
+      const value = await runTextCommand('--stats', tempDir)
+
+      expect(value).toContain('Repository map cache stats:')
+      expect(value).toContain('Cached entries:')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('invalidates and rebuilds the cache', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-command-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function value(): number { return 1 }\n',
+      )
+
+      const value = await runTextCommand('--invalidate --tokens 512', tempDir)
+
+      expect(value).toContain('Cache invalidated and rebuilt.')
+      expect(value).toContain('main.ts:')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
   })
 })

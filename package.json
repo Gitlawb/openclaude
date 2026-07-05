@@ -110,7 +110,7 @@
     "google-auth-library": "10.6.2",
     "https-proxy-agent": "7.0.6",
     "ignore": "7.0.5",
-    "graphology-pagerank": "1.1.0",
+    "graphology-metrics": "2.4.0",
     "indent-string": "5.0.0",
     "js-tiktoken": "1.0.21",
     "jsonc-parser": "3.3.1",

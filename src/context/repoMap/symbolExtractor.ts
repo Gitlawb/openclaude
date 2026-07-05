@@ -42,6 +42,13 @@ async function getQuery(language: NonNullable<ReturnType<typeof getLanguageForFi
   return query
 }
 
+export function clearSymbolExtractorCaches(): void {
+  for (const query of queryCache.values()) {
+    query.delete?.()
+  }
+  queryCache.clear()
+}
+
 /**
  * Extract definition and reference tags from a single source file.
  * Returns null if the file can't be parsed (unsupported language, parse error, etc).

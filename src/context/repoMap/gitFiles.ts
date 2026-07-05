@@ -5,7 +5,7 @@ import type { SupportedLanguage } from './types.js'
 
 const SUPPORTED_EXTENSIONS: Record<string, SupportedLanguage> = {
   '.ts': 'typescript',
-  '.tsx': 'typescript',
+  '.tsx': 'tsx',
   '.js': 'javascript',
   '.jsx': 'javascript',
   '.mjs': 'javascript',
