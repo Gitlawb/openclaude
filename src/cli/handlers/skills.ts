@@ -32,7 +32,7 @@ export { skillsInstallHandler } from './skillsInstall.js'
 
 type SkillCommand = SkillListCommand
 type ListOptions = { json?: boolean }
-type RemoveOptions = { global?: boolean }
+type RemoveOptions = { global?: boolean; projectDir?: string }
 const VALID_REMOVE_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
 
 function isSkillCommand(cmd: Command): cmd is SkillCommand {
@@ -46,8 +46,8 @@ function isSkillCommand(cmd: Command): cmd is SkillCommand {
   )
 }
 
-function loadSkills(): Promise<SkillCommand[]> {
-  return getCommands(getCwd()).then(commands => commands.filter(isSkillCommand))
+function loadSkills(cwd = getCwd()): Promise<SkillCommand[]> {
+  return getCommands(cwd).then(commands => commands.filter(isSkillCommand))
 }
 
 function resolveContainedPath(root: string, child: string): string {
@@ -73,7 +73,7 @@ function localSkillRootForRemoval(name: string, options: RemoveOptions): string 
   if (!VALID_REMOVE_SKILL_NAME.test(skillName)) return undefined
   const root = options.global
     ? join(getClaudeConfigHomeDir(), 'skills')
-    : join(getCwd(), '.openclaude', 'skills')
+    : join(options.projectDir ?? getCwd(), '.openclaude', 'skills')
   return resolveContainedPath(root, join(...skillName.split(':')))
 }
 
@@ -159,7 +159,7 @@ export async function skillsRemoveHandler(
   name: string,
   options: RemoveOptions,
 ): Promise<void> {
-  const skills = (await loadSkills()).filter(isPublicSkill)
+  const skills = (await loadSkills(options.projectDir)).filter(isPublicSkill)
   const targetSource = options.global ? 'userSettings' : 'projectSettings'
   const skill = findLocalSkillForRemoval(skills, name, targetSource)
 

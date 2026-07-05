@@ -16,14 +16,11 @@ import { test } from 'bun:test'
 import {
   getAdditionalDirectoriesForClaudeMd,
   getAllowedSettingSources,
-  getCwdState,
   setAdditionalDirectoriesForClaudeMd,
   setAllowedSettingSources,
-  setCwdState,
 } from '../../bootstrap/state.ts'
 import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
-import { runWithCwdOverride } from '../../utils/cwd.js'
 import type { SettingSource } from '../../utils/settings/constants.ts'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.ts'
 import { skillsInstallHandler } from './skillsInstall.ts'
@@ -675,22 +672,17 @@ test.serial('removes only the targeted project skill directory', async () => {
     const target = join(skillsRoot, 'sample-skill')
     const sibling = join(skillsRoot, 'sibling-skill')
     const originalSettingsState = enableUserAndProjectSettingSources()
-    const originalCwdState = getCwdState()
     mkdirSync(target, { recursive: true })
     mkdirSync(sibling, { recursive: true })
     writeFileSync(join(target, 'SKILL.md'), VALID_SKILL, 'utf8')
     writeFileSync(join(sibling, 'SKILL.md'), VALID_SKILL.replace('sample-skill', 'sibling-skill'), 'utf8')
 
-    setCwdState(cwd)
     clearCommandsCache()
     try {
       process.exitCode = 0
-      await runWithCwdOverride(cwd, () =>
-        skillsRemoveHandler('sample-skill', {}),
-      )
+      await skillsRemoveHandler('sample-skill', { projectDir: cwd })
       assert.equal(process.exitCode, 0)
     } finally {
-      setCwdState(originalCwdState)
       restoreSettingState(originalSettingsState)
       clearCommandsCache()
     }
