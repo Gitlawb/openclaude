@@ -3,6 +3,8 @@ export type FpsMetrics = {
   low1PctFps: number
 }
 
+const MAX_FRAME_DURATION_SAMPLES = 5000
+
 export class FpsTracker {
   private frameDurations: number[] = []
   private firstRenderTime: number | undefined
@@ -14,6 +16,9 @@ export class FpsTracker {
       this.firstRenderTime = now
     }
     this.lastRenderTime = now
+    if (this.frameDurations.length >= MAX_FRAME_DURATION_SAMPLES) {
+      this.frameDurations.shift()
+    }
     this.frameDurations.push(durationMs)
   }
 

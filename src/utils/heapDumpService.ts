@@ -29,6 +29,8 @@ export type HeapDumpResult = {
   error?: string
 }
 
+let manualHeapDumpCount = 0
+
 /**
  * Memory diagnostics captured alongside heap dump.
  * Helps identify if leak is in V8 heap (captured in snapshot) or native memory (not captured).
@@ -37,7 +39,7 @@ export type MemoryDiagnostics = {
   timestamp: string
   sessionId: string
   trigger: 'manual' | 'auto-1.5GB'
-  dumpNumber: number // 1st, 2nd, etc. auto dump in this session (0 for manual)
+  dumpNumber: number // 1st, 2nd, etc. dump in this session
   uptimeSeconds: number
   memoryUsage: {
     heapUsed: number
@@ -224,10 +226,19 @@ export async function performHeapDump(
 ): Promise<HeapDumpResult> {
   try {
     const sessionId = getSessionId()
+    const effectiveDumpNumber =
+      dumpNumber > 0
+        ? dumpNumber
+        : trigger === 'manual'
+          ? ++manualHeapDumpCount
+          : dumpNumber
 
     // Capture diagnostics before any other async I/O —
     // the heap dump itself allocates memory and would skew the numbers.
-    const diagnostics = await captureMemoryDiagnostics(trigger, dumpNumber)
+    const diagnostics = await captureMemoryDiagnostics(
+      trigger,
+      effectiveDumpNumber,
+    )
 
     const toGB = (bytes: number): string =>
       (bytes / 1024 / 1024 / 1024).toFixed(3)
@@ -240,7 +251,8 @@ export async function performHeapDump(
     const dumpDir = getDesktopPath()
     await getFsImplementation().mkdir(dumpDir)
 
-    const suffix = dumpNumber > 0 ? `-dump${dumpNumber}` : ''
+    const suffix =
+      effectiveDumpNumber > 0 ? `-dump${effectiveDumpNumber}` : ''
     const heapFilename = `${sessionId}${suffix}.heapsnapshot`
     const diagFilename = `${sessionId}${suffix}-diagnostics.json`
     const heapPath = join(dumpDir, heapFilename)
@@ -259,7 +271,7 @@ export async function performHeapDump(
     logEvent('tengu_heap_dump', {
       triggerManual: trigger === 'manual',
       triggerAuto15GB: trigger === 'auto-1.5GB',
-      dumpNumber,
+      dumpNumber: effectiveDumpNumber,
       success: true,
     })
 
