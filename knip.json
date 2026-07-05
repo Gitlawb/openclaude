@@ -16,6 +16,7 @@
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts"],
   "ignore": [
     "src/integrations/generated/**",
+    "src/context/repoMap/__fixtures__/**",
     "src/services/internalLogging.ts",
     "src/types/generated/**",
     "src/test/fixtures/**",

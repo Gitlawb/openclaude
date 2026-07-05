@@ -133,7 +133,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'chokidar',
   // Graph algorithms (repo map PageRank)
   'graphology',
-  'graphology-operators',
   'graphology-pagerank',
   // Tokenizer for repo map token budgeting
   'js-tiktoken',

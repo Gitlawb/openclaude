@@ -106,7 +106,6 @@
     "figures": "6.1.0",
     "fuse.js": "7.1.0",
     "graphology": "^0.26.0",
-    "graphology-operators": "^1.6.0",
     "get-east-asian-width": "1.5.0",
     "google-auth-library": "10.6.2",
     "https-proxy-agent": "7.0.6",
