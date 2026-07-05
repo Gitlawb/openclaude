@@ -8,6 +8,7 @@ const MAX_FRAME_DURATION_SAMPLES = 5000
 export class FpsTracker {
   private frameDurations: number[] = new Array(MAX_FRAME_DURATION_SAMPLES)
   private sampleCount = 0
+  private totalFrameCount = 0
   private writeIndex = 0
   private firstRenderTime: number | undefined
   private lastRenderTime: number | undefined
@@ -18,6 +19,7 @@ export class FpsTracker {
       this.firstRenderTime = now
     }
     this.lastRenderTime = now
+    this.totalFrameCount += 1
     this.frameDurations[this.writeIndex] = durationMs
     this.writeIndex = (this.writeIndex + 1) % MAX_FRAME_DURATION_SAMPLES
     this.sampleCount = Math.min(this.sampleCount + 1, MAX_FRAME_DURATION_SAMPLES)
@@ -37,7 +39,7 @@ export class FpsTracker {
       return undefined
     }
 
-    const totalFrames = this.sampleCount
+    const totalFrames = this.totalFrameCount
     const averageFps = totalFrames / (totalTimeMs / 1000)
 
     const sorted = this.getSamples().sort((a, b) => b - a)
