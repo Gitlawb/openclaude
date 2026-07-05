@@ -790,10 +790,10 @@ export function checkForLSPDiagnostics(): LSPDiagnosticSet[] {
     }
   }
 
-  // Return empty if no diagnostics to deliver (all filtered by deduplication)
-  if (deliveredFiles.length === 0) {
+  // Return empty if no real diagnostics remain after deduplication/filtering.
+  if (deliveredFiles.length === 0 || deliveredCount === 0) {
     logForDebugging(
-      `LSP Diagnostics: No new diagnostics to deliver (all filtered by deduplication)`,
+      `LSP Diagnostics: No new diagnostics to deliver after filtering, deduplication, and volume limiting`,
     )
     return []
   }

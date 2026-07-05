@@ -47,6 +47,12 @@ function diagnosticCount(files: DiagnosticFile[]): number {
   return files.reduce((sum, file) => sum + file.diagnostics.length, 0)
 }
 
+function deliveryLogs(): string[] {
+  return debugMessages.filter(message =>
+    message.startsWith('LSP Diagnostics: Delivering '),
+  )
+}
+
 describe('LSPDiagnosticRegistry storm control', () => {
   beforeEach(() => {
     registry.resetAllLSPDiagnosticState()
@@ -85,6 +91,20 @@ describe('LSPDiagnosticRegistry storm control', () => {
     })
 
     expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns no diagnostic set for raw empty diagnostic files', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [{ uri: '/repo/cleared.ts', diagnostics: [] }],
+    })
+
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).toEqual([])
   })
 
   test('snapshots pending diagnostics without consuming delivery', () => {
@@ -194,6 +214,8 @@ describe('LSPDiagnosticRegistry storm control', () => {
     // Intentionally clear by file:// URI while diagnostics use a plain path;
     // both forms must normalize to the same delivered-diagnostic key.
     registry.clearDeliveredDiagnosticsForFile('file:///repo/a.ts')
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+
     registry.registerPendingLSPDiagnostic({
       serverName: 'typescript',
       files: [file],
@@ -308,11 +330,34 @@ describe('LSPDiagnosticRegistry storm control', () => {
       serverName: 'typescript',
       files: [stormFile],
     })
-    const secondFiles = registry.checkForLSPDiagnostics()[0]?.files ?? []
+    const secondDiagnosticSets = registry.checkForLSPDiagnostics()
 
-    expect(secondFiles.map(file => file.uri)).toEqual([
-      'lsp://diagnostic-storm/typescript',
-    ])
+    expect(secondDiagnosticSets).toEqual([])
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns no diagnostic set when volume limiting leaves only reserved summaries', () => {
+    for (let index = 0; index < 30; index++) {
+      registry.registerPendingLSPDiagnostic({
+        serverName: `server-${index}`,
+        files: [
+          diagnosticFile(
+            `/repo/storm-${index}.ts`,
+            Array.from(
+              { length: 201 },
+              (_, diagnosticIndex) =>
+                `storm ${index} diagnostic ${diagnosticIndex}`,
+            ),
+          ),
+        ],
+      })
+    }
+
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).toEqual([])
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {
