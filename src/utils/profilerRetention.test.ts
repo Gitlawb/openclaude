@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -204,9 +204,7 @@ afterEach(() => {
       rmSync(tempConfigDir, { recursive: true, force: true })
       tempConfigDir = undefined
     }
-    spyOn(debug, 'logForDebugging').mockRestore()
-    spyOn(analytics, 'logEvent').mockRestore()
-    spyOn(bootstrapState, 'getIsNonInteractiveSession').mockRestore()
+    mock.restore()
   } finally {
     releaseSharedMutationLock()
   }

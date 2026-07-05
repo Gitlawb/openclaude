@@ -76,16 +76,12 @@ export function queryCheckpoint(name: string): void {
   if (!ENABLED) return
 
   const perf = getPerformance()
-  perf.mark(getProfilerMarkName(PROFILER_SCOPE, name))
+  const mark = perf.mark(getProfilerMarkName(PROFILER_SCOPE, name))
   memorySnapshots.set(name, process.memoryUsage())
 
   // Track first token specially
   if (name === 'query_first_chunk_received' && firstTokenTime === null) {
-    const marks = getProfilerEntries(PROFILER_SCOPE, 'mark')
-    if (marks.length > 0) {
-      const lastMark = marks[marks.length - 1]
-      firstTokenTime = lastMark?.startTime ?? 0
-    }
+    firstTokenTime = mark.startTime
   }
 }
 
