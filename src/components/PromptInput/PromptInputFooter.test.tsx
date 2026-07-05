@@ -94,6 +94,16 @@ describe('shouldSuppressShortcutsHint', () => {
     ).toBe(true)
   })
 
+  it('always yields to a custom status line — explicit config wins over the grace period', () => {
+    expect(
+      shouldSuppressShortcutsHint({
+        ...base,
+        footerStatusLine: 'custom',
+        numStartups: 1,
+      }),
+    ).toBe(true)
+  })
+
   it('always suppresses during ctrl-r search and caller overrides', () => {
     expect(shouldSuppressShortcutsHint({ ...base, isSearching: true })).toBe(
       true,

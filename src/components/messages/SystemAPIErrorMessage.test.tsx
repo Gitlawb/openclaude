@@ -95,4 +95,13 @@ test('briefAPIErrorReason classifies common failures', () => {
   expect(
     briefAPIErrorReason({ message: 'x', status: 400 } as APIError),
   ).toBe('API error')
+  // extractConnectionErrorDetails only walks Error instances, so the
+  // timeout-shaped error must be a real Error carrying the code
+  expect(
+    briefAPIErrorReason(
+      Object.assign(new Error('request timed out'), {
+        code: 'ETIMEDOUT',
+      }) as unknown as APIError,
+    ),
+  ).toBe('Request timed out')
 })

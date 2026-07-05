@@ -48,7 +48,9 @@ export function resolveFooterStatusLine(settings: ReadonlySettings, guards: {
  * The builtin status line ships enabled, so a status line renders for nearly
  * everyone — treating that as a reason to hide `? for shortcuts` would kill
  * the hint's discoverability entirely. New users (by startup count) keep the
- * hint alongside the status line; established users get the quieter footer.
+ * hint alongside the builtin status line; established users get the quieter
+ * footer. A custom status line is an explicit user configuration, so it
+ * always wins over the hint regardless of tenure.
  */
 export const SHORTCUTS_HINT_STARTUP_GRACE = 10;
 export function shouldSuppressShortcutsHint(args: {
@@ -58,7 +60,8 @@ export function shouldSuppressShortcutsHint(args: {
   numStartups: number;
 }): boolean {
   if (args.suppressedByCaller || args.isSearching) return true;
-  return args.footerStatusLine !== null && args.numStartups > SHORTCUTS_HINT_STARTUP_GRACE;
+  if (args.footerStatusLine === 'custom') return true;
+  return args.footerStatusLine === 'builtin' && args.numStartups > SHORTCUTS_HINT_STARTUP_GRACE;
 }
 
 type Props = {
