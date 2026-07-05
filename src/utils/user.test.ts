@@ -6,7 +6,6 @@ import {
 } from '../test/sharedMutationLock.js'
 import * as realAuth from './auth.js'
 import * as realConfig from './config.js'
-import * as realCwd from './cwd.js'
 import * as realEnv from './env.js'
 import * as realEnvUtils from './envUtils.js'
 
@@ -19,17 +18,15 @@ async function importFreshUserModule() {
 
 async function importActualUserTestDeps() {
   const nonce = `${Date.now()}-${Math.random()}`
-  const [authModule, configModule, cwdModule, execaModule] = await Promise.all([
+  const [authModule, configModule, execaModule] = await Promise.all([
     import(`./auth.js?ts=${nonce}`),
     import(`./config.js?ts=${nonce}`),
-    import(`./cwd.js?ts=${nonce}`),
     import('execa'),
   ])
 
   return {
     authModule,
     configModule,
-    cwdModule,
     execaModule,
   }
 }
@@ -44,8 +41,7 @@ async function installCommonMocks(options?: {
   // every other test file that imports state.js (e.g. SDK CON-1 tests).
   // The dynamic import (importFreshUserModule) will use the real state.js,
   // which is fine — these tests only assert email, not sessionId.
-  const { authModule, configModule, cwdModule, execaModule } =
-    await importActualUserTestDeps()
+  const { authModule, configModule, execaModule } = await importActualUserTestDeps()
 
   mock.module('./auth.js', () => ({
     ...authModule,
@@ -65,11 +61,6 @@ async function installCommonMocks(options?: {
     ...configModule,
     getGlobalConfig: () => ({}),
     getOrCreateUserID: () => 'device-test',
-  }))
-
-  mock.module('./cwd.js', () => ({
-    ...cwdModule,
-    getCwd: () => 'C:\\repo',
   }))
 
   mock.module('./env.js', () => ({
@@ -108,7 +99,6 @@ afterEach(() => {
     mock.restore()
     mock.module('./auth.js', () => realAuth)
     mock.module('./config.js', () => realConfig)
-    mock.module('./cwd.js', () => realCwd)
     mock.module('./env.js', () => realEnv)
     mock.module('./envUtils.js', () => realEnvUtils)
     mock.module('execa', () => realExeca)

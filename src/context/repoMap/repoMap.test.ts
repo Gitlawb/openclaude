@@ -153,7 +153,7 @@ describe('symbol extraction', () => {
       for (const file of files) {
         writeFileSync(
           join(tempDir, file),
-          `export function ${file.replace('.js', '')}(): number { return 1 }\n`,
+          `export function ${file.replace('.js', '')}() { return 1 }\n`,
         )
       }
 

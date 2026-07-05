@@ -14,12 +14,72 @@ import {
 import { getRepoFiles } from './gitFiles.js'
 import { buildGraph } from './graph.js'
 import { rankFiles } from './pagerank.js'
-import { initParser } from './parser.js'
 import { renderMap } from './renderer.js'
 import { extractTags } from './symbolExtractor.js'
-import type { FileTags, RepoMapOptions, RepoMapResult, CacheStats } from './types.js'
+import type {
+  CacheData,
+  CacheStats,
+  FileStatFingerprint,
+  FileTags,
+  RepoMapOptions,
+  RepoMapResult,
+} from './types.js'
 
 const DEFAULT_MAX_TOKENS = 2048
+const TAG_EXTRACTION_BATCH_SIZE = 50
+
+export async function extractTagsWithCache({
+  files,
+  root,
+  cache,
+  fileStats,
+  shouldContinue,
+}: {
+  files: string[]
+  root: string
+  cache: CacheData
+  fileStats?: Map<string, FileStatFingerprint | null>
+  shouldContinue?: () => void
+}): Promise<FileTags[]> {
+  const allFileTags: FileTags[] = []
+  const uncachedFiles: string[] = []
+
+  for (const file of files) {
+    shouldContinue?.()
+    const cachedTags = getCachedTags(
+      cache,
+      file,
+      root,
+      fileStats?.get(file) ?? undefined,
+    )
+    if (cachedTags) {
+      allFileTags.push({ path: file, tags: cachedTags })
+    } else {
+      uncachedFiles.push(file)
+    }
+  }
+
+  for (let i = 0; i < uncachedFiles.length; i += TAG_EXTRACTION_BATCH_SIZE) {
+    shouldContinue?.()
+    const batch = uncachedFiles.slice(i, i + TAG_EXTRACTION_BATCH_SIZE)
+    const results = await Promise.all(
+      batch.map(file => extractTags(file, root).catch(() => null)),
+    )
+    for (const fileTags of results) {
+      if (!fileTags) continue
+      allFileTags.push(fileTags)
+      setCachedTags(
+        cache,
+        fileTags.path,
+        root,
+        fileTags.tags,
+        fileStats?.get(fileTags.path) ?? undefined,
+      )
+    }
+  }
+
+  return allFileTags
+}
 
 /**
  * Build a structural summary of a code repository.
@@ -33,9 +93,6 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const root = options.root ?? process.cwd()
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
   const focusFiles = options.focusFiles ?? []
-
-  // Initialize tree-sitter
-  await initParser()
 
   // Get files
   const files = options.files ?? await getRepoFiles(root)
@@ -70,46 +127,7 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
     }
   }
 
-  // Extract tags for all files (using per-file cache).
-  // Separate cached hits from files needing extraction.
-  const allFileTags: FileTags[] = []
-  const uncachedFiles: string[] = []
-
-  for (const file of files) {
-    const cachedTags = getCachedTags(
-      cache,
-      file,
-      root,
-      fileStats.get(file) ?? undefined,
-    )
-    if (cachedTags) {
-      allFileTags.push({ path: file, tags: cachedTags })
-    } else {
-      uncachedFiles.push(file)
-    }
-  }
-
-  // Process uncached files in parallel batches
-  const BATCH_SIZE = 50
-  for (let i = 0; i < uncachedFiles.length; i += BATCH_SIZE) {
-    const batch = uncachedFiles.slice(i, i + BATCH_SIZE)
-    const results = await Promise.all(
-      batch.map(file => extractTags(file, root).catch(() => null))
-    )
-    for (let j = 0; j < results.length; j++) {
-      const fileTags = results[j]
-      if (fileTags) {
-        allFileTags.push(fileTags)
-        setCachedTags(
-          cache,
-          fileTags.path,
-          root,
-          fileTags.tags,
-          fileStats.get(fileTags.path) ?? undefined,
-        )
-      }
-    }
-  }
+  const allFileTags = await extractTagsWithCache({ files, root, cache, fileStats })
 
   // Build graph and rank
   const graph = buildGraph(allFileTags)

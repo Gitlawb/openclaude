@@ -5,12 +5,10 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
 import { AbortError } from '../../utils/errors.js'
-import { buildRepoMap } from '../../context/repoMap/index.js'
+import { buildRepoMap, extractTagsWithCache } from '../../context/repoMap/index.js'
 import {
-  getCachedTags,
   loadCache,
   saveCache,
-  setCachedTags,
   statFile,
 } from '../../context/repoMap/cache.js'
 import { REPO_MAP_TOOL_NAME, getDescription } from './prompt.js'
@@ -143,40 +141,26 @@ export const RepoMapTool = buildTool({
     if (focus_symbols?.length) {
       // Import the symbol lookup dynamically to avoid circular deps at module load
       const { getRepoFiles } = await import('../../context/repoMap/gitFiles.js')
-      const { extractTags } = await import('../../context/repoMap/symbolExtractor.js')
-      const { initParser } = await import('../../context/repoMap/parser.js')
 
-      await initParser()
       const files = await getRepoFiles(root)
       const cache = loadCache(root)
+      const fileStats = new Map(files.map(file => [file, statFile(root, file)]))
+      const fileTags = await extractTagsWithCache({
+        files,
+        root,
+        cache,
+        fileStats,
+        shouldContinue: () => throwIfAborted(abortController.signal),
+      })
       const symbolFiles: string[] = []
       const symbolSet = new Set(focus_symbols)
-      const BATCH_SIZE = 50
 
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        throwIfAborted(abortController.signal)
-        const batch = files.slice(i, i + BATCH_SIZE)
-        const results = await Promise.all(
-          batch.map(async file => {
-            const stat = statFile(root, file)
-            const cached = getCachedTags(cache, file, root, stat ?? undefined)
-            if (cached) return { path: file, tags: cached, stat }
-
-            const extracted = await extractTags(file, root).catch(() => null)
-            if (!extracted) return null
-            setCachedTags(cache, file, root, extracted.tags, stat ?? undefined)
-            return { path: file, tags: extracted.tags, stat }
-          }),
+      for (const result of fileTags) {
+        const hasMatch = result.tags.some(
+          tag => tag.kind === 'def' && symbolSet.has(tag.name),
         )
-
-        for (const result of results) {
-          if (!result) continue
-          const hasMatch = result.tags.some(
-            tag => tag.kind === 'def' && symbolSet.has(tag.name),
-          )
-          if (hasMatch) {
-            symbolFiles.push(result.path)
-          }
+        if (hasMatch) {
+          symbolFiles.push(result.path)
         }
       }
 

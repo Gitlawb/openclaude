@@ -51,9 +51,6 @@ async function getQuery(language: NonNullable<ReturnType<typeof getLanguageForFi
 
   try {
     return await promise
-  } catch (error) {
-    queryLoadPromises.delete(language)
-    throw error
   } finally {
     if (queryLoadPromises.get(language) === promise) {
       queryLoadPromises.delete(language)
@@ -102,7 +99,7 @@ export async function extractTags(
 
     const matches = query.matches(tree.rootNode)
     const tags: Tag[] = []
-    const seen = new Set<string>() // dedup by kind+name+line
+    const seen = new Set<string>() // dedup by kind+subkind+name+line
 
     for (const match of matches) {
       let name: string | null = null
@@ -128,7 +125,7 @@ export async function extractTags(
       }
 
       if (name && kind) {
-        const key = `${kind}:${name}:${lineRow}`
+        const key = `${kind}:${subKind ?? ''}:${name}:${lineRow}`
         if (!seen.has(key)) {
           seen.add(key)
           const line = lineRow + 1 // convert 0-based to 1-based
