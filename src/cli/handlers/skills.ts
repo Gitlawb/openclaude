@@ -2,7 +2,7 @@
  * Skills subcommand handler — lists and inspects configured skills.
  */
 
-import { readFile, rm, stat } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
 import {
   findCommand,
@@ -13,6 +13,7 @@ import {
 import { getCwd } from '../../utils/cwd.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getDisplayPath } from '../../utils/file.js'
+import { getFsImplementation } from '../../utils/fsOperations.js'
 import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
@@ -85,7 +86,7 @@ async function existingLocalSkillRootForRemoval(
   if (!skillRoot) return undefined
 
   try {
-    await stat(join(skillRoot, 'SKILL.md'))
+    await getFsImplementation().stat(join(skillRoot, 'SKILL.md'))
     return skillRoot
   } catch {
     return undefined
@@ -166,7 +167,7 @@ export async function skillsRemoveHandler(
   if (!skill) {
     const skillRoot = await existingLocalSkillRootForRemoval(name, options)
     if (skillRoot) {
-      await rm(skillRoot, { recursive: true, force: false })
+      await getFsImplementation().rm(skillRoot, { recursive: true, force: false })
       console.log(
         `Removed skill "${name}" from ${options.global ? 'user' : 'project'}.`,
       )
@@ -184,6 +185,6 @@ export async function skillsRemoveHandler(
     return
   }
 
-  await rm(skill.skillRoot, { recursive: true, force: false })
+  await getFsImplementation().rm(skill.skillRoot, { recursive: true, force: false })
   console.log(`Removed skill "${getCommandName(skill)}" from ${sourceLabel(skill)}.`)
 }
