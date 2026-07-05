@@ -29,9 +29,15 @@ const productionReactModules = new Map<string, string>([
     'react/jsx-runtime',
     join(reactPackageDir, 'cjs/react-jsx-runtime.production.js'),
   ],
+  // NOT react-jsx-dev-runtime.production.js: that file exports
+  // `jsxDEV: undefined` on purpose (production code is expected to use the
+  // non-dev transform), but Bun transpiles our JSX to jsxDEV() calls, so the
+  // real production file would leave every component invoking undefined()
+  // and the UI would never render. The shim dispatches to production
+  // jsx/jsxs; its own `react/jsx-runtime` import is remapped by this plugin.
   [
     'react/jsx-dev-runtime',
-    join(reactPackageDir, 'cjs/react-jsx-dev-runtime.production.js'),
+    join(import.meta.dir, 'reactJsxDevRuntimeProductionShim.js'),
   ],
   [
     'react-reconciler',

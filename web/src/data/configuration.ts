@@ -70,6 +70,7 @@ export const envVars: EnvVar[] = [
   { name: 'GITHUB_TOKEN', description: 'GitHub token for GitHub Models and PR workflows.' },
   { name: 'OPENCLAUDE_CONFIG_DIR', description: 'Preferred config directory override. Defaults to ~/.openclaude when unset.' },
   { name: 'CLAUDE_CONFIG_DIR', description: 'Legacy config directory override. Used only when OPENCLAUDE_CONFIG_DIR is unset.' },
+  { name: 'BASH_MAX_OUTPUT_LENGTH', description: 'Max characters of shell output shown inline before truncation (default 30000, cap 150000). Truncated runs save the captured output to a file the agent can read back (very large outputs may be capped).' },
   { name: 'HTTP_PROXY / HTTPS_PROXY', description: 'Route API traffic through a proxy.' },
   { name: 'NODE_EXTRA_CA_CERTS', description: 'Extra CA certificates for corporate TLS interception.' },
   { name: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', description: 'Disable non-essential network traffic.' },
