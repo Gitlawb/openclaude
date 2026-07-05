@@ -69,6 +69,32 @@ test('skills list bypasses provider startup validation after --bare', async () =
   expect(stderr).not.toContain('OPENAI_API_KEY is required')
 }, 15_000)
 
+test('skills list bypasses provider startup validation after --settings', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--settings',
+    '{}',
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(0)
+  expect(stdout).toContain('Skills: 0 enabled')
+  expect(stderr).not.toContain('OPENAI_API_KEY is required')
+}, 15_000)
+
+test('skills list bypasses provider startup validation after --setting-sources', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--setting-sources',
+    'user,project',
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(0)
+  expect(stdout).toContain('Skills: 0 enabled')
+  expect(stderr).not.toContain('OPENAI_API_KEY is required')
+}, 15_000)
+
 test('skills list honors --add-dir before provider startup validation', async () => {
   const addDirRoot = mkdtempSync(join(tmpdir(), 'openclaude-skills-add-dir-'))
   const skillDir = join(addDirRoot, '.openclaude', 'skills', 'addon')

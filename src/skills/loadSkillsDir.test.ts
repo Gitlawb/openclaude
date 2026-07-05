@@ -252,13 +252,14 @@ test.serial('project skills are ordered before user skills with the same name', 
 
   try {
     mkdirSync(cwd, { recursive: true })
-    writeUserSkill(configDir, 'shared', 'user skill')
+    setConfigDirEnv(configDir)
+    const userConfigDir = getClaudeConfigHomeDir()
+    writeUserSkill(userConfigDir, 'shared', 'user skill')
     writeSkill(cwd, 'shared', {
       configDirName: '.openclaude',
       description: 'project skill',
     })
 
-    setConfigDirEnv(configDir)
     clearSkillAndConfigCaches()
 
     const sharedSkills = (await getSkillDirCommands(cwd))
@@ -266,11 +267,21 @@ test.serial('project skills are ordered before user skills with the same name', 
       .map(skill => ({
         description: skill.description,
         source: skill.source,
+        skillRoot: skill.skillRoot,
       }))
 
-    assert.equal(sharedSkills.length, 2)
-    assert.equal(sharedSkills[0]?.description, 'project skill')
-    assert.equal(sharedSkills[0]?.source, 'projectSettings')
+    assert.deepEqual(sharedSkills, [
+      {
+        description: 'project skill',
+        source: 'projectSettings',
+        skillRoot: join(cwd, '.openclaude', 'skills', 'shared'),
+      },
+      {
+        description: 'user skill',
+        source: 'userSettings',
+        skillRoot: join(userConfigDir, 'skills', 'shared'),
+      },
+    ])
   } finally {
     try {
       restoreConfigDirEnv(originalConfigDir)

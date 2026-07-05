@@ -42,15 +42,77 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
+  '--dangerously-skip-permissions',
+  '--allow-dangerously-skip-permissions',
+  '--disable-slash-commands',
+  '--enable-auth-status',
+  '--fork-session',
+  '--ide',
+  '--include-hook-events',
+  '--include-partial-messages',
+  '--init',
+  '--init-only',
+  '--maintenance',
   '--mcp-debug',
+  '--no-chrome',
+  '--no-session-persistence',
+  '--replay-user-messages',
+  '--strict-mcp-config',
   '--verbose',
 ])
 
 const SKILLS_LEADING_VALUE_FLAGS = new Set([
-  '--add-dir',
+  '--agent',
+  '--append-system-prompt',
+  '--append-system-prompt-file',
   '--debug-file',
+  '--effort',
+  '--fallback-model',
+  '--heartbeat',
+  '--input-format',
+  '--json-schema',
+  '--max-budget-usd',
+  '--max-thinking-tokens',
+  '--max-turns',
   '--model',
+  '--output-format',
+  '--permission-mode',
+  '--permission-prompt-tool',
   '--provider',
+  '--resume-session-at',
+  '--session-id',
+  '--settings',
+  '--setting-sources',
+  '--system-prompt',
+  '--system-prompt-file',
+  '--thinking',
+  '--workload',
+  '-n',
+  '--name',
+])
+
+const SKILLS_LEADING_OPTIONAL_VALUE_FLAGS = new Set([
+  '--continue',
+  '--from-pr',
+  '--print',
+  '-c',
+  '-p',
+  '-r',
+  '--resume',
+])
+
+const SKILLS_LEADING_MULTI_VALUE_FLAGS = new Set([
+  '--add-dir',
+  '--allowedTools',
+  '--allowed-tools',
+  '--betas',
+  '--disallowedTools',
+  '--disallowed-tools',
+  '--file',
+  '--mcp-config',
+  '--plugin-dir',
+  '--provider-env-file',
+  '--tools',
 ])
 
 type SkillsCliParseResult = {
@@ -69,7 +131,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
     if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
       continue
     }
-    if (arg === '--add-dir') {
+    if (SKILLS_LEADING_MULTI_VALUE_FLAGS.has(arg)) {
       let consumed = false
       while (args[index + 1] && !args[index + 1]!.startsWith('-')) {
         index += 1
@@ -80,10 +142,10 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
             args: args.slice(index),
           }
         }
-        if (value) {
+        if (value && arg === '--add-dir') {
           additionalDirectories.push(value)
-          consumed = true
         }
+        consumed = true
       }
       if (!consumed) {
         return undefined
@@ -108,6 +170,23 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
     }
     if (
       Array.from(SKILLS_LEADING_VALUE_FLAGS).some(flag =>
+        arg?.startsWith(`${flag}=`),
+      )
+    ) {
+      continue
+    }
+    if (SKILLS_LEADING_OPTIONAL_VALUE_FLAGS.has(arg)) {
+      if (
+        args[index + 1] &&
+        args[index + 1] !== 'skills' &&
+        !args[index + 1]!.startsWith('-')
+      ) {
+        index += 1
+      }
+      continue
+    }
+    if (
+      Array.from(SKILLS_LEADING_OPTIONAL_VALUE_FLAGS).some(flag =>
         arg?.startsWith(`${flag}=`),
       )
     ) {
