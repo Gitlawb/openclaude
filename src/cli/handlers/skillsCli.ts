@@ -4,6 +4,7 @@ type SkillsCliOptions = {
   help?: boolean
   json?: boolean
   registry?: string
+  sha256?: string
 }
 
 const SKILLS_HELP = `Usage: openclaude skills <command> [options]
@@ -12,7 +13,7 @@ Commands:
   list [--json]                    List installed skills
   show <name>                      Show details for an installed skill
   validate <path>                  Validate a local skill directory
-  install <idOrUrlOrPath> [options] Install a skill
+  install <idOrUrlOrPath> [options] Install a skill (--sha256 required for HTTP(S) URLs)
   remove <name> [--global]         Remove an installed skill`
 
 function parseSkillsCliArgs(args: string[]): {
@@ -40,12 +41,25 @@ function parseSkillsCliArgs(args: string[]): {
       }
       options.registry = value
       index += 1
+    } else if (arg === '--sha256') {
+      const value = args[index + 1]
+      if (!value || value.startsWith('--')) {
+        return { options, positionals, error: '--sha256 requires a value.' }
+      }
+      options.sha256 = value
+      index += 1
     } else if (arg?.startsWith('--registry=')) {
       const value = arg.slice('--registry='.length)
       if (!value) {
         return { options, positionals, error: '--registry requires a value.' }
       }
       options.registry = value
+    } else if (arg?.startsWith('--sha256=')) {
+      const value = arg.slice('--sha256='.length)
+      if (!value) {
+        return { options, positionals, error: '--sha256 requires a value.' }
+      }
+      options.sha256 = value
     } else if (arg?.startsWith('--')) {
       return { options, positionals, error: `Unknown skills option: ${arg}` }
     } else if (arg) {

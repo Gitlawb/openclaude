@@ -14,6 +14,10 @@ const REQUIRED_METADATA = [
   'trust',
 ] as const
 
+type ValidationOptions = {
+  requireRegistryMetadata?: boolean
+}
+
 const VALID_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
 const UNSAFE_FILE_NAMES = new Set([
   'package.json',
@@ -105,7 +109,10 @@ async function fileLooksBinary(path: string): Promise<boolean> {
   }
 }
 
-export async function validateSkillPath(path: string): Promise<string[]> {
+export async function validateSkillPath(
+  path: string,
+  options: ValidationOptions = {},
+): Promise<string[]> {
   const errors: string[] = []
   const skillDir = resolve(path)
   const skillFilePath = join(skillDir, 'SKILL.md')
@@ -144,10 +151,12 @@ export async function validateSkillPath(path: string): Promise<string[]> {
     errors.push(`Invalid skill name "${name}". Use lowercase letters, numbers, dashes, and optional colon namespaces.`)
   }
 
-  for (const field of REQUIRED_METADATA) {
-    const value = metadataValue(frontmatter, jsonMetadata, field)
-    if (typeof value !== 'string' || value.trim() === '') {
-      errors.push(`Missing required metadata: ${field}.`)
+  if (options.requireRegistryMetadata) {
+    for (const field of REQUIRED_METADATA) {
+      const value = metadataValue(frontmatter, jsonMetadata, field)
+      if (typeof value !== 'string' || value.trim() === '') {
+        errors.push(`Missing required metadata: ${field}.`)
+      }
     }
   }
 

@@ -4174,8 +4174,9 @@ async function run(): Promise<CommanderCommand> {
   skillsCmd.command('validate <path>').description('Validate a local skill directory').action(async (path: string) => {
     await runSkillsCommanderAction(({ skillsValidateHandler }) => skillsValidateHandler(path));
   });
-  skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
+  skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--sha256 <hash>', 'Expected SHA-256 digest for direct HTTP(S) URL installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
     registry?: string;
+    sha256?: string;
     global?: boolean;
     force?: boolean;
   }) => {

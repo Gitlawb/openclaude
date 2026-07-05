@@ -47,18 +47,55 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
 ])
 
 const SKILLS_LEADING_VALUE_FLAGS = new Set([
+  '--add-dir',
   '--debug-file',
   '--model',
   '--provider',
 ])
 
-function getSkillsCliArgs(args: string[]): string[] | undefined {
+type SkillsCliParseResult = {
+  additionalDirectories: string[]
+  args: string[]
+}
+
+function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
+  const additionalDirectories: string[] = []
+
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === 'skills') {
-      return args.slice(index)
+      return { additionalDirectories, args: args.slice(index) }
     }
     if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
+      continue
+    }
+    if (arg === '--add-dir') {
+      let consumed = false
+      while (args[index + 1] && !args[index + 1]!.startsWith('-')) {
+        index += 1
+        const value = args[index]
+        if (value === 'skills') {
+          return {
+            additionalDirectories,
+            args: args.slice(index),
+          }
+        }
+        if (value) {
+          additionalDirectories.push(value)
+          consumed = true
+        }
+      }
+      if (!consumed) {
+        return undefined
+      }
+      continue
+    }
+    if (arg?.startsWith('--add-dir=')) {
+      const value = arg.slice('--add-dir='.length)
+      if (!value) {
+        return undefined
+      }
+      additionalDirectories.push(value)
       continue
     }
     if (
@@ -287,9 +324,13 @@ export async function main(
   // configuration is broken, so users can inspect/fix skills from scripts.
   const skillsCliArgs = getSkillsCliArgs(args)
   if (skillsCliArgs) {
+    const { setAdditionalDirectoriesForClaudeMd } = await import(
+      '../bootstrap/state.js'
+    )
+    setAdditionalDirectoriesForClaudeMd(skillsCliArgs.additionalDirectories)
     const { runSkillsCli } = await import('../cli/handlers/skillsCli.js')
-    process.argv = [process.argv[0]!, process.argv[1]!, ...skillsCliArgs]
-    await runSkillsCli(skillsCliArgs)
+    process.argv = [process.argv[0]!, process.argv[1]!, ...skillsCliArgs.args]
+    await runSkillsCli(skillsCliArgs.args)
     return
   }
 

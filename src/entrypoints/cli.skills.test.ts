@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync } from 'fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
@@ -66,5 +66,27 @@ test('skills list bypasses provider startup validation after --bare', async () =
   expect(exitCode).toBe(0)
   expect(stdout).toContain('Skills: 0 enabled')
   expect(stdout).toContain('No installed skills found.')
+  expect(stderr).not.toContain('OPENAI_API_KEY is required')
+})
+
+test('skills list honors --add-dir before provider startup validation', async () => {
+  const addDirRoot = mkdtempSync(join(tmpdir(), 'openclaude-skills-add-dir-'))
+  const skillDir = join(addDirRoot, '.openclaude', 'skills', 'addon')
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    `---\ndescription: Skill loaded from add-dir.\n---\n# Addon\n`,
+    'utf8',
+  )
+
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--add-dir',
+    addDirRoot,
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(0)
+  expect(stdout).toContain('addon')
   expect(stderr).not.toContain('OPENAI_API_KEY is required')
 })

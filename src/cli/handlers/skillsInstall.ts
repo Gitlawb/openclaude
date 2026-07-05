@@ -16,6 +16,7 @@ export type InstallOptions = {
   force?: boolean
   registry?: string
   projectDir?: string
+  sha256?: string
 }
 
 type SkillRegistryEntry = {
@@ -215,7 +216,25 @@ function requireRegistrySha256(entry: SkillRegistryEntry, spec: string): string 
       `Registry entry "${spec}" is missing sha256. Refusing to install an unpinned skill.`,
     )
   }
-  return entry.sha256.trim()
+  return normalizeExpectedSha256(entry.sha256) ?? ''
+}
+
+function normalizeExpectedSha256(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return null
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new Error('--sha256 must be a 64-character lowercase or uppercase hex digest.')
+  }
+  return normalized
+}
+
+function assertSha256Matches(text: string, expectedSha256: string, spec: string): void {
+  const actual = sha256OfSkillSource(text)
+  if (actual !== expectedSha256) {
+    throw new Error(
+      `Checksum mismatch for "${spec}". Expected ${expectedSha256}, got ${actual}.`,
+    )
+  }
 }
 
 function assertCompatibleOpenClaudeVersion(entry: SkillRegistryEntry, spec: string): string | undefined {
@@ -345,17 +364,22 @@ async function prepareSkillFromMarkdown({
       : getSkillNameFromMarkdown(markdown, fallbackName),
   )
   const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
-  const tempDir = resolveSkillInstallPath(tempRoot, skillName)
-  await mkdir(tempDir, { recursive: true })
-  await writeFile(join(tempDir, 'SKILL.md'), markdown, 'utf8')
-  if (registryEntry) {
-    await writeFile(
-      join(tempDir, 'skill.json'),
-      `${JSON.stringify(registryMetadata(registryEntry), null, 2)}\n`,
-      'utf8',
-    )
+  try {
+    const tempDir = resolveSkillInstallPath(tempRoot, skillName)
+    await mkdir(tempDir, { recursive: true })
+    await writeFile(join(tempDir, 'SKILL.md'), markdown, 'utf8')
+    if (registryEntry) {
+      await writeFile(
+        join(tempDir, 'skill.json'),
+        `${JSON.stringify(registryMetadata(registryEntry), null, 2)}\n`,
+        'utf8',
+      )
+    }
+    return { tempRoot, tempDir, skillName }
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true })
+    throw error
   }
-  return { tempRoot, tempDir, skillName }
 }
 
 async function prepareInstallCandidate(
@@ -369,6 +393,7 @@ async function prepareInstallCandidate(
   trust: string
   toolsRequired: string[]
   minOpenClaudeVersion?: string
+  registryBacked: boolean
 }> {
   if (!isUrl(spec) && (await pathExists(resolve(spec)))) {
     const sourcePath = resolve(spec)
@@ -378,20 +403,26 @@ async function prepareInstallCandidate(
         await getSkillNameFromDirectory(sourcePath),
       )
       const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
-      const tempDir = resolveSkillInstallPath(tempRoot, skillName)
-      await cp(sourcePath, tempDir, {
-        recursive: true,
-        errorOnExist: true,
-        force: false,
-        preserveTimestamps: false,
-      })
-      return {
-        tempRoot,
-        tempDir,
-        skillName,
-        sourceDescription: getDisplayPath(sourcePath),
-        trust: 'local',
-        toolsRequired: [],
+      try {
+        const tempDir = resolveSkillInstallPath(tempRoot, skillName)
+        await cp(sourcePath, tempDir, {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+          preserveTimestamps: false,
+        })
+        return {
+          tempRoot,
+          tempDir,
+          skillName,
+          sourceDescription: getDisplayPath(sourcePath),
+          trust: 'local',
+          toolsRequired: [],
+          registryBacked: false,
+        }
+      } catch (error) {
+        await rm(tempRoot, { recursive: true, force: true })
+        throw error
       }
     }
 
@@ -403,18 +434,36 @@ async function prepareInstallCandidate(
       sourceDescription: getDisplayPath(sourcePath),
       trust: 'local',
       toolsRequired: [],
+      registryBacked: false,
     }
   }
 
   if (isUrl(spec)) {
+    const url = new URL(spec)
+    const expectedSha256 =
+      url.protocol === 'http:' || url.protocol === 'https:'
+        ? normalizeExpectedSha256(options.sha256)
+        : null
+    if (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      !expectedSha256
+    ) {
+      throw new Error(
+        'Direct HTTP(S) skill installs require --sha256 to pin the expected SKILL.md digest.',
+      )
+    }
     const markdown = await readSourceText(spec)
-    const fallbackName = skillNameFromSource(new URL(spec).pathname)
+    if (expectedSha256) {
+      assertSha256Matches(markdown, expectedSha256, spec)
+    }
+    const fallbackName = skillNameFromSource(url.pathname)
     const prepared = await prepareSkillFromMarkdown({ markdown, fallbackName })
     return {
       ...prepared,
       sourceDescription: spec,
       trust: 'url',
       toolsRequired: [],
+      registryBacked: false,
     }
   }
 
@@ -426,12 +475,7 @@ async function prepareInstallCandidate(
   const expectedSha256 = requireRegistrySha256(entry, spec)
   const minOpenClaudeVersion = assertCompatibleOpenClaudeVersion(entry, spec)
   const markdown = await readSourceText(entry.source)
-  const actual = sha256OfSkillSource(markdown)
-  if (actual !== expectedSha256) {
-    throw new Error(
-      `Registry checksum mismatch for "${spec}". Expected ${expectedSha256}, got ${actual}.`,
-    )
-  }
+  assertSha256Matches(markdown, expectedSha256, spec)
 
   const fallbackName =
     typeof entry.name === 'string' ? entry.name : skillNameFromSource(entry.source)
@@ -446,6 +490,7 @@ async function prepareInstallCandidate(
     trust: typeof entry.trust === 'string' ? entry.trust : 'registry',
     toolsRequired: stringArray(entry.tools_required),
     minOpenClaudeVersion,
+    registryBacked: true,
   }
 }
 
@@ -459,7 +504,9 @@ export async function skillsInstallHandler(
 
   try {
     candidate = await prepareInstallCandidate(spec, options)
-    const installErrors = await validateSkillPath(candidate.tempDir)
+    const installErrors = await validateSkillPath(candidate.tempDir, {
+      requireRegistryMetadata: candidate.registryBacked,
+    })
     if (installErrors.length > 0) {
       console.error(`Skill install failed validation for "${candidate.skillName}":`)
       for (const error of installErrors) {

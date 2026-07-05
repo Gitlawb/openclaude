@@ -13,13 +13,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'bun:test'
 
+import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
+import { runWithCwdOverride } from '../../utils/cwd.js'
 import { skillsInstallHandler } from './skillsInstall.ts'
+import { skillsRemoveHandler } from './skills.ts'
 import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
 } from './skillsListFormat.ts'
 import { getSkillRemoveNotFoundMessage } from './skillsRemoveMessage.ts'
+import { validateSkillPath } from './skillsValidation.ts'
 
 type SkillCommand = Command & { type: 'prompt' }
 
@@ -54,6 +58,15 @@ trust: local
 # Git Commit
 
 Use this skill for commit workflows.
+`
+
+const MINIMAL_EXISTING_FORMAT_SKILL = `---
+description: Minimal existing-format skill.
+---
+
+# Minimal Existing Format
+
+Use this skill for compatibility tests.
 `
 
 const PATH_TRAVERSAL_SKILL = `---
@@ -343,6 +356,36 @@ test.serial('installs a local skill directory into project skills by default', a
   })
 })
 
+test.serial('validates existing minimal local skill metadata format', async () => {
+  await withTempDir(async tempDir => {
+    const skillDir = join(tempDir, 'minimal-skill')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), MINIMAL_EXISTING_FORMAT_SKILL, 'utf8')
+
+    assert.deepEqual(await validateSkillPath(skillDir), [])
+  })
+})
+
+test.serial('installs existing minimal local skill metadata format', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const source = join(tempDir, 'source', 'minimal-skill')
+    mkdirSync(source, { recursive: true })
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(source, 'SKILL.md'), MINIMAL_EXISTING_FORMAT_SKILL, 'utf8')
+
+    await skillsInstallHandler(source, { projectDir: cwd })
+
+    assert.equal(
+      readFileSync(
+        join(cwd, '.openclaude', 'skills', 'minimal-skill', 'SKILL.md'),
+        'utf8',
+      ),
+      MINIMAL_EXISTING_FORMAT_SKILL,
+    )
+  })
+})
+
 test.serial('preserves namespaced names when installing local skill directories', async () => {
   await withTempDir(async tempDir => {
     const cwd = join(tempDir, 'project')
@@ -529,5 +572,67 @@ test.serial('rejects registry names that would escape the install root', async (
 
     assert.equal(process.exitCode, 1)
     assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('rejects direct HTTP URL installs without a sha256 pin', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    mkdirSync(cwd, { recursive: true })
+
+    const stagedBefore = stagedInstallTempDirs()
+    await skillsInstallHandler('https://example.com/sample-skill.md', {
+      projectDir: cwd,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
+  })
+})
+
+test.serial('cleans staged temp roots when markdown staging fails', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const source = join(tempDir, 'source', 'SKILL.md')
+    const oversizedName = 'a'.repeat(300)
+    mkdirSync(join(tempDir, 'source'), { recursive: true })
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      source,
+      `---\nname: ${oversizedName}\ndescription: oversized name\n---\n# Oversized\n`,
+      'utf8',
+    )
+
+    const stagedBefore = stagedInstallTempDirs()
+    await skillsInstallHandler(source, { projectDir: cwd })
+
+    assert.equal(process.exitCode, 1)
+    assertNoNewStagedInstallDirs(stagedBefore)
+  })
+})
+
+test.serial('removes only the targeted project skill directory', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const skillsRoot = join(cwd, '.openclaude', 'skills')
+    const target = join(skillsRoot, 'sample-skill')
+    const sibling = join(skillsRoot, 'sibling-skill')
+    mkdirSync(target, { recursive: true })
+    mkdirSync(sibling, { recursive: true })
+    writeFileSync(join(target, 'SKILL.md'), VALID_SKILL, 'utf8')
+    writeFileSync(join(sibling, 'SKILL.md'), VALID_SKILL.replace('sample-skill', 'sibling-skill'), 'utf8')
+
+    clearCommandsCache()
+    try {
+      await runWithCwdOverride(cwd, () =>
+        skillsRemoveHandler('sample-skill', {}),
+      )
+    } finally {
+      clearCommandsCache()
+    }
+
+    assert.equal(existsSync(target), false)
+    assert.equal(existsSync(join(sibling, 'SKILL.md')), true)
   })
 })
