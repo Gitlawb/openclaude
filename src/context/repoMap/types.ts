@@ -25,8 +25,12 @@ export interface RepoMapOptions {
   maxTokens?: number
   /** Files to boost in PageRank (relative paths) */
   focusFiles?: string[]
+  /** Symbol names whose defining files should be boosted in PageRank */
+  focusSymbols?: string[]
   /** Override the list of files to process (relative paths) */
   files?: string[]
+  /** Optional cancellation hook checked between expensive build steps */
+  shouldContinue?: () => void
 }
 
 export interface RepoMapResult {

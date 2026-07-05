@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { invalidateCache } from '../../context/repoMap/index.js'
-import { parseArgs, runRepoMapCommand } from './repomap.js'
+import { getCwdState, setCwdState } from '../../bootstrap/state.js'
+import { call, parseArgs, runRepoMapCommand } from './repomap.js'
 import type { CacheStats, RepoMapResult } from '../../context/repoMap/index.js'
 
 const SAMPLE_RESULT: RepoMapResult = {
@@ -114,6 +115,27 @@ describe('/repomap command', () => {
       expect(value).toContain('main.ts:')
       expect(value).toContain('Tokens:')
     } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('call wrapper uses the current cwd state', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-command-call-'))
+    const previousCwd = getCwdState()
+    try {
+      writeFileSync(
+        join(tempDir, 'wrapper.ts'),
+        'export function commandWrapperRoot(): string { return "ok" }\n',
+      )
+      setCwdState(tempDir)
+
+      const result = await call('', {} as Parameters<typeof call>[1])
+
+      expect(textValue(result)).toContain('wrapper.ts:')
+      expect(textValue(result)).toContain('commandWrapperRoot')
+    } finally {
+      setCwdState(previousCwd)
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }

@@ -16,9 +16,11 @@ import { execFileNoThrow } from './utils/execFileNoThrow.js'
 import { getBranch, getDefaultBranch, getIsGit, gitExe } from './utils/git.js'
 import { shouldIncludeGitInstructions } from './utils/gitSettings.js'
 import { logError } from './utils/log.js'
+import { getCwd } from './utils/cwd.js'
 
 const MAX_STATUS_CHARS = 2000
 const REPO_MAP_CONTEXT_TIMEOUT_MS = 5000
+const REPO_MAP_TIMEOUT = Symbol('repo_map_timeout')
 
 // System prompt injection for cache breaking (internal-only, ephemeral debugging state)
 let systemPromptInjection: string | null = null
@@ -126,15 +128,20 @@ export const getRepoMapContext = memoize(
       logForDiagnosticsNoPII('info', 'repo_map_started')
       const { buildRepoMap } = await import('./context/repoMap/index.js')
       const result = await Promise.race([
-        buildRepoMap({ maxTokens: 1024 }),
-        new Promise<null>(resolve =>
-          setTimeout(() => resolve(null), REPO_MAP_CONTEXT_TIMEOUT_MS),
+        buildRepoMap({ root: getCwd(), maxTokens: 1024 }),
+        new Promise<typeof REPO_MAP_TIMEOUT>(resolve =>
+          setTimeout(() => resolve(REPO_MAP_TIMEOUT), REPO_MAP_CONTEXT_TIMEOUT_MS),
         ),
       ])
-      if (!result) {
+      if (result === REPO_MAP_TIMEOUT) {
         logForDiagnosticsNoPII('warn', 'repo_map_timeout', {
           duration_ms: Date.now() - startTime,
         })
+        getRepoMapContext.cache.clear?.()
+        getSystemContext.cache.clear?.()
+        return null
+      }
+      if (!result.map || result.map.length === 0) {
         return null
       }
       logForDiagnosticsNoPII('info', 'repo_map_completed', {
@@ -143,12 +150,13 @@ export const getRepoMapContext = memoize(
         file_count: result.fileCount,
         cache_hit: result.cacheHit,
       })
-      if (!result.map || result.map.length === 0) return null
       return `This is a structural map of the repository, ranked by importance. Use it to understand the codebase architecture.\n\n${result.map}`
     } catch (err) {
       logForDiagnosticsNoPII('warn', 'repo_map_failed', {
         error: String(err),
       })
+      getRepoMapContext.cache.clear?.()
+      getSystemContext.cache.clear?.()
       return null
     }
   },

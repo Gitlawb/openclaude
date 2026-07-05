@@ -126,6 +126,7 @@ export function computeMapHash(
   files: string[],
   maxTokens: number,
   focusFiles: string[],
+  focusSymbols: string[],
   root: string,
   fileStats?: Map<string, FileStatFingerprint>,
 ): string {
@@ -139,6 +140,7 @@ export function computeMapHash(
     fingerprint,
     maxTokens,
     focusFiles: [...focusFiles].sort(),
+    focusSymbols: [...focusSymbols].sort(),
   })
   return createHash('sha256').update(input).digest('hex')
 }

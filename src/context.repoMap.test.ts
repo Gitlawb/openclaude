@@ -1,4 +1,20 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { getCwdState, setCwdState } from './bootstrap/state.js'
+
+const originalCwdState = getCwdState()
+const originalRepoMapEnv = process.env.REPO_MAP
+const originalRemoteEnv = process.env.CLAUDE_CODE_REMOTE
+
+afterEach(async () => {
+  const { getRepoMapContext, getSystemContext } = await import('./context.js')
+  if (originalRepoMapEnv === undefined) delete process.env.REPO_MAP
+  else process.env.REPO_MAP = originalRepoMapEnv
+  if (originalRemoteEnv === undefined) delete process.env.CLAUDE_CODE_REMOTE
+  else process.env.CLAUDE_CODE_REMOTE = originalRemoteEnv
+  setCwdState(originalCwdState)
+  getRepoMapContext.cache.clear?.()
+  getSystemContext.cache.clear?.()
+})
 
 // The feature() function from bun:bundle is shimmed at build time.
 // In tests, it's not available, so we test the getRepoMapContext logic
@@ -53,6 +69,34 @@ describe('getRepoMapContext', () => {
       rmSync(tempDir, { recursive: true, force: true })
       const { invalidateCache } = await import('./context/repoMap/index.js')
       invalidateCache(tempDir)
+    }
+  })
+
+  test('auto-injection builds from cwd state instead of process cwd', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const { getRepoMapContext } = await import('./context.js')
+    const { invalidateCache } = await import('./context/repoMap/index.js')
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-cwd-state-'))
+    process.env.REPO_MAP = '1'
+    setCwdState(tempDir)
+    getRepoMapContext.cache.clear?.()
+
+    try {
+      writeFileSync(
+        join(tempDir, 'state-root.ts'),
+        'export function AutoInjectedStateRoot(): void {}\n',
+      )
+
+      const context = await getRepoMapContext()
+
+      expect(context).toContain('state-root.ts:')
+      expect(context).toContain('AutoInjectedStateRoot')
+    } finally {
+      invalidateCache(tempDir)
+      rmSync(tempDir, { recursive: true, force: true })
     }
   })
 

@@ -96,9 +96,13 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const root = options.root ?? process.cwd()
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
   const focusFiles = options.focusFiles ?? []
+  const focusSymbols = options.focusSymbols ?? []
+  const shouldContinue = options.shouldContinue
 
   // Get files
+  shouldContinue?.()
   const files = options.files ?? await getRepoFiles(root)
+  shouldContinue?.()
   const totalFileCount = files.length
 
   const fileStats = new Map(files.map(file => [file, statFile(root, file)]))
@@ -112,6 +116,7 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
     files,
     maxTokens,
     focusFiles,
+    focusSymbols,
     root,
     existingFileStats,
   )
@@ -130,11 +135,24 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
     }
   }
 
-  const allFileTags = await extractTagsWithCache({ files, root, cache, fileStats })
+  const allFileTags = await extractTagsWithCache({
+    files,
+    root,
+    cache,
+    fileStats,
+    shouldContinue,
+  })
+
+  const resolvedFocusFiles = resolveFocusFiles({
+    focusFiles,
+    focusSymbols,
+    allFileTags,
+  })
+  shouldContinue?.()
 
   // Build graph and rank
   const graph = buildGraph(allFileTags)
-  const ranked = rankFiles(graph, focusFiles)
+  const ranked = rankFiles(graph, resolvedFocusFiles)
 
   // Build a lookup map
   const fileTagsMap = new Map<string, FileTags>()
@@ -167,6 +185,32 @@ export function invalidateCache(root?: string): void {
 /** Get cache statistics for a given repo root. */
 export function getCacheStats(root?: string): CacheStats {
   return getCacheStatsImpl(root ?? process.cwd())
+}
+
+function resolveFocusFiles({
+  focusFiles,
+  focusSymbols,
+  allFileTags,
+}: {
+  focusFiles: string[]
+  focusSymbols: string[]
+  allFileTags: FileTags[]
+}): string[] {
+  if (focusSymbols.length === 0) return focusFiles
+
+  const symbolSet = new Set(focusSymbols)
+  const symbolFiles: string[] = []
+
+  for (const result of allFileTags) {
+    const hasMatch = result.tags.some(
+      tag => tag.kind === 'def' && symbolSet.has(tag.name),
+    )
+    if (hasMatch) {
+      symbolFiles.push(result.path)
+    }
+  }
+
+  return [...focusFiles, ...symbolFiles]
 }
 
 // Re-export types for convenience

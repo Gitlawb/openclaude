@@ -366,6 +366,19 @@ describe('pagerank', () => {
     expect(noFocus[0]).not.toBe('src/tools/isolated.ts')
     expect(dirFocus[0]).toBe('src/tools/isolated.ts')
   })
+
+  test('symbol focus boosts matching files in the core build path', async () => {
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 2048,
+      files: FIXTURE_FILES,
+      focusSymbols: ['ConsoleLogger'],
+    })
+
+    const firstFile = result.map.split('\n')[0]
+    expect(firstFile).toBe('fileE.ts:')
+    expect(result.map).toContain('export class ConsoleLogger implements Logger')
+  })
 })
 
 describe('renderer', () => {

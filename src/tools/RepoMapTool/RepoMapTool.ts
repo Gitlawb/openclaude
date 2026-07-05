@@ -5,12 +5,7 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
 import { AbortError } from '../../utils/errors.js'
-import { buildRepoMap, extractTagsWithCache } from '../../context/repoMap/index.js'
-import {
-  loadCache,
-  saveCache,
-  statFile,
-} from '../../context/repoMap/cache.js'
+import { buildRepoMap } from '../../context/repoMap/index.js'
 import { REPO_MAP_TOOL_NAME, getDescription } from './prompt.js'
 import {
   getToolUseSummary,
@@ -136,44 +131,13 @@ export const RepoMapTool = buildTool({
     throwIfAborted(abortController.signal)
     const root = pwd()
 
-    // Resolve focus_symbols to file paths by searching the tag cache
-    let resolvedFocusFiles = focus_files ?? []
-    if (focus_symbols?.length) {
-      // Import the symbol lookup dynamically to avoid circular deps at module load
-      const { getRepoFiles } = await import('../../context/repoMap/gitFiles.js')
-
-      const files = await getRepoFiles(root)
-      const cache = loadCache(root)
-      const fileStats = new Map(files.map(file => [file, statFile(root, file)]))
-      const fileTags = await extractTagsWithCache({
-        files,
-        root,
-        cache,
-        fileStats,
-        shouldContinue: () => throwIfAborted(abortController.signal),
-      })
-      const symbolFiles: string[] = []
-      const symbolSet = new Set(focus_symbols)
-
-      for (const result of fileTags) {
-        const hasMatch = result.tags.some(
-          tag => tag.kind === 'def' && symbolSet.has(tag.name),
-        )
-        if (hasMatch) {
-          symbolFiles.push(result.path)
-        }
-      }
-
-      throwIfAborted(abortController.signal)
-      saveCache(root, cache)
-      resolvedFocusFiles = [...resolvedFocusFiles, ...symbolFiles]
-    }
-
     throwIfAborted(abortController.signal)
     const result = await buildRepoMap({
       root,
       maxTokens: max_tokens,
-      focusFiles: resolvedFocusFiles.length > 0 ? resolvedFocusFiles : undefined,
+      focusFiles: focus_files,
+      focusSymbols: focus_symbols,
+      shouldContinue: () => throwIfAborted(abortController.signal),
     })
 
     const output: Output = {
