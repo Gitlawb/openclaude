@@ -32,7 +32,7 @@ async function getQuery(language: NonNullable<ReturnType<typeof getLanguageForFi
   if (cached) return cached
 
   const pending = queryLoadPromises.get(language)
-  if (pending) return pending
+  if (pending) return await pending
 
   const promise = (async () => {
     const querySource = loadQuery(language)
