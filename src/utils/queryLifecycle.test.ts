@@ -28,6 +28,22 @@ describe('query lifecycle log formatting', () => {
     expect(line).not.toContain('abortReason=query-timeout')
     expect(line.match(/\babortReason=/g)).toHaveLength(1)
   })
+
+  test('keeps exact expected side-task abort reason on grouped lifecycle end log', () => {
+    const context: QueryLifecycleContext = {
+      queryId: 'query-1',
+      queryGeneration: 1,
+      querySource: 'forked_agent',
+      startedAt: 1,
+      terminalReason: 'parent-ended',
+      abortReason: 'memory-extraction-superseded',
+    }
+
+    const line = formatQueryLifecycleLogMessage('end', context)
+
+    expect(line).toContain('terminalReason=parent-ended')
+    expect(line).toContain('abortReason=memory-extraction-superseded')
+  })
 })
 
 describe('query terminal reason classification', () => {
@@ -89,6 +105,18 @@ describe('query terminal reason classification', () => {
     expect(
       getQueryTerminalReason(
         { aborted: true, reason: 'streaming_fallback' },
+        false,
+      ),
+    ).toBe('parent-ended')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: 'agent-summary-superseded' },
+        false,
+      ),
+    ).toBe('parent-ended')
+    expect(
+      getQueryTerminalReason(
+        { aborted: true, reason: 'memory-extraction-superseded' },
         false,
       ),
     ).toBe('parent-ended')

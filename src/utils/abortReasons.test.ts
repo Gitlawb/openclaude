@@ -20,6 +20,12 @@ describe('abort reason normalization', () => {
     expect(normalizeAbortReason('interrupt')).toBe('interrupt')
     expect(normalizeAbortReason('background')).toBe('background')
     expect(normalizeAbortReason('parent-ended')).toBe('parent-ended')
+    expect(normalizeAbortReason('agent-summary-superseded')).toBe(
+      'agent-summary-superseded',
+    )
+    expect(normalizeAbortReason('memory-extraction-superseded')).toBe(
+      'memory-extraction-superseded',
+    )
     expect(normalizeAbortReason('hard_max')).toBe('hard-max-query-timeout')
     expect(normalizeAbortReason('streaming_fallback')).toBe(
       'side-task-cancelled',
@@ -90,6 +96,22 @@ describe('abort reason normalization', () => {
     ).toBe(
       'Streaming aborted because side task was cancelled: Request was aborted.',
     )
+    expect(
+      getStreamingAbortMessage(
+        'agent-summary-superseded',
+        'Request was aborted.',
+      ),
+    ).toBe(
+      'Streaming aborted because agent summary was superseded: Request was aborted.',
+    )
+    expect(
+      getStreamingAbortMessage(
+        'memory-extraction-superseded',
+        'Request was aborted.',
+      ),
+    ).toBe(
+      'Streaming aborted because memory extraction was superseded: Request was aborted.',
+    )
   })
 
   test('only actual user cancellation creates user interruption transcript text', () => {
@@ -106,6 +128,12 @@ describe('abort reason normalization', () => {
     expect(shouldCreateUserInterruptionMessage('query-timeout')).toBe(false)
     expect(shouldCreateUserInterruptionMessage('hard_max')).toBe(false)
     expect(shouldCreateUserInterruptionMessage('background')).toBe(false)
+    expect(shouldCreateUserInterruptionMessage('agent-summary-superseded')).toBe(
+      false,
+    )
+    expect(
+      shouldCreateUserInterruptionMessage('memory-extraction-superseded'),
+    ).toBe(false)
     expect(shouldCreateUserInterruptionMessage('streaming_fallback')).toBe(
       false,
     )
@@ -121,6 +149,8 @@ describe('abort reason normalization', () => {
     expect(getQueryAbortSystemMessage('streaming_fallback')).toBe(
       'Query stopped because a side task was cancelled.',
     )
+    expect(getQueryAbortSystemMessage('agent-summary-superseded')).toBeNull()
+    expect(getQueryAbortSystemMessage('memory-extraction-superseded')).toBeNull()
     expect(getQueryAbortSystemMessage('parent-ended')).toBe(
       'Query stopped because the parent query ended.',
     )
@@ -153,6 +183,8 @@ describe('abort reason normalization', () => {
       interrupt: true,
       background: true,
       'side-task-cancelled': true,
+      'agent-summary-superseded': true,
+      'memory-extraction-superseded': true,
       'tool-timeout': true,
       'parent-ended': true,
       'unknown-abort': true,

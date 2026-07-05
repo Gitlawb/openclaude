@@ -59,6 +59,8 @@ import {
 import { getOauthAccountInfo } from '../../utils/auth.js'
 import {
   getStreamingAbortMessage,
+  isExpectedSideTaskAbortReason,
+  normalizeAbortReason,
   shouldCreateUserInterruptionMessage,
 } from '../../utils/abortReasons.js'
 import {
@@ -810,6 +812,23 @@ export function getClaudeStreamingAbortLogMessage(
   streamingError: unknown,
 ): string {
   return getStreamingAbortMessage(signal.reason, errorMessage(streamingError))
+}
+
+export function getClaudeExpectedSideTaskApiAbortLogMessage(
+  signal: Pick<AbortSignal, 'aborted' | 'reason'>,
+  errorFromRetry: unknown,
+): string | null {
+  if (!signal.aborted || !isExpectedSideTaskAbortReason(signal.reason)) {
+    return null
+  }
+  const error =
+    errorFromRetry instanceof CannotRetryError
+      ? errorFromRetry.originalError
+      : errorFromRetry
+  if (!(error instanceof APIUserAbortError)) {
+    return null
+  }
+  return `Expected side-task API abort (${normalizeAbortReason(signal.reason)}): ${errorMessage(error)}`
 }
 
 /**
@@ -2815,6 +2834,16 @@ async function* queryModel(
       throw errorFromRetry
     }
 
+    const expectedSideTaskAbortLogMessage =
+      getClaudeExpectedSideTaskApiAbortLogMessage(signal, errorFromRetry)
+    if (expectedSideTaskAbortLogMessage) {
+      if (!(errorFromRetry instanceof CannotRetryError)) {
+        logForDebugging(expectedSideTaskAbortLogMessage)
+      }
+      releaseStreamResources()
+      return
+    }
+
     if (signal.aborted) {
       releaseStreamResources()
       return
@@ -2915,6 +2944,16 @@ async function* queryModel(
         // Propagate model-fallback signal to query.ts (see comment above).
         if (fallbackError instanceof FallbackTriggeredError) {
           throw fallbackError
+        }
+
+        const expectedSideTaskAbortLogMessage =
+          getClaudeExpectedSideTaskApiAbortLogMessage(signal, fallbackError)
+        if (expectedSideTaskAbortLogMessage) {
+          if (!(fallbackError instanceof CannotRetryError)) {
+            logForDebugging(expectedSideTaskAbortLogMessage)
+          }
+          releaseStreamResources()
+          return
         }
 
         // Fallback also failed, handle as normal error

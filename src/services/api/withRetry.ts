@@ -7,6 +7,10 @@ import {
 } from '@anthropic-ai/sdk'
 import type { QuerySource } from 'src/constants/querySource.js'
 import type { SystemAPIErrorMessage } from 'src/types/message.js'
+import {
+  isExpectedSideTaskAbortReason,
+  normalizeAbortReason,
+} from 'src/utils/abortReasons.js'
 import { isAwsCredentialsProviderError } from 'src/utils/aws.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logError } from 'src/utils/log.js'
@@ -277,6 +281,16 @@ export async function* withRetry<T>(
       return await operation(client, attempt, retryContext)
     } catch (error) {
       lastError = error
+      if (
+        error instanceof APIUserAbortError &&
+        options.signal?.aborted &&
+        isExpectedSideTaskAbortReason(options.signal.reason)
+      ) {
+        logForDebugging(
+          `Expected side-task API abort (${normalizeAbortReason(options.signal.reason)}): ${errorMessage(error)}`,
+        )
+        throw new CannotRetryError(error, retryContext)
+      }
       logForDebugging(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },

@@ -179,6 +179,8 @@ test('user aborts, user rejections, and streaming fallback discards are ignored'
     getMissingToolResultAbortMessage('hard-max-query-timeout'),
     getMissingToolResultAbortMessage('background'),
     getMissingToolResultAbortMessage('side-task-cancelled'),
+    getMissingToolResultAbortMessage('agent-summary-superseded'),
+    getMissingToolResultAbortMessage('memory-extraction-superseded'),
     getMissingToolResultAbortMessage('parent-ended'),
     getMissingToolResultAbortMessage('unknown-abort'),
     'Streaming fallback - tool execution discarded',
@@ -221,6 +223,23 @@ test('reason-aware synthetic aborts are ignored through wrappers and memory hint
     state,
     [toolUse('real', 'Bash')],
     [toolResult('real', 'Error: command exited 1')],
+    2,
+  )
+
+  expect(decision.tripped).toBe(false)
+})
+
+test('expected side-task cancellation messages do not trip repeated failure guard', () => {
+  const state = createToolFailureLoopGuardState()
+  const message = getMissingToolResultAbortMessage(
+    'memory-extraction-superseded',
+  )
+
+  update(state, [toolUse('a', 'Read')], [toolResult('a', message)], 2)
+  const decision = update(
+    state,
+    [toolUse('b', 'Read')],
+    [toolResult('b', message)],
     2,
   )
 

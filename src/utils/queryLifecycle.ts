@@ -84,6 +84,8 @@ export function getQueryTerminalReason(
     case 'background':
     case 'parent-ended':
     case 'side-task-cancelled':
+    case 'agent-summary-superseded':
+    case 'memory-extraction-superseded':
       return 'parent-ended'
     default:
       return 'unknown'
