@@ -20,6 +20,7 @@ import { probeRouteReadiness } from '../../integrations/discoveryService.js'
 import {
   getProviderPresetUiMetadata,
   getRouteLabel,
+  resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../../integrations/index.js'
 import {
@@ -58,7 +59,11 @@ import {
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
 import {
+  geminiVertexAdcWillResolveProject,
   getGeminiProjectIdHint,
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
   mayHaveGeminiAdcCredentials,
 } from '../../utils/geminiAuth.js'
 import {
@@ -290,6 +295,50 @@ export function buildCurrentProviderSummary(options?: {
   const secretSource = processEnv as SecretSourceEnv
   const persisted = options?.persisted ?? loadProfileFile()
   const savedProfileLabel = persisted?.profile ?? 'none'
+
+  // Honour saved-profile-only Gemini Vertex routing (no env flag) so the summary
+  // matches getAnthropicClient instead of falling through to the Anthropic
+  // branch for a profile that will actually drive Vertex requests.
+  const effectiveRouteId = resolveActiveRouteIdFromEnv(processEnv, {
+    activeProfileProvider: persisted?.profile,
+  })
+
+  if (effectiveRouteId === 'gemini-vertex') {
+    // Mirror getAnthropicClient: when routing purely from the saved profile (no
+    // env flag), the saved profile env supplies the project/model/location and
+    // wins over ambient process defaults. With an explicit env flag, the env
+    // values take precedence (the saved keys only fill gaps).
+    const routedFromProfileOnly =
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX) &&
+      persisted?.profile === 'gemini-vertex'
+    const vertexEnv = (
+      routedFromProfileOnly
+        ? { ...processEnv, ...persisted?.env }
+        : processEnv
+    ) as NodeJS.ProcessEnv
+    const vertexMetadata = getProviderPresetUiMetadata('gemini-vertex', vertexEnv)
+    const location = getGeminiVertexLocation(vertexEnv)
+    const project = getGeminiVertexProjectId(vertexEnv)
+    // Mirror the startup screen: an explicit ADC credential lets the native
+    // client derive the project at runtime (credential.projectId), so show a
+    // neutral placeholder there; access-token/ambient setups genuinely require
+    // a project, so keep the actionable hint rather than a project-less endpoint.
+    const projectSegment =
+      project ??
+      (geminiVertexAdcWillResolveProject(vertexEnv)
+        ? '<ADC-resolved project>'
+        : '<set GEMINI_VERTEX_PROJECT>')
+    const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectSegment}/locations/${location}`
+    return {
+      providerLabel: vertexMetadata.label,
+      modelLabel: getSafeDisplayValue(
+        getGeminiVertexModel(vertexEnv),
+        secretSource,
+      ),
+      endpointLabel: getSafeDisplayValue(endpoint, secretSource),
+      savedProfileLabel,
+    }
+  }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
     const geminiMetadata = getProviderPresetUiMetadata('gemini', processEnv)

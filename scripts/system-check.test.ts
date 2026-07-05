@@ -444,3 +444,83 @@ describe('sandbox runtime diagnostics', () => {
     )
   })
 })
+
+describe('doctor recognises Gemini Vertex', () => {
+  const FLAGS = [
+    'CLAUDE_CODE_USE_GEMINI_VERTEX',
+    'CLAUDE_CODE_USE_OPENAI',
+    'CLAUDE_CODE_USE_GEMINI',
+    'CLAUDE_CODE_USE_GITHUB',
+    'CLAUDE_CODE_USE_MISTRAL',
+    'GEMINI_VERTEX_PROJECT',
+    'GEMINI_VERTEX_MODEL',
+    'GEMINI_VERTEX_LOCATION',
+    'GEMINI_VERTEX_AUTH_MODE',
+    'GEMINI_ACCESS_TOKEN',
+  ] as const
+  const prior = Object.fromEntries(FLAGS.map(k => [k, process.env[k]]))
+
+  afterEach(() => {
+    for (const k of FLAGS) {
+      if (prior[k] === undefined) delete process.env[k]
+      else process.env[k] = prior[k]
+    }
+  })
+
+  test('checkOpenAIEnv reports the Vertex provider, not the Anthropic flow', async () => {
+    const { __test } = await import('./system-check.ts')
+    for (const k of FLAGS) delete process.env[k]
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+    process.env.GEMINI_VERTEX_PROJECT = 'my-proj'
+    process.env.GEMINI_VERTEX_MODEL = 'gemini-2.5-pro'
+    process.env.GEMINI_ACCESS_TOKEN = 'tok'
+
+    const results = __test.checkOpenAIEnv()
+    const providerMode = results.find(r => r.label === 'Provider mode')
+    expect(providerMode?.detail).toContain('Vertex')
+    expect(providerMode?.detail).not.toContain('Anthropic login flow')
+    expect(results.some(r => r.label === 'GEMINI_VERTEX_PROJECT')).toBe(true)
+  })
+
+  test('safe env summary surfaces Vertex config', async () => {
+    const { __test } = await import('./system-check.ts')
+    for (const k of FLAGS) delete process.env[k]
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+    process.env.GEMINI_VERTEX_PROJECT = 'my-proj'
+    process.env.GEMINI_VERTEX_AUTH_MODE = 'access-token'
+    process.env.GEMINI_ACCESS_TOKEN = 'tok'
+
+    const summary = __test.serializeSafeEnvSummary()
+    expect(summary.CLAUDE_CODE_USE_GEMINI_VERTEX).toBe(true)
+    expect(summary.GEMINI_VERTEX_PROJECT).toBe('my-proj')
+    expect(summary.GEMINI_VERTEX_CREDENTIAL_SET).toBe(true)
+  })
+
+  test('generation readiness passes when a Vertex credential resolves', async () => {
+    const { __test } = await import('./system-check.ts')
+    for (const k of FLAGS) delete process.env[k]
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+    process.env.GEMINI_VERTEX_PROJECT = 'my-proj'
+    process.env.GEMINI_VERTEX_AUTH_MODE = 'access-token'
+    process.env.GEMINI_ACCESS_TOKEN = 'tok'
+
+    const result = await __test.checkProviderGenerationReadiness()
+    expect(result.ok).toBe(true)
+    expect(result.detail).toContain('resolved')
+  })
+
+  test('generation readiness fails when no Vertex credential resolves (preflight matches startup)', async () => {
+    const { __test } = await import('./system-check.ts')
+    for (const k of FLAGS) delete process.env[k]
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+    process.env.GEMINI_VERTEX_PROJECT = 'my-proj'
+    // Same fail branch the runtime resolver takes when ambient ADC cannot be
+    // found: an explicit auth mode with no usable credential must NOT report a
+    // false green, or the launcher preflight would pass and startup would fail.
+    process.env.GEMINI_VERTEX_AUTH_MODE = 'access-token'
+
+    const result = await __test.checkProviderGenerationReadiness()
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('could not be resolved')
+  })
+})

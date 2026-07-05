@@ -151,7 +151,8 @@ export function resolveActiveProviderBaseUrl(
   if (
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX)
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)
   ) {
     return undefined
   }
@@ -173,6 +174,9 @@ export function resolveActiveProviderBaseUrl(
       )
     case 'bedrock':
     case 'vertex':
+    case 'gemini-vertex':
+      // Native, non-OpenAI-compatible providers: never resolve to an OPENAI base
+      // URL (a saved-profile Vertex route reaches here without the env flag).
       return undefined
     default:
       return (

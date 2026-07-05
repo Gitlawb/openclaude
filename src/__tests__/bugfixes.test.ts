@@ -5,7 +5,7 @@
  * 1. Gemini `store: false` rejection fix
  * 2. Session timeout / 500 error fix (stream idle timeout)
  * 3. Agent loop continuation nudge
- * 4. Web search result count improvements
+ * 5. Gemini Vertex provider drift guards
  */
 
 import { describe, test, expect } from 'bun:test'
@@ -19,6 +19,24 @@ import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
+
+/**
+ * Slice the region of `content` delimited by two source anchors, asserting
+ * both anchors are present first. Without this, a renamed/removed anchor makes
+ * indexOf return -1 and slice() silently widen or mis-scope the section, so the
+ * drift guard could keep passing on an unrelated match elsewhere in the file.
+ */
+function sectionBetween(
+  content: string,
+  startAnchor: string,
+  endAnchor: string,
+): string {
+  const start = content.indexOf(startAnchor)
+  expect(start, `start anchor not found: ${startAnchor}`).toBeGreaterThanOrEqual(0)
+  const end = content.indexOf(endAnchor, start)
+  expect(end, `end anchor not found after start: ${endAnchor}`).toBeGreaterThan(start)
+  return content.slice(start, end)
+}
 
 // ---------------------------------------------------------------------------
 // Fix 1: Gemini `store: false` rejection
@@ -520,6 +538,119 @@ describe('Context overflow 500 fix', () => {
     expect(content).toContain('Safety net: when auto-compact')
     expect(content).toContain('circuit breaker has tripped')
     expect(content).toContain('automatic compaction has failed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix N: Gemini Vertex provider drift guards
+// ---------------------------------------------------------------------------
+describe('Gemini Vertex provider drift guards', () => {
+  test('API customer, model flag, and startup detection include Gemini Vertex', async () => {
+    const authContent = await file('utils/auth.ts').text()
+    const apiCustomerSection = sectionBetween(
+      authContent,
+      'export function is1PApiCustomer',
+      'export function getOauthAccountInfo',
+    )
+
+    expect(apiCustomerSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+
+    const providerFlagContent = await file('utils/providerFlag.ts').text()
+    const modelFlagSection = sectionBetween(
+      providerFlagContent,
+      'export function applyModelFlagFromArgs',
+      'export function applyProviderFlag',
+    )
+
+    expect(modelFlagSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+    expect(modelFlagSection).toContain('GEMINI_VERTEX_MODEL')
+
+    const startupScreenContent = await file('components/StartupScreen.ts').text()
+    const detectProviderSection = sectionBetween(
+      startupScreenContent,
+      'export function detectProvider',
+      'function boxRow',
+    )
+
+    expect(detectProviderSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+    expect(detectProviderSection).toContain('Gemini Vertex')
+  })
+
+  test('log and GitHub onboarding clear Gemini Vertex provider state', async () => {
+    const logContent = await file('utils/log.ts').text()
+    const errorReportingSection = sectionBetween(
+      logContent,
+      'Cloud providers',
+      'process.env.DISABLE_ERROR_REPORTING',
+    )
+
+    expect(errorReportingSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+
+    const onboardGithubContent = await file(
+      'commands/onboard-github/onboard-github.tsx',
+    ).text()
+    const providerKeysSection = sectionBetween(
+      onboardGithubContent,
+      'PROVIDER_SPECIFIC_KEYS',
+      '])',
+    )
+
+    expect(providerKeysSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+  })
+
+  test('auth treats Gemini Vertex as a third-party provider', async () => {
+    // isAnthropicAuthEnabled's is3P gate now derives from the
+    // PROVIDER_SELECTION_FLAGS registry instead of hand-enumerating
+    // CLAUDE_CODE_USE_* flags, so the guarantee is two-fold: (1) the gate routes
+    // through the registry helper, and (2) the Vertex flag is registered in that
+    // single source of truth. Asserting the literal in the function body would
+    // regress to the exact drift the registry refactor eliminated.
+    const content = await file('utils/auth.ts').text()
+    const is3PSection = sectionBetween(
+      content,
+      'const is3P =',
+      '// Check if user has configured',
+    )
+
+    expect(is3PSection).toContain('hasAnyTruthyProviderSelectionFlag')
+
+    const { PROVIDER_SELECTION_FLAGS } = await import(
+      '../utils/providerSelectionFlags.js'
+    )
+    expect(PROVIDER_SELECTION_FLAGS).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+  })
+
+  test('isUsing3PServices() includes Gemini Vertex flag', async () => {
+    // isUsing3PServices now derives from the PROVIDER_SELECTION_FLAGS registry
+    // instead of hand-enumerating CLAUDE_CODE_USE_* flags, so the coverage
+    // guarantee is two-fold: (1) the function routes through the registry
+    // helper, and (2) the Vertex flag is registered in that single source of
+    // truth. Asserting the literal in the function body would regress to the
+    // exact drift the registry refactor eliminated.
+    const content = await file('utils/auth.ts').text()
+    const using3PSection = sectionBetween(
+      content,
+      'export function isUsing3PServices',
+      'function getConfiguredOtelHeadersHelper',
+    )
+
+    expect(using3PSection).toContain('hasAnyTruthyProviderSelectionFlag')
+
+    const { PROVIDER_SELECTION_FLAGS } = await import(
+      '../utils/providerSelectionFlags.js'
+    )
+    expect(PROVIDER_SELECTION_FLAGS).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
+  })
+
+  test('API preconnect skips Gemini Vertex routing', async () => {
+    const content = await file('utils/apiPreconnect.ts').text()
+    const cloudSkipSection = sectionBetween(
+      content,
+      '// Skip if using a cloud provider',
+      '// Skip if proxy/mTLS/unix',
+    )
+
+    expect(cloudSkipSection).toContain('CLAUDE_CODE_USE_GEMINI_VERTEX')
   })
 })
 

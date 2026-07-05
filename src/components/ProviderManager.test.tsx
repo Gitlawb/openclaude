@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -11,6 +11,24 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+// Captured before any mock.module() runs so the partial stub below can spread
+// the real exports (keeping ones the tests don't override, e.g.
+// isGeminiVertexEffectiveProvider, intact) and the afterAll can re-install the
+// real module. bun's mock.restore() does NOT revert mock.module(), so without
+// this the providerProfiles.js stub would leak into every later test file in the
+// process — turning unstubbed exports into undefined and making provider
+// detection (StartupScreen.detectProvider, the logError gate, client routing)
+// order-dependent across OSes.
+import * as realProviderProfilesModule from '../utils/providerProfiles.js'
+
+// Static snapshot of the REAL exports, captured at import time before any
+// mock.module() runs. The `import * as` namespace is a live binding, so after
+// mockProviderProfilesModule() installs a mock it reflects the *mocked* exports;
+// spreading or re-installing from the live binding (mock or restore) would then
+// re-capture the partial stub and leak it into later files (client routing reads
+// a null active profile -> falls back to OPENAI_MODEL). Restoring from this frozen
+// snapshot reverts to the genuine module.
+const realProviderProfilesSnapshot = { ...realProviderProfilesModule }
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
 
@@ -127,6 +145,7 @@ const PRESET_ORDER = [
   'Codex OAuth',
   'xAI OAuth (Grok)',
   'Fireworks AI',
+  'Google Vertex AI Gemini',
   'Google Gemini',
   'Groq',
   'Hicap',
@@ -183,6 +202,7 @@ function mockProviderProfilesModule(options?: {
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
   mock.module('../utils/providerProfiles.js', () => ({
+    ...realProviderProfilesSnapshot,
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
@@ -544,6 +564,14 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+afterAll(() => {
+  // mock.restore() does not revert mock.module(), so explicitly re-install the
+  // real providerProfiles.js module to stop the partial stub installed by
+  // mockProviderProfilesModule() from leaking into later test files.
+  mock.restore()
+  mock.module('../utils/providerProfiles.js', () => realProviderProfilesSnapshot)
 })
 
 test('ProviderManager resolves GitHub virtual provider from async storage without sync reads in render flow', async () => {

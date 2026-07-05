@@ -933,6 +933,83 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
+test('GitHub mode falls back to GITHUB_TOKEN when OPENAI_API_KEY is blank', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  // Exported-but-empty OPENAI_API_KEY must not win over a real GitHub token,
+  // or GitHub requests go out without an Authorization header.
+  process.env.OPENAI_API_KEY = ''
+  process.env.GITHUB_TOKEN = 'gho_test_token'
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GH_TOKEN
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer gho_test_token')
+})
+
+test('GitHub mode falls back to GH_TOKEN when OPENAI_API_KEY is whitespace-only', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  // Whitespace-only (not just empty) OPENAI_API_KEY is truthy under `||`, so it
+  // would suppress a real token and emit a blank Authorization header unless the
+  // fallback chain trims candidates.
+  process.env.OPENAI_API_KEY = '   '
+  process.env.GH_TOKEN = 'gho_ws_token'
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GITHUB_TOKEN
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer gho_ws_token')
+})
+
 test('uses Hicap api-key auth header for the Hicap route', async () => {
   process.env.OPENAI_API_KEY = 'hicap-live-key'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
@@ -9664,4 +9741,36 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
   } finally {
     mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
   }
+})
+
+test('sanitizes Gemini Vertex signed tool_use ids for the chat/completions wire', async () => {
+  const { __test } = await import('./openaiShim.ts')
+  const signedId = `toolu_vertex_k9x_3~~sig~~${'S'.repeat(1700)}`
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: signedId, name: 'Read', input: { file_path: '/tmp/x' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: signedId, content: 'done' },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const assistant = messages.find(m => m.role === 'assistant' && m.tool_calls?.length)
+  const toolMsg = messages.find(m => m.role === 'tool')
+
+  expect(assistant?.tool_calls?.[0]?.id).toBeDefined()
+  const callId = assistant!.tool_calls![0]!.id
+  expect(callId.length).toBeLessThanOrEqual(40)
+  expect(callId).toMatch(/^[A-Za-z0-9_-]+$/)
+  expect(toolMsg?.tool_call_id).toBe(callId)
 })

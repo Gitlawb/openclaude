@@ -17,6 +17,7 @@ import {
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GEMINI_VERTEX',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -26,6 +27,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'GEMINI_VERTEX_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
@@ -53,6 +55,7 @@ beforeEach(async () => {
 const RESET_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GEMINI_VERTEX',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -62,6 +65,7 @@ const RESET_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'GEMINI_VERTEX_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
@@ -181,6 +185,27 @@ describe('applyProviderFlag - github', () => {
     const result = applyProviderFlag('github', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+  })
+})
+
+describe('applyProviderFlag - gemini-vertex', () => {
+  test('sets CLAUDE_CODE_USE_GEMINI_VERTEX=1 without OpenAI routing', () => {
+    const result = applyProviderFlag('gemini-vertex', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  })
+
+  test('sets GEMINI_VERTEX_MODEL when --model is provided', () => {
+    applyProviderFlag('gemini-vertex', ['--model', 'gemini-3.5-pro'])
+    expect(process.env.GEMINI_VERTEX_MODEL).toBe('gemini-3.5-pro')
+  })
+
+  test('clears the Gemini Vertex flag when switching to another provider', () => {
+    applyProviderFlag('gemini-vertex', [])
+    applyProviderFlag('openai', [])
+    expect(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
   })
 })
 
@@ -828,6 +853,19 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     applyModelFlagFromArgs(['--model', 'gemini-2.0-flash'])
     expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
+  })
+
+  test('sets GEMINI_VERTEX_MODEL when CLAUDE_CODE_USE_GEMINI_VERTEX is active', () => {
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+    applyModelFlagFromArgs(['--model', 'gemini-2.5-flash'])
+    expect(process.env.GEMINI_VERTEX_MODEL).toBe('gemini-2.5-flash')
+  })
+
+  test('sets GEMINI_VERTEX_MODEL for isEnvTruthy flag values (yes/on)', () => {
+    // The flag check uses isEnvTruthy, so non-canonical truthy values route too.
+    process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = 'yes'
+    applyModelFlagFromArgs(['--model', 'gemini-2.5-pro'])
+    expect(process.env.GEMINI_VERTEX_MODEL).toBe('gemini-2.5-pro')
   })
 
   test('sets MISTRAL_MODEL when CLAUDE_CODE_USE_MISTRAL is active', () => {

@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import {
   _clearRegistryForTesting,
   ensureIntegrationsLoaded,
   registerGateway,
 } from '../../integrations/index.js'
+import * as providerProfilesModule from '../../utils/providerProfiles.js'
+import * as geminiAuthModule from '../../utils/geminiAuth.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -26,12 +28,22 @@ const originalEnv = {
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GEMINI_VERTEX: process.env.CLAUDE_CODE_USE_GEMINI_VERTEX,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
   GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
+  GEMINI_VERTEX_AUTH_MODE: process.env.GEMINI_VERTEX_AUTH_MODE,
+  GEMINI_VERTEX_PROJECT: process.env.GEMINI_VERTEX_PROJECT,
+  GEMINI_VERTEX_LOCATION: process.env.GEMINI_VERTEX_LOCATION,
+  GEMINI_VERTEX_MODEL: process.env.GEMINI_VERTEX_MODEL,
+  GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+  GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
+  GOOGLE_PROJECT_ID: process.env.GOOGLE_PROJECT_ID,
+  GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
+  GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -82,6 +94,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_AUTH_MODE
+  delete process.env.GEMINI_VERTEX_AUTH_MODE
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
@@ -119,7 +132,16 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
   delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.GEMINI_VERTEX_PROJECT
+  delete process.env.GEMINI_VERTEX_LOCATION
+  delete process.env.GEMINI_VERTEX_MODEL
+  delete process.env.GOOGLE_CLOUD_PROJECT
+  delete process.env.GCLOUD_PROJECT
+  delete process.env.GOOGLE_PROJECT_ID
+  delete process.env.GEMINI_ACCESS_TOKEN
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
@@ -157,12 +179,22 @@ afterEach(() => {
     restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
     restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
     restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv('CLAUDE_CODE_USE_GEMINI_VERTEX', originalEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)
     restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
     restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
     restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
     restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
     restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
     restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
+    restoreEnv('GEMINI_VERTEX_AUTH_MODE', originalEnv.GEMINI_VERTEX_AUTH_MODE)
+    restoreEnv('GEMINI_VERTEX_PROJECT', originalEnv.GEMINI_VERTEX_PROJECT)
+    restoreEnv('GEMINI_VERTEX_LOCATION', originalEnv.GEMINI_VERTEX_LOCATION)
+    restoreEnv('GEMINI_VERTEX_MODEL', originalEnv.GEMINI_VERTEX_MODEL)
+    restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
+    restoreEnv('GCLOUD_PROJECT', originalEnv.GCLOUD_PROJECT)
+    restoreEnv('GOOGLE_PROJECT_ID', originalEnv.GOOGLE_PROJECT_ID)
+    restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+    restoreEnv('GOOGLE_APPLICATION_CREDENTIALS', originalEnv.GOOGLE_APPLICATION_CREDENTIALS)
     restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
@@ -211,6 +243,7 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
   delete process.env.CLAUDE_CODE_USE_MISTRAL
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
@@ -335,6 +368,363 @@ test('routes Gemini provider requests through the OpenAI-compatible shim', async
     role: 'assistant',
     model: 'gemini-2.0-flash',
   })
+})
+
+test('routes Gemini Vertex provider requests through the native client', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  process.env.GEMINI_VERTEX_PROJECT = 'project-test-1234'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  // A regional location requires a regionally-available model (gemini-3.5-flash
+  // is global-only and would be rejected — see the dedicated test below).
+  process.env.GEMINI_VERTEX_MODEL = 'gemini-2.5-flash'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gemini-2.5-flash',
+  })) as unknown as ShimClient
+
+  const response = await client.beta.messages.create({
+    model: 'gemini-2.5-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://us-central1-aiplatform.googleapis.com/v1/projects/project-test-1234/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent',
+  )
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer vertex-access-token')
+  expect(capturedHeaders?.get('x-goog-user-project')).toBe('project-test-1234')
+  expect(capturedBody?.contents).toEqual([
+    { role: 'user', parts: [{ text: 'hello' }] },
+  ])
+  expect(response).toMatchObject({
+    role: 'assistant',
+    model: 'gemini-2.5-flash',
+  })
+})
+
+test('rejects a global-only Vertex model paired with a regional location', async () => {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  process.env.GEMINI_VERTEX_PROJECT = 'project-test-1234'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  // gemini-3.5-flash is served only from the global endpoint, so a regional
+  // location must fail fast instead of building an unusable regional URL.
+  process.env.GEMINI_VERTEX_MODEL = 'gemini-3.5-flash'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+
+  await expect(
+    getAnthropicClient({ maxRetries: 0, model: 'gemini-3.5-flash' }),
+  ).rejects.toThrow(/only available on the global endpoint/)
+})
+
+test('allows a global-only Vertex model on the global endpoint', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  process.env.GEMINI_VERTEX_PROJECT = 'project-test-1234'
+  process.env.GEMINI_VERTEX_LOCATION = 'global'
+  process.env.GEMINI_VERTEX_MODEL = 'gemini-3.5-flash'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gemini-3.5-flash',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3.5-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://aiplatform.googleapis.com/v1/projects/project-test-1234/locations/global/publishers/google/models/gemini-3.5-flash:generateContent',
+  )
+})
+
+test('saved-profile-only Vertex prefers the profile project/model over ambient env', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
+  // Ambient env that must NOT win over the selected profile in profile-only mode.
+  process.env.GOOGLE_CLOUD_PROJECT = 'ambient-project'
+  process.env.GEMINI_VERTEX_MODEL = 'ambient-model'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+
+  const spy = spyOn(
+    providerProfilesModule,
+    'getActiveProviderProfile',
+  ).mockReturnValue({
+    id: 'vertex_prof',
+    provider: 'gemini-vertex',
+    name: 'Vertex',
+    baseUrl: 'profile-project',
+    model: 'profile-model',
+  } as ReturnType<typeof providerProfilesModule.getActiveProviderProfile>)
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  try {
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'profile-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+
+    // Profile project + model win; the ambient GOOGLE_CLOUD_PROJECT / stale
+    // GEMINI_VERTEX_MODEL must not leak into the request.
+    expect(capturedUrl).toContain('/projects/profile-project/')
+    expect(capturedUrl).toContain('/models/profile-model:generateContent')
+    expect(capturedUrl).not.toContain('ambient-project')
+    expect(capturedUrl).not.toContain('ambient-model')
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test('saved-profile-only Vertex lets an explicit model override the profile model', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
+  // Ambient env that must NOT win over the explicit override in profile-only mode.
+  process.env.GEMINI_VERTEX_MODEL = 'ambient-model'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+
+  const spy = spyOn(
+    providerProfilesModule,
+    'getActiveProviderProfile',
+  ).mockReturnValue({
+    id: 'vertex_prof',
+    provider: 'gemini-vertex',
+    name: 'Vertex',
+    baseUrl: 'profile-project',
+    model: 'profile-model',
+  } as ReturnType<typeof providerProfilesModule.getActiveProviderProfile>)
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  try {
+    // Explicit model override (e.g. --model / runtime override) routed through
+    // the saved profile must win over the profile's saved model.
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      model: 'explicit-override-model',
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'explicit-override-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+
+    // The explicit override wins; neither the profile model nor the stale
+    // ambient GEMINI_VERTEX_MODEL may leak into the request. The profile
+    // project still wins since no explicit project override was provided.
+    expect(capturedUrl).toContain('/projects/profile-project/')
+    expect(capturedUrl).toContain(
+      '/models/explicit-override-model:generateContent',
+    )
+    expect(capturedUrl).not.toContain('profile-model')
+    expect(capturedUrl).not.toContain('ambient-model')
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test('ADC-only Vertex routing uses the credential-discovered project', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  process.env.GEMINI_VERTEX_AUTH_MODE = 'adc'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  process.env.GEMINI_VERTEX_MODEL = 'gemini-2.5-flash'
+  // No GEMINI_VERTEX_PROJECT / alias and no token: the project must come from
+  // the ADC credential (getAnthropicClient falls back to credential.projectId).
+
+  const spy = spyOn(
+    geminiAuthModule,
+    'resolveGeminiCredential',
+  ).mockResolvedValue({
+    kind: 'adc',
+    credential: 'adc-access-token',
+    projectId: 'adc-discovered-project',
+  } as Awaited<ReturnType<typeof geminiAuthModule.resolveGeminiCredential>>)
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  try {
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      model: 'gemini-2.5-flash',
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'gemini-2.5-flash',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+
+    expect(capturedUrl).toBe(
+      'https://us-central1-aiplatform.googleapis.com/v1/projects/adc-discovered-project/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent',
+    )
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test('Gemini Vertex provider uses GEMINI_VERTEX_MODEL instead of generic OPENAI_MODEL', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  process.env.GEMINI_VERTEX_PROJECT = 'project-test-1234'
+  process.env.GEMINI_VERTEX_LOCATION = 'us-central1'
+  process.env.GEMINI_VERTEX_MODEL = 'gemini-2.5-flash'
+  process.env.GEMINI_ACCESS_TOKEN = 'vertex-access-token'
+  process.env.OPENAI_MODEL = 'gemini-3.0-flash'
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'vertex ok' }] } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: process.env.OPENAI_MODEL,
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: process.env.OPENAI_MODEL,
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://us-central1-aiplatform.googleapis.com/v1/projects/project-test-1234/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent',
+  )
 })
 
 test('routes env-only MiniMax requests through the Anthropic-compatible API', async () => {

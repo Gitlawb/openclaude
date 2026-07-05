@@ -83,6 +83,17 @@ export function getGeminiVertexModel(
   return sanitizeCredential(env.GEMINI_VERTEX_MODEL) ?? DEFAULT_GEMINI_VERTEX_MODEL
 }
 
+// Models Vertex only serves from the global endpoint. Pairing one with a
+// regional GEMINI_VERTEX_LOCATION would build a regional URL the model is not
+// available on, so the client validates this before issuing the request. The
+// catalog (integrations/vendors/gemini-vertex.ts) documents which models are
+// global-only; keep the two in sync.
+const GLOBAL_ONLY_VERTEX_MODELS = new Set(['gemini-3.5-flash'])
+
+export function isGlobalOnlyVertexModel(model: string | undefined): boolean {
+  return model !== undefined && GLOBAL_ONLY_VERTEX_MODELS.has(model.trim())
+}
+
 export function getGeminiAuthMode(
   env: NodeJS.ProcessEnv = process.env,
 ): GeminiAuthMode | undefined {
@@ -95,6 +106,46 @@ export function getGeminiAuthMode(
     return normalized
   }
   return undefined
+}
+
+/**
+ * Single source of truth for the Gemini Vertex auth mode. An explicit
+ * (sanitized) GEMINI_VERTEX_AUTH_MODE wins; otherwise a present access token
+ * implies access-token mode, falling back to ADC. Every site that shapes Vertex
+ * credentials (client, validator, doctor, profile builders) must use this so a
+ * token-only or whitespace-only configuration is classified identically.
+ */
+export function resolveGeminiVertexAuthMode(
+  env: NodeJS.ProcessEnv = process.env,
+): 'access-token' | 'adc' {
+  const explicit = sanitizeCredential(env.GEMINI_VERTEX_AUTH_MODE)?.toLowerCase()
+  if (explicit === 'access-token' || explicit === 'adc') {
+    return explicit
+  }
+  return sanitizeCredential(env.GEMINI_ACCESS_TOKEN) ? 'access-token' : 'adc'
+}
+
+/**
+ * True when an ADC credential will let the native client derive the Vertex
+ * project at runtime (getAnthropicClient falls back to credential.projectId for
+ * ADC only), so an explicit project alias is not required. Only the *effective*
+ * auth mode counts: a GEMINI_ACCESS_TOKEN makes the runtime resolve
+ * access-token even when GOOGLE_APPLICATION_CREDENTIALS is also set, and that
+ * path still needs a project. A bare flag with no credential source is ambient
+ * and not treated as ADC-resolvable here (it would otherwise mask a stale
+ * shell / a project-required setup). Single source of truth so the completeness
+ * gate and the startup/summary placeholders cannot drift apart.
+ */
+export function geminiVertexAdcWillResolveProject(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (sanitizeCredential(env.GEMINI_VERTEX_AUTH_MODE)?.toLowerCase() === 'adc') {
+    return true
+  }
+  return (
+    resolveGeminiVertexAuthMode(env) === 'adc' &&
+    sanitizeCredential(env.GOOGLE_APPLICATION_CREDENTIALS) !== undefined
+  )
 }
 
 export function getGeminiAdcCredentialPaths(

@@ -9,14 +9,25 @@ import {
   saveGlobalConfig,
   type ProviderProfile,
 } from './config.js'
+import { isEnvTruthy } from './envUtils.js'
+import {
+  geminiVertexAdcWillResolveProject,
+  resolveGeminiVertexAuthMode,
+} from './geminiAuth.js'
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
+import {
+  PROVIDER_SELECTION_FLAGS,
+  hasConflictingProviderFlag,
+  type ProviderSelectionFlag,
+} from './providerSelectionFlags.js'
 import {
   buildCompatibilityProcessEnv,
   createProfileFile,
   saveProfileFile,
   buildBedrockProfileEnv,
   buildGeminiProfileEnv,
+  buildGeminiVertexProfileEnv,
   buildGithubProfileEnv,
   buildMiniMaxProfileEnv,
   buildMistralProfileEnv,
@@ -92,6 +103,7 @@ type ProfileCompatibilityMode =
   | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
+  | 'gemini-vertex'
   | 'openai'
 
 function isGithubCompatibilityMode(
@@ -126,6 +138,9 @@ function resolveProfileCompatibility(provider: string): {
   }
   if (route.vendorId === 'minimax') {
     return { route, compatibilityMode: 'anthropic' }
+  }
+  if (route.vendorId === 'gemini-vertex') {
+    return { route, compatibilityMode: 'gemini-vertex' }
   }
   if (route.vendorId === 'gemini') {
     return { route, compatibilityMode: 'gemini' }
@@ -186,6 +201,23 @@ function trimValue(value: string | undefined): string {
 function trimOrUndefined(value: string | undefined): string | undefined {
   const trimmed = trimValue(value)
   return trimmed.length > 0 ? trimmed : undefined
+}
+
+/**
+ * Gemini Vertex profiles reuse the shared `baseUrl` field to carry the Google
+ * Cloud project id. The preset, however, seeds that field with the API endpoint
+ * default (`https://aiplatform.googleapis.com`). A URL is never a valid project
+ * id — using it would build requests like `/v1/projects/https://.../locations/…`
+ * that Vertex rejects — so treat a URL-shaped value as "no project set".
+ */
+export function geminiVertexProjectFromProfile(
+  baseUrl: string | undefined,
+): string | undefined {
+  const trimmed = trimOrUndefined(baseUrl)
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) {
+    return undefined
+  }
+  return trimmed
 }
 
 function sanitizeAuthHeader(value: string | undefined): string | undefined {
@@ -448,15 +480,7 @@ export function hasProviderProfiles(config = getGlobalConfig()): boolean {
 function hasProviderSelectionFlags(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
-    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
-  )
+  return PROVIDER_SELECTION_FLAGS.some(flag => processEnv[flag] !== undefined)
 }
 
 /**
@@ -484,6 +508,26 @@ function hasCompleteProviderSelection(
       trimOrUndefined(processEnv.OPENAI_API_BASE) !== undefined ||
       trimOrUndefined(processEnv.OPENAI_MODEL) !== undefined
     )
+  }
+  if (processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX !== undefined) {
+    // An explicit project alias is enough to route, regardless of auth mode.
+    if (
+      trimOrUndefined(processEnv.GEMINI_VERTEX_PROJECT) !== undefined ||
+      trimOrUndefined(processEnv.GOOGLE_CLOUD_PROJECT) !== undefined ||
+      trimOrUndefined(processEnv.GCLOUD_PROJECT) !== undefined ||
+      trimOrUndefined(processEnv.GOOGLE_PROJECT_ID) !== undefined
+    ) {
+      return true
+    }
+    // An ADC credential lets the runtime derive the project, so an ADC
+    // selection is complete even without an explicit project alias. Shared
+    // with the startup/summary placeholders to prevent drift.
+    if (geminiVertexAdcWillResolveProject(processEnv)) return true
+    // access-token / token-only Vertex selections cannot route without a
+    // project — the native client throws "project is required" — so treating
+    // them as complete would suppress the saved active profile and strand
+    // startup on an unusable Vertex route. Require a project alias here.
+    return false
   }
   if (processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) {
     return (
@@ -524,15 +568,69 @@ function hasConflictingProviderFlagsForProfile(
     return hasProviderSelectionFlags(processEnv)
   }
 
+  // The active profile's own flag is the only non-conflicting selection. The
+  // mapping is exhaustive (TS errors if a new compatibility mode is added), and
+  // ProfileCompatibilityMode never resolves to 'foundry', so the Foundry flag is
+  // always treated as a conflict — matching the prior hand-enumerated check.
+  return hasConflictingProviderFlag(
+    processEnv,
+    activeProviderFlagForCompatibilityMode(compatibilityMode),
+  )
+}
+
+/** Maps a non-anthropic compatibility mode to the selection flag it owns. */
+function activeProviderFlagForCompatibilityMode(
+  compatibilityMode: Exclude<ProfileCompatibilityMode, 'anthropic'>,
+): ProviderSelectionFlag {
+  switch (compatibilityMode) {
+    case 'openai':
+      return 'CLAUDE_CODE_USE_OPENAI'
+    case 'gemini':
+      return 'CLAUDE_CODE_USE_GEMINI'
+    case 'gemini-vertex':
+      return 'CLAUDE_CODE_USE_GEMINI_VERTEX'
+    case 'mistral':
+      return 'CLAUDE_CODE_USE_MISTRAL'
+    case 'github':
+    case 'github-enterprise':
+      return 'CLAUDE_CODE_USE_GITHUB'
+    case 'bedrock':
+      return 'CLAUDE_CODE_USE_BEDROCK'
+    case 'vertex':
+      return 'CLAUDE_CODE_USE_VERTEX'
+  }
+}
+
+/**
+ * Whether the API client should route to the native Gemini Vertex client
+ * based on the saved active profile alone (i.e. CLAUDE_CODE_USE_GEMINI_VERTEX
+ * is absent from env). An explicit startup selection for another provider
+ * keeps precedence over the saved profile — the same semantics
+ * applyActiveProviderProfileFromConfig enforces at startup.
+ */
+export function shouldRouteToGeminiVertexFromProfile(
+  processEnv: NodeJS.ProcessEnv,
+  activeProfile: ProviderProfile | undefined,
+): boolean {
+  if (activeProfile?.provider !== 'gemini-vertex') return false
+  return !hasConflictingProviderFlagsForProfile(processEnv, activeProfile)
+}
+
+/**
+ * Effective "is this session talking to Gemini Vertex?" decision, mirroring the
+ * client's routing in getAnthropicClient(): the env flag OR a saved active
+ * profile that routes to Vertex. getAPIProvider() only sees env route state, so
+ * paths that run before the client is selected (e.g. the tool_use id sanitizer
+ * in normalizeMessagesForAPI) must use this to avoid stripping Vertex
+ * thought-signature ids on the saved-profile-only route.
+ */
+export function isGeminiVertexEffectiveProvider(
+  processEnv: NodeJS.ProcessEnv = process.env,
+  activeProfile: ProviderProfile | undefined = getActiveProviderProfile(),
+): boolean {
   return (
-    (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
-    (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
-    (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
-    (!isGithubCompatibilityMode(compatibilityMode) &&
-      processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
-    (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
-    (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX) ||
+    shouldRouteToGeminiVertexFromProfile(processEnv, activeProfile)
   )
 }
 
@@ -602,6 +700,36 @@ function isProcessEnvAlignedWithProfile(
       sameOptionalEnvValue(processEnv.GEMINI_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
+    )
+  }
+
+  if (compatibilityMode === 'gemini-vertex') {
+    // The profile stores its Vertex project in baseUrl. When it pins one, treat
+    // the env as aligned only if the active project still matches — otherwise a
+    // project drift would skip re-apply and route to the wrong project. When the
+    // profile has no explicit project (ADC resolves it), don't constrain it.
+    const activeProject =
+      trimOrUndefined(processEnv.GEMINI_VERTEX_PROJECT) ??
+      trimOrUndefined(processEnv.GOOGLE_CLOUD_PROJECT) ??
+      trimOrUndefined(processEnv.GCLOUD_PROJECT) ??
+      trimOrUndefined(processEnv.GOOGLE_PROJECT_ID)
+    const profileProject = geminiVertexProjectFromProfile(profile.baseUrl)
+    const projectAligned = profileProject
+      ? sameOptionalEnvValue(activeProject, profileProject)
+      : true
+    return (
+      processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX !== undefined &&
+      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
+      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+      processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
+      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+      processEnv.OPENAI_BASE_URL === undefined &&
+      processEnv.OPENAI_MODEL === undefined &&
+      sameOptionalEnvValue(processEnv.GEMINI_VERTEX_MODEL, getPrimaryModel(profile.model)) &&
+      projectAligned
     )
   }
 
@@ -781,6 +909,30 @@ export function applyProviderProfileToProcessEnv(
       GEMINI_BASE_URL: profile.baseUrl,
       GEMINI_MODEL: primaryModel,
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
+    }
+  } else if (compatibilityMode === 'gemini-vertex') {
+    const vertexAuthMode = resolveGeminiVertexAuthMode(process.env)
+    profileEnv = buildGeminiVertexProfileEnv({
+      model: primaryModel,
+      project:
+        geminiVertexProjectFromProfile(profile.baseUrl) ||
+        trimOrUndefined(process.env.GEMINI_VERTEX_PROJECT) ||
+        trimOrUndefined(process.env.GOOGLE_CLOUD_PROJECT) ||
+        trimOrUndefined(process.env.GCLOUD_PROJECT) ||
+        trimOrUndefined(process.env.GOOGLE_PROJECT_ID),
+      location: process.env.GEMINI_VERTEX_LOCATION,
+      authMode: vertexAuthMode,
+    })
+    // buildCompatibilityProcessEnv clears every managed key (incl.
+    // GEMINI_ACCESS_TOKEN / GOOGLE_APPLICATION_CREDENTIALS) before applying
+    // profileEnv, so carry the active credential forward or selecting a Vertex
+    // profile would erase it before the first request.
+    if (vertexAuthMode === 'access-token') {
+      const accessToken = trimOrUndefined(process.env.GEMINI_ACCESS_TOKEN)
+      if (accessToken) profileEnv.GEMINI_ACCESS_TOKEN = accessToken
+    } else {
+      const adcFile = trimOrUndefined(process.env.GOOGLE_APPLICATION_CREDENTIALS)
+      if (adcFile) profileEnv.GOOGLE_APPLICATION_CREDENTIALS = adcFile
     }
   } else if (isGithubCompatibilityMode(compatibilityMode)) {
     profileEnv = buildGithubCompatibleProfileEnv({
@@ -1289,6 +1441,36 @@ function buildStartupProfileFromActiveProfile(
           baseUrl: activeProfile.baseUrl,
         })),
       }
+    case 'gemini-vertex': {
+      const vertexAuthMode = resolveGeminiVertexAuthMode(process.env)
+      const env = buildGeminiVertexProfileEnv({
+        model: getPrimaryModel(activeProfile.model),
+        // baseUrl carries the project id, but the preset can seed it with the
+        // endpoint URL — never let a URL through as a project. Sanitize each
+        // candidate first so a whitespace-only GEMINI_VERTEX_PROJECT doesn't win
+        // over a real GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT/GOOGLE_PROJECT_ID.
+        project:
+          geminiVertexProjectFromProfile(activeProfile.baseUrl) ??
+          trimOrUndefined(process.env.GEMINI_VERTEX_PROJECT) ??
+          trimOrUndefined(process.env.GOOGLE_CLOUD_PROJECT) ??
+          trimOrUndefined(process.env.GCLOUD_PROJECT) ??
+          trimOrUndefined(process.env.GOOGLE_PROJECT_ID),
+        authMode: vertexAuthMode,
+        processEnv: process.env,
+      })
+      // This env is persisted as the startup profile; on relaunch buildLaunchEnv
+      // can only rehydrate Vertex credentials from the shell or this persisted
+      // profile (not the prior live env), so carry the active credential forward
+      // or the next launch drops auth — mirrors applyProviderProfileToProcessEnv.
+      if (vertexAuthMode === 'access-token') {
+        const accessToken = trimOrUndefined(process.env.GEMINI_ACCESS_TOKEN)
+        if (accessToken) env.GEMINI_ACCESS_TOKEN = accessToken
+      } else {
+        const adcFile = trimOrUndefined(process.env.GOOGLE_APPLICATION_CREDENTIALS)
+        if (adcFile) env.GOOGLE_APPLICATION_CREDENTIALS = adcFile
+      }
+      return { profile: 'gemini-vertex', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+    }
     case 'openai': {
       if (route.gatewayId === 'nvidia-nim') {
         const env =

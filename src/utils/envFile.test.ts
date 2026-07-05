@@ -11,6 +11,7 @@ import {
   reapplyRememberedEnvFileValues,
   rememberLoadedEnvFileValues,
 } from './envFile.js'
+import { PROVIDER_SELECTION_FLAGS } from './providerSelectionFlags.js'
 
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
@@ -21,6 +22,16 @@ const TEST_ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  ...PROVIDER_SELECTION_FLAGS,
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_VERTEX_PROJECT',
+  'GEMINI_VERTEX_LOCATION',
+  'GEMINI_VERTEX_MODEL',
+  'GEMINI_VERTEX_AUTH_MODE',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_PROJECT',
+  'GCLOUD_PROJECT',
+  'GOOGLE_PROJECT_ID',
   'WEB_AUTH_HEADER',
   'WEB_AUTH_SCHEME',
   'WEB_BODY_TEMPLATE',
@@ -333,6 +344,49 @@ describe('loadEnvFile', () => {
     })
     expect(process.env.WEB_SEARCH_API).toBe('https://search.example.com/search')
     expect(process.env.CODEX_AUTH_JSON_PATH).toBe('/tmp/codex-auth.json')
+  })
+
+  it('accepts every registered provider-selection flag', () => {
+    // Guards against a new CLAUDE_CODE_USE_* flag (like Gemini Vertex) being
+    // added to PROVIDER_SELECTION_FLAGS but silently rejected by the env-file
+    // allowlist, which would break --provider-env-file end-to-end wiring.
+    const filePath = writeTempEnvFile(
+      PROVIDER_SELECTION_FLAGS.map(flag => `${flag}=1`).join('\n'),
+    )
+
+    const loaded = loadEnvFile(filePath)
+
+    for (const flag of PROVIDER_SELECTION_FLAGS) {
+      expect(loaded[flag]).toBe('1')
+      expect(process.env[flag]).toBe('1')
+    }
+  })
+
+  it('loads the documented Gemini Vertex provider setup', () => {
+    const filePath = writeTempEnvFile([
+      'CLAUDE_CODE_USE_GEMINI_VERTEX=1',
+      'GEMINI_VERTEX_PROJECT=my-project',
+      'GEMINI_VERTEX_LOCATION=us-central1',
+      'GEMINI_VERTEX_MODEL=gemini-2.0-flash',
+      'GEMINI_VERTEX_AUTH_MODE=adc',
+      'GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json',
+      'GCLOUD_PROJECT=my-project',
+      'GOOGLE_PROJECT_ID=my-project',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(loaded).toEqual({
+      CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+      GEMINI_VERTEX_PROJECT: 'my-project',
+      GEMINI_VERTEX_LOCATION: 'us-central1',
+      GEMINI_VERTEX_MODEL: 'gemini-2.0-flash',
+      GEMINI_VERTEX_AUTH_MODE: 'adc',
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/sa.json',
+      GCLOUD_PROJECT: 'my-project',
+      GOOGLE_PROJECT_ID: 'my-project',
+    })
+    expect(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX).toBe('1')
   })
 
   it('rejects unsupported variables before mutating process environment', () => {

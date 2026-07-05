@@ -1,5 +1,6 @@
 import { feature } from 'bun:bundle'
-import { getAPIProvider } from './model/providers.js'
+import { isGeminiVertexEffectiveProvider } from './providerProfiles.js'
+import { sanitizeToolUseIdForWire } from './toolUseIds.js'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   ContentBlock,
@@ -703,12 +704,35 @@ export function extractTag(html: string, tagName: string): string | null {
 }
 
 export function isNotEmptyMessage(message: Message): boolean {
+  // Defensive guard: any earlier normalization step that produces a falsy
+  // slot (a missing entry from a sparse array, an unrecognised type that
+  // skipped its switch case, or a streaming bookkeeping bug) would crash
+  // here when we read message.type. Treat such slots as empty so render
+  // pipelines stay alive instead of taking the UI down.
+  if (!message || typeof message !== 'object') {
+    return false
+  }
+
   if (
     message.type === 'progress' ||
     message.type === 'attachment' ||
     message.type === 'system'
   ) {
     return true
+  }
+
+  // Defensive: user/assistant slots can be malformed (e.g. `{ type: 'user' }`,
+  // `{ message: {} }`, or a non-string/non-array `content`) after an error
+  // path; the string/array reads below would then crash. Narrow content to the
+  // only two shapes the rest of this function handles and treat the rest as
+  // empty.
+  const inner = (message as { message?: { content?: unknown } }).message
+  if (!inner || typeof inner !== 'object') {
+    return false
+  }
+  const content = inner.content
+  if (typeof content !== 'string' && !Array.isArray(content)) {
+    return false
   }
 
   if (typeof message.message.content === 'string') {
@@ -724,14 +748,27 @@ export function isNotEmptyMessage(message: Message): boolean {
     return true
   }
 
-  if (message.message.content[0]!.type !== 'text') {
+  const firstBlock = message.message.content[0]
+  if (!firstBlock || typeof firstBlock !== 'object') {
+    return false
+  }
+  // Reject typeless blocks (e.g. `{ foo: 'bar' }`) before the non-text branch:
+  // without a string `type` we can't prove it's a real content block, so it
+  // must not count as non-empty.
+  if (typeof firstBlock.type !== 'string') {
+    return false
+  }
+  if (firstBlock.type !== 'text') {
     return true
+  }
+  if (typeof firstBlock.text !== 'string') {
+    return false
   }
 
   return (
-    message.message.content[0]!.text.trim().length > 0 &&
-    message.message.content[0]!.text !== NO_CONTENT_MESSAGE &&
-    message.message.content[0]!.text !== INTERRUPT_MESSAGE_FOR_TOOL_USE
+    firstBlock.text.trim().length > 0 &&
+    firstBlock.text !== NO_CONTENT_MESSAGE &&
+    firstBlock.text !== INTERRUPT_MESSAGE_FOR_TOOL_USE
   )
 }
 
@@ -763,6 +800,48 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
   // and remains true for all subsequent messages in the normalization process.
   let isNewChain = false
   return messages.flatMap(message => {
+    // Defensive: a falsy slot (sparse array) or a non-object would throw on
+    // the message.type read below. Drop it — this mirrors the default arm
+    // and keeps the render pipeline alive instead of crashing the UI.
+    if (!message || typeof message !== 'object' || !('type' in message)) {
+      return []
+    }
+
+    // The assistant/user branches dereference message.message.content; drop
+    // malformed payloads (missing message, or non-array/non-string content)
+    // before they reach those reads. queryHelpers feeds progress-derived
+    // messages through here, so a corrupt slot must not crash the pipeline.
+    const innerContent = (message as { message?: { content?: unknown } }).message
+      ?.content
+    if (message.type === 'assistant' && !Array.isArray(innerContent)) {
+      return []
+    }
+    if (
+      message.type === 'user' &&
+      typeof innerContent !== 'string' &&
+      !Array.isArray(innerContent)
+    ) {
+      return []
+    }
+    // Array content whose elements are themselves malformed (null, primitives,
+    // a missing/non-string type, or a text block without text) would still
+    // crash downstream on block.type / block.text — drop the whole slot.
+    if (
+      (message.type === 'assistant' || message.type === 'user') &&
+      Array.isArray(innerContent) &&
+      innerContent.some(block => {
+        if (!block || typeof block !== 'object') return true
+        const type = (block as { type?: unknown }).type
+        if (typeof type !== 'string') return true
+        return (
+          type === 'text' &&
+          typeof (block as { text?: unknown }).text !== 'string'
+        )
+      })
+    ) {
+      return []
+    }
+
     switch (message.type) {
       case 'assistant': {
         isNewChain = isNewChain || message.message.content.length > 1
@@ -835,6 +914,12 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
           } as NormalizedMessage
         })
       }
+      default:
+        // Unknown / malformed message (e.g. a falsy slot or an unrecognised
+        // type emitted by an error path). Drop it instead of returning
+        // undefined, which would otherwise be flattened into the result by
+        // flatMap and crash downstream consumers like isNotEmptyMessage.
+        return []
     }
   })
 }
@@ -2191,12 +2276,54 @@ function relocateToolReferenceSiblings(
   return result
 }
 
+/**
+ * Rewrite tool_result.tool_use_id values that carry a smuggled Gemini Vertex
+ * thought signature so non-Vertex wires receive valid ids. Must mirror the
+ * tool_use id sanitation in the assistant branch so call/result pairing holds.
+ */
+function sanitizeUserMessageToolUseIds(message: UserMessage): UserMessage {
+  const content = message.message.content
+  if (!Array.isArray(content)) return message
+  let changed = false
+  const next = content.map(block => {
+    // Mirror the assistant tool_use.id path (which sanitizes any present id via
+    // the unknown-safe helper): a non-string persisted tool_use_id would
+    // otherwise stay un-sanitized while its matching tool_use.id is rewritten,
+    // breaking call/result pairing on the wire.
+    if (block.type === 'tool_result' && block.tool_use_id != null) {
+      const sanitized = sanitizeToolUseIdForWire(block.tool_use_id)
+      if (sanitized !== block.tool_use_id) {
+        changed = true
+        return { ...block, tool_use_id: sanitized }
+      }
+    }
+    return block
+  })
+  if (!changed) return message
+  return {
+    ...message,
+    message: { ...message.message, content: next },
+  }
+}
+
 export function normalizeMessagesForAPI(
   messages: Message[],
   tools: Tools = [],
 ): (UserMessage | AssistantMessage)[] {
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
+
+  // The Gemini Vertex client smuggles thought signatures into tool_use ids
+  // (`toolu_vertex_x~~sig~~<base64>`) so they survive persistence; the Vertex
+  // client decodes them on its own wire. Every OTHER wire rejects those ids
+  // (length/charset), so strip them here when the session history is sent to
+  // a different provider — e.g. after a /provider switch or --resume.
+  //
+  // Use the same effective-provider decision as the client (env flag OR saved
+  // active profile): getAPIProvider() only sees env route state, so on the
+  // saved-profile-only Vertex route it would wrongly strip the signatures
+  // before geminiVertexClient can decode and replay thoughtSignature.
+  const sanitizeVertexToolUseIds = !isGeminiVertexEffectiveProvider()
 
   // Whether to inject internal snip ids this pass. Gate must match
   // SnipTool.isEnabled() and skip test mode — markers change message content
@@ -2355,6 +2482,11 @@ export function normalizeMessagesForAPI(
             )
           }
 
+          if (sanitizeVertexToolUseIds) {
+            normalizedMessage =
+              sanitizeUserMessageToolUseIds(normalizedMessage)
+          }
+
           // Strip document/image blocks from the specific meta user message that
           // preceded a PDF/image/request-too-large error, to prevent re-sending
           // the problematic content on every subsequent API call.
@@ -2480,11 +2612,16 @@ export function normalizeMessagesForAPI(
                     : block.input
                   const canonicalName = tool?.name ?? block.name
 
+                  const wireId = sanitizeVertexToolUseIds
+                    ? sanitizeToolUseIdForWire(block.id)
+                    : block.id
+
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
                     const { extra_content, ...restBlock } = block as any
                     return {
                       ...restBlock,
+                      id: wireId,
                       name: canonicalName,
                       input: normalizedInput,
                       ...(extra_content ? { extra_content } : {})
@@ -2496,7 +2633,7 @@ export function normalizeMessagesForAPI(
                   // 'caller' that may be stored in sessions from tool search runs
                     return {
                     type: 'tool_use' as const,
-                    id: block.id,
+                    id: wireId,
                     name: canonicalName,
                     input: normalizedInput,
                     ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {})

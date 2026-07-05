@@ -14,6 +14,10 @@ import {
 } from './index.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
+import {
+  hasAnyTruthyProviderSelectionFlag,
+  hasConflictingProviderFlag,
+} from '../utils/providerSelectionFlags.js'
 
 export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
 
@@ -22,6 +26,7 @@ const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
 > = {
   'anthropic-native': 'Anthropic native API',
   'gemini-native': 'Gemini API',
+  'gemini-vertex': 'Google Vertex AI Gemini API',
   bedrock: 'AWS Bedrock Claude API',
   vertex: 'Google Vertex Claude API',
   'anthropic-proxy': 'Anthropic-compatible API',
@@ -495,15 +500,7 @@ function hasConflictingOpenAIBaseUrlForRoute(
 function hasNoExplicitNonOpenAICompatibleProvider(
   processEnv: NodeJS.ProcessEnv,
 ): boolean {
-  return (
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
-  )
+  return !hasAnyTruthyProviderSelectionFlag(processEnv)
 }
 
 export function hasXaiEnvOnlyProviderIntent(
@@ -851,6 +848,9 @@ export function resolveActiveRouteIdFromEnv(
     activeProfileBaseUrl?: string
   },
 ): string | null {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)) {
+    return 'gemini-vertex'
+  }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
     return 'gemini'
   }
@@ -865,6 +865,19 @@ export function resolveActiveRouteIdFromEnv(
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX)) {
     return 'vertex'
+  }
+
+  // Saved-profile-only Gemini Vertex must win over ambient credential-only
+  // inference (e.g. a stray XAI_API_KEY), matching getAnthropicClient: it routes
+  // a saved gemini-vertex profile unless a conflicting provider flag is set.
+  // Mirror shouldRouteToGeminiVertexFromProfile exactly — any *defined* (not
+  // just truthy) provider flag other than the Vertex one is explicit intent, so
+  // CLAUDE_CODE_USE_OPENAI=0 must block the saved-profile route here too.
+  if (
+    options?.activeProfileProvider === 'gemini-vertex' &&
+    !hasConflictingProviderFlag(processEnv, 'CLAUDE_CODE_USE_GEMINI_VERTEX')
+  ) {
+    return 'gemini-vertex'
   }
 
   const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
@@ -884,7 +897,12 @@ export function resolveActiveRouteIdFromEnv(
       if (
         route.routeId !== 'unknown-fallback' &&
         route.routeId !== 'openai' &&
-        route.routeId !== 'custom'
+        route.routeId !== 'custom' &&
+        // gemini-vertex is a native (non-OpenAI-compatible) route handled only
+        // by its explicit flag or the saved-profile guard above (which already
+        // ran the conflicting-flag check). An explicit OpenAI flag is a
+        // conflict, so the saved Vertex profile must not hijack the route here.
+        route.routeId !== 'gemini-vertex'
       ) {
         return route.routeId
       }
@@ -915,7 +933,12 @@ export function resolveActiveRouteIdFromEnv(
     if (
       route.routeId !== 'unknown-fallback' &&
       route.routeId !== 'openai' &&
-      route.routeId !== 'custom'
+      route.routeId !== 'custom' &&
+      // gemini-vertex is routed only by its explicit flag or the saved-profile
+      // guard above (which enforces the conflicting-flag check). A defined-but-
+      // falsey provider flag is an explicit conflict, so it must not reach the
+      // saved Vertex route through this generic profile fallback.
+      route.routeId !== 'gemini-vertex'
     ) {
       return route.routeId
     }

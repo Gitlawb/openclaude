@@ -2,6 +2,7 @@ import type { SettingsJson } from '../../utils/settings/types.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
+import { PROVIDER_SELECTION_FLAGS } from '../../utils/providerSelectionFlags.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -35,13 +36,7 @@ export interface AgentRunModelRouting {
 type AgentModelConfig = NonNullable<SettingsJson['agentModels']>[string]
 
 const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
-  'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_MISTRAL',
+  ...PROVIDER_SELECTION_FLAGS,
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'NVIDIA_NIM',
@@ -49,6 +44,15 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'ANTHROPIC_BASE_URL',
   'GEMINI_MODEL',
   'GEMINI_BASE_URL',
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_VERTEX_AUTH_MODE',
+  'GEMINI_VERTEX_MODEL',
+  'GEMINI_VERTEX_PROJECT',
+  'GEMINI_VERTEX_LOCATION',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_PROJECT',
+  'GCLOUD_PROJECT',
+  'GOOGLE_PROJECT_ID',
   'MISTRAL_MODEL',
   'MISTRAL_BASE_URL',
   'OPENAI_API_BASE',

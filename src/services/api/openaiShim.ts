@@ -70,7 +70,11 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import { sanitizeToolUseIdForWire } from '../../utils/toolUseIds.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
+
+// OpenAI chat/completions rejects tool_call ids longer than 40 characters.
+const CHAT_TOOL_CALL_ID_MAX_LENGTH = 40
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
@@ -1015,6 +1019,19 @@ function isGeminiMode(): boolean {
   )
 }
 
+/**
+ * First candidate whose trimmed value is non-empty, else ''. Used for
+ * credential fallback chains where a whitespace-only env value must not
+ * suppress a real token further down the chain (`||` alone treats '  ' as
+ * truthy and would leave the request unauthenticated).
+ */
+function firstNonBlankCredential(...values: (string | undefined)[]): string {
+  for (const value of values) {
+    if (value && value.trim().length > 0) return value
+  }
+  return ''
+}
+
 function hydrateOpenAIShimCompatibilityEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
@@ -1038,12 +1055,17 @@ function hydrateOpenAIShimCompatibilityEnv(
   }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    processEnv.OPENAI_API_KEY =
-      processEnv.GITHUB_COPILOT_KEY ??
-      processEnv.OPENAI_API_KEY ??
-      processEnv.GITHUB_TOKEN ??
-      processEnv.GH_TOKEN ??
-      ''
+    // Pick the first non-blank candidate so a blank or whitespace-only exported
+    // OPENAI_API_KEY does not win over a real GITHUB_TOKEN/GH_TOKEN and leave
+    // GitHub requests unauthenticated — the shim auth path reads
+    // OPENAI_API_KEY ?? '', so a blank-like value here means no Authorization
+    // header. Matches the Gemini/Mistral branches.
+    processEnv.OPENAI_API_KEY = firstNonBlankCredential(
+      processEnv.GITHUB_COPILOT_KEY,
+      processEnv.OPENAI_API_KEY,
+      processEnv.GITHUB_TOKEN,
+      processEnv.GH_TOKEN,
+    )
     return
   }
 
@@ -1093,7 +1115,12 @@ function convertMessages(
           (block as { type?: string }).type === 'tool_result' &&
           (block as { tool_use_id?: string }).tool_use_id
         ) {
-          toolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+          toolResultIds.add(
+            sanitizeToolUseIdForWire(
+              (block as { tool_use_id: string }).tool_use_id,
+              CHAT_TOOL_CALL_ID_MAX_LENGTH,
+            ),
+          )
         }
       }
     }
@@ -1129,7 +1156,10 @@ function convertMessages(
         // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
         // emitting it here would cause a "role must alternate" or "unexpected role" error.
         for (const tr of toolResults) {
-          const id = tr.tool_use_id ?? 'unknown'
+          const id = sanitizeToolUseIdForWire(
+            tr.tool_use_id ?? 'unknown',
+            CHAT_TOOL_CALL_ID_MAX_LENGTH,
+          )
           if (knownToolCallIds.has(id)) {
             result.push({
               role: 'tool',
@@ -1226,7 +1256,9 @@ function convertMessages(
                 extra_content?: Record<string, unknown>
                 signature?: string
               }) => {
-                const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+                const id = tu.id
+                  ? sanitizeToolUseIdForWire(tu.id, CHAT_TOOL_CALL_ID_MAX_LENGTH)
+                  : `call_${crypto.randomUUID().replace(/-/g, '')}`
 
                 // Only keep tool calls that have a corresponding result in the history,
                 // or if it's the last message (prefill scenario).

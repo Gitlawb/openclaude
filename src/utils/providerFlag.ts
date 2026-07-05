@@ -23,6 +23,8 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { PROVIDER_SELECTION_FLAGS } from './providerSelectionFlags.js'
+import { isEnvTruthy } from './envUtils.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -222,20 +224,15 @@ export function applyModelFlagFromArgs(args: string[]): void {
   const model = parseModelFlag(args)
   if (!model) return
 
-  const useGemini =
-    process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
-    process.env.CLAUDE_CODE_USE_GEMINI === 'true'
-  const useMistral =
-    process.env.CLAUDE_CODE_USE_MISTRAL === '1' ||
-    process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
-  const useOpenAI =
-    process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
-    process.env.CLAUDE_CODE_USE_OPENAI === 'true'
-  const useGithub =
-    process.env.CLAUDE_CODE_USE_GITHUB === '1' ||
-    process.env.CLAUDE_CODE_USE_GITHUB === 'true'
+  const useGeminiVertex = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  const useGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const useMistral = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const useOpenAI = isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
+  const useGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  if (useGemini) {
+  if (useGeminiVertex) {
+    process.env.GEMINI_VERTEX_MODEL = model
+  } else if (useGemini) {
     process.env.GEMINI_MODEL = model
   } else if (useMistral) {
     process.env.MISTRAL_MODEL = model
@@ -303,12 +300,12 @@ export function applyProviderFlag(
                     ? 'gitlawb-opengateway'
                     : null
 
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_MISTRAL
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
+  // Clear every provider-selection flag so switching providers never leaves
+  // a stale selection behind (includes CLAUDE_CODE_USE_FOUNDRY, which the
+  // hardcoded list used to miss).
+  for (const flag of PROVIDER_SELECTION_FLAGS) {
+    delete process.env[flag]
+  }
   delete process.env.NVIDIA_NIM
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
@@ -348,6 +345,11 @@ export function applyProviderFlag(
 
     case 'vertex':
       process.env.CLAUDE_CODE_USE_VERTEX = '1'
+      break
+
+    case 'gemini-vertex':
+      process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+      if (model) process.env.GEMINI_VERTEX_MODEL = model
       break
 
     case 'ollama':

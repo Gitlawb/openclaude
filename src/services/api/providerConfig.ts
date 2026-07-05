@@ -11,6 +11,8 @@ import {
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { PROVIDER_SELECTION_FLAGS } from '../../utils/providerSelectionFlags.js'
+import { getGlobalConfig } from '../../utils/config.js'
 import {
   asTrimmedString,
   parseChatgptAccountId,
@@ -23,6 +25,12 @@ import {
   DEFAULT_CLINEPASS_BASE_URL,
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
+import {
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
+  DEFAULT_GEMINI_VERTEX_MODEL,
+} from '../../utils/geminiAuth.js'
 import {
   getRouteDefaultModel,
   isClinePassBaseUrl,
@@ -139,6 +147,8 @@ export type ResolvedProviderRequest = {
   requestedModel: string
   resolvedModel: string
   baseUrl: string
+  vertexProject?: string
+  vertexLocation?: string
   reasoning?: {
     effort: ReasoningEffort
   }
@@ -808,7 +818,9 @@ export function resolveProviderRequest(options?: {
   const processEnv = options?.processEnv ?? process.env
   const isGithubMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
-  const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  const isGeminiVertexMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  const isGeminiMode = isGeminiVertexMode || isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  const geminiVertexModel = getGeminiVertexModel(processEnv)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
@@ -861,13 +873,16 @@ export function resolveProviderRequest(options?: {
     options?.model?.trim() ||
     (isMistralMode
       ? processEnv.MISTRAL_MODEL?.trim()
-      : isGeminiMode
-        ? processEnv.GEMINI_MODEL?.trim()
-        : effectiveClinePassMode
-          ? processEnv.CLINE_API_MODEL?.trim() ||
-            processEnv.OPENAI_MODEL?.trim()
-          : processEnv.OPENAI_MODEL?.trim()) ||
+      : isGeminiVertexMode
+        ? geminiVertexModel
+        : isGeminiMode
+          ? processEnv.GEMINI_MODEL?.trim()
+          : effectiveClinePassMode
+            ? processEnv.CLINE_API_MODEL?.trim() ||
+              processEnv.OPENAI_MODEL?.trim()
+            : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
+    (isGeminiVertexMode ? DEFAULT_GEMINI_VERTEX_MODEL : undefined) ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     clinePassDefaultModel ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
@@ -1008,19 +1023,39 @@ export function resolveProviderRequest(options?: {
               ? GITHUB_COPILOT_BASE_URL
               : DEFAULT_OPENAI_BASE_URL))))
       ).replace(/\/+$/, ''),
+    vertexProject: isGeminiVertexMode ? getGeminiVertexProjectId(processEnv) : undefined,
+    vertexLocation: isGeminiVertexMode ? getGeminiVertexLocation(processEnv) : undefined,
     reasoning,
     thinking: descriptor.thinking,
   }
 }
 
+/**
+ * Provider of the saved active profile, if any. Used to detect saved-profile-only
+ * routing (no provider env flag) that the API client honours via
+ * shouldRouteToGeminiVertexFromProfile but env-flag checks would miss.
+ */
+function getActiveProfileProviderId(): string | undefined {
+  const config = getGlobalConfig()
+  return config.providerProfiles?.find(
+    profile => profile.id === config.activeProviderProfileId,
+  )?.provider
+}
+
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+    const anotherProviderSelected = PROVIDER_SELECTION_FLAGS.some(
+      flag =>
+        flag !== 'CLAUDE_CODE_USE_OPENAI' && isEnvTruthy(process.env[flag]),
+    )
+    if (!anotherProviderSelected) {
+      // No provider env flag is set, but a saved Gemini Vertex profile still
+      // routes the client to the native Vertex API. Scope it as third-party
+      // (null) so bootstrap/model-option traffic is not treated as first-party
+      // Anthropic — matching getAnthropicClient's saved-profile routing.
+      if (getActiveProfileProviderId() === 'gemini-vertex') {
+        return null
+      }
       return 'firstParty'
     }
     return null

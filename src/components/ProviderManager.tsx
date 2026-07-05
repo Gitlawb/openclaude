@@ -75,6 +75,7 @@ import {
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
+import { PROVIDER_SELECTION_FLAGS } from '../utils/providerSelectionFlags.js'
 import { redactUrlForDisplay } from '../utils/urlRedaction.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
@@ -1321,6 +1322,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function activateGithubProvider(): string | null {
+    // Clear every provider-selection flag except GitHub from the central list
+    // so a previously selected provider (e.g. Gemini Vertex, checked before the
+    // GitHub branch in getAnthropicClient) can't keep routing after switching.
+    const clearedSelectionFlags = Object.fromEntries(
+      PROVIDER_SELECTION_FLAGS.filter(
+        flag => flag !== 'CLAUDE_CODE_USE_GITHUB',
+      ).map(flag => [flag, undefined]),
+    )
     const { error } = updateSettingsForSource('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
@@ -1332,11 +1341,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_ORGANIZATION: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
-        CLAUDE_CODE_USE_OPENAI: undefined as any,
-        CLAUDE_CODE_USE_GEMINI: undefined as any,
-        CLAUDE_CODE_USE_BEDROCK: undefined as any,
-        CLAUDE_CODE_USE_VERTEX: undefined as any,
-        CLAUDE_CODE_USE_FOUNDRY: undefined as any,
+        ...(clearedSelectionFlags as Record<string, string | undefined>),
       },
     })
     if (error) {
@@ -1352,11 +1357,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.OPENAI_ORGANIZATION
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.CLAUDE_CODE_USE_GEMINI
-    delete process.env.CLAUDE_CODE_USE_BEDROCK
-    delete process.env.CLAUDE_CODE_USE_VERTEX
-    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    for (const flag of PROVIDER_SELECTION_FLAGS) {
+      if (flag !== 'CLAUDE_CODE_USE_GITHUB') delete process.env[flag]
+    }
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]

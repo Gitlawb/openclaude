@@ -1,9 +1,19 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
+import * as realProviderProfilesModule from '../../utils/providerProfiles.js'
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
+
+// Static snapshot of the REAL providerProfiles exports, captured at import time
+// before any mock.module() runs. mock.restore() (used in afterEach) does NOT
+// revert mock.module(), so without this the partial providerProfiles stub
+// (getActiveProviderProfile -> undefined) installed by mockModelModule() leaks
+// into later files in the full suite: client routing then cannot see a saved
+// Gemini Vertex profile and falls back to the generic OPENAI_MODEL. The afterAll
+// below reinstalls the genuine module from this frozen snapshot.
+const realProviderProfilesSnapshot = { ...realProviderProfilesModule }
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -21,6 +31,7 @@ type SettingsModule = typeof import('../../utils/settings/settings.js')
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GEMINI_VERTEX: process.env.CLAUDE_CODE_USE_GEMINI_VERTEX,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
@@ -202,6 +213,10 @@ afterEach(() => {
     settingsForTest = {}
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv(
+      'CLAUDE_CODE_USE_GEMINI_VERTEX',
+      originalEnv.CLAUDE_CODE_USE_GEMINI_VERTEX,
+    )
     restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
     restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
     restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
@@ -229,6 +244,14 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+afterAll(() => {
+  // mock.restore() does not revert mock.module(), so explicitly reinstall the real
+  // providerProfiles.js module to stop the partial stub from leaking into later
+  // test files (e.g. services/api/client.test.ts Gemini Vertex model routing).
+  mock.restore()
+  mock.module('../../utils/providerProfiles.js', () => realProviderProfilesSnapshot)
 })
 
 async function waitForCondition(

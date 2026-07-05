@@ -1,11 +1,11 @@
 import type { ModelName } from './model.js'
 import type { LegacyAPIProvider } from './providers.js'
 
-// Transitional compatibility table keyed by the legacy provider categories
-// returned from getAPIProvider(). Descriptor-native callers should prefer
-// route/model metadata directly; this table exists for older provider-keyed
-// consumers that have not been retired yet.
-export type LegacyProviderModelConfig = Record<LegacyAPIProvider, ModelName>
+// Transitional compatibility table keyed by legacy Claude model mapping
+// categories. Native Gemini Vertex uses Gemini model ids directly and does not
+// map Claude model tiers through this table.
+type LegacyClaudeModelConfigProvider = Exclude<LegacyAPIProvider, 'gemini-vertex'>
+export type LegacyProviderModelConfig = Record<LegacyClaudeModelConfigProvider, ModelName>
 
 // Backward-compatible alias for existing imports.
 export type ModelConfig = LegacyProviderModelConfig

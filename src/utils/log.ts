@@ -20,6 +20,7 @@ import { stripDisplayTags, stripDisplayTagsAllowEmpty } from './displayTags.js'
 import { isEnvTruthy } from './envUtils.js'
 import { toError } from './errors.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
+import { isGeminiVertexEffectiveProvider } from './providerProfiles.js'
 import { jsonParse } from './slowOperations.js'
 
 /**
@@ -167,9 +168,13 @@ export function logError(error: unknown): void {
   try {
     // Check if error reporting should be disabled
     if (
-      // Cloud providers (Bedrock/Vertex/Foundry) always disable features
+      // Cloud providers (Bedrock/Vertex/Gemini Vertex/Foundry) always disable features.
+      // Gemini Vertex uses the effective-provider check so a saved-profile-only
+      // Vertex session (no CLAUDE_CODE_USE_GEMINI_VERTEX flag) gets the same
+      // no-error-reporting treatment as the env-flag route.
       isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
       isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
+      isGeminiVertexEffectiveProvider() ||
       isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
       process.env.DISABLE_ERROR_REPORTING ||
       isEssentialTrafficOnly()

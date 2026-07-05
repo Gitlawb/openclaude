@@ -49,10 +49,25 @@ import {
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
+  DEFAULT_GEMINI_VERTEX_MODEL,
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
+  isGlobalOnlyVertexModel,
+  resolveGeminiCredential,
+  resolveGeminiVertexAuthMode,
+} from '../../utils/geminiAuth.js'
+import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
 } from './authRouting.js'
 import { AnthropicVertex } from './vertexClient.js'
+import { getPrimaryModel } from '../../utils/providerModels.js'
+import {
+  geminiVertexProjectFromProfile,
+  getActiveProviderProfile,
+  shouldRouteToGeminiVertexFromProfile,
+} from '../../utils/providerProfiles.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -507,6 +522,112 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
+
+  // Intent check: if the user's active provider profile is gemini-vertex,
+  // route to our Gemini Vertex client even when the env flag is missing — a
+  // stale CLAUDE_CODE_USE_VERTEX from the launching shell would otherwise
+  // fall through to the Anthropic Vertex SDK and emit a 404 for
+  // publishers/anthropic/models/gemini-* (a model that doesn't exist there).
+  // Explicit startup selections for another provider keep precedence over
+  // the saved profile (see shouldRouteToGeminiVertexFromProfile).
+  const activeProfile = (() => {
+    try {
+      return getActiveProviderProfile()
+    } catch {
+      return undefined
+    }
+  })()
+  const routedFromProfileOnly =
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX) &&
+    shouldRouteToGeminiVertexFromProfile(process.env, activeProfile)
+  const useGeminiVertexProvider =
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX) || routedFromProfileOnly
+  if (useGeminiVertexProvider) {
+    // When routing purely from the saved profile (no env flag), the profile's
+    // own project (stored in baseUrl) and model must win over ambient/default
+    // env, otherwise this branch throws "project required" or routes to the
+    // wrong project/model. Env still wins when explicitly set.
+    // The profile stores its project in baseUrl, but the preset can seed it
+    // with the endpoint URL — never treat a URL as a project (it would build
+    // /v1/projects/https://.../locations/...). Shared sanitizer with the
+    // env-apply path.
+    const profileProject = routedFromProfileOnly
+      ? geminiVertexProjectFromProfile(activeProfile?.baseUrl)
+      : undefined
+    const profileModel = routedFromProfileOnly && activeProfile?.model
+      ? getPrimaryModel(activeProfile.model)
+      : undefined
+    // In profile-only routing the selected profile must win over ambient env;
+    // profileProject/profileModel are only set when routedFromProfileOnly, so
+    // leading with them keeps env precedence for an explicit Vertex selection.
+    const project = profileProject ?? getGeminiVertexProjectId(process.env)
+    const location = getGeminiVertexLocation(process.env)
+    // Model precedence depends on how we got here:
+    // - Saved-profile-only routing: an explicit model override (e.g. --model /
+    //   runtime override) must win over the profile's saved model, matching the
+    //   startup display and the other provider paths; the saved model in turn
+    //   wins over ambient env so a stale GEMINI_VERTEX_MODEL export can't hijack
+    //   the profile.
+    // - Env-flag routing: an explicit GEMINI_VERTEX_MODEL is the deliberate
+    //   Vertex selection and wins over a generic model arg (e.g. a stale
+    //   OPENAI_MODEL forwarded as `model`). profileModel is undefined here.
+    // getGeminiVertexModel already falls back to the default model; the trailing
+    // literal only satisfies its `string | undefined` signature (it never
+    // actually returns undefined) so geminiVertexModel stays a plain string.
+    const geminiVertexModel = routedFromProfileOnly
+      ? model?.trim() ||
+        profileModel ||
+        process.env.GEMINI_VERTEX_MODEL?.trim() ||
+        getGeminiVertexModel(process.env) ||
+        DEFAULT_GEMINI_VERTEX_MODEL
+      : process.env.GEMINI_VERTEX_MODEL?.trim() ||
+        model?.trim() ||
+        getGeminiVertexModel(process.env) ||
+        DEFAULT_GEMINI_VERTEX_MODEL
+    // Re-resolve on every call instead of capturing one token: ADC access
+    // tokens expire (~1h), so a long-lived client must pick up refreshed
+    // tokens. resolveGeminiCredential memoizes the ADC path (5-min TTL) and
+    // GoogleAuth refreshes internally, so this stays cheap.
+    const resolveVertexCredential = () =>
+      resolveGeminiCredential({
+        ...process.env,
+        GEMINI_AUTH_MODE: resolveGeminiVertexAuthMode(process.env),
+        GEMINI_API_KEY: undefined,
+        GOOGLE_API_KEY: undefined,
+      } as NodeJS.ProcessEnv)
+    const credential = await resolveVertexCredential()
+    if (credential.kind === 'none') {
+      throw new Error('Gemini Vertex authentication requires GEMINI_ACCESS_TOKEN or Google ADC credentials')
+    }
+    const vertexProject = project ?? (credential.kind === 'adc' ? credential.projectId : undefined)
+    if (!vertexProject) {
+      throw new Error('Gemini Vertex project is required via GEMINI_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT')
+    }
+    // Some Vertex models are served only from the global endpoint; routing one
+    // to a regional location builds a URL the model is not available on. Fail
+    // fast with an actionable message instead of issuing a doomed request.
+    if (location !== 'global' && isGlobalOnlyVertexModel(geminiVertexModel)) {
+      throw new Error(
+        `Gemini Vertex model "${geminiVertexModel}" is only available on the global endpoint; set GEMINI_VERTEX_LOCATION=global (currently "${location}") to use it.`,
+      )
+    }
+
+    const { createGeminiVertexClient } = await import('./geminiVertexClient.js')
+    return createGeminiVertexClient({
+      project: vertexProject,
+      location,
+      model: geminiVertexModel,
+      getAccessToken: async () => {
+        const fresh = await resolveVertexCredential()
+        if (fresh.kind === 'none') {
+          throw new Error('Gemini Vertex authentication is no longer available (token expired or revoked; re-set GEMINI_ACCESS_TOKEN or refresh ADC).')
+        }
+        return fresh.credential
+      },
+      ...(resolvedFetch ? { fetch: resolvedFetch } : {}),
+    }) as unknown as Anthropic
+  }
+
   if (
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
@@ -602,6 +723,10 @@ export async function getAnthropicClient({
     return new AnthropicFoundry(foundryArgs) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)) {
+    // Anthropic-on-Vertex (Claude models). The Gemini-on-Vertex case already
+    // returned above (env flag or saved profile without a conflicting
+    // explicit selection), so reaching this branch means the user really
+    // selected Anthropic-on-Vertex.
     // Refresh GCP credentials if gcpAuthRefresh is configured and credentials are expired
     // This is similar to how we handle AWS credential refresh for Bedrock
     if (!isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {

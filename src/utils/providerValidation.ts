@@ -33,6 +33,7 @@ import { isBareMode } from './envUtils.js'
 import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
+  resolveGeminiVertexAuthMode,
 } from './geminiAuth.js'
 import { readXaiCredentialsAsync } from './xaiCredentials.js'
 
@@ -506,6 +507,39 @@ export async function getProviderValidationError(
     hasStoredXaiOAuthCredentials?: () => Promise<boolean>
   },
 ): Promise<string | null> {
+  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI_VERTEX)) {
+    // Resolve the credential first, mirroring getAnthropicClient: ADC can supply
+    // both the access token and the project id (credential.projectId), so a
+    // missing project env var is only fatal once we know ADC didn't provide one.
+    const vertexCredential = await (
+      options?.resolveGeminiCredential ?? resolveGeminiCredential
+    )({
+      ...env,
+      GEMINI_AUTH_MODE: resolveGeminiVertexAuthMode(env),
+      GEMINI_API_KEY: undefined,
+      GOOGLE_API_KEY: undefined,
+    } as NodeJS.ProcessEnv)
+    if (vertexCredential.kind === 'none') {
+      return 'Gemini Vertex authentication requires GEMINI_ACCESS_TOKEN (access-token mode) or Google ADC credentials.'
+    }
+    const hasEnvProject =
+      hasNonEmptyEnvValue(env, 'GEMINI_VERTEX_PROJECT') ||
+      hasNonEmptyEnvValue(env, 'GOOGLE_CLOUD_PROJECT') ||
+      hasNonEmptyEnvValue(env, 'GCLOUD_PROJECT') ||
+      hasNonEmptyEnvValue(env, 'GOOGLE_PROJECT_ID')
+    const hasAdcProject =
+      vertexCredential.kind === 'adc' &&
+      typeof vertexCredential.projectId === 'string' &&
+      vertexCredential.projectId.trim() !== ''
+    if (!hasEnvProject && !hasAdcProject) {
+      return 'Gemini Vertex project is required via GEMINI_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT (or an ADC-derived project).'
+    }
+    if (env.GEMINI_VERTEX_MODEL !== undefined && !hasNonEmptyEnvValue(env, 'GEMINI_VERTEX_MODEL')) {
+      return 'Gemini Vertex model is required via GEMINI_VERTEX_MODEL.'
+    }
+    return null
+  }
+
   const secretSource = env as SecretValueSource
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const validationTarget = getRuntimeValidationTarget(env)

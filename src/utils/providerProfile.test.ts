@@ -19,6 +19,7 @@ import {
   buildCompatibilityProcessEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildGeminiVertexProfileEnv,
   buildLaunchEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
@@ -26,6 +27,7 @@ import {
   createProfileFile,
   deleteProfileFile,
   getDefaultProfileFilePath,
+  hasExplicitProviderSelection,
   isDefaultStartupProviderEnv,
   isPersistedCodexOAuthProfile,
   maskSecretForDisplay,
@@ -887,12 +889,84 @@ test('gemini profiles support adc auth mode without persisting a key', () => {
   })
 })
 
-test('gemini profiles require a key', () => {
-  const env = buildGeminiProfileEnv({
+test('hasExplicitProviderSelection treats Gemini Vertex as selected', () => {
+  assert.equal(
+    hasExplicitProviderSelection({ CLAUDE_CODE_USE_GEMINI_VERTEX: '1' }),
+    true,
+  )
+})
+
+test('gemini vertex profiles default to global and current flash model', () => {
+  const env = buildGeminiVertexProfileEnv({ processEnv: {} })
+
+  assert.equal(env.GEMINI_VERTEX_MODEL, 'gemini-2.5-flash')
+  assert.equal(env.GEMINI_VERTEX_LOCATION, 'global')
+})
+
+test('gemini vertex profiles persist dedicated env vars', () => {
+  const env = buildGeminiVertexProfileEnv({
+    authMode: 'adc',
+    model: 'gemini-3.5-flash',
+    project: 'project-test-1234',
+    location: 'us-central1',
     processEnv: {},
   })
 
-  assert.equal(env, null)
+  assert.deepEqual(env, {
+    CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+    GEMINI_VERTEX_AUTH_MODE: 'adc',
+    GEMINI_VERTEX_MODEL: 'gemini-3.5-flash',
+    GEMINI_VERTEX_PROJECT: 'project-test-1234',
+    GEMINI_VERTEX_LOCATION: 'us-central1',
+  })
+})
+
+test('buildStartupEnvFromProfile applies Gemini Vertex profiles', async () => {
+  const persisted = createProfileFile('gemini-vertex', {
+    CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+    GEMINI_VERTEX_PROJECT: 'project-test-1234',
+    GEMINI_VERTEX_LOCATION: 'europe-west4',
+    GEMINI_VERTEX_MODEL: 'gemini-3.5-flash',
+    GEMINI_VERTEX_AUTH_MODE: 'adc',
+  })
+
+  const env = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: {
+      OPENAI_API_KEY: 'openai-key',
+    },
+    readGeminiAccessToken: () => undefined,
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI_VERTEX, '1')
+  assert.equal(env.GEMINI_VERTEX_PROJECT, 'project-test-1234')
+  assert.equal(env.GEMINI_VERTEX_LOCATION, 'europe-west4')
+  assert.equal(env.GEMINI_VERTEX_MODEL, 'gemini-3.5-flash')
+  assert.equal(env.GEMINI_VERTEX_AUTH_MODE, 'adc')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+})
+
+test('buildStartupEnvFromProfile ignores whitespace-only shell Vertex values over persisted ones', async () => {
+  const persisted = createProfileFile('gemini-vertex', {
+    CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+    GEMINI_VERTEX_PROJECT: 'persisted-project',
+    GEMINI_VERTEX_MODEL: 'gemini-3.5-flash',
+    GEMINI_VERTEX_AUTH_MODE: 'access-token',
+  })
+
+  const env = await buildStartupEnvFromProfile({
+    persisted,
+    // Exported-but-blank shell values must not drop the persisted config.
+    processEnv: {
+      GEMINI_VERTEX_PROJECT: '   ',
+      GEMINI_VERTEX_MODEL: '   ',
+      GEMINI_ACCESS_TOKEN: '   ',
+    },
+    readGeminiAccessToken: () => undefined,
+  })
+
+  assert.equal(env.GEMINI_VERTEX_PROJECT, 'persisted-project')
+  assert.equal(env.GEMINI_VERTEX_MODEL, 'gemini-3.5-flash')
 })
 
 test('saveProfileFile writes a profile that loadProfileFile can read back', () => {
