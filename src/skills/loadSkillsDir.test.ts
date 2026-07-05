@@ -94,9 +94,6 @@ function enableUserAndProjectSettingSources(): SettingSource[] {
   return originalSources
 }
 
-const globalLoaderTest =
-  process.env.CI === 'true' ? test.skip : test.serial
-
 function clearSkillAndConfigCaches(): void {
   clearSkillCaches()
   getClaudeConfigHomeDir.cache?.clear?.()
@@ -252,10 +249,7 @@ test.serial('prefers .openclaude project skills over legacy .claude skills with 
   }
 })
 
-// This assertion depends on process-global settings, config-home, and fs state
-// that the full CI suite mutates heavily. Keep it as local regression coverage
-// without letting unrelated suite residue make the PR check nondeterministic.
-globalLoaderTest('project skills are ordered before user skills with the same name', async () => {
+test.serial('project skills are ordered before user skills with the same name', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
@@ -302,7 +296,7 @@ globalLoaderTest('project skills are ordered before user skills with the same na
   }
 })
 
-globalLoaderTest('dynamic discovery checks .openclaude skill directories', async () => {
+test.serial('dynamic discovery checks .openclaude skill directories', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const originalFs = setRealFilesystemForTest()
   const rootDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))

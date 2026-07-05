@@ -18,6 +18,7 @@ let executeConfigChangeHooksImpl = async () => hookResults
 let executeConfigChangeHooks = mock(async () => hookResults)
 let dynamicSkillsLoadedCallback: (() => void) | undefined
 let unregisterDynamicSkillsLoaded = mock(() => {})
+let additionalDirectories: string[] = []
 let getSkillsPathImpl = (_source: string, _dir: string) => ''
 let statImpl = mock(async (_path: string) => {})
 let chokidarWatch = mock(() => ({
@@ -36,6 +37,7 @@ function installMocks(): void {
   executeConfigChangeHooks = mock(() => executeConfigChangeHooksImpl())
   dynamicSkillsLoadedCallback = undefined
   unregisterDynamicSkillsLoaded = mock(() => {})
+  additionalDirectories = []
   getSkillsPathImpl = () => ''
   statImpl = mock(async () => {})
   chokidarWatch = mock(() => ({
@@ -55,6 +57,7 @@ async function importFreshModule(): Promise<SkillChangeDetectorModule> {
     getFsImplementation: () => ({
       stat: statImpl,
     }),
+    getAdditionalDirectoriesForClaudeMd: () => additionalDirectories,
     getSkillsPath: (source: string, dir: string) =>
       getSkillsPathImpl(source, dir),
     hasBlockingResult: (results: { blocked: boolean }[]) =>
@@ -115,12 +118,16 @@ describe('skillChangeDetector reload batching', () => {
       source === 'userSettings' && dir === 'skills' ? '/tmp/skills' : ''
 
     let resolveStat: (() => void) | undefined
-    statImpl = mock(
-      async () =>
-        await new Promise<void>(resolve => {
-          resolveStat = resolve
-        }),
-    )
+    let blockedFirstStat = false
+    statImpl = mock(async () => {
+      if (blockedFirstStat) {
+        throw new Error('missing')
+      }
+      blockedFirstStat = true
+      await new Promise<void>(resolve => {
+        resolveStat = resolve
+      })
+    })
 
     const initializePromise = detector.initialize()
     await sleep(0)
@@ -129,6 +136,33 @@ describe('skillChangeDetector reload batching', () => {
     await initializePromise
 
     expect(chokidarWatch).not.toHaveBeenCalled()
+  })
+
+  test('watches native and legacy project/add-dir skill paths that the loader reads', async () => {
+    const detector = await importFreshModule()
+    const addDir = '/tmp/openclaude-add-dir'
+    additionalDirectories = [addDir]
+    getSkillsPathImpl = (source, dir) => {
+      if (source === 'userSettings' && dir === 'skills') return '/tmp/user/skills'
+      if (source === 'userSettings' && dir === 'commands') return '/tmp/user/commands'
+      return ''
+    }
+    statImpl = mock(async () => {})
+
+    await detector.initialize()
+
+    expect(chokidarWatch).toHaveBeenCalledTimes(1)
+    const watchedPaths = (
+      chokidarWatch.mock.calls as unknown as Array<[string[]]>
+    )[0]?.[0] ?? []
+    expect(watchedPaths).toContain('/tmp/user/skills')
+    expect(watchedPaths).toContain('/tmp/user/commands')
+    expect(watchedPaths).toContain('/tmp/openclaude-add-dir/.claude/skills')
+    expect(watchedPaths).toContain('/tmp/openclaude-add-dir/.openclaude/skills')
+    expect(watchedPaths.some(path => path.endsWith('/.claude/skills'))).toBe(true)
+    expect(watchedPaths.some(path => path.endsWith('/.openclaude/skills'))).toBe(true)
+    expect(watchedPaths.some(path => path.endsWith('/.claude/commands'))).toBe(true)
+    expect(watchedPaths.some(path => path.endsWith('/.openclaude/commands'))).toBe(true)
   })
 
   test('batches rapid reload requests into one hook/cache clear/notification', async () => {

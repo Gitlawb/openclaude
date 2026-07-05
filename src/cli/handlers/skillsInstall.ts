@@ -42,6 +42,7 @@ type SkillRegistryEntry = {
 const DEFAULT_SKILLS_REGISTRY_URL =
   'https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/registry.json'
 const VALID_INSTALL_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
+const MAX_INSTALL_SKILL_NAME_LENGTH = 120
 const REMOTE_SOURCE_TIMEOUT_MS = 30_000
 const MAX_REMOTE_SOURCE_BYTES = 1024 * 1024
 
@@ -304,9 +305,12 @@ function skillNameFromSource(source: string): string {
 
 function normalizeInstallSkillName(value: string): string {
   const skillName = value.trim()
-  if (!VALID_INSTALL_SKILL_NAME.test(skillName)) {
+  if (
+    !VALID_INSTALL_SKILL_NAME.test(skillName) ||
+    skillName.length > MAX_INSTALL_SKILL_NAME_LENGTH
+  ) {
     throw new Error(
-      `Invalid skill name "${value}". Use lowercase letters, numbers, dashes, and optional colon namespaces.`,
+      `Invalid skill name "${value}". Use lowercase letters, numbers, dashes, optional colon namespaces, and at most ${MAX_INSTALL_SKILL_NAME_LENGTH} characters.`,
     )
   }
   return skillName

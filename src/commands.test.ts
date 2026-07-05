@@ -1,9 +1,13 @@
-﻿import { mkdtemp, rm } from 'node:fs/promises'
+﻿import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chdir } from 'node:process'
 
 import { afterEach, describe, expect, test } from 'bun:test'
+import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from './bootstrap/state.js'
 import type { CommandBase, PromptCommand } from './types/command.js'
 import { runWithCwdOverride } from './utils/cwd.js'
 import {
@@ -39,6 +43,7 @@ function useLanguage(language?: string): void {
 afterEach(() => {
   resetSettingsCache()
   clearBundledSkills()
+  clearCommandMemoizationCaches()
 })
 
 // Narrows the Command union to the prompt variant so getPromptForCommand is
@@ -59,6 +64,51 @@ describe('builtInCommandNames', () => {
       expect(cmds.map(c => c.name)).toContain('lsp')
     } finally {
       await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('project skills take precedence over bundled skills with the same name', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-skill-precedence-'))
+    const originalSources = getAllowedSettingSources()
+    setAllowedSettingSources([
+      'userSettings',
+      'projectSettings',
+      'localSettings',
+      'flagSettings',
+      'policySettings',
+    ])
+    registerBundledSkill({
+      name: 'debug',
+      description: 'Bundled debug skill',
+      async getPromptForCommand() {
+        return [{ type: 'text', text: 'bundled debug' }]
+      },
+    })
+    try {
+      const skillDir = join(cwd, '.openclaude', 'skills', 'debug')
+      await mkdir(skillDir, { recursive: true })
+      await writeFile(
+        join(skillDir, 'SKILL.md'),
+        `---\ndescription: Project debug skill\n---\n# Debug\n`,
+        'utf8',
+      )
+      clearCommandMemoizationCaches()
+
+      const cmds = await getCommands(cwd)
+      const debugCommands = cmds.filter(
+        (cmd): cmd is CommandBase & PromptCommand =>
+          cmd.type === 'prompt' && cmd.name === 'debug',
+      )
+
+      expect(debugCommands.length).toBeGreaterThanOrEqual(2)
+      expect(debugCommands[0].description).toBe('Project debug skill')
+      expect(debugCommands[0].source).toBe('projectSettings')
+      expect(debugCommands[1].description).toBe('Bundled debug skill')
+      expect(debugCommands[1].source).toBe('bundled')
+    } finally {
+      setAllowedSettingSources(originalSources)
+      await rm(cwd, { recursive: true, force: true })
+      clearCommandMemoizationCaches()
     }
   })
 

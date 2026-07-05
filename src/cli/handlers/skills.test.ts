@@ -13,9 +13,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'bun:test'
 
+import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from '../../bootstrap/state.ts'
 import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
 import { runWithCwdOverride } from '../../utils/cwd.js'
+import type { SettingSource } from '../../utils/settings/constants.ts'
 import { skillsInstallHandler } from './skillsInstall.ts'
 import { skillsRemoveHandler } from './skills.ts'
 import {
@@ -143,6 +148,18 @@ function stagedInstallTempDirs(): string[] {
 
 function assertNoNewStagedInstallDirs(before: string[]): void {
   assert.deepEqual(stagedInstallTempDirs().sort(), before.sort())
+}
+
+function enableUserAndProjectSettingSources(): SettingSource[] {
+  const originalSources = getAllowedSettingSources()
+  setAllowedSettingSources([
+    'userSettings',
+    'projectSettings',
+    'localSettings',
+    'flagSettings',
+    'policySettings',
+  ])
+  return originalSources
 }
 
 async function withTempDir<T>(fn: (tempDir: string) => Promise<T>): Promise<T> {
@@ -618,6 +635,7 @@ test.serial('removes only the targeted project skill directory', async () => {
     const skillsRoot = join(cwd, '.openclaude', 'skills')
     const target = join(skillsRoot, 'sample-skill')
     const sibling = join(skillsRoot, 'sibling-skill')
+    const originalSources = enableUserAndProjectSettingSources()
     mkdirSync(target, { recursive: true })
     mkdirSync(sibling, { recursive: true })
     writeFileSync(join(target, 'SKILL.md'), VALID_SKILL, 'utf8')
@@ -629,6 +647,7 @@ test.serial('removes only the targeted project skill directory', async () => {
         skillsRemoveHandler('sample-skill', {}),
       )
     } finally {
+      setAllowedSettingSources(originalSources)
       clearCommandsCache()
     }
 
