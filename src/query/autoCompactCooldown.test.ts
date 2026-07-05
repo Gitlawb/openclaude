@@ -8,6 +8,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { Message } from '../types/message.js'
+import { createCompactBoundaryMessage } from '../utils/messages.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import type { MaxMessagesCompactionThreshold } from '../utils/config.js'
 import type { QueryDeps } from './deps.js'
@@ -121,6 +122,23 @@ function overAutoCompactThresholdMessage(): Message {
 
 function manySmallMessages(count: number): Message[] {
   return Array.from({ length: count }, (_, index) => userMessage(`small-${index}`))
+}
+
+function compactedResult() {
+  return {
+    wasCompacted: true,
+    consecutiveFailures: 0,
+    compactionResult: {
+      boundaryMarker: createCompactBoundaryMessage('auto', 10_000),
+      summaryMessages: [userMessage('compacted summary')],
+      messagesToKeep: [],
+      attachments: [],
+      hookResults: [],
+      preCompactTokenCount: 10_000,
+      postCompactTokenCount: 500,
+      truePostCompactTokenCount: 500,
+    },
+  }
 }
 
 function toolUseContext() {
@@ -263,7 +281,9 @@ async function runMessageCountHardCapQuery(messages: Message[]) {
         tracking: AutocompactArgs[4],
       ) => {
         seenTracking.push(tracking)
-        return { wasCompacted: false }
+        return tracking?.forceReason === 'message-count'
+          ? compactedResult()
+          : { wasCompacted: false }
       },
     ) as QueryDeps['autocompact'],
     uuid: () => 'test-uuid',
@@ -368,6 +388,48 @@ test('explicit zero active-message hard cap override disables safety cap', async
   expect(terminal.reason).toBe('max_turns')
   expect(callModel).toHaveBeenCalledTimes(1)
   expect(seenTracking[0]?.forceReason).toBeUndefined()
+})
+
+test('active-message hard cap blocks when forced compaction fails', async () => {
+  const messages = manySmallMessages(1001)
+  const callModel = mock(() => {
+    throw new Error('model should not be called while over the hard cap')
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+    })) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      deps,
+    }),
+  )
+
+  expect(callModel).not.toHaveBeenCalled()
+  expect(terminal.reason).toBe('blocking_limit')
+  const apiError = yielded.find(
+    (message): message is Message =>
+      (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+  )
+  expect(apiError).toBeDefined()
+  const text = apiError!.message.content[0].text
+  expect(text).toContain('active-message safety limit')
+  expect(text).toContain('stopped before sending another oversized request')
 })
 
 test('explicit compact query source still runs microcompact when threshold is off', async () => {

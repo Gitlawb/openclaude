@@ -300,7 +300,9 @@ test('OpenAI-compatible context overflow messages are tagged for recovery', () =
 
 test('compacts and retries once for context overflow errors', async () => {
   let callCount = 0
-  const callModel: QueryDeps['callModel'] = async function* () {
+  const seenRequestMessages: QueryParams['messages'][] = []
+  const callModel: QueryDeps['callModel'] = async function* ({ messages }) {
+    seenRequestMessages.push(messages)
     callCount += 1
     if (callCount === 1) {
       yield createAssistantAPIErrorMessage({
@@ -354,6 +356,17 @@ test('compacts and retries once for context overflow errors', async () => {
 
   expect(callCount).toBe(2)
   expect(seenForceReasons).toEqual([undefined, 'memory-pressure'])
+  const retryMessages = seenRequestMessages[1] ?? []
+  expect(
+    retryMessages.some(
+      message =>
+        message.type === 'user' &&
+        message.isMeta === true &&
+        typeof message.message.content === 'string' &&
+        message.message.content.includes('exceeded the context window') &&
+        message.message.content.includes('retrying this turn once'),
+    ),
+  ).toBe(true)
   expect(
     messages.some(message => message?.apiError === 'context_overflow'),
   ).toBe(false)

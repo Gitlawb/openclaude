@@ -73,6 +73,10 @@ import {
   getAttachmentMessages,
   startRelevantMemoryPrefetch,
 } from './utils/attachments.js'
+import {
+  isAboveMaxActiveMessagesLimit,
+  resolveMaxActiveMessagesLimit,
+} from './utils/maxActiveMessages.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const skillPrefetch = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? (require('./services/skillSearch/prefetch.js') as typeof import('./services/skillSearch/prefetch.js'))
@@ -313,49 +317,6 @@ function formatAutoCompactRetryDelay(delayMs: number): string {
   return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`
 }
 
-const DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP = 1000
-
-function parseMaxActiveMessagesLimit(value: string | undefined): number {
-  if (!value) {
-    return 0
-  }
-  const trimmed = value.trim()
-  if (!/^(0|[1-9]\d*)$/.test(trimmed)) {
-    return 0
-  }
-  const parsed = Number.parseInt(trimmed, 10)
-  return Number.isSafeInteger(parsed) ? parsed : 0
-}
-
-function getMaxActiveMessagesHardCap(): number {
-  const hardCapOverride =
-    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
-  if (hardCapOverride === undefined) {
-    return DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
-  }
-  const trimmed = hardCapOverride.trim()
-  if (trimmed === '0') {
-    return 0
-  }
-  const parsed = parseMaxActiveMessagesLimit(trimmed)
-  return parsed > 0 ? parsed : DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
-}
-
-function resolveMaxActiveMessagesLimit(
-  configSetting: string,
-  envSetting: string | undefined,
-): number {
-  const configuredLimit =
-    configSetting !== 'off'
-      ? parseMaxActiveMessagesLimit(configSetting)
-      : parseMaxActiveMessagesLimit(envSetting)
-  const hardCap = getMaxActiveMessagesHardCap()
-  if (configuredLimit > 0 && hardCap > 0) {
-    return Math.min(configuredLimit, hardCap)
-  }
-  return configuredLimit > 0 ? configuredLimit : hardCap
-}
-
 /**
  * Is this a max_output_tokens error message? If so, the streaming loop should
  * withhold it from SDK callers until we know whether the recovery loop can
@@ -388,6 +349,14 @@ function shouldRecoverContextOverflow(
     querySource !== 'session_memory' &&
     isWithheldContextOverflow(msg)
   )
+}
+
+function createContextOverflowRecoveryMessage(): UserMessage {
+  return createUserMessage({
+    content:
+      'The previous provider request exceeded the context window. OpenClaude compacted the conversation and is retrying this turn once; continue from the compacted context, avoid repeating the oversized request shape, and use narrower tool reads if more detail is needed.',
+    isMeta: true,
+  })
 }
 
 function isWithheldProviderMaxTokensCap(
@@ -781,8 +750,10 @@ async function* queryLoop(
       : 0
     if (canForceCompact) {
       if (
-        activeMessageLimit > 0 &&
-        messagesForQuery.length > activeMessageLimit
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          activeMessageLimit,
+        )
       ) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
@@ -881,13 +852,17 @@ async function* queryLoop(
       updateAutoCompactTracking(tracking)
 
       const postCompactMessages = buildPostCompactMessages(compactionResult)
+      const messagesAfterCompact =
+        state.transition?.reason === 'context_overflow_compact_retry'
+          ? [...postCompactMessages, createContextOverflowRecoveryMessage()]
+          : postCompactMessages
 
       for (const message of postCompactMessages) {
         yield message
       }
 
       // Continue on with the current query call using the post compact messages
-      messagesForQuery = postCompactMessages
+      messagesForQuery = messagesAfterCompact
     } else if (
       consecutiveFailures !== undefined ||
       nextRetryAtMs !== undefined ||
@@ -1063,7 +1038,10 @@ async function* queryLoop(
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
           tokenUsage >= getAutoCompactThreshold(model)) ||
-        (activeMessageLimit > 0 && messagesForQuery.length > activeMessageLimit)
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          activeMessageLimit,
+        )
       if (isAboveBreakerThreshold) {
         const nowMs = Date.now()
         const retryDelayMs =
@@ -1083,6 +1061,17 @@ async function* queryLoop(
         })
         return { reason: 'blocking_limit' }
       }
+    }
+
+    if (
+      isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit)
+    ) {
+      yield createAssistantAPIErrorMessage({
+        content:
+          'The conversation is over the active-message safety limit, but automatic compaction could not reduce it before the next provider request. OpenClaude stopped before sending another oversized request. Run /compact, undo recent large tool output, or start a new session with /new.',
+        error: 'invalid_request',
+      })
+      return { reason: 'blocking_limit' }
     }
 
     let attemptWithFallback = true
