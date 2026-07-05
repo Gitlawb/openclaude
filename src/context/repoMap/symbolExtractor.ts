@@ -25,21 +25,40 @@ type TreeSitterTree = {
 }
 
 const queryCache = new Map<string, TreeSitterQuery>()
+const queryLoadPromises = new Map<string, Promise<TreeSitterQuery | null>>()
 
 async function getQuery(language: NonNullable<ReturnType<typeof getLanguageForFile>>) {
   const cached = queryCache.get(language)
   if (cached) return cached
 
-  const querySource = loadQuery(language)
-  if (!querySource) return null
+  const pending = queryLoadPromises.get(language)
+  if (pending) return pending
 
-  const lang = await loadLanguage(language)
-  if (!lang) return null
+  const promise = (async () => {
+    const querySource = loadQuery(language)
+    if (!querySource) return null
 
-  const { Query } = await import('web-tree-sitter')
-  const query = new Query(lang, querySource) as TreeSitterQuery
-  queryCache.set(language, query)
-  return query
+    const lang = await loadLanguage(language)
+    if (!lang) return null
+
+    const { Query } = await import('web-tree-sitter')
+    const query = new Query(lang, querySource) as TreeSitterQuery
+    queryCache.set(language, query)
+    return query
+  })()
+
+  queryLoadPromises.set(language, promise)
+
+  try {
+    return await promise
+  } catch (error) {
+    queryLoadPromises.delete(language)
+    throw error
+  } finally {
+    if (queryLoadPromises.get(language) === promise) {
+      queryLoadPromises.delete(language)
+    }
+  }
 }
 
 export function clearSymbolExtractorCaches(): void {
@@ -47,6 +66,7 @@ export function clearSymbolExtractorCaches(): void {
     query.delete?.()
   }
   queryCache.clear()
+  queryLoadPromises.clear()
 }
 
 /**

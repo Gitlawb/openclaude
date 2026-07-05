@@ -7,6 +7,7 @@ import { initParser } from '../../context/repoMap/parser.js'
 import { invalidateCache } from '../../context/repoMap/index.js'
 import { getRepoFiles } from '../../context/repoMap/gitFiles.js'
 import { getCwd, pwd, runWithCwdOverride } from '../../utils/cwd.js'
+import { isAbortError } from '../../utils/errors.js'
 import { runWithSdkContext, setCwdState } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
 import { RepoMapTool } from './RepoMapTool.js'
@@ -210,6 +211,37 @@ describe('RepoMapTool call', () => {
       expect(result.data.rendered).toContain(
         'export class ConsoleLogger implements Logger',
       )
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('does not build a repository map when already aborted', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-abort-'))
+    try {
+      populateFixtureRepo(tempDir)
+      const abortController = new AbortController()
+      abortController.abort('test-abort')
+
+      let error: unknown
+      try {
+        await runWithSdkContext({
+          sessionId: 'repomap-tool-abort-test' as SessionId,
+          sessionProjectDir: null,
+          cwd: tempDir,
+          originalCwd: tempDir,
+        }, () => runWithCwdOverride(tempDir, () =>
+          RepoMapTool.call(
+            { max_tokens: 256 },
+            { abortController } as Parameters<typeof RepoMapTool.call>[1],
+          ),
+        ))
+      } catch (err) {
+        error = err
+      }
+
+      expect(isAbortError(error)).toBe(true)
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)

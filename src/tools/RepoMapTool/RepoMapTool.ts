@@ -4,6 +4,7 @@ import { pwd } from '../../utils/cwd.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
+import { AbortError } from '../../utils/errors.js'
 import { buildRepoMap } from '../../context/repoMap/index.js'
 import {
   getCachedTags,
@@ -134,6 +135,7 @@ export const RepoMapTool = buildTool({
     { max_tokens = 1024, focus_files, focus_symbols },
     { abortController },
   ) {
+    throwIfAborted(abortController.signal)
     const root = pwd()
 
     // Resolve focus_symbols to file paths by searching the tag cache
@@ -152,7 +154,7 @@ export const RepoMapTool = buildTool({
       const BATCH_SIZE = 50
 
       for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        if (abortController.signal.aborted) break
+        throwIfAborted(abortController.signal)
         const batch = files.slice(i, i + BATCH_SIZE)
         const results = await Promise.all(
           batch.map(async file => {
@@ -178,10 +180,12 @@ export const RepoMapTool = buildTool({
         }
       }
 
+      throwIfAborted(abortController.signal)
       saveCache(root, cache)
       resolvedFocusFiles = [...resolvedFocusFiles, ...symbolFiles]
     }
 
+    throwIfAborted(abortController.signal)
     const result = await buildRepoMap({
       root,
       maxTokens: max_tokens,
@@ -200,3 +204,9 @@ export const RepoMapTool = buildTool({
     return { data: output }
   },
 } satisfies ToolDef<InputSchema, Output>)
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new AbortError()
+  }
+}

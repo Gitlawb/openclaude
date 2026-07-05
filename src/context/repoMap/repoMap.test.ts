@@ -78,6 +78,100 @@ describe('symbol extraction', () => {
       rmSync(tempDir, { recursive: true, force: true })
     }
   })
+
+  test('extracts definitions and references from JavaScript files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.js'),
+        [
+          'class Widget {',
+          '  render() { return helper() }',
+          '}',
+          'function helper() { return new Widget() }',
+          'const makeWidget = () => new Widget()',
+          'exports.fromCommonJs = function() { return makeWidget() }',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('main.js', tempDir)
+      expect(result).not.toBeNull()
+
+      const defs = result!.tags
+        .filter(tag => tag.kind === 'def')
+        .map(tag => tag.name)
+      const refs = result!.tags
+        .filter(tag => tag.kind === 'ref')
+        .map(tag => tag.name)
+
+      expect(defs).toContain('Widget')
+      expect(defs).toContain('helper')
+      expect(defs).toContain('makeWidget')
+      expect(defs).toContain('fromCommonJs')
+      expect(refs).toContain('Widget')
+      expect(refs).toContain('helper')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('builds a non-empty map for JavaScript-only repos', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-only-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.js'),
+        [
+          'export class JavaScriptOnly {}',
+          'export function createJavaScriptOnly() {',
+          '  return new JavaScriptOnly()',
+          '}',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+        files: ['main.js'],
+      })
+
+      expect(result.map).toContain('main.js:')
+      expect(result.map).toContain('JavaScriptOnly')
+      expect(result.fileCount).toBe(1)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('shares concurrent query loads for the same language', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-concurrent-'))
+    try {
+      const files = Array.from({ length: 20 }, (_, i) => `file${i}.js`)
+      for (const file of files) {
+        writeFileSync(
+          join(tempDir, file),
+          `export function ${file.replace('.js', '')}(): number { return 1 }\n`,
+        )
+      }
+
+      const results = await Promise.all(
+        files.map(file => extractTags(file, tempDir)),
+      )
+
+      expect(results.every(result => result !== null)).toBe(true)
+      expect(
+        results.every(result =>
+          result!.tags.some(tag => tag.kind === 'def'),
+        ),
+      ).toBe(true)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
 })
 
 describe('graph', () => {

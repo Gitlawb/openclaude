@@ -90,11 +90,7 @@ const JAVASCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/a
   (comment)* @doc
   .
   [
-    (function
-      name: (identifier) @name.definition.function)
     (function_declaration
-      name: (identifier) @name.definition.function)
-    (generator_function
       name: (identifier) @name.definition.function)
     (generator_function_declaration
       name: (identifier) @name.definition.function)
@@ -109,7 +105,7 @@ const JAVASCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/a
   (lexical_declaration
     (variable_declarator
       name: (identifier) @name.definition.function
-      value: [(arrow_function) (function)]) @definition.function)
+      value: [(arrow_function) (function_expression)]) @definition.function)
   (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
   (#select-adjacent! @doc @definition.function)
 )
@@ -120,7 +116,7 @@ const JAVASCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/a
   (variable_declaration
     (variable_declarator
       name: (identifier) @name.definition.function
-      value: [(arrow_function) (function)]) @definition.function)
+      value: [(arrow_function) (function_expression)]) @definition.function)
   (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
   (#select-adjacent! @doc @definition.function)
 )
@@ -131,12 +127,12 @@ const JAVASCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/a
     (member_expression
       property: (property_identifier) @name.definition.function)
   ]
-  right: [(arrow_function) (function)]
+  right: [(arrow_function) (function_expression)]
 ) @definition.function
 
 (pair
   key: (property_identifier) @name.definition.function
-  value: [(arrow_function) (function)]) @definition.function
+  value: [(arrow_function) (function_expression)]) @definition.function
 
 (
   (call_expression
