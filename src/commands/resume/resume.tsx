@@ -11,11 +11,12 @@ import type { GoalState } from '../../services/goal/types.js';
 import type { CommandResultDisplay, ResumeEntrypoint } from '../../commands.js';
 import { LogSelector } from '../../components/LogSelector.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
+import { SessionSummary } from '../../components/SessionSummary.js';
 import { Spinner } from '../../components/Spinner.js';
 import { useIsInsideModal } from '../../context/modalContext.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { setClipboard } from '../../ink/termio/osc.js';
-import { Box, Text } from '../../ink.js';
+import { Box, Text, useInput } from '../../ink.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 import type { LogOption } from '../../types/logs.js';
 import type { TodoItem, TodoList } from '../../utils/todo/types.js';
@@ -23,7 +24,8 @@ import { agenticSessionSearch } from '../../utils/agenticSessionSearch.js';
 import { checkCrossProjectResume } from '../../utils/crossProjectResume.js';
 import { getWorktreePaths } from '../../utils/getWorktreePaths.js';
 import { logError } from '../../utils/log.js';
-import { getLastSessionLog, getSessionIdFromLog, isCustomTitleEnabled, isLiteLog, loadAllProjectsMessageLogs, loadFullLog, loadSameRepoMessageLogs, searchSessionsByCustomTitle } from '../../utils/sessionStorage.js';
+import { loadReplayIndex } from '../../utils/replayIndex.js';
+import { getLastSessionLog, getSessionIdFromLog, getTranscriptPathForSession, isCustomTitleEnabled, isLiteLog, loadAllProjectsMessageLogs, loadFullLog, loadSameRepoMessageLogs, searchSessionsByCustomTitle } from '../../utils/sessionStorage.js';
 import { validateUuid } from '../../utils/uuid.js';
 type ResumeResult = {
   resultType: 'sessionNotFound';
@@ -41,6 +43,49 @@ function resumeHelpMessage(result: ResumeResult): string {
       return `Found ${result.count} sessions matching ${chalk.bold(result.arg)}. Please use /resume to pick a specific session.`;
   }
 }
+
+type ResumeConfirmationSession = {
+  sessionId: UUID;
+  log: LogOption;
+}
+
+export function ResumeConfirmation({
+  selectedSession,
+  sessionSummary,
+  resuming,
+  onResume,
+  onCancel,
+}: {
+  selectedSession: ResumeConfirmationSession;
+  sessionSummary: import('../../types/logs.js').ReplaySummary;
+  resuming: boolean;
+  onResume: (session: ResumeConfirmationSession) => void;
+  onCancel: () => void;
+}): React.ReactNode {
+  useInput((_input, key) => {
+    if (key.return) {
+      onResume(selectedSession);
+    } else if (key.escape) {
+      onCancel();
+    }
+  }, {
+    isActive: !resuming,
+  });
+
+  return (
+    <Box flexDirection="column">
+      <SessionSummary summary={sessionSummary} />
+      <Box marginTop={1}>
+        <Text>Press </Text>
+        <Text bold color="green">Enter</Text>
+        <Text> to resume, </Text>
+        <Text bold color="red">Escape</Text>
+        <Text> to cancel</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function ResumeError(t0) {
   const $ = _c(10);
   const {
@@ -105,6 +150,8 @@ function ResumeCommand({
   const [loading, setLoading] = React.useState(true);
   const [resuming, setResuming] = React.useState(false);
   const [showAllProjects, setShowAllProjects] = React.useState(false);
+  const [selectedSession, setSelectedSession] = React.useState<{ sessionId: UUID; log: LogOption } | null>(null);
+  const [sessionSummary, setSessionSummary] = React.useState<import('../../types/logs.js').ReplaySummary | null>(null);
   const {
     rows
   } = useTerminalSize();
@@ -153,8 +200,16 @@ function ResumeCommand({
     if (crossProjectCheck.isCrossProject) {
       if (crossProjectCheck.isSameRepoWorktree) {
         // Same repo worktree - can resume directly
-        setResuming(true);
-        void onResume(sessionId, fullLog, 'slash_command_picker');
+        // Try to load replay summary
+        const transcriptPath = fullLog.fullPath || getTranscriptPathForSession(sessionId);
+        const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
+        if (replayIndex) {
+          setSessionSummary(replayIndex.summary);
+          setSelectedSession({ sessionId, log: fullLog });
+        } else {
+          setResuming(true);
+          void onResume(sessionId, fullLog, 'slash_command_picker');
+        }
         return;
       }
 
@@ -170,10 +225,31 @@ function ResumeCommand({
       return;
     }
 
-    // Same directory - proceed with resume
-    setResuming(true);
-    void onResume(sessionId, fullLog, 'slash_command_picker');
+    // Same directory - try to show summary first
+    const transcriptPath = fullLog.fullPath || getTranscriptPathForSession(sessionId);
+    const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
+    if (replayIndex) {
+      setSessionSummary(replayIndex.summary);
+      setSelectedSession({ sessionId, log: fullLog });
+    } else {
+      // No replay data, proceed directly
+      setResuming(true);
+      void onResume(sessionId, fullLog, 'slash_command_picker');
+    }
   }
+
+  function handleConfirmResume(session = selectedSession) {
+    if (session) {
+      setResuming(true);
+      void onResume(session.sessionId, session.log, 'slash_command_picker');
+    }
+  }
+
+  function handleCancelResume() {
+    setSelectedSession(null);
+    setSessionSummary(null);
+  }
+
   function handleCancel() {
     onDone('Resume cancelled', {
       display: 'system'
@@ -191,10 +267,84 @@ function ResumeCommand({
         <Text> Resuming conversation…</Text>
       </Box>;
   }
+
+  // Show session summary confirmation if a session is selected
+  if (selectedSession && sessionSummary) {
+    return <ResumeConfirmation selectedSession={selectedSession} sessionSummary={sessionSummary} resuming={resuming} onResume={handleConfirmResume} onCancel={handleCancelResume} />;
+  }
+
   return <LogSelector logs={logs} maxHeight={insideModal ? Math.floor(rows / 2) : rows - 2} onCancel={handleCancel} onSelect={handleSelect} onLogsChanged={() => loadLogs(showAllProjects, worktreePaths)} showAllProjects={showAllProjects} onToggleAllProjects={handleToggleAllProjects} onAgenticSearch={agenticSessionSearch} />;
 }
 export function filterResumableSessions(logs: LogOption[], currentSessionId: string): LogOption[] {
   return logs.filter(l => !l.isSidechain && getSessionIdFromLog(l) !== currentSessionId);
+}
+
+function DirectResumeConfirmation({
+  selectedSession,
+  sessionSummary,
+  entrypoint,
+  onResume,
+  onDone,
+}: {
+  selectedSession: ResumeConfirmationSession;
+  sessionSummary: import('../../types/logs.js').ReplaySummary;
+  entrypoint: ResumeEntrypoint;
+  onResume: (
+    sessionId: UUID,
+    log: LogOption,
+    entrypoint: ResumeEntrypoint,
+  ) => Promise<void>;
+  onDone: Parameters<LocalJSXCommandCall>[0];
+}): React.ReactNode {
+  const [resuming, setResuming] = React.useState(false);
+
+  return (
+    <ResumeConfirmation
+      selectedSession={selectedSession}
+      sessionSummary={sessionSummary}
+      resuming={resuming}
+      onResume={session => {
+        if (resuming) return;
+        setResuming(true);
+        void onResume(session.sessionId, session.log, entrypoint);
+      }}
+      onCancel={() => {
+        if (resuming) return;
+        onDone('Resume cancelled', {
+          display: 'system',
+        });
+      }}
+    />
+  );
+}
+
+async function resumeWithOptionalSummary(
+  sessionId: UUID,
+  log: LogOption,
+  entrypoint: ResumeEntrypoint,
+  onResume: (
+    sessionId: UUID,
+    log: LogOption,
+    entrypoint: ResumeEntrypoint,
+  ) => Promise<void>,
+  onDone: Parameters<LocalJSXCommandCall>[0],
+): Promise<React.ReactNode> {
+  const transcriptPath = log.fullPath || getTranscriptPathForSession(sessionId);
+  const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
+  if (!replayIndex) {
+    void onResume(sessionId, log, entrypoint);
+    return null;
+  }
+
+  return (
+    <DirectResumeConfirmation
+      selectedSession={{ sessionId, log }}
+      sessionSummary={replayIndex.summary}
+      entrypoint={entrypoint}
+      onResume={onResume}
+      onDone={onDone}
+    />
+  );
 }
 
 function isResumableGoal(goal: GoalState | null): goal is GoalState {
@@ -341,8 +491,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     if (matchingLogs.length > 0) {
       const log = matchingLogs[0]!;
       const fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
-      void onResume(maybeSessionId, fullLog, 'slash_command_session_id');
-      return null;
+      return resumeWithOptionalSummary(
+        maybeSessionId,
+        fullLog,
+        'slash_command_session_id',
+        onResume,
+        onDone,
+      );
     }
 
     // Enriched logs didn't find it — try direct file lookup. This handles
@@ -350,8 +505,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     // firstPrompt extraction fail, causing the session to be dropped).
     const directLog = await getLastSessionLog(maybeSessionId);
     if (directLog) {
-      void onResume(maybeSessionId, directLog, 'slash_command_session_id');
-      return null;
+      return resumeWithOptionalSummary(
+        maybeSessionId,
+        directLog,
+        'slash_command_session_id',
+        onResume,
+        onDone,
+      );
     }
   }
 
@@ -365,8 +525,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
       const sessionId = getSessionIdFromLog(log);
       if (sessionId) {
         const fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
-        void onResume(sessionId, fullLog, 'slash_command_title');
-        return null;
+        return resumeWithOptionalSummary(
+          sessionId,
+          fullLog,
+          'slash_command_title',
+          onResume,
+          onDone,
+        );
       }
     }
 

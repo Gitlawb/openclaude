@@ -9,6 +9,10 @@ import { findToolByName, type Tools, type ToolUseContext } from '../../Tool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
+import {
+  getMissingToolResultAbortMessage,
+  shouldCreateUserInterruptionMessage,
+} from '../../utils/abortReasons.js'
 import { runToolUse } from './toolExecution.js'
 
 type MessageUpdate = {
@@ -30,6 +34,10 @@ type TrackedTool = {
   pendingProgress: Message[]
   contextModifiers?: Array<(context: ToolUseContext) => ToolUseContext>
 }
+
+type SyntheticErrorReason =
+  | { reason: 'sibling_error' | 'streaming_fallback' | 'user_interrupted' }
+  | { reason: 'parent_abort'; abortReason: unknown }
 
 /**
  * Executes tools as they stream in with concurrency control.
@@ -67,7 +75,28 @@ export class StreamingToolExecutor {
    * Queued tools won't start, and in-progress tools will receive synthetic errors.
    */
   discard(): void {
+    if (this.discarded) return
     this.discarded = true
+    this.siblingAbortController.abort('streaming_fallback')
+    const activeLifecycleToolUseIds = new Set(
+      this.toolUseContext.queryLifecycle
+        ?.snapshot()
+        .toolUses.map(toolUse => toolUse.toolUseId) ?? [],
+    )
+    for (const tool of this.tools) {
+      if (tool.status === 'yielded') continue
+      if (activeLifecycleToolUseIds.has(tool.id)) {
+        this.toolUseContext.queryLifecycle?.endToolUse(tool.id)
+      }
+      markToolUseAsComplete(this.toolUseContext, tool.id)
+      tool.pendingProgress.length = 0
+      tool.status = 'yielded'
+    }
+    this.updateInterruptibleState()
+    if (this.progressAvailableResolve) {
+      this.progressAvailableResolve()
+      this.progressAvailableResolve = undefined
+    }
   }
 
   /**
@@ -152,9 +181,10 @@ export class StreamingToolExecutor {
 
   private createSyntheticErrorMessage(
     toolUseId: string,
-    reason: 'sibling_error' | 'user_interrupted' | 'streaming_fallback',
+    syntheticReason: SyntheticErrorReason,
     assistantMessage: AssistantMessage,
   ): Message {
+    const { reason } = syntheticReason
     // For user interruptions (ESC to reject), use REJECT_MESSAGE so the UI shows
     // "User rejected edit" instead of "Error editing file"
     if (reason === 'user_interrupted') {
@@ -168,6 +198,23 @@ export class StreamingToolExecutor {
           },
         ],
         toolUseResult: 'User rejected tool use',
+        sourceToolAssistantUUID: assistantMessage.uuid,
+      })
+    }
+    if (reason === 'parent_abort') {
+      const abortMessage = getMissingToolResultAbortMessage(
+        syntheticReason.abortReason,
+      )
+      return createUserMessage({
+        content: [
+          {
+            type: 'tool_result',
+            content: withMemoryCorrectionHint(abortMessage),
+            is_error: true,
+            tool_use_id: toolUseId,
+          },
+        ],
+        toolUseResult: abortMessage,
         sourceToolAssistantUUID: assistantMessage.uuid,
       })
     }
@@ -207,14 +254,12 @@ export class StreamingToolExecutor {
   /**
    * Determine why a tool should be cancelled.
    */
-  private getAbortReason(
-    tool: TrackedTool,
-  ): 'sibling_error' | 'user_interrupted' | 'streaming_fallback' | null {
+  private getAbortReason(tool: TrackedTool): SyntheticErrorReason | null {
     if (this.discarded) {
-      return 'streaming_fallback'
+      return { reason: 'streaming_fallback' }
     }
     if (this.hasErrored) {
-      return 'sibling_error'
+      return { reason: 'sibling_error' }
     }
     if (this.toolUseContext.abortController.signal.aborted) {
       // 'interrupt' means the user typed a new message while tools were
@@ -222,10 +267,20 @@ export class StreamingToolExecutor {
       // 'block' tools shouldn't reach here (abort isn't fired).
       if (this.toolUseContext.abortController.signal.reason === 'interrupt') {
         return this.getToolInterruptBehavior(tool) === 'cancel'
-          ? 'user_interrupted'
+          ? { reason: 'user_interrupted' }
           : null
       }
-      return 'user_interrupted'
+      if (
+        shouldCreateUserInterruptionMessage(
+          this.toolUseContext.abortController.signal.reason,
+        )
+      ) {
+        return { reason: 'user_interrupted' }
+      }
+      return {
+        reason: 'parent_abort',
+        abortReason: this.toolUseContext.abortController.signal.reason,
+      }
     }
     return null
   }

@@ -55,6 +55,18 @@ Normal gateway examples should:
 
 The routing decision belongs to `transportConfig.kind`, not to `category`.
 
+## Reasoning controls in mixed catalogs
+
+Gateway catalogs often mix models with different reasoning APIs. Keep
+`capabilities.supportsReasoning` as descriptive capability metadata unless
+the exact gateway route and model ID have been probed.
+
+Add `/effort`-controllable `reasoning` metadata per catalog entry, not at the
+gateway level. If a gateway accepts one upstream model's `reasoning_effort`
+but rejects another model's field, each entry must say so explicitly. See
+`docs/integrations/reasoning-effort.md` before adding or changing reasoning
+controls.
+
 ## Generated loader and preset manifest
 
 Normal gateway onboarding is additive now:

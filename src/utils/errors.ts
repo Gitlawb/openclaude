@@ -1,4 +1,5 @@
 import { APIUserAbortError } from '@anthropic-ai/sdk'
+import type { AbortReason } from './abortReasons.js'
 
 export class ClaudeError extends Error {
   constructor(message: string) {
@@ -49,14 +50,27 @@ export class ConfigParseError extends Error {
 }
 
 export class ShellError extends Error {
+  public readonly abortReason?: AbortReason
+  public readonly abortMessage?: string
+  public readonly isAbort: boolean
+
   constructor(
     public readonly stdout: string,
     public readonly stderr: string,
     public readonly code: number,
     public readonly interrupted: boolean,
+    opts?: {
+      abortReason?: AbortReason
+      abortMessage?: string
+      isAbort?: boolean
+    },
   ) {
     super('Shell command failed')
     this.name = 'ShellError'
+    this.abortReason = opts?.abortReason
+    this.abortMessage = opts?.abortMessage
+    this.isAbort =
+      opts?.isAbort ?? (opts?.abortReason !== undefined && interrupted)
   }
 }
 

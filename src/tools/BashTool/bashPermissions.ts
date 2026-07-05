@@ -73,6 +73,7 @@ import {
 import { checkCommandOperatorPermissions } from './bashCommandHelpers.js'
 import {
   bashCommandIsSafeAsync_DEPRECATED,
+  checkBashCommitMessagePolicy,
   stripSafeHeredocSubstitutions,
 } from './bashSecurity.js'
 import { checkPermissionMode } from './modeValidation.js'
@@ -1502,7 +1503,22 @@ function buildPendingClassifierCheck(
   }
 }
 
+/** Maximum number of speculative classifier results to cache. */
+const MAX_SPECULATIVE_CHECKS_SIZE = 1000
 const speculativeChecks = new Map<string, Promise<ClassifierResult>>()
+
+/**
+ * Remove the oldest entries from speculativeChecks until the map is within
+ * the MAX_SPECULATIVE_CHECKS_SIZE cap. Eviction is FIFO based on insertion
+ * order (Map preserves insertion order for keys).
+ */
+function evictSpeculativeChecks(): void {
+  while (speculativeChecks.size > MAX_SPECULATIVE_CHECKS_SIZE) {
+    const oldestKey = speculativeChecks.keys().next().value
+    if (oldestKey === undefined) break
+    speculativeChecks.delete(oldestKey)
+  }
+}
 
 /**
  * Start a speculative bash allow classifier check early, so it runs in
@@ -1549,6 +1565,7 @@ export function startSpeculativeClassifierCheck(
   // The original promise (which may reject) is still stored in the Map for consumers to await.
   promise.catch(() => {})
   speculativeChecks.set(command, promise)
+  evictSpeculativeChecks()
   return true
 }
 
@@ -1568,6 +1585,13 @@ export function consumeSpeculativeClassifierCheck(
 
 export function clearSpeculativeChecks(): void {
   speculativeChecks.clear()
+}
+
+// Test-only surface for speculative cache eviction assertions.
+export const _test = {
+  speculativeChecks,
+  evictSpeculativeChecks,
+  MAX_SPECULATIVE_CHECKS_SIZE,
 }
 
 /**
@@ -1692,6 +1716,26 @@ export async function bashToolHasPermission(
   getCommandSubcommandPrefixFn = getCommandSubcommandPrefix,
 ): Promise<PermissionResult> {
   let appState = context.getAppState()
+
+  const commitPolicyResult = checkBashCommitMessagePolicy(input.command)
+  if (commitPolicyResult) {
+    if (
+      commitPolicyResult.behavior !== 'ask' &&
+      commitPolicyResult.behavior !== 'deny'
+    ) {
+      return commitPolicyResult
+    }
+    return {
+      ...commitPolicyResult,
+      message: createPermissionRequestMessage(
+        BashTool.name,
+        commitPolicyResult.decisionReason ?? {
+          type: 'other',
+          reason: 'Git commit policy violation',
+        },
+      ),
+    }
+  }
 
   // 0. Analyze command structure once for this permission check. The helper
   // keeps AST parsing, shadow telemetry, and legacy shell-quote fallback state
@@ -2125,6 +2169,29 @@ export async function bashToolHasPermission(
     cwd,
     cwdMingw,
   )
+
+  for (const subcommand of subcommands) {
+    const subcommandCommitPolicyResult =
+      checkBashCommitMessagePolicy(subcommand)
+    if (subcommandCommitPolicyResult) {
+      if (
+        subcommandCommitPolicyResult.behavior !== 'ask' &&
+        subcommandCommitPolicyResult.behavior !== 'deny'
+      ) {
+        return subcommandCommitPolicyResult
+      }
+      return {
+        ...subcommandCommitPolicyResult,
+        message: createPermissionRequestMessage(
+          BashTool.name,
+          subcommandCommitPolicyResult.decisionReason ?? {
+            type: 'other',
+            reason: 'Git commit policy violation',
+          },
+        ),
+      }
+    }
+  }
 
   // CC-643: Cap subcommand fanout. Only the legacy splitCommand path can
   // explode — the AST path returns a bounded list (astSubcommands !== null)

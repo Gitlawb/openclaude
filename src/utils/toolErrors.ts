@@ -1,10 +1,12 @@
 import type { ZodError } from 'zod/v4'
-import { AbortError, ShellError } from './errors.js'
+import { isAbortError, ShellError } from './errors.js'
 import { INTERRUPT_MESSAGE_FOR_TOOL_USE } from './messages.js'
 
 export function formatError(error: unknown): string {
-  if (error instanceof AbortError) {
-    return error.message || INTERRUPT_MESSAGE_FOR_TOOL_USE
+  if (isAbortError(error)) {
+    return error instanceof Error && error.message
+      ? error.message
+      : INTERRUPT_MESSAGE_FOR_TOOL_USE
   }
   if (!(error instanceof Error)) {
     return String(error)
@@ -27,7 +29,9 @@ export function getErrorParts(error: Error): string[] {
   if (error instanceof ShellError) {
     return [
       `Exit code ${error.code}`,
-      error.interrupted ? INTERRUPT_MESSAGE_FOR_TOOL_USE : '',
+      error.interrupted
+        ? error.abortMessage ?? INTERRUPT_MESSAGE_FOR_TOOL_USE
+        : '',
       error.stderr,
       error.stdout,
     ]

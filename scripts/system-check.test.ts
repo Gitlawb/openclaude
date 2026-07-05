@@ -23,6 +23,7 @@ const ENV_KEYS = [
   'MISTRAL_MODEL',
   'OPENAI_MODEL',
   'OPENAI_BASE_URL',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENGATEWAY_API_KEY',
   'GITHUB_TOKEN',
@@ -183,14 +184,78 @@ describe('system-check provider diagnostics', () => {
 
     const results = checkOpenAIEnv()
     const summary = serializeSafeEnvSummary()
-    const credentialResult = results.find(result => result.label === 'OPENAI_API_KEY')
+    const credentialResult = results.find(
+      result => result.label === 'OPENAI_API_KEYS or OPENAI_API_KEY',
+    )
 
     expect(credentialResult).toEqual({
       ok: false,
-      label: 'OPENAI_API_KEY',
-      detail: 'Missing key for non-local provider URL. Set OPENAI_API_KEY.',
+      label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
+      detail:
+        'Missing key for non-local provider URL. Set OPENAI_API_KEYS or OPENAI_API_KEY.',
     })
     expect(summary.PROVIDER_API_KEY_SET).toBe(false)
+  })
+
+  test('falls back to OPENAI_API_KEY when OPENAI_API_KEYS is delimiter-only', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_API_KEYS = ', ,'
+    process.env.OPENAI_API_KEY = 'sk-openai-single'
+
+    const results = checkOpenAIEnv()
+    const summary = serializeSafeEnvSummary()
+    const credentialResult = results.find(
+      result => result.label === 'OPENAI_API_KEYS or OPENAI_API_KEY',
+    )
+
+    expect(credentialResult).toEqual({
+      ok: true,
+      label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
+      detail: 'Configured.',
+    })
+    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
+  })
+
+  test('accepts valid OPENAI_API_KEYS before placeholder OPENAI_API_KEY fallback', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+    process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+    const results = checkOpenAIEnv()
+    const summary = serializeSafeEnvSummary()
+    const credentialResult = results.find(
+      result => result.label === 'OPENAI_API_KEYS or OPENAI_API_KEY',
+    )
+
+    expect(credentialResult).toEqual({
+      ok: true,
+      label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
+      detail: 'Configured.',
+    })
+    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
+  })
+
+  test('rejects placeholder values inside OPENAI_API_KEYS pools', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_API_KEYS = 'sk-openai-a,SUA_CHAVE'
+    delete process.env.OPENAI_API_KEY
+
+    const results = checkOpenAIEnv()
+    const credentialResult = results.find(
+      result => result.label === 'OPENAI_API_KEYS or OPENAI_API_KEY',
+    )
+
+    expect(credentialResult).toEqual({
+      ok: false,
+      label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
+      detail: 'Placeholder value detected: SUA_CHAVE.',
+    })
   })
 })
 

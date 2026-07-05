@@ -136,6 +136,7 @@ export const commands: SlashCommand[] = [
   { name: 'help', description: 'Show help and available commands', category: 'diagnostics' },
   { name: 'status', description: 'Show status including version, model, account, API connectivity, and tool statuses', category: 'diagnostics' },
   { name: 'doctor', description: 'Diagnose and verify your OpenClaude installation and settings', category: 'diagnostics' },
+  { name: 'diagnostics', description: 'Show available LSP diagnostics already captured for this session', category: 'diagnostics' },
   { name: 'stats', description: 'Show your usage statistics and activity', category: 'diagnostics' },
   { name: 'insights', description: 'Generate a report analyzing your OpenClaude sessions', category: 'diagnostics' },
   { name: 'release-notes', description: 'View release notes', category: 'diagnostics' },

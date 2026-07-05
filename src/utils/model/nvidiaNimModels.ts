@@ -9,6 +9,7 @@ import { isEnvTruthy } from '../envUtils.js'
 import { getCachedModels } from '../../integrations/discoveryCache.js'
 import { getDiscoveryCacheKey } from '../../integrations/discoveryService.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 import { parseCustomHeadersEnv } from '../providerCustomHeaders.js'
 
@@ -188,38 +189,40 @@ export function getCachedNvidiaNimModelOptions(): ModelOption[] {
  * silently mis-partitioned the cache for users authenticating via
  * `OPENAI_API_KEY`.
  */
+export function getNvidiaNimDiscoveryCacheKeyForEnv(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string {
+  // Mirror the picker side (`getOpenAIDiscoveryRequestOptions` in
+  // src/commands/model/model.tsx): pull baseUrl from the resolved provider
+  // request and let `resolveRouteCredentialValue` walk the route's full
+  // credential list. Falling back to undefined keeps the cache key shape
+  // identical to the picker's even when the env var is missing; both sides
+  // will hash the same `apiKeyHash: ''` partition in that case.
+  const request = resolveProviderRequest({
+    model: processEnv.OPENAI_MODEL,
+    baseUrl: processEnv.OPENAI_BASE_URL,
+    processEnv,
+  })
+  const routeCredential = resolveRouteCredentialValue({
+    routeId: 'nvidia-nim',
+    baseUrl: request.baseUrl,
+    processEnv,
+  })
+  const apiKey = firstUsableCredential(routeCredential)
+
+  // Include custom headers in the cache key so this read lands in the
+  // same partition the picker (`getOpenAIDiscoveryRequestOptions` in
+  // src/commands/model/model.tsx) writes to.
+  return getDiscoveryCacheKey('nvidia-nim', {
+    baseUrl: request.baseUrl,
+    apiKey,
+    headers: parseCustomHeadersEnv(processEnv.ANTHROPIC_CUSTOM_HEADERS),
+  })
+}
+
 export async function getDiscoveredNvidiaNimModelIds(): Promise<string[]> {
   try {
-    // Mirror the picker side (`getOpenAIDiscoveryRequestOptions` in
-    // src/commands/model/model.tsx): pull baseUrl from the resolved provider
-    // request and let `resolveRouteCredentialValue` walk the route's full
-    // credential list. Falling back to undefined keeps the cache key shape
-    // identical to the picker's even when the env var is missing — both
-    // sides will hash the same `apiKeyHash: ''` partition in that case.
-    const request = resolveProviderRequest({
-      model: process.env.OPENAI_MODEL,
-      baseUrl: process.env.OPENAI_BASE_URL,
-    })
-    const apiKey = resolveRouteCredentialValue({
-      routeId: 'nvidia-nim',
-      baseUrl: request.baseUrl,
-      processEnv: process.env,
-    })
-
-    // Include custom headers in the cache key so this read lands in the
-    // same partition the picker (`getOpenAIDiscoveryRequestOptions` in
-    // src/commands/model/model.tsx) writes to. The picker passes
-    // `headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS)`
-    // into `getDiscoveryCacheKey`; without it, two users sharing a
-    // baseUrl/apiKey but differing in `ANTHROPIC_CUSTOM_HEADERS` end up
-    // on different cache partitions and the inline `/model <id>`
-    // validator misses the discovered ids the picker just persisted
-    // (jatmn re-review on #1177).
-    const cacheKey = getDiscoveryCacheKey('nvidia-nim', {
-      baseUrl: request.baseUrl,
-      apiKey,
-      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
-    })
+    const cacheKey = getNvidiaNimDiscoveryCacheKeyForEnv(process.env)
     const cached = await getCachedModels(cacheKey, Number.MAX_SAFE_INTEGER, {
       includeStale: true,
     })

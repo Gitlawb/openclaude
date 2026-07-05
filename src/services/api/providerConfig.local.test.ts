@@ -12,6 +12,7 @@ import {
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
   OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
@@ -37,6 +38,7 @@ afterEach(() => {
   try {
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
     restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
@@ -52,11 +54,14 @@ afterEach(() => {
 test('treats localhost endpoints as local', () => {
   expect(isLocalProviderUrl('http://localhost:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.0.0.1:11434/v1')).toBe(true)
-  expect(isLocalProviderUrl('http://0.0.0.0:11434/v1')).toBe(true)
   // Full 127.0.0.0/8 loopback range should be treated as local
   expect(isLocalProviderUrl('http://127.0.0.2:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.1.2.3:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://127.255.255.255:11434/v1')).toBe(true)
+})
+
+test('does not treat wildcard bind addresses as local endpoints', () => {
+  expect(isLocalProviderUrl('http://0.0.0.0:11434/v1')).toBe(false)
 })
 
 test('treats private IPv4 endpoints as local', () => {
@@ -136,9 +141,19 @@ test('partitions local openai-compatible model cache scope by credentials and he
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: second'
   const thirdScope = getAdditionalModelOptionsCacheScope()
 
+  delete process.env.OPENAI_API_KEY
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: first'
+  process.env.OPENAI_API_KEYS = 'first-a,first-b'
+  const pooledScope = getAdditionalModelOptionsCacheScope()
+
+  process.env.OPENAI_API_KEYS = 'second-a,second-b'
+  const secondPooledScope = getAdditionalModelOptionsCacheScope()
+
   expect(firstScope).not.toBe(secondScope)
   expect(firstScope).not.toBe(thirdScope)
+  expect(pooledScope).not.toBe(secondPooledScope)
   expect(firstScope?.startsWith('openai:http://localhost:1234/v1:')).toBe(true)
+  expect(pooledScope?.startsWith('openai:http://localhost:1234/v1:')).toBe(true)
 })
 
 test('uses responses transport when OpenAI-compatible API format requests responses', () => {
@@ -155,7 +170,75 @@ test('uses responses transport when OpenAI-compatible API format requests respon
   })
 })
 
-test('uses responses transport for Hicap gpt models when requested', () => {
+test('uses responses transport for Hicap gpt-5.5 models when requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('defaults Hicap gpt-5.5 to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('defaults Hicap gpt-5.5 catalog id to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'hicap-gpt-5.5'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'hicap-gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('forces Hicap gpt-5.5 to responses even when chat completions is configured', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('preserves explicit responses_compat for Hicap gpt-5.5', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses_compat',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('uses responses transport for Hicap gpt-5.4 when requested', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
   process.env.OPENAI_MODEL = 'gpt-5.4'
@@ -169,16 +252,57 @@ test('uses responses transport for Hicap gpt models when requested', () => {
   })
 })
 
+test('defaults Hicap gpt-5.4 to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('forces Hicap gpt-5.4 to responses even when chat completions is configured', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('preserves explicit responses_compat for Hicap gpt-5.4', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses_compat',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
 test('falls back to chat completions for non-gpt Hicap models when responses is requested', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
-  process.env.OPENAI_MODEL = 'claude-opus-4.7'
+  process.env.OPENAI_MODEL = 'claude-opus-4.8'
   process.env.OPENAI_API_FORMAT = 'responses'
 
   expect(resolveProviderRequest()).toMatchObject({
     transport: 'chat_completions',
-    requestedModel: 'claude-opus-4.7',
-    resolvedModel: 'claude-opus-4.7',
+    requestedModel: 'claude-opus-4.8',
+    resolvedModel: 'claude-opus-4.8',
     baseUrl: 'https://api.hicap.ai/v1',
   })
 })

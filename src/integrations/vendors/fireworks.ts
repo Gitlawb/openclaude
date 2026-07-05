@@ -508,6 +508,12 @@ export default defineVendor({
         modelDescriptorId: 'accounts/fireworks/models/glm-5',
       },
       {
+        id: 'accounts/fireworks/models/glm-5p2',
+        apiName: 'accounts/fireworks/models/glm-5p2',
+        label: 'GLM 5.2',
+        modelDescriptorId: 'accounts/fireworks/models/glm-5p2',
+      },
+      {
         id: 'accounts/fireworks/models/glm-5p1',
         apiName: 'accounts/fireworks/models/glm-5p1',
         label: 'GLM 5.1',

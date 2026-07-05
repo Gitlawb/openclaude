@@ -12,6 +12,12 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type SettingsModule = typeof import('../utils/settings/settings.js')
+
+const actualSettingsModule = (await import(
+  `../utils/settings/settings.ts?providerManagerSettingsActual=${Date.now()}-${Math.random()}`
+)) as SettingsModule
+
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -116,6 +122,7 @@ const PRESET_ORDER = [
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
+  'ClinePass',
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
@@ -140,6 +147,7 @@ const PRESET_ORDER = [
   'Venice',
   'xAI',
   'Xiaomi MiMo',
+  'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
   'Custom',
 ] as const
@@ -251,7 +259,7 @@ function mockProviderProfilesModule(options?: {
           provider: 'hicap',
           name: 'Hicap',
           baseUrl: 'https://api.hicap.ai/v1',
-          model: 'claude-opus-4.7',
+          model: 'claude-opus-4.8',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -410,6 +418,7 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../utils/settings/settings.js', () => ({
+    ...actualSettingsModule,
     updateSettingsForSource: () => ({ error: null }),
   }))
 
@@ -523,6 +532,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    mock.module('../utils/settings/settings.js', () => actualSettingsModule)
 
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
       if (value === undefined) {
@@ -1000,7 +1010,7 @@ test('ProviderManager saves Hicap preset non-GPT model with Chat Completions', a
     )
 
     expect(modelOutput).toContain('Hicap')
-    expect(modelOutput).toContain('claude-opus-4.7')
+    expect(modelOutput).toContain('claude-opus-4.8')
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
@@ -1014,7 +1024,7 @@ test('ProviderManager saves Hicap preset non-GPT model with Chat Completions', a
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'hicap',
-        model: 'claude-opus-4.7',
+        model: 'claude-opus-4.8',
         apiFormat: 'chat_completions',
       }),
       expect.objectContaining({ makeActive: true }),

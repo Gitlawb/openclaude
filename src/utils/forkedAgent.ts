@@ -277,6 +277,8 @@ export type SubagentContextOverrides = {
   abortController?: AbortController
   /** Override the getAppState function */
   getAppState?: ToolUseContext['getAppState']
+  /** Explicitly opt in to sharing a lifecycle tracker with this subagent. */
+  queryLifecycle?: ToolUseContext['queryLifecycle']
 
   /**
    * Explicit opt-in to share parent's setAppState callback.
@@ -452,6 +454,9 @@ export function createSubagentContext(
     // Generate new agentId for subagents (each subagent should have its own ID)
     agentId: overrides?.agentId ?? createAgentId(),
     agentType: overrides?.agentType,
+    ...(overrides?.queryLifecycle
+      ? { queryLifecycle: overrides.queryLifecycle }
+      : {}),
 
     // Create new query tracking chain for subagent with incremented depth
     queryTracking: {

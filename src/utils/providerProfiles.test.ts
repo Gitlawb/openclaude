@@ -32,6 +32,7 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
@@ -64,6 +65,7 @@ const RESTORED_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'CLINE_API_KEY',
   'HICAP_API_KEY',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
 ] as const
@@ -223,6 +225,17 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildXiaomiMimoTokenProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'xiaomi-mimo-token',
+    name: 'Xiaomi MiMo Token Plan',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'tp-test-key',
+    ...overrides,
+  })
+}
+
 function buildFireworksProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'fireworks',
@@ -241,6 +254,17 @@ function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): Provi
     baseUrl: 'https://api.atlascloud.ai/v1',
     model: 'deepseek-ai/deepseek-v4-pro',
     apiKey: 'atlas-test-key',
+    ...overrides,
+  })
+}
+
+function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'clinepass',
+    name: 'ClinePass',
+    baseUrl: 'https://api.cline.bot/api/v1',
+    model: 'cline-pass/deepseek-v4-flash',
+    apiKey: 'cline-test-key',
     ...overrides,
   })
 }
@@ -638,7 +662,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.7',
+        model: 'claude-opus-4.8',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -752,6 +776,48 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
   })
 
+  test('xiaomi mimo token plan profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoTokenProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('tp-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('xiaomi mimo token plan CN profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoTokenProfile({
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+    }))
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-cn.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('tp-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
   test('fireworks profile applies OpenAI-compatible env with FIREWORKS_API_KEY mirror', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -772,6 +838,64 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('fireworks-test-key')
     expect(process.env.FIREWORKS_API_KEY).toBe('fireworks-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('ClinePass preset profile applies OpenAI-compatible env with CLINE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildClinePassProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.cline.bot/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('cline-pass/deepseek-v4-flash')
+    expect(process.env.OPENAI_API_KEY).toBe('cline-test-key')
+    expect(process.env.CLINE_API_KEY).toBe('cline-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('custom openai profile targeting ClinePass base URL applies CLINE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        name: 'Custom ClinePass',
+        baseUrl: 'https://api.cline.bot/api/v1',
+        model: 'cline-pass/qwen3.7-max',
+        apiKey: 'custom-cline-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.cline.bot/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('cline-pass/qwen3.7-max')
+    expect(process.env.OPENAI_API_KEY).toBe('custom-cline-key')
+    expect(process.env.CLINE_API_KEY).toBe('custom-cline-key')
+  })
+
+  test('ClinePass provider with custom base URL applies CLINE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'clinepass',
+        name: 'ClinePass Custom',
+        baseUrl: 'https://custom.cline.bot/v1',
+        model: 'cline-pass/qwen3.7-max',
+        apiKey: 'custom-cline-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://custom.cline.bot/v1')
+    expect(process.env.OPENAI_MODEL).toBe('cline-pass/qwen3.7-max')
+    expect(process.env.OPENAI_API_KEY).toBe('custom-cline-key')
+    expect(process.env.CLINE_API_KEY).toBe('custom-cline-key')
   })
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
@@ -1445,6 +1569,35 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
+
+  test('uses saved valid Hicap /model choice when rehydrating active profile', async () => {
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+      getProviderProfiles,
+    } = await importFreshProviderProfileModules()
+    _setSavedModelOverrideForTesting('gpt-5.4')
+    const activeProfile = buildProfile({
+      id: 'saved_hicap',
+      provider: 'hicap',
+      baseUrl: 'https://api.hicap.ai/v1',
+      model: 'glm-5.2',
+    })
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(applied?.id).toBe(activeProfile.id)
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.hicap.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    const saved = getProviderProfiles({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
+    expect(saved?.model).toBe('glm-5.2')
+  })
 })
 
 describe('persistActiveProviderProfileModel', () => {
@@ -1556,6 +1709,34 @@ describe('persistActiveProviderProfileModel', () => {
 })
 
 describe('getProviderPresetDefaults', () => {
+  test('openai preset skips delimiter-only pooled keys before singular fallback', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = ', ,'
+    process.env.OPENAI_API_KEY = 'openai-single-key'
+
+    const defaults = getProviderPresetDefaults('openai')
+
+    expect(defaults.apiKey).toBe('openai-single-key')
+  })
+
+  test('openai preset skips placeholder pooled keys before singular fallback', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
+    process.env.OPENAI_API_KEY = 'openai-single-key'
+
+    const defaults = getProviderPresetDefaults('openai')
+
+    expect(defaults.apiKey).toBe('openai-single-key')
+  })
+  test('custom preset reads pooled OpenAI credentials', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = 'key-a,key-b'
+    delete process.env.OPENAI_API_KEY
+
+    const defaults = getProviderPresetDefaults('custom')
+
+    expect(defaults.apiKey).toBe('key-a,key-b')
+  })
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL
@@ -1597,7 +1778,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.name).toBe('Moonshot AI - API')
     expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
-    expect(defaults.model).toBe('kimi-k2.5')
+    expect(defaults.model).toBe('kimi-k2.7-code')
   })
   test('deepseek preset defaults to DeepSeek V4 Pro', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
@@ -1620,7 +1801,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('hicap')
     expect(defaults.name).toBe('Hicap')
     expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
-    expect(defaults.model).toBe('claude-opus-4.7')
+    expect(defaults.model).toBe('claude-opus-4.8')
     expect(defaults.apiKey).toBe('hicap-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
@@ -1662,6 +1843,22 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.xiaomimimo.com/v1')
     expect(defaults.model).toBe('mimo-v2.5-pro')
     expect(defaults.apiKey).toBe('mimo-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('xiaomi mimo token plan preset defaults to the token-plan SGP endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.MIMO_API_KEY = 'tp-live-key'
+
+    const defaults = getProviderPresetDefaults('xiaomi-mimo-token')
+
+    expect(defaults.provider).toBe('xiaomi-mimo-token')
+    expect(defaults.name).toBe('Xiaomi MiMo (Token Plan)')
+    expect(defaults.baseUrl).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(defaults.model).toBe('mimo-v2.5-pro')
+    expect(defaults.apiKey).toBe('tp-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -2068,6 +2265,94 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'accounts/fireworks/models/deepseek-v3',
         OPENAI_API_KEY: 'fireworks-test-key',
         FIREWORKS_API_KEY: 'fireworks-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists ClinePass profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const clinePassProfile = buildClinePassProfile({
+        id: 'clinepass_prof',
+        model: 'cline-pass/deepseek-v4-flash, cline-pass/qwen3.7-max',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [clinePassProfile],
+      }))
+
+      const result = setActiveProviderProfile('clinepass_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('clinepass_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+        OPENAI_MODEL: 'cline-pass/deepseek-v4-flash',
+        OPENAI_API_KEY: 'cline-test-key',
+        CLINE_API_KEY: 'cline-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists ClinePass profiles with custom base URL using the same dedicated credential', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const clinePassProfile = buildProfile({
+        provider: 'clinepass',
+        name: 'ClinePass Custom',
+        baseUrl: 'https://custom.cline.bot/v1',
+        model: 'cline-pass/qwen3.7-max',
+        apiKey: 'custom-cline-key',
+        id: 'clinepass_custom',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [clinePassProfile],
+      }))
+
+      const result = setActiveProviderProfile('clinepass_custom', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('clinepass_custom')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://custom.cline.bot/v1',
+        OPENAI_MODEL: 'cline-pass/qwen3.7-max',
+        OPENAI_API_KEY: 'custom-cline-key',
+        CLINE_API_KEY: 'custom-cline-key',
       })
     } finally {
       process.chdir(originalCwd)

@@ -146,6 +146,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('zai')
     expect(VALID_PROVIDERS).toContain('venice')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
+    expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
   })
 })
 
@@ -531,6 +532,40 @@ describe('applyProviderFlag - xiaomi-mimo', () => {
 
   test('sets Xiaomi MiMo OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('xiaomi-mimo', ['--model', 'mimo-v2-flash'])
+
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2-flash')
+  })
+})
+
+describe('applyProviderFlag - xiaomi-mimo-token', () => {
+  test('sets Xiaomi MiMo Token Plan OpenAI-compatible defaults and mirrors MIMO_API_KEY', () => {
+    process.env.MIMO_API_KEY = 'tp-token-plan-key'
+
+    const result = applyProviderFlag('xiaomi-mimo-token', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-token-plan-key')
+  })
+
+  test('replaces stale known provider base URL with the token-plan default', () => {
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+
+    const result = applyProviderFlag('xiaomi-mimo-token', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+  })
+
+  test('sets Xiaomi MiMo Token Plan OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('xiaomi-mimo-token', ['--model', 'mimo-v2-flash'])
 
     expect(process.env.OPENAI_MODEL).toBe('mimo-v2-flash')
   })

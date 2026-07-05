@@ -231,12 +231,6 @@ Provider recommendation tests:
 bun run test:provider-recommendation
 ```
 
-Python tests:
-
-```bash
-python -m pytest -q python/tests
-```
-
 Typecheck (enforced by the dedicated `typecheck` CI job):
 
 ```bash

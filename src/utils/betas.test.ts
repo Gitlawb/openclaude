@@ -144,6 +144,18 @@ test('getMergedBetas returns a non-empty list for the firstParty provider', asyn
   expect(getMergedBetas(MODEL).length).toBeGreaterThan(0)
 })
 
+test('modelSupportsStructuredOutputs covers the recent Opus models (4.8/4.7/4.6) on firstParty (#1769)', async () => {
+  // No provider env set => firstParty. Pre-fix, 4.7/4.8 were absent from the
+  // allowlist, so first-party requests on the new default Opus 4.8 lost the
+  // structured-output support that 4.6 had.
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-4-8')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-4-7')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-4-6')).toBe(true)
+  // A model outside the allowlist stays false.
+  expect(modelSupportsStructuredOutputs('claude-3-opus')).toBe(false)
+})
+
 test('getMergedBetas returns a non-empty list for the bedrock provider', async () => {
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   const { getMergedBetas } = await importFreshBetas()

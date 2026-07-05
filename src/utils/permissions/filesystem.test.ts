@@ -4,12 +4,81 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../types/permissions.js'
-import { getOriginalCwd, setOriginalCwd } from '../../bootstrap/state.js'
+import {
+  getOriginalCwd,
+  getProjectRoot,
+  setOriginalCwd,
+  setProjectRoot,
+} from '../../bootstrap/state.js'
+import { getAutoMemPath } from '../../memdir/paths.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
 import { checkWritePermissionForTool } from './filesystem.js'
 
 const writeInputSchema = z.object({
   file_path: z.string(),
+})
+
+describe('auto-memory write permissions', () => {
+  let originalProjectRoot: string
+  let originalMemoryPathOverride: string | undefined
+  let projectDir: string
+
+  beforeEach(async () => {
+    originalProjectRoot = getProjectRoot()
+    originalMemoryPathOverride = process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
+    delete process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
+    getAutoMemPath.cache.clear?.()
+    projectDir = await mkdtemp(join(tmpdir(), 'openclaude-memory-perms-'))
+    setProjectRoot(projectDir)
+  })
+
+  afterEach(async () => {
+    setProjectRoot(originalProjectRoot)
+    if (originalMemoryPathOverride === undefined) {
+      delete process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
+    } else {
+      process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE =
+        originalMemoryPathOverride
+    }
+    getAutoMemPath.cache.clear?.()
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
+  test('requires approval for default auto-memory writes', () => {
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(getAutoMemPath(), 'user_role.md') },
+      permissionContext('bypassPermissions'),
+    )
+
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Persistent memory writes require explicit approval',
+    })
+  })
+
+  test('requires approval for overridden auto-memory writes', async () => {
+    const overrideDir = await mkdtemp(join(tmpdir(), 'openclaude-memory-'))
+    process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = overrideDir
+    getAutoMemPath.cache.clear?.()
+
+    try {
+      const result = checkWritePermissionForTool(
+        writeTool,
+        { file_path: join(getAutoMemPath(), 'user_role.md') },
+        permissionContext('bypassPermissions'),
+      )
+
+      expect(result.behavior).toBe('ask')
+      expect(result.decisionReason).toMatchObject({
+        type: 'safetyCheck',
+        reason: 'Persistent memory writes require explicit approval',
+      })
+    } finally {
+      await rm(overrideDir, { recursive: true, force: true })
+    }
+  })
 })
 
 const writeTool = createToolFixture(writeInputSchema, {

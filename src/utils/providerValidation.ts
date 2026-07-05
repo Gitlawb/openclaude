@@ -27,6 +27,7 @@ import {
   resolveProviderRequest,
   shouldUseCodexTransport,
 } from '../services/api/providerConfig.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
 import {
@@ -39,7 +40,10 @@ async function defaultHasStoredXaiOAuthCredentials(): Promise<boolean> {
   const stored = await readXaiCredentialsAsync()
   return Boolean(stored?.accessToken && stored?.refreshToken)
 }
-import { PROFILE_FILE_NAME } from './providerProfile.js'
+import {
+  PROFILE_FILE_NAME,
+  resolveOpenAICredentialEnvState,
+} from './providerProfile.js'
 import {
   redactSecretValueForDisplay,
   type SecretValueSource,
@@ -106,7 +110,7 @@ function getOpenAIMissingKeyMessage(): string {
   const profilePath = resolve(process.cwd(), PROFILE_FILE_NAME)
 
   return [
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
     `To recover, run /provider and switch provider, or set CLAUDE_CODE_USE_OPENAI=0 in your shell environment.`,
     `Saved startup settings can come from ${globalConfigPath} or ${profilePath}.`,
   ].join('\n')
@@ -117,6 +121,29 @@ function hasNonEmptyEnvValue(
   envVar: string,
 ): boolean {
   return typeof env[envVar] === 'string' && env[envVar]!.trim() !== ''
+}
+
+function hasUsableCredentialEnvValue(
+  env: NodeJS.ProcessEnv,
+  envVar: string,
+): boolean {
+  const value = env[envVar]
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+    return hasUsableOpenAICredential(value)
+  }
+
+  return value.trim() !== ''
+}
+
+function hasOpenAICredential(env: NodeJS.ProcessEnv): boolean {
+  return (
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEYS') ||
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEY')
+  )
 }
 
 function normalizeBaseUrl(baseUrl: string | undefined): string | undefined {
@@ -274,8 +301,34 @@ function getCredentialEnvValidationError(
   env: NodeJS.ProcessEnv,
   request?: ReturnType<typeof resolveProviderRequest>,
 ): string | null {
+  const credentialEnvVars = validation.credentialEnvVars
+  const usesOpenAIFallback =
+    credentialEnvVars.includes('OPENAI_API_KEYS') ||
+    credentialEnvVars.includes('OPENAI_API_KEY')
+
+  if (usesOpenAIFallback) {
+    const openAIState = resolveOpenAICredentialEnvState(env)
+    if (openAIState.invalid) {
+      return (
+        validation.invalidCredentialValues?.find(
+          invalidValue => invalidValue.envVar === openAIState.envVar,
+        )?.message ?? null
+      )
+    }
+  }
+
   for (const invalidValue of validation.invalidCredentialValues ?? []) {
-    if (env[invalidValue.envVar]?.trim() === invalidValue.value) {
+    if (
+      usesOpenAIFallback &&
+      (invalidValue.envVar === 'OPENAI_API_KEYS' ||
+        invalidValue.envVar === 'OPENAI_API_KEY')
+    ) {
+      continue
+    }
+
+    const envValue = env[invalidValue.envVar]
+    const envValues = (envValue ?? '').split(',').map(value => value.trim())
+    if (envValues.includes(invalidValue.value)) {
       return invalidValue.message
     }
   }
@@ -290,7 +343,7 @@ function getCredentialEnvValidationError(
   }
 
   if (
-    validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+    credentialEnvVars.some(envVar => hasUsableCredentialEnvValue(env, envVar))
   ) {
     return null
   }
@@ -521,9 +574,11 @@ export async function getProviderValidationError(
 
       if (descriptorValidationError) {
         if (
+          descriptorValidationError ===
+            validationTarget.descriptor.validation?.missingCredentialMessage &&
           validationTarget.kind === 'vendor' &&
           validationTarget.descriptor.id === 'openai' &&
-          !env.OPENAI_API_KEY &&
+          !hasOpenAICredential(env) &&
           !isLocalProviderUrl(request.baseUrl) &&
           !isLikelyOllamaEndpoint(request.baseUrl)
         ) {
@@ -542,7 +597,7 @@ export async function getProviderValidationError(
   }
 
   if (
-    !env.OPENAI_API_KEY &&
+    !hasOpenAICredential(env) &&
     !isLocalProviderUrl(request.baseUrl) &&
     !isLikelyOllamaEndpoint(request.baseUrl)
   ) {

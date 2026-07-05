@@ -29,6 +29,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
@@ -209,6 +210,7 @@ afterEach(() => {
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
@@ -1276,6 +1278,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'google/gemini-3.1-flash-lite',
       'minimax/minimax-m3',
       'qwen/qwen3.7-max',
+      'z-ai/glm-5.2',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
     ])
   } finally {
@@ -2191,6 +2194,70 @@ test('descriptor model options ignore active profile when route does not match',
       description: 'Provider: OpenRouter',
     },
   ])
+})
+
+test('/model refresh passes first pooled OpenAI credential to descriptor discovery', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  const discoverModelsForRoute = mock(async () => ({
+    routeId: 'openrouter',
+    models: [{ id: 'gpt-5.5', apiName: 'gpt-5.5' }],
+    stale: false,
+    error: null,
+    source: 'network',
+  }))
+
+  mock.module('../../integrations/discoveryCache.js', () => ({
+    clearDiscoveryCache: mock(async () => {}),
+    getCachedModels: mock(async () => ({
+      models: [{ id: 'cached-gpt', apiName: 'gpt-5.5' }],
+      updatedAt: Date.now(),
+      error: null,
+    })),
+    isCacheStale: mock(async () => false),
+    parseDurationString: (value: number | string) =>
+      typeof value === 'number' ? value : 86_400_000,
+  }))
+
+  mock.module('../../integrations/discoveryService.js', () => ({
+    getDiscoveryCacheKey: (
+      routeId: string,
+      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
+    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+    discoverModelsForRoute,
+    probeRouteReadiness: mock(async () => null),
+  }))
+
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => undefined,
+    getProfileModelOptions: () => [],
+    setActiveOpenAIModelOptionsCache: () => {},
+  })
+
+  const { call } = await importFreshModelModule(
+    'descriptor-refresh-openai-pooled-key',
+  )
+  await call(() => {}, {} as never, 'refresh')
+
+  expect(discoverModelsForRoute).toHaveBeenCalledWith('openrouter', {
+    apiKey: 'key-a',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    headers: undefined,
+    forceRefresh: true,
+  })
 })
 
 test('/model refresh clears descriptor cache and reports updates', async () => {

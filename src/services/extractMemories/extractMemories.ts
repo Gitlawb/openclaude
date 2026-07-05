@@ -43,6 +43,7 @@ import type {
 } from '../../types/message.js'
 import { createAbortController } from '../../utils/abortController.js'
 import { count, uniq } from '../../utils/array.js'
+import { isMemoryWriteApprovalRequired } from '../../utils/governancePolicy.js'
 import { logForDebugging } from '../../utils/debug.js'
 import {
   createCacheSafeParams,
@@ -543,6 +544,10 @@ export function initExtractMemories(): void {
 
     // Check auto-memory is enabled
     if (!isAutoMemoryEnabled()) {
+      return
+    }
+
+    if (isMemoryWriteApprovalRequired()) {
       return
     }
 

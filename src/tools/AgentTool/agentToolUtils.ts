@@ -260,11 +260,30 @@ export const agentToolResultSchema = lazySchema(() =>
 export type AgentToolResult = z.input<ReturnType<typeof agentToolResultSchema>>
 
 export function countToolUses(messages: MessageType[]): number {
+  const blockedStepLimitToolUseIds = new Set<string>()
+  for (const m of messages) {
+    if (
+      m.type !== 'user' ||
+      !m.isAgentStepLimitToolResult ||
+      !Array.isArray(m.message.content)
+    ) {
+      continue
+    }
+    for (const block of m.message.content) {
+      if (block.type === 'tool_result') {
+        blockedStepLimitToolUseIds.add(String(block.tool_use_id))
+      }
+    }
+  }
+
   let count = 0
   for (const m of messages) {
     if (m.type === 'assistant') {
       for (const block of m.message.content) {
-        if (block.type === 'tool_use') {
+        if (
+          block.type === 'tool_use' &&
+          !blockedStepLimitToolUseIds.has(block.id)
+        ) {
           count++
         }
       }

@@ -11,6 +11,7 @@ import {
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { resolveAntModel } from './model/antModels.js'
+import { getActiveProviderProfile } from './providerProfiles.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -42,6 +43,93 @@ export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
 export const ESCALATED_MAX_TOKENS = 64_000
 
 const warnedUnknownIntegrationRuntimeLimitKeys = new Set<string>()
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
+
+// Session-scoped context window overrides (abordagem C: module-level state)
+// Key: normalized model name (lowercase, prefix stripped)
+// Value: context window in tokens
+const sessionContextWindowOverrides = new Map<string, number>()
+
+// Minimum context window to avoid auto-compact floor paradox
+// (reservedTokensForSummary + autocompactBuffer = 20k + 13k = 33k)
+const MIN_CONTEXT_WINDOW_OVERRIDE = 33_000
+
+/**
+ * Normalize a model name for override lookup to get a single canonical key
+ * for the model family (lowercase, prefix stripped).
+ */
+function normalizeModelName(model: string): string {
+  const lowered = model.toLowerCase()
+  const stripped = stripProviderPrefix(lowered)
+  return stripped !== undefined ? stripped : lowered
+}
+
+/**
+ * Strip a leading provider prefix (e.g. openai/, anthropic/) for fallback lookup.
+ */
+function stripProviderPrefix(model: string): string | undefined {
+  const stripped = model.replace(/^[a-z][\w-]*\//, '')
+  return stripped !== model ? stripped : undefined
+}
+
+/**
+ * Set a session-scoped context window override for a specific model.
+ * Used by the /set_context_window slash command.
+ * The override is in-memory only and dies with the session.
+ *
+ * Returns the normalized model key used for storage.
+ */
+export function setSessionContextWindowOverride(
+  model: string,
+  tokens: number,
+): { ok: true; normalizedModel: string } | { ok: false; error: string } {
+  if (!Number.isFinite(tokens) || !Number.isInteger(tokens) || tokens <= 0) {
+    return { ok: false, error: 'Context window must be a positive integer' }
+  }
+  if (tokens < MIN_CONTEXT_WINDOW_OVERRIDE) {
+    return {
+      ok: false,
+      error: `Context window must be at least ${MIN_CONTEXT_WINDOW_OVERRIDE} tokens (current: ${tokens})`,
+    }
+  }
+  const normalized = normalizeModelName(model)
+  sessionContextWindowOverrides.set(normalized, tokens)
+  return { ok: true, normalizedModel: normalized }
+}
+
+/**
+ * Clear session-scoped context window overrides.
+ * If model is provided, clears the canonical key for the model family.
+ * If model is omitted, clears all overrides.
+ */
+export function clearSessionContextWindowOverride(model?: string): void {
+  if (model) {
+    const normalized = normalizeModelName(model)
+    sessionContextWindowOverrides.delete(normalized)
+  } else {
+    sessionContextWindowOverrides.clear()
+  }
+}
+
+/**
+ * Get the current session-scoped context window override for a model, if any.
+ * Resolves to the canonical key for the model family.
+ */
+export function getSessionContextWindowOverride(
+  model: string,
+): number | undefined {
+  const normalized = normalizeModelName(model)
+  return sessionContextWindowOverrides.get(normalized)
+}
+
+/**
+ * Get all current session-scoped context window overrides.
+ * Returns a copy of the internal map.
+ */
+export function getSessionContextWindowOverrides(): Map<string, number> {
+  return new Map(sessionContextWindowOverrides)
+}
 
 /**
  * Check if 1M context is disabled via environment variable.
@@ -67,14 +155,37 @@ export function modelSupports1M(model: string): boolean {
   return (
     canonical.includes('claude-sonnet-4') ||
     canonical.includes('opus-4-6') ||
-    canonical.includes('opus-4-7')
+    canonical.includes('opus-4-7') ||
+    canonical.includes('opus-4-8')
   )
+}
+
+function getAppliedActiveProfileProvider(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
+    return undefined
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return undefined
+  }
+
+  const appliedId = processEnv[PROFILE_ENV_APPLIED_ID]?.trim()
+  if (appliedId && appliedId !== activeProfile.id) {
+    return undefined
+  }
+
+  return activeProfile.provider
 }
 
 export function shouldUseIntegrationRuntimeLimits(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const routeId = resolveActiveRouteIdFromEnv(processEnv)
+  const routeId = resolveActiveRouteIdFromEnv(processEnv, {
+    activeProfileProvider: getAppliedActiveProfileProvider(processEnv),
+  })
   const transportKind = routeId ? getTransportKindForRoute(routeId) : null
 
   return (
@@ -93,7 +204,10 @@ export function shouldUseIntegrationRuntimeLimits(
  * the Ink runtime treats console errors as application errors.
  */
 function warnUnknownIntegrationRuntimeLimits(model: string): void {
-  const routeId = resolveActiveRouteIdFromEnv(process.env) ?? 'unknown-route'
+  const routeId =
+    resolveActiveRouteIdFromEnv(process.env, {
+      activeProfileProvider: getAppliedActiveProfileProvider(process.env),
+    }) ?? 'unknown-route'
   const warningKey = `${routeId}:${model}`
   if (warnedUnknownIntegrationRuntimeLimitKeys.has(warningKey)) return
 
@@ -124,6 +238,13 @@ export function getContextWindowForModel(
     }
   }
 
+  // Session-scoped override — set via /set_context_window command.
+  // Takes precedence over all resolution except the internal env var above.
+  const sessionOverride = getSessionContextWindowOverride(model)
+  if (sessionOverride !== undefined) {
+    return sessionOverride
+  }
+
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
     return 1_000_000
@@ -134,7 +255,10 @@ export function getContextWindowForModel(
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.contextWindow !== undefined) {
       return runtimeLimits.contextWindow
     }
@@ -203,14 +327,16 @@ export function calculateContextPercentages(
     currentUsage.cache_creation_input_tokens +
     currentUsage.cache_read_input_tokens
 
-  const usedPercentage = Math.round(
-    (totalInputTokens / contextWindowSize) * 100,
-  )
+  const rawUsedPercentage = (totalInputTokens / contextWindowSize) * 100
+  const usedPercentage =
+    rawUsedPercentage > 0 && rawUsedPercentage < 0.01
+      ? 0.01
+      : Math.round(rawUsedPercentage * 100) / 100
   const clampedUsed = Math.min(100, Math.max(0, usedPercentage))
 
   return {
     used: clampedUsed,
-    remaining: 100 - clampedUsed,
+    remaining: Math.max(0, Math.round((100 - clampedUsed) * 100) / 100),
   }
 }
 
@@ -235,7 +361,10 @@ export function getModelMaxOutputTokens(model: string): {
 
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.maxOutputTokens !== undefined) {
       return {
         default: runtimeLimits.maxOutputTokens,
@@ -256,7 +385,11 @@ export function getModelMaxOutputTokens(model: string): {
 
   const m = getCanonicalName(model)
 
-  if (m.includes('opus-4-6')) {
+  if (
+    m.includes('opus-4-8') ||
+    m.includes('opus-4-7') ||
+    m.includes('opus-4-6')
+  ) {
     defaultTokens = 64_000
     upperLimit = 128_000
   } else if (m.includes('sonnet-4-6')) {

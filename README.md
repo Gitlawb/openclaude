@@ -107,6 +107,27 @@ Inside OpenClaude:
 
 > **Note:** OpenClaude does not automatically load project `.env` files. We recommend using the `/provider` command for setup, which saves provider profiles and credentials in `.openclaude-profile.json`. If you prefer environment variables, export them explicitly or run `openclaude --provider-env-file .env` for provider/setup variables. Export runtime/debug knobs from your shell or launcher.
 
+### Resume or fork a conversation
+
+Resume an existing conversation by session ID, or continue the most recent
+conversation in the current directory:
+
+```bash
+openclaude --resume <session-id>
+openclaude --continue
+```
+
+Add `--fork-session` to branch the conversation history into a new session ID
+instead of reusing the original transcript:
+
+```bash
+openclaude --resume <session-id> --fork-session
+openclaude --continue --fork-session
+```
+
+Forking is conversation branching only. It does not create filesystem isolation,
+copy your working tree, or create a git worktree branch.
+
 ### Background sessions
 
 Run long non-interactive prompts detached from the current terminal:
@@ -177,6 +198,13 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+For Ollama, OpenClaude uses Ollama's native chat API and requests a 32768-token
+context window on each chat request so same-session history is not silently
+truncated by Ollama's OpenAI-compatible shim. Set `OPENCLAUDE_OLLAMA_NUM_CTX`
+or `OLLAMA_CONTEXT_LENGTH` if you need a different request-level context size.
+See [Advanced Setup](docs/advanced-setup.md#ollama-context-length) for
+verification with `ollama ps`.
+
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -198,12 +226,13 @@ Advanced and source-build guides:
 | Z.AI GLM Coding Plan | `/provider` or OpenAI-compatible env vars | Uses `OPENAI_API_KEY` at `https://api.z.ai/api/coding/paas/v4` and defaults to `glm-5.2` |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Fireworks AI | `/provider` or env vars | First-class provider with 276 curated models (DeepSeek, Qwen, Llama, Gemma, and more); uses `FIREWORKS_API_KEY` |
+| ClinePass | `/provider` or env vars | AI model gateway with usage limits (5hr, weekly, monthly); uses `CLINE_API_KEY` at `https://api.cline.bot/api/v1` |
 | Gemini | `/provider` or env vars | Supports API key only |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Gitlawb Opengateway | Startup default, `/provider`, or env vars | Smart gateway at `https://opengateway.gitlawb.com/v1`; requires an API key from https://gitlawb.com/opengateway/keys and routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
-| OpenCode Zen | `/provider` or env vars | Pay-as-you-go AI gateway (43 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/v1`; shared key with OpenCode Go |
+| OpenCode Zen | `/provider` or env vars | Pay-as-you-go AI gateway (48 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/v1`; shared key with OpenCode Go |
 | OpenCode Go | `/provider` or env vars | $10/mo subscription for open models (13 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/go/v1`; shared key with OpenCode Zen |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://mimo.mi.com`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | NEAR AI | `/provider` or env vars | Unified gateway (Claude, GPT, Gemini + TEE open models); uses `NEARAI_API_KEY` at `https://cloud-api.near.ai/v1` |
@@ -248,6 +277,20 @@ When CLAUDE_CODE_USE_GITHUB=1, OpenClaude serializes sub-agent execution to redu
 The `is_async` field reported in the `tengu_agent_tool_selected` event and the agent metadata now reflects the final execution mode (i.e., `false` when synchronous is forced). See `.env.example` for the full descriptions.
 
 For best results, use models with strong tool/function calling support.
+
+### Agent step limits
+
+Custom agents can define `maxSteps` as a positive integer to cap how many tool-use steps a sub-agent may execute. When the limit is reached, OpenClaude stops additional tool calls and asks the sub-agent for a concise final summary covering completed work, findings, remaining tasks, and whether another run is needed. Omitting `maxSteps`, or setting it to an invalid value such as `0` or malformed input, preserves the default unlimited behavior.
+
+```markdown
+---
+name: bounded-researcher
+description: Use for focused research with bounded tool use
+maxSteps: 8
+---
+
+You are a focused research agent.
+```
 
 ## Agent Routing
 
@@ -431,7 +474,6 @@ Coverage output is written to `coverage/lcov.info`, and OpenClaude also generate
 - `src/` - core CLI/runtime
 - `scripts/` - build, verification, and maintenance scripts
 - `docs/` - setup, contributor, and project documentation
-- `python/` - standalone Python helpers and their tests
 - `vscode-extension/openclaude-vscode/` - VS Code extension
 - `.github/` - repo automation, templates, and CI configuration
 - `bin/` - CLI launcher entrypoints

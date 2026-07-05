@@ -12,6 +12,7 @@ import { createUserMessage } from '../../utils/messages.js'
 import {
   resetSettingsCache,
 } from '../../utils/settings/settingsCache.js'
+import { QueryLifecycleOperationTracker } from '../../utils/queryLifecycle.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
 import type { runAgent as runAgentFn } from './runAgent.js'
@@ -167,6 +168,71 @@ describe('runAgent provider routing', () => {
     await expect(generator.next()).rejects.toBe(stop)
     expect(capturedContext?.options.providerOverride).toBeUndefined()
   })
+
+  test('preserves query lifecycle tracking for synchronous child contexts', async () => {
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const parentContext = createToolUseContext('parent-model', queryLifecycle)
+    const stop = new Error('stop after cache-safe params')
+    let capturedContext: ToolUseContext | undefined
+    const runAgent = await importRunAgent()
+
+    const generator = runAgent({
+      agentDefinition: createAgentDefinition(),
+      promptMessages: [createUserMessage({ content: 'inspect this' })],
+      toolUseContext: parentContext,
+      canUseTool: async () => ({ behavior: 'allow' }),
+      isAsync: false,
+      querySource: 'agent:builtin:general-purpose',
+      availableTools: [],
+      onCacheSafeParams: params => {
+        capturedContext = params.toolUseContext
+        throw stop
+      },
+    })
+
+    await expect(generator.next()).rejects.toBe(stop)
+
+    expect(capturedContext?.queryLifecycle).toBe(queryLifecycle)
+    capturedContext?.queryLifecycle?.startToolUse({
+      toolUseId: 'child-tool-use',
+      toolName: 'Read',
+      startedAt: 1,
+    })
+    expect(queryLifecycle.snapshot().toolUses).toEqual([
+      {
+        toolUseId: 'child-tool-use',
+        toolName: 'Read',
+        startedAt: 1,
+      },
+    ])
+  })
+
+  test('keeps query lifecycle tracking out of asynchronous child contexts', async () => {
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const parentContext = createToolUseContext('parent-model', queryLifecycle)
+    const stop = new Error('stop after cache-safe params')
+    let capturedContext: ToolUseContext | undefined
+    const runAgent = await importRunAgent()
+
+    const generator = runAgent({
+      agentDefinition: createAgentDefinition(),
+      promptMessages: [createUserMessage({ content: 'inspect this' })],
+      toolUseContext: parentContext,
+      canUseTool: async () => ({ behavior: 'allow' }),
+      isAsync: true,
+      querySource: 'agent:builtin:general-purpose',
+      availableTools: [],
+      onCacheSafeParams: params => {
+        capturedContext = params.toolUseContext
+        throw stop
+      },
+    })
+
+    await expect(generator.next()).rejects.toBe(stop)
+
+    expect(capturedContext?.queryLifecycle).toBeUndefined()
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
 })
 
 function createAgentDefinition(): AgentDefinition {
@@ -185,7 +251,10 @@ async function importRunAgent(): Promise<typeof runAgentFn> {
   return module.runAgent
 }
 
-function createToolUseContext(mainLoopModel: string): ToolUseContext {
+function createToolUseContext(
+  mainLoopModel: string,
+  queryLifecycle?: QueryLifecycleOperationTracker,
+): ToolUseContext {
   const appState = {
     mainLoopModel,
     mainLoopModelForSession: mainLoopModel,
@@ -220,6 +289,7 @@ function createToolUseContext(mainLoopModel: string): ToolUseContext {
       },
     },
     abortController: new AbortController(),
+    ...(queryLifecycle ? { queryLifecycle } : {}),
     readFileState: createFileStateCacheWithSizeLimit(
       READ_FILE_STATE_CACHE_SIZE,
     ),

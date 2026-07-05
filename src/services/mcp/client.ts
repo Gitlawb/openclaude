@@ -569,6 +569,29 @@ type InProcessMcpServer = {
   close(): Promise<void>
 }
 
+const MAX_MCP_STDERR_CHARS = 256 * 1024
+const MCP_STDERR_TRUNCATED_MARKER = '\n...[stderr truncated]'
+
+export function appendBoundedMcpStderr(
+  current: string,
+  chunk: Buffer | string,
+): string {
+  if (current.includes(MCP_STDERR_TRUNCATED_MARKER)) {
+    return current
+  }
+
+  const text = typeof chunk === 'string' ? chunk : chunk.toString()
+  const next = current + text
+  if (next.length <= MAX_MCP_STDERR_CHARS) {
+    return next
+  }
+
+  return (
+    next.slice(0, MAX_MCP_STDERR_CHARS - MCP_STDERR_TRUNCATED_MARKER.length) +
+    MCP_STDERR_TRUNCATED_MARKER
+  )
+}
+
 export async function cleanupFailedConnection(
   transport: Pick<Transport, 'close'>,
   inProcessServer?: Pick<InProcessMcpServer, 'close'>,
@@ -1008,14 +1031,7 @@ export const connectToServer = memoize(
         const stdioTransport = transport as StdioClientTransport
         if (stdioTransport.stderr) {
           stderrHandler = (data: Buffer) => {
-            // Cap stderr accumulation to prevent unbounded memory growth
-            if (stderrOutput.length < 64 * 1024 * 1024) {
-              try {
-                stderrOutput += data.toString()
-              } catch {
-                // Ignore errors from exceeding max string length
-              }
-            }
+            stderrOutput = appendBoundedMcpStderr(stderrOutput, data)
           }
           stdioTransport.stderr.on('data', stderrHandler)
         }

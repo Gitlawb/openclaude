@@ -1,6 +1,6 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.19.0",
+  "version": "0.21.0",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -21,6 +21,7 @@
     "src/entrypoints/sdk.d.ts",
     "src/entrypoints/sdk/coreTypes.generated.ts",
     "scripts/windows/openclaude-aliases.ps1",
+    "vendor/node-domexception-shim/",
     "docs/windows-aliases-and-launchers.md",
     "README.md"
   ],
@@ -52,9 +53,9 @@
     "web:build": "bun run --cwd web build",
     "web:preview": "bun run --cwd web preview",
     "web:typecheck": "bun run --cwd web typecheck",
-    "test": "bun test",
-    "test:full": "bun test --max-concurrency=1",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage --max-concurrency=1 && bun run scripts/render-coverage-heatmap.ts",
+    "test": "bun test --feature=UNATTENDED_RETRY",
+    "test:full": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1",
+    "test:coverage": "bun test --feature=UNATTENDED_RETRY --coverage --coverage-reporter=lcov --coverage-dir=coverage --max-concurrency=1 && bun run scripts/render-coverage-heatmap.ts",
     "test:coverage:ui": "bun run scripts/render-coverage-heatmap.ts",
     "security:pr-scan": "bun run scripts/pr-intent-scan.ts",
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
@@ -65,7 +66,7 @@
     "check": "bun run smoke && bun run deadcode && bun run test:full",
     "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
     "build:verified": "bun run build && bun run verify:privacy",
-    "test:provider": "bun test --max-concurrency=1 src/services/api/*.test.ts src/utils/context.test.ts",
+    "test:provider": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1 src/services/api/*.test.ts src/utils/context.test.ts",
     "doctor:runtime": "bun run scripts/system-check.ts",
     "doctor:runtime:json": "bun run scripts/system-check.ts --json",
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
@@ -79,7 +80,6 @@
     "@anthropic-ai/foundry-sdk": "0.2.3",
     "@anthropic-ai/sandbox-runtime": "0.0.55",
     "@anthropic-ai/sdk": "0.94.0",
-    "@anthropic-ai/vertex-sdk": "0.16.0",
     "@commander-js/extra-typings": "12.1.0",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
@@ -106,7 +106,7 @@
     "figures": "6.1.0",
     "fuse.js": "7.1.0",
     "get-east-asian-width": "1.5.0",
-    "google-auth-library": "9.15.1",
+    "google-auth-library": "10.6.2",
     "https-proxy-agent": "7.0.6",
     "ignore": "7.0.5",
     "indent-string": "5.0.0",
@@ -123,17 +123,17 @@
     "react-reconciler": "0.33.0",
     "semver": "7.7.4",
     "sharp": "^0.34.5",
-    "shell-quote": "1.8.3",
+    "shell-quote": "1.8.4",
     "signal-exit": "4.1.0",
     "supports-hyperlinks": "3.2.0",
     "tree-kill": "1.2.2",
     "turndown": "7.2.2",
     "type-fest": "4.41.0",
-    "undici": "7.24.6",
+    "undici": "7.28.0",
     "usehooks-ts": "3.1.1",
     "vscode-languageserver-protocol": "3.17.5",
     "wrap-ansi": "9.0.2",
-    "ws": "8.20.0",
+    "ws": "8.21.0",
     "xss": "1.0.15",
     "yaml": "2.8.3",
     "zod": "3.25.76"
@@ -168,6 +168,12 @@
   },
   "overrides": {
     "ip-address": "10.2.0",
-    "lodash-es": "4.18.1"
+    "google-auth-library": "10.6.2",
+    "lodash-es": "4.18.1",
+    "node-domexception": "file:vendor/node-domexception-shim"
+  },
+  "allowScripts": {
+    "protobufjs@7.6.4": true,
+    "sharp@0.34.5": true
   }
 }
