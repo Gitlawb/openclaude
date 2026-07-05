@@ -155,12 +155,15 @@ function assertNoNewStagedInstallDirs(before: string[]): void {
 
 function enableUserAndProjectSettingSources(): {
   additionalDirectories: string[]
+  argv: string[]
   claudeCodeSimple: string | undefined
   sources: SettingSource[]
 } {
   const originalSources = getAllowedSettingSources()
   const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
+  const originalArgv = [...process.argv]
   const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
+  process.argv = process.argv.filter(arg => arg !== '--bare')
   delete process.env.CLAUDE_CODE_SIMPLE
   setAdditionalDirectoriesForClaudeMd([])
   setAllowedSettingSources([
@@ -173,6 +176,7 @@ function enableUserAndProjectSettingSources(): {
   resetSettingsCache()
   return {
     additionalDirectories: originalAdditionalDirectories,
+    argv: originalArgv,
     claudeCodeSimple: originalClaudeCodeSimple,
     sources: originalSources,
   }
@@ -180,9 +184,11 @@ function enableUserAndProjectSettingSources(): {
 
 function restoreSettingState(original: {
   additionalDirectories: string[]
+  argv: string[]
   claudeCodeSimple: string | undefined
   sources: SettingSource[]
 }): void {
+  process.argv = original.argv
   if (original.claudeCodeSimple === undefined) {
     delete process.env.CLAUDE_CODE_SIMPLE
   } else {

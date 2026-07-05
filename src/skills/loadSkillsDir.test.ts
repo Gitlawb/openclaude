@@ -87,12 +87,15 @@ function writeUserSkill(
 
 function enableUserAndProjectSettingSources(): {
   additionalDirectories: string[]
+  argv: string[]
   claudeCodeSimple: string | undefined
   sources: SettingSource[]
 } {
   const originalSources = getAllowedSettingSources()
   const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
+  const originalArgv = [...process.argv]
   const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
+  process.argv = process.argv.filter(arg => arg !== '--bare')
   delete process.env.CLAUDE_CODE_SIMPLE
   setAdditionalDirectoriesForClaudeMd([])
   setAllowedSettingSources([
@@ -105,6 +108,7 @@ function enableUserAndProjectSettingSources(): {
   resetSettingsCache()
   return {
     additionalDirectories: originalAdditionalDirectories,
+    argv: originalArgv,
     claudeCodeSimple: originalClaudeCodeSimple,
     sources: originalSources,
   }
@@ -112,9 +116,11 @@ function enableUserAndProjectSettingSources(): {
 
 function restoreSettingState(original: {
   additionalDirectories: string[]
+  argv: string[]
   claudeCodeSimple: string | undefined
   sources: SettingSource[]
 }): void {
+  process.argv = original.argv
   if (original.claudeCodeSimple === undefined) {
     delete process.env.CLAUDE_CODE_SIMPLE
   } else {
@@ -331,11 +337,15 @@ test.serial('project skills are ordered before user skills with the same name', 
 test.serial('dynamic discovery checks .openclaude skill directories', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const originalFs = setRealFilesystemForTest()
+  const originalArgv = [...process.argv]
+  const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
   const rootDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(rootDir, 'workspace')
   const featureDir = join(cwd, 'src', 'feature')
 
   try {
+    process.argv = process.argv.filter(arg => arg !== '--bare')
+    delete process.env.CLAUDE_CODE_SIMPLE
     mkdirSync(featureDir, { recursive: true })
     execFileSync('git', ['init'], { cwd, stdio: 'ignore' })
     writeSkill(featureDir, 'feature-skill', {
@@ -352,6 +362,12 @@ test.serial('dynamic discovery checks .openclaude skill directories', async () =
     assert.deepEqual(dirs, [join(featureDir, '.openclaude', 'skills')])
   } finally {
     try {
+      process.argv = originalArgv
+      if (originalClaudeCodeSimple === undefined) {
+        delete process.env.CLAUDE_CODE_SIMPLE
+      } else {
+        process.env.CLAUDE_CODE_SIMPLE = originalClaudeCodeSimple
+      }
       setFsImplementation(originalFs)
       clearDynamicSkills()
       rmSync(rootDir, { recursive: true, force: true })
