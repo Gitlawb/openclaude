@@ -330,15 +330,18 @@ describe('LSPDiagnosticRegistry storm control', () => {
       serverName: 'typescript',
       files: [stormFile],
     })
-    const secondDiagnosticSets = registry.checkForLSPDiagnostics()
+    const secondFiles = registry.checkForLSPDiagnostics()[0]?.files ?? []
 
-    expect(secondDiagnosticSets).toEqual([])
+    expect(secondFiles.map(file => file.uri)).toEqual([
+      'lsp://diagnostic-storm/typescript',
+    ])
+    expect(diagnosticCount(secondFiles)).toBe(1)
     expect(deliveryLogs()).not.toContain(
       'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
     )
   })
 
-  test('returns no diagnostic set when volume limiting leaves only reserved summaries', () => {
+  test('returns compact storm summaries when volume limiting leaves only reserved summaries', () => {
     for (let index = 0; index < 30; index++) {
       registry.registerPendingLSPDiagnostic({
         serverName: `server-${index}`,
@@ -355,9 +358,16 @@ describe('LSPDiagnosticRegistry storm control', () => {
       })
     }
 
-    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    const files = registry.checkForLSPDiagnostics()[0]?.files ?? []
+
+    expect(files).toHaveLength(30)
+    expect(files.every(file => file.uri.startsWith('lsp://diagnostic-storm/')))
+      .toBe(true)
+    expect(diagnosticCount(files)).toBe(30)
     expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
-    expect(deliveryLogs()).toEqual([])
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 30 file(s) with 0 diagnostic(s) from 30 server(s)',
+    )
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {

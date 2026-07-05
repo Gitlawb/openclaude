@@ -2951,6 +2951,22 @@ async function getLSPDiagnosticAttachments(
       return []
     }
 
+    const finalDiagnosticCount = diagnosticSets.reduce(
+      (count, set) =>
+        count +
+        set.files.reduce(
+          (fileCount, file) => fileCount + file.diagnostics.length,
+          0,
+        ),
+      0,
+    )
+    if (finalDiagnosticCount === 0) {
+      logForDebugging(
+        `LSP Diagnostics: No diagnostic attachments to return after filtering empty diagnostic payloads`,
+      )
+      return []
+    }
+
     logForDebugging(
       `LSP Diagnostics: Found ${diagnosticSets.length} pending diagnostic set(s)`,
     )
