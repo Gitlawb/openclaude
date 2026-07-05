@@ -10,6 +10,7 @@ import {
   readNodeExecutableVersion,
   serializeSafeEnvSummary,
 } from './system-check.ts'
+import { DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP } from '../src/utils/maxActiveMessages.ts'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -276,12 +277,12 @@ describe('system-check memory guard diagnostics', () => {
     expect(results).toContainEqual({
       ok: true,
       label: 'Auto-compact guard',
-      detail: 'Enabled; message-count threshold off; hard cap 1000.',
+      detail: `Enabled; message-count threshold off; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
     })
     expect(results).toContainEqual({
       ok: true,
       label: 'Active-message hard cap',
-      detail: 'Active at 1000 messages; malformed overrides fall back to 1000.',
+      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
     })
     expect(results.find(result => result.label === 'Memory pressure guard'))
       .toMatchObject({ ok: true })
@@ -299,7 +300,7 @@ describe('system-check memory guard diagnostics', () => {
     expect(results).toContainEqual({
       ok: true,
       label: 'Active-message hard cap',
-      detail: 'Active at 1000 messages; malformed overrides fall back to 1000.',
+      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
     })
   })
 

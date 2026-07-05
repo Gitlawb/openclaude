@@ -32,7 +32,10 @@ import {
   checkSupportedNodeVersion,
 } from '../src/utils/nodeRuntime.js'
 import { SandboxManager } from '../src/utils/sandbox/sandbox-adapter.js'
-import { getMaxActiveMessagesHardCap } from '../src/utils/maxActiveMessages.js'
+import {
+  DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP,
+  getMaxActiveMessagesHardCap,
+} from '../src/utils/maxActiveMessages.js'
 
 type CheckResult = {
   ok: boolean
@@ -126,7 +129,7 @@ export function buildMemoryGuardChecks(
         )
       : pass(
           'Active-message hard cap',
-          `Active at ${hardCap} messages; malformed overrides fall back to 1000.`,
+          `Active at ${hardCap} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
         ),
   )
 
