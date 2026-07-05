@@ -68,6 +68,19 @@ export function getHeapDumpAnalyticsMetadata(
   }
 }
 
+export function getHeapDumpFilePaths(
+  sessionId: string,
+  dumpDir: string,
+  effectiveDumpNumber: number,
+): { heapPath: string; diagPath: string } {
+  const suffix =
+    effectiveDumpNumber > 0 ? `-dump${effectiveDumpNumber}` : ''
+  return {
+    heapPath: join(dumpDir, `${sessionId}${suffix}.heapsnapshot`),
+    diagPath: join(dumpDir, `${sessionId}${suffix}-diagnostics.json`),
+  }
+}
+
 /**
  * Memory diagnostics captured alongside heap dump.
  * Helps identify if leak is in V8 heap (captured in snapshot) or native memory (not captured).
@@ -283,13 +296,11 @@ export async function performHeapDump(
 
     const dumpDir = getDesktopPath()
     await getFsImplementation().mkdir(dumpDir)
-
-    const suffix =
-      effectiveDumpNumber > 0 ? `-dump${effectiveDumpNumber}` : ''
-    const heapFilename = `${sessionId}${suffix}.heapsnapshot`
-    const diagFilename = `${sessionId}${suffix}-diagnostics.json`
-    const heapPath = join(dumpDir, heapFilename)
-    const diagPath = join(dumpDir, diagFilename)
+    const { heapPath, diagPath } = getHeapDumpFilePaths(
+      sessionId,
+      dumpDir,
+      effectiveDumpNumber,
+    )
 
     // Write diagnostics first (cheap, unlikely to fail)
     await writeFile(diagPath, jsonStringify(diagnostics, null, 2), {

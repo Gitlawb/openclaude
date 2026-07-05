@@ -5,6 +5,7 @@ import {
   __resetManualHeapDumpCountForTesting,
   getHeapDumpAnalyticsMetadata,
   getEffectiveHeapDumpNumber,
+  getHeapDumpFilePaths,
 } from './heapDumpService.js'
 
 test('manual heap dumps receive sequential effective dump numbers', () => {
@@ -36,4 +37,30 @@ test('failure analytics uses the effective heap dump number', () => {
       success: false,
     },
   )
+})
+
+test('effective dump numbers are used in generated heap dump filenames', () => {
+  __resetManualHeapDumpCountForTesting()
+
+  const firstManual = getEffectiveHeapDumpNumber('manual')
+  const secondManual = getEffectiveHeapDumpNumber('manual')
+
+  assert.deepEqual(
+    getHeapDumpFilePaths('session-123', '/tmp/dumps', firstManual),
+    {
+      heapPath: '/tmp/dumps/session-123-dump1.heapsnapshot',
+      diagPath: '/tmp/dumps/session-123-dump1-diagnostics.json',
+    },
+  )
+  assert.deepEqual(
+    getHeapDumpFilePaths('session-123', '/tmp/dumps', secondManual),
+    {
+      heapPath: '/tmp/dumps/session-123-dump2.heapsnapshot',
+      diagPath: '/tmp/dumps/session-123-dump2-diagnostics.json',
+    },
+  )
+  assert.deepEqual(getHeapDumpFilePaths('session-123', '/tmp/dumps', 7), {
+    heapPath: '/tmp/dumps/session-123-dump7.heapsnapshot',
+    diagPath: '/tmp/dumps/session-123-dump7-diagnostics.json',
+  })
 })
