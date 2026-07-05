@@ -9,7 +9,7 @@ const realDebugModule = await import(
   `./debug.js?real=${Date.now()}-${Math.random()}`,
 )
 const realLSPRegistry = await import(
-  `../services/lsp/LSPDiagnosticRegistry.ts?real=${Date.now()}-${Math.random()}`,
+  `../services/lsp/LSPDiagnosticRegistry.js?real=${Date.now()}-${Math.random()}`,
 )
 
 let diagnosticSets: Array<{ serverName: string; files: DiagnosticFile[] }> = []

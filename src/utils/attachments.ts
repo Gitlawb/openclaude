@@ -2951,6 +2951,9 @@ async function getLSPDiagnosticAttachments(
       return []
     }
 
+    // checkForLSPDiagnostics normally enforces this invariant. Keep a final
+    // attachment-boundary guard so future registry changes cannot send empty
+    // diagnostics attachments to the model.
     const finalDiagnosticCount = diagnosticSets.reduce(
       (count, set) =>
         count +
