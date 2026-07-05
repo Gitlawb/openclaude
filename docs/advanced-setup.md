@@ -546,6 +546,11 @@ By default, OpenClaude compacts conversations based on token usage and also
 applies a safety hard cap of 1000 active messages. The hard cap catches long
 sessions that accumulate many small messages with negligible token cost.
 
+This hard cap is a safety net: it can still trigger compaction even when
+`DISABLE_COMPACT`, `DISABLE_AUTO_COMPACT`, or a disabled auto-compact setting
+would otherwise prevent it. Set `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`
+only when you need to suppress that safety cap for diagnostics.
+
 If you frequently resume long sessions that accumulate hundreds of small
 tool-result messages with negligible token cost, you can opt in to message-count
 compaction via the in-app `/config` command:

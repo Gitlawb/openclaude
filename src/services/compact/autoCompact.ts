@@ -378,7 +378,8 @@ export async function autoCompactIfNeeded(
 }> {
   const model = toolUseContext.options.mainLoopModel
   // Force compaction if a pressure/count signal set forceReason.
-  // Consume the flag so it only forces one compaction cycle.
+  // Intentionally consume the caller-owned flag in place so the same tracking
+  // object cannot force multiple compaction cycles in one query loop pass.
   // Forced safety compaction bypasses user-disable gates while preserving
   // recursion/context-collapse guards.
   const forcedBy = tracking?.forceReason

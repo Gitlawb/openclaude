@@ -330,10 +330,15 @@ function parseMaxActiveMessagesLimit(value: string | undefined): number {
 function getMaxActiveMessagesHardCap(): number {
   const hardCapOverride =
     process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
-  if (hardCapOverride !== undefined) {
-    return parseMaxActiveMessagesLimit(hardCapOverride)
+  if (hardCapOverride === undefined) {
+    return DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
   }
-  return DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
+  const trimmed = hardCapOverride.trim()
+  if (trimmed === '0') {
+    return 0
+  }
+  const parsed = parseMaxActiveMessagesLimit(trimmed)
+  return parsed > 0 ? parsed : DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
 }
 
 function resolveMaxActiveMessagesLimit(
@@ -370,6 +375,19 @@ function isWithheldContextOverflow(
   msg: Message | StreamEvent | undefined,
 ): msg is AssistantMessage {
   return msg?.type === 'assistant' && msg.apiError === 'context_overflow'
+}
+
+function shouldRecoverContextOverflow(
+  msg: Message | StreamEvent | undefined,
+  hasAttemptedContextOverflowRecovery: boolean,
+  querySource: QuerySource,
+): boolean {
+  return (
+    !hasAttemptedContextOverflowRecovery &&
+    querySource !== 'compact' &&
+    querySource !== 'session_memory' &&
+    isWithheldContextOverflow(msg)
+  )
 }
 
 function isWithheldProviderMaxTokensCap(
@@ -1249,10 +1267,11 @@ async function* queryLoop(
               withheld = true
             }
             if (
-              !hasAttemptedContextOverflowRecovery &&
-              querySource !== 'compact' &&
-              querySource !== 'session_memory' &&
-              isWithheldContextOverflow(message)
+              shouldRecoverContextOverflow(
+                message,
+                hasAttemptedContextOverflowRecovery,
+                querySource,
+              )
             ) {
               withheld = true
             }
@@ -1653,10 +1672,11 @@ async function* queryLoop(
       }
 
       if (
-        !hasAttemptedContextOverflowRecovery &&
-        querySource !== 'compact' &&
-        querySource !== 'session_memory' &&
-        isWithheldContextOverflow(lastMessage)
+        shouldRecoverContextOverflow(
+          lastMessage,
+          hasAttemptedContextOverflowRecovery,
+          querySource,
+        )
       ) {
         yield createSystemMessage(
           'Provider context limit reached; compacting conversation and retrying turn.',

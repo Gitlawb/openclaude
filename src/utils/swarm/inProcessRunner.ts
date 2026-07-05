@@ -1252,9 +1252,15 @@ export async function runInProcessTeammate(
               message.subtype === 'compact_boundary'
             ) {
               allMessages.length = 0
+              resetMicrocompactState()
               if (teammateReplacementState) {
                 teammateReplacementState = createContentReplacementState()
               }
+              updateTaskState(
+                taskId,
+                task => ({ ...task, messages: [] }),
+                setAppState,
+              )
             }
             iterationMessages.push(message)
             allMessages.push(message)

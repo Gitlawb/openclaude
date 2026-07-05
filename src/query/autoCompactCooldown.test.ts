@@ -244,6 +244,49 @@ async function runSuccessfulQuery(
   )
 }
 
+async function runMessageCountHardCapQuery(messages: Message[]) {
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(
+      async (
+        _messages: AutocompactArgs[0],
+        _toolUseContext: AutocompactArgs[1],
+        _params: AutocompactArgs[2],
+        _querySource: AutocompactArgs[3],
+        tracking: AutocompactArgs[4],
+      ) => {
+        seenTracking.push(tracking)
+        return { wasCompacted: false }
+      },
+    ) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const result = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  return { ...result, callModel, seenTracking }
+}
+
 test('explicit off skips automatic microcompact during query flow', async () => {
   saveGlobalConfig(current => ({
     ...current,
@@ -297,48 +340,34 @@ test('numeric message-count threshold keeps automatic microcompact behavior', as
 })
 
 test('default active-message hard cap forces compaction', async () => {
-  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
-  const callModel = mock(async function* () {
-    yield assistantToolUseMessage()
-  })
-  const deps: QueryDeps = {
-    callModel: callModel as QueryDeps['callModel'],
-    microcompact: mock(async (input: Message[]) => ({
-      messages: input,
-    })) as QueryDeps['microcompact'],
-    autocompact: mock(
-      async (
-        _messages: AutocompactArgs[0],
-        _toolUseContext: AutocompactArgs[1],
-        _params: AutocompactArgs[2],
-        _querySource: AutocompactArgs[3],
-        tracking: AutocompactArgs[4],
-      ) => {
-        seenTracking.push(tracking)
-        return { wasCompacted: false }
-      },
-    ) as QueryDeps['autocompact'],
-    uuid: () => 'test-uuid',
-  }
-
-  const { query } = await loadQuery()
-  const { terminal } = await drain(
-    query({
-      messages: manySmallMessages(1001),
-      systemPrompt: asSystemPrompt([]),
-      userContext: {},
-      systemContext: {},
-      canUseTool,
-      toolUseContext: toolUseContext(),
-      querySource: 'repl_main_thread',
-      maxTurns: 1,
-      deps,
-    }),
-  )
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
 
   expect(terminal.reason).toBe('max_turns')
   expect(callModel).toHaveBeenCalledTimes(1)
   expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
+test('invalid active-message hard cap override keeps default safety cap', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '100O'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
+test('explicit zero active-message hard cap override disables safety cap', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBeUndefined()
 })
 
 test('explicit compact query source still runs microcompact when threshold is off', async () => {
