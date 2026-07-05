@@ -65,7 +65,6 @@ describe('RepoMapTool call', () => {
         cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
       }
 
-      // We need to call buildRepoMap directly since getCwd patching is complex
       const { buildRepoMap } = await import(
         '../../context/repoMap/index.js'
       )
@@ -147,6 +146,31 @@ describe('RepoMapTool properties', () => {
   test('is marked read-only and concurrency-safe', () => {
     expect(RepoMapTool.isReadOnly()).toBe(true)
     expect(RepoMapTool.isConcurrencySafe()).toBe(true)
+  })
+
+  test('exposes a path hook for read permission grants', () => {
+    expect(typeof RepoMapTool.getPath).toBe('function')
+  })
+})
+
+describe('RepoMapTool result mapping', () => {
+  test('maps output to a tool result block without a duplicate output type', () => {
+    const block = RepoMapTool.mapToolResultToToolResultBlockParam(
+      {
+        rendered: 'file.ts:\n  export const value = 1',
+        token_count: 10,
+        file_count: 1,
+        total_file_count: 1,
+        cache_hit: false,
+        build_time_ms: 12,
+      },
+      'toolu_123',
+    )
+
+    expect(block.tool_use_id).toBe('toolu_123')
+    expect(block.type).toBe('tool_result')
+    expect(block.content).toContain('Repository map: 1 files ranked')
+    expect(block.content).toContain('file.ts:')
   })
 })
 

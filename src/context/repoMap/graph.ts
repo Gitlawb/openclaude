@@ -13,6 +13,7 @@ const COMMON_NAMES = new Set([
   'push', 'pop', 'shift', 'filter', 'reduce', 'forEach', 'find',
   'log', 'warn', 'info', 'debug', 'trace',
 ])
+const MAX_DEFINITION_FANOUT = 100
 
 /**
  * Build a directed graph from file tags.
@@ -65,6 +66,7 @@ export function buildGraph(allFileTags: FileTags[]): Graph {
 
       const defFiles = defIndex.get(tag.name)
       if (!defFiles) continue
+      if (defFiles.size > MAX_DEFINITION_FANOUT) continue
 
       const weight = idf(tag.name)
       for (const defFile of defFiles) {

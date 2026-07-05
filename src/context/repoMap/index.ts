@@ -2,10 +2,14 @@ import {
   computeMapHash,
   getCachedTags,
   getCacheStats as getCacheStatsImpl,
+  getRenderedCache,
   invalidateCache as invalidateCacheImpl,
   loadCache,
+  pruneCache,
   saveCache,
   setCachedTags,
+  setRenderedCache,
+  statFile,
 } from './cache.js'
 import { getRepoFiles } from './gitFiles.js'
 import { buildGraph } from './graph.js'
@@ -37,29 +41,32 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const files = options.files ?? await getRepoFiles(root)
   const totalFileCount = files.length
 
-  // Check if we have a cached rendered map
-  const mapHash = computeMapHash(files, maxTokens, focusFiles, root)
+  const fileStats = new Map(files.map(file => [file, statFile(root, file)]))
+  const existingFileStats = new Map(
+    [...fileStats.entries()].filter(
+      (entry): entry is [string, NonNullable<typeof entry[1]>] =>
+        entry[1] !== null,
+    ),
+  )
+  const mapHash = computeMapHash(
+    files,
+    maxTokens,
+    focusFiles,
+    root,
+    existingFileStats,
+  )
   const cache = loadCache(root)
+  pruneCache(cache, files)
 
-  // Check if rendered map is cached (stored as a special entry)
-  const renderedCacheKey = `__rendered__${mapHash}`
-  const renderedEntry = cache.entries[renderedCacheKey]
-  if (renderedEntry && renderedEntry.tags.length === 1) {
-    const cachedResult = renderedEntry.tags[0]!
-    // The cached "tag" stores the rendered map in the signature field
-    // and metadata in name/line fields
-    try {
-      const meta = JSON.parse(cachedResult.name)
-      return {
-        map: cachedResult.signature,
-        cacheHit: true,
-        buildTimeMs: Date.now() - startTime,
-        fileCount: meta.fileCount ?? 0,
-        totalFileCount,
-        tokenCount: meta.tokenCount ?? 0,
-      }
-    } catch {
-      // Invalid cached data, continue with full build
+  const renderedEntry = getRenderedCache(cache, mapHash)
+  if (renderedEntry) {
+    return {
+      map: renderedEntry.map,
+      cacheHit: true,
+      buildTimeMs: Date.now() - startTime,
+      fileCount: renderedEntry.fileCount,
+      totalFileCount,
+      tokenCount: renderedEntry.tokenCount,
     }
   }
 
@@ -69,7 +76,12 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const uncachedFiles: string[] = []
 
   for (const file of files) {
-    const cachedTags = getCachedTags(cache, file, root)
+    const cachedTags = getCachedTags(
+      cache,
+      file,
+      root,
+      fileStats.get(file) ?? undefined,
+    )
     if (cachedTags) {
       allFileTags.push({ path: file, tags: cachedTags })
     } else {
@@ -88,7 +100,13 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
       const fileTags = results[j]
       if (fileTags) {
         allFileTags.push(fileTags)
-        setCachedTags(cache, fileTags.path, root, fileTags.tags)
+        setCachedTags(
+          cache,
+          fileTags.path,
+          root,
+          fileTags.tags,
+          fileStats.get(fileTags.path) ?? undefined,
+        )
       }
     }
   }
@@ -106,17 +124,7 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   // Render
   const { map, tokenCount, fileCount } = renderMap(ranked, fileTagsMap, maxTokens)
 
-  // Cache the rendered result
-  cache.entries[renderedCacheKey] = {
-    tags: [{
-      kind: 'def',
-      name: JSON.stringify({ fileCount, tokenCount }),
-      line: 0,
-      signature: map,
-    }],
-    mtimeMs: Date.now(),
-    size: 0,
-  }
+  setRenderedCache(cache, mapHash, { map, fileCount, tokenCount })
 
   saveCache(root, cache)
 

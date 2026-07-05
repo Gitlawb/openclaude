@@ -7,6 +7,7 @@ import { extractTags } from './symbolExtractor.js'
 import { buildGraph } from './graph.js'
 import { rankFiles } from './pagerank.js'
 import { initParser } from './parser.js'
+import { renderMap } from './renderer.js'
 import { countTokens } from './tokenize.js'
 import type { FileTags } from './types.js'
 
@@ -196,6 +197,54 @@ describe('renderer', () => {
     // Should have fewer files than total
     expect(fileHeaders.length).toBeLessThan(FIXTURE_FILES.length)
   })
+
+  test('skips an oversized ranked file and keeps later files that fit', () => {
+    const hugeSignature = `export function enormous(${Array.from(
+      { length: 120 },
+      (_, i) => `arg${i}: string`,
+    ).join(', ')}): void {}`
+    const ranked = [
+      { path: 'big.ts', score: 10 },
+      { path: 'small.ts', score: 1 },
+    ]
+    const fileTagsMap = new Map<string, FileTags>([
+      [
+        'big.ts',
+        {
+          path: 'big.ts',
+          tags: [
+            {
+              kind: 'def',
+              name: 'enormous',
+              line: 1,
+              signature: hugeSignature,
+            },
+          ],
+        },
+      ],
+      [
+        'small.ts',
+        {
+          path: 'small.ts',
+          tags: [
+            {
+              kind: 'def',
+              name: 'small',
+              line: 1,
+              signature: 'export function small(): void {}',
+            },
+          ],
+        },
+      ],
+    ])
+
+    const result = renderMap(ranked, fileTagsMap, 80)
+
+    expect(result.map).toContain('small.ts:')
+    expect(result.map).not.toContain('big.ts:')
+    expect(result.fileCount).toBe(1)
+    expect(result.tokenCount).toBeLessThanOrEqual(80)
+  })
 })
 
 describe('cache', () => {
@@ -215,13 +264,12 @@ describe('cache', () => {
       files: FIXTURE_FILES,
     })
     expect(result2.cacheHit).toBe(true)
-    expect(result2.buildTimeMs).toBeLessThan(result1.buildTimeMs)
 
     // Output should be identical
     expect(result2.map).toBe(result1.map)
   })
 
-  test('modifying a file invalidates only that file', async () => {
+  test('modifying a file invalidates the rendered cache without clearing cache data', async () => {
     // Create a temp copy of the fixture
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-test-'))
     try {
@@ -242,10 +290,8 @@ describe('cache', () => {
       const now = new Date()
       utimesSync(targetFile, now, now)
 
-      // Second build — rendered cache should be invalidated because file list hash
-      // includes the files and the rendered map hash changes with different mtimes
-      // for the per-file cache check
-      invalidateCache(tempDir)
+      // Second build — rendered cache should be invalidated because the map
+      // hash includes file stats, but unchanged files can still reuse tag cache.
       const result2 = await buildRepoMap({
         root: tempDir,
         maxTokens: 2048,

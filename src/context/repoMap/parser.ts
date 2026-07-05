@@ -4,14 +4,10 @@ import { getBundledQuery } from './queries.js'
 import type { SupportedLanguage } from './types.js'
 import type { Language } from 'web-tree-sitter'
 
-// Resolve project root in both source and bundled modes.
-// In source (bun test/dev): import.meta.url is src/context/repoMap/parser.ts → go up 4 levels
-// In bundle (node dist/cli.mjs): import.meta.url is dist/cli.mjs → go up 2 levels
 const __filename = fileURLToPath(import.meta.url)
-const __projectRoot = join(
-  __filename,
-  process.env.NODE_ENV === 'test' ? '../../../../' : '../../',
-)
+const __projectRoot = __filename.includes('/src/context/repoMap/')
+  ? join(__filename, '../../../../')
+  : join(__filename, '../../')
 
 // web-tree-sitter types
 type TreeSitterParser = {
@@ -29,6 +25,7 @@ let LanguageLoader: {
 } | null = null
 
 let initialized = false
+let initPromise: Promise<void> | null = null
 const languageCache = new Map<SupportedLanguage, Language>()
 const queryCache = new Map<SupportedLanguage, string>()
 
@@ -68,8 +65,9 @@ function getLanguageWasmPath(language: SupportedLanguage): string {
 /** Initialize the tree-sitter WASM module. */
 export async function initParser(): Promise<void> {
   if (initialized) return
+  if (initPromise) return initPromise
 
-  try {
+  initPromise = (async () => {
     const mod = await import('web-tree-sitter')
     ParserClass = mod.Parser as typeof ParserClass
     LanguageLoader = mod.Language as typeof LanguageLoader
@@ -79,9 +77,14 @@ export async function initParser(): Promise<void> {
       locateFile: () => wasmPath,
     })
     initialized = true
+  })()
+
+  try {
+    await initPromise
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[repoMap] Failed to initialize tree-sitter:', err)
+    initPromise = null
     throw err
   }
 }
@@ -149,6 +152,7 @@ export function clearParserCaches(): void {
   languageCache.clear()
   queryCache.clear()
   initialized = false
+  initPromise = null
   ParserClass = null
   LanguageLoader = null
 }

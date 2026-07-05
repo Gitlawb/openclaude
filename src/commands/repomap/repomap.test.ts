@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { parseArgs } from './repomap.js'
 
 describe('/repomap argument parsing', () => {
-  test('defaults to 1024 tokens with no flags', () => {
+  test('defaults to 2048 tokens with no flags', () => {
     const result = parseArgs('')
     expect(result.tokens).toBe(2048)
     expect(result.focus).toEqual([])

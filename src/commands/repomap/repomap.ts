@@ -59,35 +59,51 @@ export const call: LocalCommandCall = async (args) => {
   }
 
   if (invalidate) {
-    invalidateCache(root)
+    try {
+      invalidateCache(root)
+      const result = await buildRepoMap({
+        root,
+        maxTokens: tokens,
+        focusFiles: focus.length > 0 ? focus : undefined,
+      })
+      return {
+        type: 'text',
+        value: [
+          `Cache invalidated and rebuilt.`,
+          `Files: ${result.fileCount} ranked (${result.totalFileCount} total) | Tokens: ${result.tokenCount} | Time: ${result.buildTimeMs}ms | Cache hit: ${result.cacheHit}`,
+          '',
+          result.map,
+        ].join('\n'),
+      }
+    } catch (err) {
+      return renderError('Cache invalidated, but rebuilding the repository map failed', err)
+    }
+  }
+
+  try {
     const result = await buildRepoMap({
       root,
       maxTokens: tokens,
       focusFiles: focus.length > 0 ? focus : undefined,
     })
+
     return {
       type: 'text',
       value: [
-        `Cache invalidated and rebuilt.`,
-        `Files: ${result.fileCount} ranked (${result.totalFileCount} total) | Tokens: ${result.tokenCount} | Time: ${result.buildTimeMs}ms | Cache hit: ${result.cacheHit}`,
+        `Repository map: ${result.fileCount} files ranked (${result.totalFileCount} total) | Tokens: ${result.tokenCount} | Time: ${result.buildTimeMs}ms | Cache hit: ${result.cacheHit}`,
         '',
         result.map,
       ].join('\n'),
     }
+  } catch (err) {
+    return renderError('Failed to build repository map', err)
   }
+}
 
-  const result = await buildRepoMap({
-    root,
-    maxTokens: tokens,
-    focusFiles: focus.length > 0 ? focus : undefined,
-  })
-
+function renderError(prefix: string, err: unknown) {
+  const detail = err instanceof Error ? err.message : String(err)
   return {
-    type: 'text',
-    value: [
-      `Repository map: ${result.fileCount} files ranked (${result.totalFileCount} total) | Tokens: ${result.tokenCount} | Time: ${result.buildTimeMs}ms | Cache hit: ${result.cacheHit}`,
-      '',
-      result.map,
-    ].join('\n'),
+    type: 'text' as const,
+    value: `${prefix}: ${detail}`,
   }
 }

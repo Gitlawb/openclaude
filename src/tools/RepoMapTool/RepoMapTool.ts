@@ -5,6 +5,13 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
 import { buildRepoMap } from '../../context/repoMap/index.js'
+import {
+  getCachedTags,
+  loadCache,
+  saveCache,
+  setCachedTags,
+  statFile,
+} from '../../context/repoMap/cache.js'
 import { REPO_MAP_TOOL_NAME, getDescription } from './prompt.js'
 import {
   getToolUseSummary,
@@ -52,7 +59,7 @@ const outputSchema = lazySchema(() =>
 )
 type OutputSchema = ReturnType<typeof outputSchema>
 
-type Output = z.infer<OutputSchema>
+export type Output = z.infer<OutputSchema>
 
 export const RepoMapTool = buildTool({
   name: REPO_MAP_TOOL_NAME,
@@ -85,6 +92,9 @@ export const RepoMapTool = buildTool({
   },
   isSearchOrReadCommand() {
     return { isSearch: false, isRead: true }
+  },
+  getPath() {
+    return getCwd()
   },
   toAutoClassifierInput(input) {
     const parts: string[] = ['repomap']
@@ -136,23 +146,39 @@ export const RepoMapTool = buildTool({
 
       await initParser()
       const files = await getRepoFiles(root)
+      const cache = loadCache(root)
       const symbolFiles: string[] = []
       const symbolSet = new Set(focus_symbols)
+      const BATCH_SIZE = 50
 
-      // Scan files for matching symbol definitions
-      for (const file of files) {
+      for (let i = 0; i < files.length; i += BATCH_SIZE) {
         if (abortController.signal.aborted) break
-        const tags = await extractTags(file, root)
-        if (tags) {
-          const hasMatch = tags.tags.some(
-            t => t.kind === 'def' && symbolSet.has(t.name),
+        const batch = files.slice(i, i + BATCH_SIZE)
+        const results = await Promise.all(
+          batch.map(async file => {
+            const stat = statFile(root, file)
+            const cached = getCachedTags(cache, file, root, stat ?? undefined)
+            if (cached) return { path: file, tags: cached, stat }
+
+            const extracted = await extractTags(file, root).catch(() => null)
+            if (!extracted) return null
+            setCachedTags(cache, file, root, extracted.tags, stat ?? undefined)
+            return { path: file, tags: extracted.tags, stat }
+          }),
+        )
+
+        for (const result of results) {
+          if (!result) continue
+          const hasMatch = result.tags.some(
+            tag => tag.kind === 'def' && symbolSet.has(tag.name),
           )
           if (hasMatch) {
-            symbolFiles.push(file)
+            symbolFiles.push(result.path)
           }
         }
       }
 
+      saveCache(root, cache)
       resolvedFocusFiles = [...resolvedFocusFiles, ...symbolFiles]
     }
 

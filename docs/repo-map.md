@@ -32,7 +32,7 @@ REPO_MAP=1 openclaude
 
 Or add it to your shell profile for persistent use.
 
-When enabled, the map is built once per session and prepended to the system context alongside git status and CLAUDE.md content. The default budget is 1024 tokens.
+When enabled, the map is built once per session and prepended to the system context alongside git status and CLAUDE.md content. The auto-injected map uses a 1024-token budget.
 
 Auto-injection is skipped in:
 - Bare mode (`--bare`)
@@ -42,8 +42,8 @@ Auto-injection is skipped in:
 
 The `/repomap` command is always available regardless of the feature flag. It lets you inspect and tune the map interactively.
 
-```
-/repomap                          # Show the map with default settings (1024 tokens)
+```text
+/repomap                          # Show the map with default settings (2048 tokens)
 /repomap --tokens 4096            # Increase the token budget for a larger map
 /repomap --focus src/tools/       # Boost specific paths in the ranking
 /repomap --focus src/context.ts   # Can use multiple --focus flags

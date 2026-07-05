@@ -35,8 +35,8 @@ function expandFocusFiles(graph: Graph, focusFiles: string[]): string[] {
 /**
  * Run PageRank on the file reference graph.
  *
- * focusFiles get a 100x boost in the personalization vector so they
- * and their neighbors rank higher.
+ * PageRank runs on the full graph, then focusFiles and their neighbors get
+ * a post-processing boost so they rank higher in the rendered map.
  *
  * Returns files sorted by score descending.
  */

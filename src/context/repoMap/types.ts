@@ -50,9 +50,22 @@ export interface CacheEntry {
   size: number
 }
 
+export interface FileStatFingerprint {
+  mtimeMs: number
+  size: number
+}
+
+export interface RenderedCacheEntry {
+  map: string
+  fileCount: number
+  tokenCount: number
+  createdAt: number
+}
+
 export interface CacheData {
   version: number
   entries: Record<string, CacheEntry>
+  renderedEntries: Record<string, RenderedCacheEntry>
 }
 
 export interface CacheStats {

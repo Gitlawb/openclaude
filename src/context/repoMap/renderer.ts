@@ -40,8 +40,8 @@ export function renderMap(
 
     // Would this section bust the budget?
     if (currentTokens + sectionTokens > maxTokens) {
-      // Don't include partial files — drop entirely
-      break
+      // Don't include partial files, but keep trying smaller lower-ranked files.
+      continue
     }
 
     sections.push(section)

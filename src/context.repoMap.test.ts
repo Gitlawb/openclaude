@@ -8,16 +8,18 @@ import { describe, expect, test } from 'bun:test'
 
 describe('getRepoMapContext', () => {
   test('returns null when REPO_MAP flag is off (default)', async () => {
-    // In the test environment, feature('REPO_MAP') is not shimmed,
-    // so the function should return null or handle the missing shim gracefully.
-    // We test this by calling buildRepoMap directly and verifying the context
-    // integration pattern works.
-
-    // The feature flag is off by default (false in scripts/build.ts),
-    // so in production getRepoMapContext returns null.
-    // In tests, we verify the module exports correctly.
     const { getRepoMapContext } = await import('./context.js')
-    expect(typeof getRepoMapContext).toBe('function')
+    const previous = process.env.REPO_MAP
+    delete process.env.REPO_MAP
+    getRepoMapContext.cache.clear?.()
+
+    try {
+      await expect(getRepoMapContext()).resolves.toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.REPO_MAP
+      else process.env.REPO_MAP = previous
+      getRepoMapContext.cache.clear?.()
+    }
   })
 
   test('buildRepoMap produces valid output for context injection', async () => {
@@ -55,22 +57,25 @@ describe('getRepoMapContext', () => {
   })
 
   test('getSystemContext does not include repoMap key when flag is off', async () => {
-    // In test environment, feature() is not available from bun:bundle,
-    // which means getRepoMapContext will either return null or throw.
-    // Either way, repoMap should NOT appear in the system context.
-    // We verify the structural contract: getSystemContext returns an object
-    // without a repoMap key when the feature is disabled.
+    const { getRepoMapContext, getSystemContext } = await import('./context.js')
+    const previousRepoMap = process.env.REPO_MAP
+    const previousRemote = process.env.CLAUDE_CODE_REMOTE
+    delete process.env.REPO_MAP
+    process.env.CLAUDE_CODE_REMOTE = '1'
+    getRepoMapContext.cache.clear?.()
+    getSystemContext.cache.clear?.()
 
-    // Since we can't mock bun:bundle in tests, we verify the contract
-    // by checking that buildRepoMap output is properly gated.
-    const { buildRepoMap } = await import('./context/repoMap/index.js')
-
-    // The function works standalone
-    const result = await buildRepoMap({ maxTokens: 256 })
-    expect(typeof result.map).toBe('string')
-
-    // But the injection in getSystemContext is gated behind feature('REPO_MAP')
-    // which is false by default — verified by the feature flag test below
+    try {
+      const context = await getSystemContext()
+      expect(context).not.toHaveProperty('repoMap')
+    } finally {
+      if (previousRepoMap === undefined) delete process.env.REPO_MAP
+      else process.env.REPO_MAP = previousRepoMap
+      if (previousRemote === undefined) delete process.env.CLAUDE_CODE_REMOTE
+      else process.env.CLAUDE_CODE_REMOTE = previousRemote
+      getRepoMapContext.cache.clear?.()
+      getSystemContext.cache.clear?.()
+    }
   })
 })
 
@@ -78,7 +83,7 @@ describe('REPO_MAP feature flag', () => {
   test('flag defaults to false in build config', async () => {
     const { readFileSync } = await import('fs')
     const buildScript = readFileSync('scripts/build.ts', 'utf-8')
-    // Verify the flag exists and is set to false
-    expect(buildScript).toContain('REPO_MAP: false')
+    const match = buildScript.match(/REPO_MAP:\s*(true|false)/)
+    expect(match?.[1]).toBe('false')
   })
 })

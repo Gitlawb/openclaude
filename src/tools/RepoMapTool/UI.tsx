@@ -7,15 +7,7 @@ import { Text } from '../../ink.js'
 import type { ToolProgressData } from '../../Tool.js'
 import type { ProgressMessage } from '../../types/message.js'
 import { truncate } from '../../utils/format.js'
-
-type Output = {
-  rendered: string
-  token_count: number
-  file_count: number
-  total_file_count: number
-  cache_hit: boolean
-  build_time_ms: number
-}
+import type { Output } from './RepoMapTool.js'
 
 export function getToolUseSummary(
   input:

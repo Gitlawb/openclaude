@@ -18,6 +18,7 @@ import { shouldIncludeGitInstructions } from './utils/gitSettings.js'
 import { logError } from './utils/log.js'
 
 const MAX_STATUS_CHARS = 2000
+const REPO_MAP_CONTEXT_TIMEOUT_MS = 5000
 
 // System prompt injection for cache breaking (internal-only, ephemeral debugging state)
 let systemPromptInjection: string | null = null
@@ -124,7 +125,18 @@ export const getRepoMapContext = memoize(
       const startTime = Date.now()
       logForDiagnosticsNoPII('info', 'repo_map_started')
       const { buildRepoMap } = await import('./context/repoMap/index.js')
-      const result = await buildRepoMap({ maxTokens: 1024 })
+      const result = await Promise.race([
+        buildRepoMap({ maxTokens: 1024 }),
+        new Promise<null>(resolve =>
+          setTimeout(() => resolve(null), REPO_MAP_CONTEXT_TIMEOUT_MS),
+        ),
+      ])
+      if (!result) {
+        logForDiagnosticsNoPII('warn', 'repo_map_timeout', {
+          duration_ms: Date.now() - startTime,
+        })
+        return null
+      }
       logForDiagnosticsNoPII('info', 'repo_map_completed', {
         duration_ms: Date.now() - startTime,
         token_count: result.tokenCount,
@@ -152,15 +164,16 @@ export const getSystemContext = memoize(
     const startTime = Date.now()
     logForDiagnosticsNoPII('info', 'system_context_started')
 
-    // Skip git status in CCR (unnecessary overhead on resume) or when git instructions are disabled
-    const gitStatus =
+    const gitStatusPromise =
       isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
       !shouldIncludeGitInstructions()
-        ? null
-        : await getGitStatus()
+        ? Promise.resolve(null)
+        : getGitStatus()
 
-    // Build repo map in parallel with other context (memoized, so cheap on repeat)
-    const repoMap = await getRepoMapContext()
+    const [gitStatus, repoMap] = await Promise.all([
+      gitStatusPromise,
+      getRepoMapContext(),
+    ])
 
     // Include system prompt injection if set (for cache breaking, internal-only)
     const injection = feature('BREAK_CACHE_COMMAND')

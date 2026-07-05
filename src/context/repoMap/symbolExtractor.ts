@@ -4,6 +4,44 @@ import { getLanguageForFile } from './gitFiles.js'
 import { createParser, loadLanguage, loadQuery } from './parser.js'
 import type { FileTags, Tag } from './types.js'
 
+type TreeSitterQuery = {
+  matches(rootNode: unknown): Array<{
+    pattern: number
+    captures: Array<{
+      name: string
+      node: {
+        text: string
+        startPosition: { row: number; column: number }
+        endPosition: { row: number; column: number }
+      }
+    }>
+  }>
+  delete?: () => void
+}
+
+type TreeSitterTree = {
+  rootNode: unknown
+  delete?: () => void
+}
+
+const queryCache = new Map<string, TreeSitterQuery>()
+
+async function getQuery(language: NonNullable<ReturnType<typeof getLanguageForFile>>) {
+  const cached = queryCache.get(language)
+  if (cached) return cached
+
+  const querySource = loadQuery(language)
+  if (!querySource) return null
+
+  const lang = await loadLanguage(language)
+  if (!lang) return null
+
+  const { Query } = await import('web-tree-sitter')
+  const query = new Query(lang, querySource) as TreeSitterQuery
+  queryCache.set(language, query)
+  return query
+}
+
 /**
  * Extract definition and reference tags from a single source file.
  * Returns null if the file can't be parsed (unsupported language, parse error, etc).
@@ -28,38 +66,12 @@ export async function extractTags(
   const parser = await createParser(language)
   if (!parser) return null
 
-  const querySource = loadQuery(language)
-  if (!querySource) {
-    parser.delete()
-    return null
-  }
+  let tree: TreeSitterTree | null = null
 
   try {
-    const tree = parser.parse(source) as {
-      rootNode: unknown
-    }
-
-    const lang = await loadLanguage(language)
-    if (!lang) {
-      parser.delete()
-      return null
-    }
-
-    // Use the non-deprecated Query constructor
-    const { Query } = await import('web-tree-sitter')
-    const query = new Query(lang, querySource) as {
-      matches(rootNode: unknown): Array<{
-        pattern: number
-        captures: Array<{
-          name: string
-          node: {
-            text: string
-            startPosition: { row: number; column: number }
-            endPosition: { row: number; column: number }
-          }
-        }>
-      }>
-    }
+    tree = parser.parse(source) as TreeSitterTree
+    const query = await getQuery(language)
+    if (!query) return null
 
     const matches = query.matches(tree.rootNode)
     const tags: Tag[] = []
@@ -99,10 +111,11 @@ export async function extractTags(
       }
     }
 
-    parser.delete()
     return { path: filePath, tags }
   } catch {
-    parser.delete()
     return null
+  } finally {
+    tree?.delete?.()
+    parser.delete()
   }
 }
