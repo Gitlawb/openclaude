@@ -92,45 +92,44 @@ async function readSourceText(source: string): Promise<string> {
     const { signal, cleanup } = createCombinedAbortSignal(undefined, {
       timeoutMs: REMOTE_SOURCE_TIMEOUT_MS,
     })
-    let response: Response
     try {
-      response = await fetch(url, { signal })
+      const response = await fetch(url, { signal })
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${source}: HTTP ${response.status}`)
+      }
+
+      const contentLength = response.headers.get('content-length')
+      if (
+        contentLength &&
+        Number.parseInt(contentLength, 10) > MAX_REMOTE_SOURCE_BYTES
+      ) {
+        throw new Error(`Remote source ${source} is too large to install.`)
+      }
+
+      if (!response.body) {
+        return ''
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let bytesRead = 0
+      let text = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        bytesRead += value.byteLength
+        if (bytesRead > MAX_REMOTE_SOURCE_BYTES) {
+          await reader.cancel()
+          throw new Error(`Remote source ${source} is too large to install.`)
+        }
+        text += decoder.decode(value, { stream: true })
+      }
+
+      return text + decoder.decode()
     } finally {
       cleanup()
     }
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${source}: HTTP ${response.status}`)
-    }
-
-    const contentLength = response.headers.get('content-length')
-    if (
-      contentLength &&
-      Number.parseInt(contentLength, 10) > MAX_REMOTE_SOURCE_BYTES
-    ) {
-      throw new Error(`Remote source ${source} is too large to install.`)
-    }
-
-    if (!response.body) {
-      return ''
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let bytesRead = 0
-    let text = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      bytesRead += value.byteLength
-      if (bytesRead > MAX_REMOTE_SOURCE_BYTES) {
-        await reader.cancel()
-        throw new Error(`Remote source ${source} is too large to install.`)
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-
-    return text + decoder.decode()
   }
 
   return readFile(resolve(source), 'utf8')

@@ -325,9 +325,12 @@ globalLoaderTest('dynamic discovery checks .openclaude skill directories', async
 
     assert.deepEqual(dirs, [join(featureDir, '.openclaude', 'skills')])
   } finally {
-    setFsImplementation(originalFs)
-    clearDynamicSkills()
-    rmSync(rootDir, { recursive: true, force: true })
-    releaseSharedMutationLock()
+    try {
+      setFsImplementation(originalFs)
+      clearDynamicSkills()
+      rmSync(rootDir, { recursive: true, force: true })
+    } finally {
+      releaseSharedMutationLock()
+    }
   }
 })
