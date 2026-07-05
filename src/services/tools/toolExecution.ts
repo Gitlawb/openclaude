@@ -67,6 +67,7 @@ import {
   shouldCreateUserInterruptionMessage,
 } from '../../utils/abortReasons.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { checkDoomLoop } from '../../utils/doomLoop.js'
 import {
   AbortError,
   errorMessage,
@@ -474,6 +475,30 @@ export async function* runToolUse(
           },
         ],
         toolUseResult: `Error: No such tool available: ${toolName}`,
+        sourceToolAssistantUUID: assistantMessage.uuid,
+      }),
+    }
+    return
+  }
+
+  // Doom loop detection: block after N consecutive identical tool calls.
+  // Keyed by agent so concurrent subagents don't pollute each other's counters.
+  const doomLoop = checkDoomLoop(toolName, toolUse.input, {
+    agentKey: toolUseContext.agentId,
+  })
+  if (doomLoop.blocked) {
+    logForDebugging(`Doom loop detected for ${toolName} (${doomLoop.count} consecutive identical calls)`)
+    yield {
+      message: createUserMessage({
+        content: [
+          {
+            type: 'tool_result',
+            content: `<tool_use_error>Blocked: This tool has been called ${doomLoop.count} times in a row with identical input. You are likely in a loop. Please try a different approach or ask the user for help.</tool_use_error>`,
+            is_error: true,
+            tool_use_id: toolUse.id,
+          },
+        ],
+        toolUseResult: `Blocked: doom loop detected for ${toolName} after ${doomLoop.count} identical calls`,
         sourceToolAssistantUUID: assistantMessage.uuid,
       }),
     }

@@ -1346,6 +1346,32 @@ async function* queryModel(
 
   queryCheckpoint('query_tool_schema_build_end')
 
+  // Compress old tool outputs for Anthropic-native transports, but only when
+  // prompt caching is inactive. Rewriting old messages as they cross tier
+  // boundaries diverges the request prefix on every call, which breaks the
+  // prompt cache and costs more than the compression saves — cached native
+  // sessions rely on microCompact (cache-aware) instead. Shim-routed traffic
+  // (OpenAI-compatible env providers, per-agent providerOverride, Codex)
+  // compresses at its own layer, where the local fast-path opt-out applies.
+  // compressToolHistory is generic over AnyMessage — cast to satisfy the type
+  // checker since OpenClaude's Message union is a superset of what the
+  // function actually inspects.
+  const apiProvider = getAPIProvider()
+  const isAnthropicNativeTransport =
+    (apiProvider === 'firstParty' ||
+      apiProvider === 'bedrock' ||
+      apiProvider === 'vertex' ||
+      isGithubNativeAnthropicMode(options.model)) &&
+    !options.providerOverride
+  if (isAnthropicNativeTransport && !getPromptCachingEnabled(options.model)) {
+    const { compressToolHistory } = await import('./compressToolHistory.js')
+    messages = compressToolHistory(
+      messages as unknown as Parameters<typeof compressToolHistory>[0],
+      options.model,
+      { effectiveContextWindowSize: getContextWindowForModel(options.model, getSdkBetas()) },
+    ) as typeof messages
+  }
+
   // Normalize messages before building system prompt (needed for fingerprinting)
   // Instrumentation: Track message count before normalization
   logEvent('tengu_api_before_normalize', {

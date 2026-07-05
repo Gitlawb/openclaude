@@ -537,6 +537,12 @@ async function* queryLoop(
   | ToolUseSummaryMessage,
   Terminal
 > {
+  // Reset this agent's doom loop detection at the start of each query turn.
+  // Keyed by agentId so a subagent starting mid-turn doesn't wipe the main
+  // thread's counter (or a sibling agent's).
+  const { resetDoomLoop } = await import('./utils/doomLoop.js')
+  resetDoomLoop(params.toolUseContext.agentId)
+
   // Start a new turn for multi-turn context tracking
   if (
     feature('MULTI_TURN_CONTEXT') &&

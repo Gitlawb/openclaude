@@ -312,6 +312,27 @@ export function Config({
       });
     }
   }, {
+    id: 'compactTailTurns',
+    label: 'Compaction: recent messages kept',
+    value: String(globalConfig.compactTailTurns ?? 3),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set(['2', '3', '5', '8', String(globalConfig.compactTailTurns ?? 3)])],
+    type: 'enum' as const,
+    onChange(compactTailTurnsValue: string) {
+      const compactTailTurns = Number(compactTailTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        compactTailTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        compactTailTurns
+      });
+      logEvent('tengu_compact_tail_turns_changed', {
+        value: compactTailTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
     id: 'toolHistoryCompressionEnabled',
     label: 'Tool history compression',
     value: globalConfig.toolHistoryCompressionEnabled,
@@ -1244,6 +1265,9 @@ export function Config({
     if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
       const threshold = normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold);
       formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
+    }
+    if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
+      formattedChanges.push(`Set compaction recent messages kept to ${globalConfig.compactTailTurns ?? 3}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

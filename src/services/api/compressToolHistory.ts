@@ -16,9 +16,11 @@
  *
  * Reuses isCompactableTool from microCompact to avoid touching tools the
  * project already classifies as unsafe to compress (e.g. Task, Agent).
- * Skips blocks already cleared by microCompact (TOOL_RESULT_CLEARED_MESSAGE).
- *
- * Anthropic native bypasses both shims, so it is unaffected by this module.
+ * Skips blocks already cleared by microCompact (TOOL_RESULT_CLEARED_MESSAGE)
+ * and blocks this module already compressed (stub / truncation markers), so
+ * a second pass over the same messages is a no-op. That idempotence matters
+ * because claude.ts also calls this for Anthropic-native transports when
+ * prompt caching is inactive — layered call sites must not re-mangle output.
  */
 import { getEffectiveContextWindowSize } from '../compact/autoCompact.js'
 import { isCompactableTool } from '../compact/microCompact.js'
@@ -326,11 +328,24 @@ function isAlreadyCleared(block: ToolResultBlock): boolean {
   return text === TOOL_RESULT_CLEARED_MESSAGE
 }
 
+// Output of buildStub / truncateBlock from a previous pass. Re-stubbing a stub
+// replaces `→ 45000 chars omitted` with a misleading `→ 58 chars omitted`, and
+// re-truncating chops off the load-bearing truncation marker — so both are
+// skipped to keep compression idempotent across layered call sites.
+const STUB_MARKER_RE = /^\[[^\n]* args=[^\n]* → \d+ chars omitted\]$/
+const TRUNCATION_MARKER_RE = /\n\[…truncated \d+ chars from tool history\]$/
+
+function isAlreadyCompressed(block: ToolResultBlock): boolean {
+  const text = extractText(block.content)
+  return STUB_MARKER_RE.test(text) || TRUNCATION_MARKER_RE.test(text)
+}
+
 function shouldCompressBlock(
   block: ToolResultBlock,
   toolUsesById: Map<string, ToolUseBlock>,
 ): boolean {
   if (isAlreadyCleared(block)) return false
+  if (isAlreadyCompressed(block)) return false
   const toolUse = toolUsesById.get(block.tool_use_id ?? '')
   // Unknown tool name (orphan tool_result with no matching tool_use) falls
   // through to compression with a generic "tool" stub. Safer default: the

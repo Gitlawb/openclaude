@@ -488,9 +488,15 @@ export async function autoCompactIfNeeded(
     const systemMessages = messages.filter(m => m.message?.role === 'system')
     const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
     
+    // Config may be hand-edited; anything that isn't a positive number
+    // falls back to the default rather than pruning the entire tail.
+    const configuredTailTurns = getGlobalConfig().compactTailTurns
     const pruned = pruneByRelevance(nonSystemMessages, {
       targetTokens: availableSpace,
-      preserveRecent: 3,
+      preserveRecent:
+        configuredTailTurns && configuredTailTurns > 0
+          ? Math.floor(configuredTailTurns)
+          : 3,
       preserveTools: true,
       preserveErrors: true,
     })

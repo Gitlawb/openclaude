@@ -848,3 +848,17 @@ test('extra block attributes (e.g. cache_control) preserved across rewrites', ()
   // The custom attribute survived the stub rewrite via ...block spread
   expect(block.cache_control).toEqual(cacheControl)
 })
+
+test('idempotent: a second pass over compressed output is a no-op', () => {
+  // 16 exchanges at 100k window → old + mid + recent tiers all populated.
+  const messages = buildConversation(16)
+  const once = compressToolHistoryForTest(messages)
+  const twice = compressToolHistoryForTest(once)
+
+  // Stubs must not be re-stubbed (would corrupt the omitted-chars count) and
+  // truncations must not lose their marker — layered call sites (claude.ts +
+  // shim) rely on this.
+  expect(JSON.parse(JSON.stringify(twice))).toEqual(
+    JSON.parse(JSON.stringify(once)),
+  )
+})
