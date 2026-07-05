@@ -368,6 +368,66 @@ test('default active-message hard cap forces compaction', async () => {
   expect(seenTracking[0]?.forceReason).toBe('message-count')
 })
 
+test('long-session smoke keeps repeated over-cap turns bounded before provider calls', async () => {
+  const seenProviderMessageCounts: number[] = []
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const callModel = mock(async function* (params: { messages: Message[] }) {
+    seenProviderMessageCounts.push(params.messages.length)
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(
+      async (
+        _messages: AutocompactArgs[0],
+        _toolUseContext: AutocompactArgs[1],
+        _params: AutocompactArgs[2],
+        _querySource: AutocompactArgs[3],
+        tracking: AutocompactArgs[4],
+      ) => {
+        seenTracking.push(tracking)
+        return tracking?.forceReason === 'message-count'
+          ? compactedResult()
+          : { wasCompacted: false }
+      },
+    ) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+  const { query } = await loadQuery()
+  let persistedTracking: AutoCompactTrackingState | undefined
+
+  for (let turn = 0; turn < 4; turn++) {
+    const result = await drain(
+      query({
+        messages: manySmallMessages(1001 + turn),
+        systemPrompt: asSystemPrompt([]),
+        userContext: {},
+        systemContext: {},
+        canUseTool,
+        toolUseContext: toolUseContext(),
+        querySource: 'repl_main_thread',
+        maxTurns: 1,
+        deps,
+        autoCompactTracking: persistedTracking,
+        onAutoCompactTrackingChange: tracking => {
+          persistedTracking = tracking
+        },
+      }),
+    )
+    expect(result.terminal.reason).toBe('max_turns')
+  }
+
+  expect(callModel).toHaveBeenCalledTimes(4)
+  expect(seenTracking).toHaveLength(4)
+  expect(
+    seenTracking.every(tracking => tracking?.forceReason === 'message-count'),
+  ).toBe(true)
+  expect(seenProviderMessageCounts.every(count => count <= 1000)).toBe(true)
+})
+
 test('invalid active-message hard cap override keeps default safety cap', async () => {
   process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '100O'
 

@@ -568,3 +568,18 @@ users should leave it at `off`.
 The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
 honored when the setting is `off`. `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`
 can override the safety cap; set it to `0` only for diagnostics.
+
+### Long-session memory guard validation
+
+For changes that touch auto-compact, provider request conversion, transcript
+retention, or in-process teammates, run the focused long-session guard checks:
+
+```bash
+bun test --feature=UNATTENDED_RETRY src/query/autoCompactCooldown.test.ts src/utils/maxActiveMessages.test.ts src/services/api/openaiShim.test.ts
+```
+
+These tests cover repeated over-cap turns, auto-compact cooldown blocking,
+teammate active-message compaction, malformed hard-cap overrides, and
+pruned-history tool-call/tool-result pairing. They are not a substitute for a
+multi-hour manual soak, but they pin the bounded-history and conversion
+invariants that previously let long sessions grow until Node/V8 OOM.
