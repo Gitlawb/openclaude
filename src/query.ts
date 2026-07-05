@@ -317,6 +317,45 @@ function formatAutoCompactRetryDelay(delayMs: number): string {
   return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`
 }
 
+function createAutoCompactDiagnosticMessage(args: {
+  consecutiveFailures?: number
+  nextRetryAtMs?: number
+  circuitBreakerActive?: boolean
+  circuitBreakerTripped?: boolean
+}): Message | undefined {
+  const {
+    consecutiveFailures,
+    nextRetryAtMs,
+    circuitBreakerActive,
+    circuitBreakerTripped,
+  } = args
+
+  if (circuitBreakerActive || circuitBreakerTripped) {
+    const retryDelayMs =
+      nextRetryAtMs !== undefined ? nextRetryAtMs - Date.now() : undefined
+    const retryText =
+      retryDelayMs !== undefined && retryDelayMs > 0
+        ? ` It will retry after ${formatAutoCompactRetryDelay(retryDelayMs)}.`
+        : ''
+    return createSystemMessage(
+      `Automatic compaction is paused after repeated failures.${retryText} OpenClaude will stop before sending oversized requests while the guard is active.`,
+      'warning',
+    )
+  }
+
+  if (
+    consecutiveFailures !== undefined &&
+    consecutiveFailures > 0
+  ) {
+    return createSystemMessage(
+      `Automatic compaction failed (${consecutiveFailures}/${MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES}); OpenClaude will retry compaction on the next eligible turn.`,
+      'warning',
+    )
+  }
+
+  return undefined
+}
+
 /**
  * Is this a max_output_tokens error message? If so, the streaming loop should
  * withhold it from SDK callers until we know whether the recovery loop can
@@ -888,6 +927,16 @@ async function* queryLoop(
       }
       tracking = nextTracking
       updateAutoCompactTracking(tracking)
+
+      const diagnosticMessage = createAutoCompactDiagnosticMessage({
+        consecutiveFailures,
+        nextRetryAtMs,
+        circuitBreakerActive,
+        circuitBreakerTripped,
+      })
+      if (diagnosticMessage) {
+        yield diagnosticMessage
+      }
     }
 
     //TODO: no need to set toolUseContext.messages during set-up since it is updated here

@@ -492,6 +492,51 @@ test('active-message hard cap blocks when forced compaction fails', async () => 
   expect(text).toContain('stopped before sending another oversized request')
 })
 
+test('auto-compact failure emits a visible warning before retrying later', async () => {
+  const messages = [overAutoCompactThresholdMessage()]
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+      consecutiveFailures: 1,
+      lastFailureAtMs: Date.now(),
+    })) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(terminal.reason).toBe('max_turns')
+  const warning = yielded.find(
+    message =>
+      message.type === 'system' &&
+      message.subtype === 'informational' &&
+      message.level === 'warning',
+  )
+  expect(warning?.content).toContain('Automatic compaction failed (1/3)')
+  expect(warning?.content).toContain('retry compaction')
+})
+
 test('explicit compact query source still runs microcompact when threshold is off', async () => {
   saveGlobalConfig(current => ({
     ...current,
@@ -559,6 +604,14 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
   const text = apiError!.message.content[0].text
   expect(text).toContain('automatic compaction is cooling down')
   expect(text).toContain('Retry after')
+  const warning = yielded.find(
+    message =>
+      message.type === 'system' &&
+      message.subtype === 'informational' &&
+      message.level === 'warning',
+  )
+  expect(warning?.content).toContain('Automatic compaction is paused')
+  expect(warning?.content).toContain('retry after')
 })
 
 test('active auto-compact cooldown blocks message-count overflow before model call', async () => {
