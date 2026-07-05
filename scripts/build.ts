@@ -8,7 +8,7 @@
  * - src/ path aliases
  */
 
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
@@ -46,6 +46,15 @@ const productionReactModules = new Map<string, string>([
   ],
   ['scheduler', join(schedulerPackageDir, 'cjs/scheduler.production.js')],
 ])
+
+for (const [specifier, resolvedPath] of productionReactModules) {
+  if (!existsSync(resolvedPath)) {
+    throw new Error(
+      `productionReactPlugin: expected production file for "${specifier}" not found at ${resolvedPath}. ` +
+        'The installed React package layout may have changed.',
+    )
+  }
+}
 
 const productionReactPlugin = {
   name: 'production-react-bundle',

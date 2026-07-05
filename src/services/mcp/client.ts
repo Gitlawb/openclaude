@@ -1031,11 +1031,7 @@ export const connectToServer = memoize(
         const stdioTransport = transport as StdioClientTransport
         if (stdioTransport.stderr) {
           stderrHandler = (data: Buffer) => {
-            try {
-              stderrOutput = appendBoundedMcpStderr(stderrOutput, data)
-            } catch {
-              // Ignore errors from exceeding max string length
-            }
+            stderrOutput = appendBoundedMcpStderr(stderrOutput, data)
           }
           stdioTransport.stderr.on('data', stderrHandler)
         }

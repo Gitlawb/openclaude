@@ -31,6 +31,43 @@ export type HeapDumpResult = {
 
 let manualHeapDumpCount = 0
 
+export function __resetManualHeapDumpCountForTesting(): void {
+  manualHeapDumpCount = 0
+}
+
+export function getEffectiveHeapDumpNumber(
+  trigger: 'manual' | 'auto-1.5GB',
+  dumpNumber = 0,
+): number {
+  if (dumpNumber > 0) {
+    return dumpNumber
+  }
+
+  if (trigger === 'manual') {
+    return ++manualHeapDumpCount
+  }
+
+  return dumpNumber
+}
+
+export function getHeapDumpAnalyticsMetadata(
+  trigger: 'manual' | 'auto-1.5GB',
+  effectiveDumpNumber: number,
+  success: boolean,
+): {
+  triggerManual: boolean
+  triggerAuto15GB: boolean
+  dumpNumber: number
+  success: boolean
+} {
+  return {
+    triggerManual: trigger === 'manual',
+    triggerAuto15GB: trigger === 'auto-1.5GB',
+    dumpNumber: effectiveDumpNumber,
+    success,
+  }
+}
+
 /**
  * Memory diagnostics captured alongside heap dump.
  * Helps identify if leak is in V8 heap (captured in snapshot) or native memory (not captured).
@@ -224,14 +261,10 @@ export async function performHeapDump(
   trigger: 'manual' | 'auto-1.5GB' = 'manual',
   dumpNumber = 0,
 ): Promise<HeapDumpResult> {
+  let effectiveDumpNumber = dumpNumber
   try {
     const sessionId = getSessionId()
-    const effectiveDumpNumber =
-      dumpNumber > 0
-        ? dumpNumber
-        : trigger === 'manual'
-          ? ++manualHeapDumpCount
-          : dumpNumber
+    effectiveDumpNumber = getEffectiveHeapDumpNumber(trigger, dumpNumber)
 
     // Capture diagnostics before any other async I/O —
     // the heap dump itself allocates memory and would skew the numbers.
@@ -268,23 +301,19 @@ export async function performHeapDump(
     await writeHeapSnapshot(heapPath)
     logForDebugging(`[HeapDump] Heap dump written to ${heapPath}`)
 
-    logEvent('tengu_heap_dump', {
-      triggerManual: trigger === 'manual',
-      triggerAuto15GB: trigger === 'auto-1.5GB',
-      dumpNumber: effectiveDumpNumber,
-      success: true,
-    })
+    logEvent(
+      'tengu_heap_dump',
+      getHeapDumpAnalyticsMetadata(trigger, effectiveDumpNumber, true),
+    )
 
     return { success: true, heapPath, diagPath }
   } catch (err) {
     const error = toError(err)
     logError(error)
-    logEvent('tengu_heap_dump', {
-      triggerManual: trigger === 'manual',
-      triggerAuto15GB: trigger === 'auto-1.5GB',
-      dumpNumber,
-      success: false,
-    })
+    logEvent(
+      'tengu_heap_dump',
+      getHeapDumpAnalyticsMetadata(trigger, effectiveDumpNumber, false),
+    )
     return { success: false, error: error.message }
   }
 }
