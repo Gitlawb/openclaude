@@ -438,6 +438,25 @@ export function initExtractMemories(): void {
         overrides: { abortController: extractionAbortController },
       })
 
+      if (extractionAbortController.signal.aborted) {
+        if (
+          isExpectedSideTaskAbortReason(extractionAbortController.signal.reason)
+        ) {
+          logForDebugging(
+            `[extractMemories] expected cancellation: ${extractionAbortController.signal.reason}`,
+          )
+          return
+        }
+
+        logForDebugging(
+          `[extractMemories] error: aborted after fork returned: ${extractionAbortController.signal.reason}`,
+        )
+        logEvent('tengu_extract_memories_error', {
+          duration_ms: Date.now() - startTime,
+        })
+        return
+      }
+
       // Advance the cursor only after a successful run. If the agent errors
       // out (caught below), the cursor stays put so those messages are
       // reconsidered on the next extraction.
