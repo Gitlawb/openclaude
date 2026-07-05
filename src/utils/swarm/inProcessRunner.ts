@@ -1246,6 +1246,16 @@ export async function runInProcessTeammate(
               break
             }
 
+            if (
+              message.type === 'system' &&
+              'subtype' in message &&
+              message.subtype === 'compact_boundary'
+            ) {
+              allMessages.length = 0
+              if (teammateReplacementState) {
+                teammateReplacementState = createContentReplacementState()
+              }
+            }
             iterationMessages.push(message)
             allMessages.push(message)
 

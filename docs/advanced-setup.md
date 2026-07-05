@@ -542,9 +542,9 @@ For `dev:atomic-chat`, make sure Atomic Chat is running with a model loaded befo
 
 ## Message-Count Compaction Threshold
 
-By default, OpenClaude compacts conversations based on token usage. A secondary
-message-count-based trigger (`OPENCLAUDE_MAX_ACTIVE_MESSAGES`) exists for
-diagnostics but is disabled by default.
+By default, OpenClaude compacts conversations based on token usage and also
+applies a safety hard cap of 1000 active messages. The hard cap catches long
+sessions that accumulate many small messages with negligible token cost.
 
 If you frequently resume long sessions that accumulate hundreds of small
 tool-result messages with negligible token cost, you can opt in to message-count
@@ -555,10 +555,11 @@ compaction via the in-app `/config` command:
 ```
 
 Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
-or `1000`). Setting it to `off` (default) disables the message-count trigger.
+or `1000`). Setting it to `off` (default) leaves only the built-in hard cap.
 
 This setting is intended for power users debugging specific edge cases. Most
 users should leave it at `off`.
 
 The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
-honored when the setting is `off`.
+honored when the setting is `off`. `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`
+can override the safety cap; set it to `0` only for diagnostics.

@@ -313,6 +313,44 @@ function formatAutoCompactRetryDelay(delayMs: number): string {
   return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`
 }
 
+const DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP = 1000
+
+function parseMaxActiveMessagesLimit(value: string | undefined): number {
+  if (!value) {
+    return 0
+  }
+  const trimmed = value.trim()
+  if (!/^(0|[1-9]\d*)$/.test(trimmed)) {
+    return 0
+  }
+  const parsed = Number.parseInt(trimmed, 10)
+  return Number.isSafeInteger(parsed) ? parsed : 0
+}
+
+function getMaxActiveMessagesHardCap(): number {
+  const hardCapOverride =
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+  if (hardCapOverride !== undefined) {
+    return parseMaxActiveMessagesLimit(hardCapOverride)
+  }
+  return DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
+}
+
+function resolveMaxActiveMessagesLimit(
+  configSetting: string,
+  envSetting: string | undefined,
+): number {
+  const configuredLimit =
+    configSetting !== 'off'
+      ? parseMaxActiveMessagesLimit(configSetting)
+      : parseMaxActiveMessagesLimit(envSetting)
+  const hardCap = getMaxActiveMessagesHardCap()
+  if (configuredLimit > 0 && hardCap > 0) {
+    return Math.min(configuredLimit, hardCap)
+  }
+  return configuredLimit > 0 ? configuredLimit : hardCap
+}
+
 /**
  * Is this a max_output_tokens error message? If so, the streaming loop should
  * withhold it from SDK callers until we know whether the recovery loop can
@@ -326,6 +364,12 @@ function isWithheldMaxOutputTokens(
   msg: Message | StreamEvent | undefined,
 ): msg is AssistantMessage {
   return msg?.type === 'assistant' && msg.apiError === 'max_output_tokens'
+}
+
+function isWithheldContextOverflow(
+  msg: Message | StreamEvent | undefined,
+): msg is AssistantMessage {
+  return msg?.type === 'assistant' && msg.apiError === 'context_overflow'
 }
 
 function isWithheldProviderMaxTokensCap(
@@ -371,6 +415,7 @@ type State = {
   autoCompactTracking: AutoCompactTrackingState | undefined
   maxOutputTokensRecoveryCount: number
   hasAttemptedReactiveCompact: boolean
+  hasAttemptedContextOverflowRecovery: boolean
   maxOutputTokensOverride: number | undefined
   providerMaxOutputTokensCap: number | undefined
   pendingToolUseSummary: Promise<ToolUseSummaryMessage | null> | undefined
@@ -458,6 +503,7 @@ async function* queryLoop(
     stopHookActive: undefined,
     maxOutputTokensRecoveryCount: 0,
     hasAttemptedReactiveCompact: false,
+    hasAttemptedContextOverflowRecovery: false,
     hasAttemptedProviderFallback: false,
     turnCount: 1,
     continuationNudgeCount: 0,
@@ -509,6 +555,7 @@ async function* queryLoop(
       autoCompactTracking,
       maxOutputTokensRecoveryCount,
       hasAttemptedReactiveCompact,
+      hasAttemptedContextOverflowRecovery,
       hasAttemptedProviderFallback,
       maxOutputTokensOverride,
       providerMaxOutputTokensCap,
@@ -708,16 +755,17 @@ async function* queryLoop(
     // compaction and forcing would deadlock via recursive autocompaction.
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
+    const activeMessageLimit = canForceCompact
+      ? resolveMaxActiveMessagesLimit(
+          maxMessagesCompactionThreshold,
+          process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+        )
+      : 0
     if (canForceCompact) {
-      const configSetting = maxMessagesCompactionThreshold
-      const envSetting = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
-      const maxActiveMessages = configSetting !== 'off'
-        ? Number.parseInt(configSetting, 10)
-        : envSetting
-          ? Number.parseInt(envSetting, 10)
-          : 0
-
-      if (maxActiveMessages > 0 && messagesForQuery.length > maxActiveMessages) {
+      if (
+        activeMessageLimit > 0 &&
+        messagesForQuery.length > activeMessageLimit
+      ) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
           forceReason: 'message-count',
@@ -961,10 +1009,23 @@ async function* queryLoop(
       }
     }
 
+    if (
+      state.transition?.reason === 'context_overflow_compact_retry' &&
+      !compactionResult
+    ) {
+      yield createAssistantAPIErrorMessage({
+        content:
+          'The provider reported a context-window overflow, but automatic compaction could not reduce the conversation before retry. Run /compact, undo recent large output, or start a new session with /new.',
+        apiError: 'context_overflow',
+        error: 'invalid_request',
+      })
+      return { reason: 'blocking_limit' }
+    }
+
     // Safety net: when auto-compact's circuit breaker has tripped, the normal
     // blocking check above may be gated on reactiveCompact. If compaction is
-    // cooling down or otherwise exhausted and context is still over the
-    // autocompact threshold, block immediately with a clear message instead
+    // cooling down or otherwise exhausted and context or message count is still
+    // over the safety threshold, block immediately with a clear message instead
     // of burning an oversized API call.
     if (
       tracking?.consecutiveFailures !== undefined &&
@@ -983,7 +1044,8 @@ async function* queryLoop(
       const isAboveBreakerThreshold =
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
-          tokenUsage >= getAutoCompactThreshold(model))
+          tokenUsage >= getAutoCompactThreshold(model)) ||
+        (activeMessageLimit > 0 && messagesForQuery.length > activeMessageLimit)
       if (isAboveBreakerThreshold) {
         const nowMs = Date.now()
         const retryDelayMs =
@@ -992,10 +1054,10 @@ async function* queryLoop(
             : undefined
         const content =
           retryDelayMs !== undefined && retryDelayMs > 0
-            ? 'The conversation is over the auto-compact threshold, but automatic compaction is cooling down after repeated failures. ' +
+            ? 'The conversation is over the auto-compact safety threshold, but automatic compaction is cooling down after repeated failures. ' +
               'OpenClaude stopped before sending another oversized request. ' +
               `Retry after ${formatAutoCompactRetryDelay(retryDelayMs)}, run /compact, or start a new session with /new.`
-            : 'The conversation is over the auto-compact threshold and automatic compaction has failed repeatedly. ' +
+            : 'The conversation is over the auto-compact safety threshold and automatic compaction has failed repeatedly. ' +
               'OpenClaude stopped before sending another oversized request. Run /compact, undo recent large tool output, or start a new session with /new.'
         yield createAssistantAPIErrorMessage({
           content,
@@ -1184,6 +1246,14 @@ async function* queryLoop(
               withheld = true
             }
             if (isWithheldMaxOutputTokens(message)) {
+              withheld = true
+            }
+            if (
+              !hasAttemptedContextOverflowRecovery &&
+              querySource !== 'compact' &&
+              querySource !== 'session_memory' &&
+              isWithheldContextOverflow(message)
+            ) {
               withheld = true
             }
             if (isWithheldProviderMaxTokensCap(message)) {
@@ -1491,6 +1561,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount,
               hasAttemptedReactiveCompact,
+              hasAttemptedContextOverflowRecovery,
               hasAttemptedProviderFallback,
               maxOutputTokensOverride: undefined,
               providerMaxOutputTokensCap,
@@ -1549,6 +1620,7 @@ async function* queryLoop(
             autoCompactTracking: undefined,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact: true,
+            hasAttemptedContextOverflowRecovery,
             hasAttemptedProviderFallback,
             maxOutputTokensOverride: undefined,
             providerMaxOutputTokensCap,
@@ -1578,6 +1650,41 @@ async function* queryLoop(
         yield lastMessage
         void executeStopFailureHooks(lastMessage, toolUseContext)
         return { reason: 'prompt_too_long' }
+      }
+
+      if (
+        !hasAttemptedContextOverflowRecovery &&
+        querySource !== 'compact' &&
+        querySource !== 'session_memory' &&
+        isWithheldContextOverflow(lastMessage)
+      ) {
+        yield createSystemMessage(
+          'Provider context limit reached; compacting conversation and retrying turn.',
+          'warning',
+        )
+        const nextTracking: AutoCompactTrackingState = {
+          ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
+          forceReason: 'memory-pressure',
+        }
+        const next: State = {
+          messages: messagesForQuery,
+          toolUseContext,
+          autoCompactTracking: nextTracking,
+          maxOutputTokensRecoveryCount,
+          hasAttemptedReactiveCompact,
+          hasAttemptedContextOverflowRecovery: true,
+          hasAttemptedProviderFallback,
+          maxOutputTokensOverride: undefined,
+          providerMaxOutputTokensCap,
+          pendingToolUseSummary: undefined,
+          stopHookActive: undefined,
+          turnCount,
+          continuationNudgeCount: state.continuationNudgeCount,
+          agentStepLimit,
+          transition: { reason: 'context_overflow_compact_retry' },
+        }
+        state = next
+        continue
       }
 
       if (isWithheldProviderMaxTokensCap(lastMessage)) {
@@ -1611,6 +1718,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery,
             hasAttemptedProviderFallback,
             maxOutputTokensOverride,
             providerMaxOutputTokensCap: nextProviderMaxOutputTokensCap,
@@ -1659,6 +1767,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery,
             hasAttemptedProviderFallback,
             maxOutputTokensOverride: ESCALATED_MAX_TOKENS,
             providerMaxOutputTokensCap,
@@ -1691,6 +1800,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: maxOutputTokensRecoveryCount + 1,
             hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery,
             hasAttemptedProviderFallback,
             maxOutputTokensOverride: undefined,
             providerMaxOutputTokensCap,
@@ -1771,6 +1881,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount,
               hasAttemptedReactiveCompact,
+              hasAttemptedContextOverflowRecovery,
               hasAttemptedProviderFallback: true,
               maxOutputTokensOverride: undefined,
               providerMaxOutputTokensCap: undefined,
@@ -1835,6 +1946,7 @@ async function* queryLoop(
           // here caused an infinite loop: compact → still too long → error →
           // stop hook blocking → compact → … burning thousands of API calls.
           hasAttemptedReactiveCompact,
+          hasAttemptedContextOverflowRecovery,
           // Same logic for the provider-fallback guard — a stop-hook blocking
           // error after a fallback switch is unrelated to which provider is
           // active, so preserve rather than re-fall-back.
@@ -1878,6 +1990,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: 0,
             hasAttemptedReactiveCompact: false,
+            hasAttemptedContextOverflowRecovery: false,
             hasAttemptedProviderFallback: false,
             maxOutputTokensOverride: undefined,
             providerMaxOutputTokensCap,
@@ -1947,6 +2060,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount: 0,
               hasAttemptedReactiveCompact: false,
+              hasAttemptedContextOverflowRecovery: false,
               hasAttemptedProviderFallback: false,
               maxOutputTokensOverride: undefined,
               providerMaxOutputTokensCap,
@@ -2496,6 +2610,7 @@ async function* queryLoop(
       turnCount: nextTurnCount,
       maxOutputTokensRecoveryCount: 0,
       hasAttemptedReactiveCompact: false,
+      hasAttemptedContextOverflowRecovery: false,
       hasAttemptedProviderFallback: false,
       continuationNudgeCount: 0,
       pendingToolUseSummary: nextPendingToolUseSummary,

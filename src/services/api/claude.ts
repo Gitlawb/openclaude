@@ -2482,13 +2482,10 @@ async function* queryModel(
                 max_tokens: maxOutputTokens,
                 output_tokens: usage.output_tokens,
               })
-              // Reuse the max_output_tokens recovery path — from the model's
-              // perspective, both mean "response was cut off, continue from
-              // where you left off."
               yield createAssistantAPIErrorMessage({
                 content: `${API_ERROR_MESSAGE_PREFIX}: The model has reached its context window limit.`,
-                apiError: 'max_output_tokens',
-                error: 'max_output_tokens',
+                apiError: 'context_overflow',
+                error: 'invalid_request',
               })
             }
             break

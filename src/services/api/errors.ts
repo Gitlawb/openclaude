@@ -131,7 +131,9 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
     case 'context_overflow':
       return createAssistantAPIErrorMessage({
         content: `The conversation exceeded the provider context limit. ${compactHint}`,
+        apiError: 'context_overflow',
         error: 'invalid_request',
+        errorDetails: stripOpenAICompatibilityMetadata(options.rawMessage),
       })
 
     case 'tool_call_incompatible':
@@ -1206,6 +1208,7 @@ export function getAssistantMessageFromError(
       : ' Press esc twice to go up a few messages, or run /compact to reduce context.'
     return createAssistantAPIErrorMessage({
       content: `The conversation has grown too large for the API to process.${rewindInstruction} Alternatively, start a new session with /new.`,
+      apiError: 'context_overflow',
       error: 'invalid_request',
       errorDetails: `Context overflow (500): ${error.message}`,
     })
