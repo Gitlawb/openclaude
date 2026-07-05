@@ -39,6 +39,12 @@ type CheckResult = {
   detail?: string
 }
 
+type MemoryGuardConfigInput = {
+  autoCompactEnabled: boolean
+  maxMessagesCompactionThreshold?: string
+  env?: NodeJS.ProcessEnv
+}
+
 type NodeExecutableVersionProbe =
   | {
     ok: true
@@ -66,6 +72,76 @@ function isTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
   return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+}
+
+function parsePositiveInteger(value: string | undefined): number {
+  if (!value) return 0
+  const trimmed = value.trim()
+  if (!/^[1-9]\d*$/.test(trimmed)) return 0
+  const parsed = Number.parseInt(trimmed, 10)
+  return Number.isSafeInteger(parsed) ? parsed : 0
+}
+
+export function buildMemoryGuardChecks(
+  input: MemoryGuardConfigInput,
+): CheckResult[] {
+  const env = input.env ?? process.env
+  const results: CheckResult[] = []
+  const disableCompact = isTruthy(env.DISABLE_COMPACT)
+  const disableAutoCompact = isTruthy(env.DISABLE_AUTO_COMPACT)
+  const autoCompactAvailable =
+    input.autoCompactEnabled && !disableCompact && !disableAutoCompact
+  const hardCapRaw = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+  const hardCap = hardCapRaw === undefined
+    ? 1000
+    : hardCapRaw.trim() === '0'
+      ? 0
+      : parsePositiveInteger(hardCapRaw) || 1000
+  const configuredLimit =
+    input.maxMessagesCompactionThreshold &&
+    input.maxMessagesCompactionThreshold !== 'off'
+      ? input.maxMessagesCompactionThreshold
+      : undefined
+  const legacyLimit = parsePositiveInteger(env.OPENCLAUDE_MAX_ACTIVE_MESSAGES)
+  const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
+
+  results.push(
+    autoCompactAvailable
+      ? pass(
+          'Auto-compact guard',
+          `Enabled; message-count threshold ${configuredLimit ?? (legacyLimit > 0 ? legacyLimit : 'off')}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
+        )
+      : fail(
+          'Auto-compact guard',
+          [
+            input.autoCompactEnabled ? undefined : 'settings disabled',
+            disableCompact ? 'DISABLE_COMPACT is set' : undefined,
+            disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
+          ].filter(Boolean).join('; ') ||
+            'Disabled by configuration.',
+        ),
+  )
+
+  results.push(
+    hardCap === 0
+      ? fail(
+          'Active-message hard cap',
+          'Disabled by OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0; long sessions can grow without the active-message safety cap.',
+        )
+      : pass(
+          'Active-message hard cap',
+          `Active at ${hardCap} messages; malformed overrides fall back to 1000.`,
+        ),
+  )
+
+  results.push(
+    pass(
+      'Memory pressure guard',
+      `Per-session budget ${memoryBudget}MB; elevated/critical compaction thresholds are derived from this budget at runtime.`,
+    ),
+  )
+
+  return results
 }
 
 function parseOptions(argv: string[]): CliOptions {
@@ -895,8 +971,8 @@ async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2))
   const results: CheckResult[] = []
 
-  const { enableConfigs } = await import('../src/utils/config.js')
-  enableConfigs()
+  const configModule = await import('../src/utils/config.js')
+  configModule.enableConfigs()
   const { applySafeConfigEnvironmentVariables } = await import('../src/utils/managedEnv.js')
   applySafeConfigEnvironmentVariables()
   const { hydrateGithubModelsTokenFromSecureStorage } = await import('../src/utils/githubModelsCredentials.js')
@@ -906,6 +982,14 @@ async function main(): Promise<void> {
   results.push(checkBunRuntime())
   results.push(checkBuildArtifacts())
   results.push(checkSandboxRuntime())
+  const globalConfig = configModule.getGlobalConfig()
+  results.push(
+    ...buildMemoryGuardChecks({
+      autoCompactEnabled: globalConfig.autoCompactEnabled,
+      maxMessagesCompactionThreshold:
+        globalConfig.maxMessagesCompactionThreshold,
+    }),
+  )
   results.push(...checkOpenAIEnv())
   results.push(await checkBaseUrlReachability())
   results.push(await checkProviderGenerationReadiness())

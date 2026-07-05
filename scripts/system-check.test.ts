@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import {
+  buildMemoryGuardChecks,
   buildSandboxRuntimeCheck,
   checkOpenAIEnv,
   checkNodeVersion,
@@ -31,6 +32,11 @@ const ENV_KEYS = [
   'CODEX_API_KEY',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'DISABLE_COMPACT',
+  'DISABLE_AUTO_COMPACT',
+  'OPENCLAUDE_MAX_ACTIVE_MESSAGES',
+  'OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP',
+  'OPENCLAUDE_MAX_MEMORY_MB',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -255,6 +261,71 @@ describe('system-check provider diagnostics', () => {
       ok: false,
       label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
       detail: 'Placeholder value detected: SUA_CHAVE.',
+    })
+  })
+})
+
+describe('system-check memory guard diagnostics', () => {
+  test('reports safe default auto-compact and hard-cap guards', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: undefined,
+      env: {},
+    })
+
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Auto-compact guard',
+      detail: 'Enabled; message-count threshold off; hard cap 1000.',
+    })
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Active-message hard cap',
+      detail: 'Active at 1000 messages; malformed overrides fall back to 1000.',
+    })
+    expect(results.find(result => result.label === 'Memory pressure guard'))
+      .toMatchObject({ ok: true })
+  })
+
+  test('fails when auto-compact is disabled by settings or env flags', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: false,
+      maxMessagesCompactionThreshold: '500',
+      env: {
+        DISABLE_COMPACT: '1',
+        DISABLE_AUTO_COMPACT: 'true',
+      },
+    })
+
+    expect(results[0]).toEqual({
+      ok: false,
+      label: 'Auto-compact guard',
+      detail:
+        'settings disabled; DISABLE_COMPACT is set; DISABLE_AUTO_COMPACT is set',
+    })
+  })
+
+  test('fails when active-message hard cap is explicitly disabled', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: '100',
+      env: {
+        OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP: '0',
+        OPENCLAUDE_MAX_MEMORY_MB: '4096',
+      },
+    })
+
+    expect(results).toContainEqual({
+      ok: false,
+      label: 'Active-message hard cap',
+      detail:
+        'Disabled by OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0; long sessions can grow without the active-message safety cap.',
+    })
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Memory pressure guard',
+      detail:
+        'Per-session budget 4096MB; elevated/critical compaction thresholds are derived from this budget at runtime.',
     })
   })
 })
