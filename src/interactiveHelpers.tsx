@@ -114,8 +114,12 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   const config = getGlobalConfig();
   let onboardingShown = false;
 
-  // Skip onboarding dialog for third-party providers (no Anthropic account needed)
-  if (usesAnthropicSetup && (!config.theme || !config.hasCompletedOnboarding) // always show onboarding at least once
+  // Onboarding runs for ALL providers: theme + security notes are universal,
+  // and the component itself drops the preflight/OAuth steps when Anthropic
+  // auth is not enabled (see oauthEnabled in Onboarding.tsx). Gating this on
+  // the Anthropic account flow left third-party users with no theme choice
+  // and, worse, no prompt-injection/safety notes.
+  if ((!config.theme || !config.hasCompletedOnboarding) // always show onboarding at least once
   ) {
     onboardingShown = true;
     const {
@@ -136,9 +140,11 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // Note: non-interactive sessions (CI/CD with -p) never reach showSetupScreens at all.
   // Skip permission checks in claubbit
   if (!isEnvTruthy(process.env.CLAUBBIT)) {
-    // Skip trust dialog UI for third-party providers (no Anthropic auth), but still
-    // run trust state initialization below so the REPL mounts correctly.
-    if (usesAnthropicSetup && !checkHasTrustDialogAccepted()) {
+    // The trust dialog is the workspace trust boundary — it has nothing to do
+    // with which API provider is configured, so it runs for third-party
+    // providers too (an untrusted repo is exactly as dangerous over Ollama as
+    // over Anthropic).
+    if (!checkHasTrustDialogAccepted()) {
       const {
         TrustDialog
       } = await import('./components/TrustDialog/TrustDialog.js');

@@ -695,3 +695,31 @@ describe('Dev-channels dialog coverage', () => {
     )
   })
 })
+
+// ---------------------------------------------------------------------------
+// Fix: onboarding + trust dialog skipped entirely for third-party providers
+// ---------------------------------------------------------------------------
+describe('Onboarding and trust dialog — third-party providers', () => {
+  test('the onboarding dialog is NOT gated behind usesAnthropicSetup', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // Theme choice and the security notes are universal; Onboarding.tsx drops
+    // the OAuth/preflight steps itself when Anthropic auth is not enabled.
+    // Gating the whole dialog on the Anthropic account flow left third-party
+    // users with no safety notes at all.
+    expect(content).not.toMatch(
+      /usesAnthropicSetup\s*&&\s*\(\s*!config\.theme/,
+    )
+  })
+
+  test('the trust dialog is NOT gated behind usesAnthropicSetup', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // Workspace trust is orthogonal to the API provider: an untrusted repo is
+    // exactly as dangerous over a local model as over Anthropic.
+    expect(content).not.toMatch(
+      /usesAnthropicSetup\s*&&\s*!checkHasTrustDialogAccepted/,
+    )
+    expect(content).toContain('if (!checkHasTrustDialogAccepted())')
+  })
+})

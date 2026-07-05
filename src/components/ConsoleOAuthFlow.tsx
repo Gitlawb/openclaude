@@ -11,6 +11,8 @@ import { sendNotification } from '../services/notifier.js';
 import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
+import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js';
+import { addProviderProfile } from '../utils/providerProfiles.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { ProviderManager } from './ProviderManager.js';
 import { Select } from './CustomSelect/select.js';
@@ -386,7 +388,33 @@ function OAuthStatusMessage({
         startingMessage ||
         'OpenClaude can be used with your Claude subscription or billed based on API usage through your Console account.'
 
+      // OPENAI_BASE_URL/OPENAI_MODEL in the environment signal an
+      // OpenAI-compatible setup the user already has — offer to adopt it as
+      // the active provider profile instead of walking them through login for
+      // an account they may never have wanted. Env vars alone do NOT activate
+      // the route (resolveActiveRouteIdFromEnv requires CLAUDE_CODE_USE_OPENAI
+      // or a saved profile), so selecting this saves + activates a profile.
+      // Both fields gate the option because a profile requires baseUrl+model.
+      const envBaseUrl =
+        process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+      const envModel = process.env.OPENAI_MODEL
+      const envConfigAvailable = Boolean(envBaseUrl && envModel)
+
       const loginOptions = [
+        ...(envConfigAvailable
+          ? [
+              {
+                label: (
+                  <Text>
+                    Use current environment configuration ·{' '}
+                    <Text dimColor>OPENAI_BASE_URL={envBaseUrl}</Text>
+                    {'\n'}
+                  </Text>
+                ),
+                value: 'environment' as const,
+              },
+            ]
+          : []),
         {
           label: (
             <Text>
@@ -427,6 +455,29 @@ function OAuthStatusMessage({
             <Select
               options={loginOptions}
               onChange={value => {
+                if (value === 'environment') {
+                  const saved = addProviderProfile(
+                    {
+                      name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
+                      baseUrl: envBaseUrl as string,
+                      model: envModel as string,
+                      apiKey: process.env.OPENAI_API_KEY,
+                    },
+                    { makeActive: true },
+                  )
+                  if (!saved) {
+                    // Env values failed profile validation — fall back to the
+                    // guided provider setup with fields prefilled from env.
+                    setOAuthStatus({ state: 'platform_setup' })
+                    return
+                  }
+                  logEvent('tengu_oauth_env_config_selected', {})
+                  setOAuthStatus({
+                    state: 'platform_setup_complete',
+                    message: `Saved ${saved.name} (${envBaseUrl}) as your active provider.`,
+                  })
+                  return
+                }
                 if (value === 'platform') {
                   logEvent('tengu_oauth_platform_selected', {})
                   setOAuthStatus({ state: 'platform_setup' })
