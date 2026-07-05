@@ -14,7 +14,9 @@ import { join } from 'node:path'
 import { test } from 'bun:test'
 
 import {
+  getAdditionalDirectoriesForClaudeMd,
   getAllowedSettingSources,
+  setAdditionalDirectoriesForClaudeMd,
   setAllowedSettingSources,
 } from '../bootstrap/state.ts'
 import {
@@ -32,6 +34,7 @@ import {
   getFsImplementation,
   setFsImplementation,
 } from '../utils/fsOperations.ts'
+import { resetSettingsCache } from '../utils/settings/settingsCache.ts'
 import {
   clearDynamicSkills,
   clearSkillCaches,
@@ -82,8 +85,16 @@ function writeUserSkill(
   )
 }
 
-function enableUserAndProjectSettingSources(): SettingSource[] {
+function enableUserAndProjectSettingSources(): {
+  additionalDirectories: string[]
+  claudeCodeSimple: string | undefined
+  sources: SettingSource[]
+} {
   const originalSources = getAllowedSettingSources()
+  const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
+  const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_SIMPLE
+  setAdditionalDirectoriesForClaudeMd([])
   setAllowedSettingSources([
     'userSettings',
     'projectSettings',
@@ -91,12 +102,33 @@ function enableUserAndProjectSettingSources(): SettingSource[] {
     'flagSettings',
     'policySettings',
   ])
-  return originalSources
+  resetSettingsCache()
+  return {
+    additionalDirectories: originalAdditionalDirectories,
+    claudeCodeSimple: originalClaudeCodeSimple,
+    sources: originalSources,
+  }
+}
+
+function restoreSettingState(original: {
+  additionalDirectories: string[]
+  claudeCodeSimple: string | undefined
+  sources: SettingSource[]
+}): void {
+  if (original.claudeCodeSimple === undefined) {
+    delete process.env.CLAUDE_CODE_SIMPLE
+  } else {
+    process.env.CLAUDE_CODE_SIMPLE = original.claudeCodeSimple
+  }
+  setAdditionalDirectoriesForClaudeMd(original.additionalDirectories)
+  setAllowedSettingSources(original.sources)
+  resetSettingsCache()
 }
 
 function clearSkillAndConfigCaches(): void {
   clearSkillCaches()
   getClaudeConfigHomeDir.cache?.clear?.()
+  resetSettingsCache()
 }
 
 function setRealFilesystemForTest(): ReturnType<typeof getFsImplementation> {
@@ -145,7 +177,7 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
     claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
     configHomeOverride: getClaudeConfigHomeDirOverrideForTesting(),
   }
-  const originalSources = enableUserAndProjectSettingSources()
+  const originalSettingsState = enableUserAndProjectSettingSources()
   const originalFs = setRealFilesystemForTest()
 
   try {
@@ -192,8 +224,8 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
     try {
       restoreConfigDirEnv(originalConfigDir)
       setFsImplementation(originalFs)
+      restoreSettingState(originalSettingsState)
       clearSkillAndConfigCaches()
-      setAllowedSettingSources(originalSources)
       rmSync(configDir, { recursive: true, force: true })
     } finally {
       releaseSharedMutationLock()
@@ -210,7 +242,7 @@ test.serial('prefers .openclaude project skills over legacy .claude skills with 
     claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
     configHomeOverride: getClaudeConfigHomeDirOverrideForTesting(),
   }
-  const originalSources = enableUserAndProjectSettingSources()
+  const originalSettingsState = enableUserAndProjectSettingSources()
   const originalFs = setRealFilesystemForTest()
 
   try {
@@ -241,7 +273,7 @@ test.serial('prefers .openclaude project skills over legacy .claude skills with 
     setFsImplementation(originalFs)
     try {
       clearSkillAndConfigCaches()
-      setAllowedSettingSources(originalSources)
+      restoreSettingState(originalSettingsState)
       rmSync(configDir, { recursive: true, force: true })
     } finally {
       releaseSharedMutationLock()
@@ -258,7 +290,7 @@ test.serial('project skills are ordered before user skills with the same name', 
     claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
     configHomeOverride: getClaudeConfigHomeDirOverrideForTesting(),
   }
-  const originalSources = enableUserAndProjectSettingSources()
+  const originalSettingsState = enableUserAndProjectSettingSources()
   const originalFs = setRealFilesystemForTest()
 
   try {
@@ -287,8 +319,8 @@ test.serial('project skills are ordered before user skills with the same name', 
     try {
       restoreConfigDirEnv(originalConfigDir)
       setFsImplementation(originalFs)
+      restoreSettingState(originalSettingsState)
       clearSkillAndConfigCaches()
-      setAllowedSettingSources(originalSources)
       rmSync(configDir, { recursive: true, force: true })
     } finally {
       releaseSharedMutationLock()

@@ -14,13 +14,16 @@ import { join } from 'node:path'
 import { test } from 'bun:test'
 
 import {
+  getAdditionalDirectoriesForClaudeMd,
   getAllowedSettingSources,
+  setAdditionalDirectoriesForClaudeMd,
   setAllowedSettingSources,
 } from '../../bootstrap/state.ts'
 import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
 import { runWithCwdOverride } from '../../utils/cwd.js'
 import type { SettingSource } from '../../utils/settings/constants.ts'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.ts'
 import { skillsInstallHandler } from './skillsInstall.ts'
 import { skillsRemoveHandler } from './skills.ts'
 import {
@@ -150,8 +153,16 @@ function assertNoNewStagedInstallDirs(before: string[]): void {
   assert.deepEqual(stagedInstallTempDirs().sort(), before.sort())
 }
 
-function enableUserAndProjectSettingSources(): SettingSource[] {
+function enableUserAndProjectSettingSources(): {
+  additionalDirectories: string[]
+  claudeCodeSimple: string | undefined
+  sources: SettingSource[]
+} {
   const originalSources = getAllowedSettingSources()
+  const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
+  const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_SIMPLE
+  setAdditionalDirectoriesForClaudeMd([])
   setAllowedSettingSources([
     'userSettings',
     'projectSettings',
@@ -159,7 +170,27 @@ function enableUserAndProjectSettingSources(): SettingSource[] {
     'flagSettings',
     'policySettings',
   ])
-  return originalSources
+  resetSettingsCache()
+  return {
+    additionalDirectories: originalAdditionalDirectories,
+    claudeCodeSimple: originalClaudeCodeSimple,
+    sources: originalSources,
+  }
+}
+
+function restoreSettingState(original: {
+  additionalDirectories: string[]
+  claudeCodeSimple: string | undefined
+  sources: SettingSource[]
+}): void {
+  if (original.claudeCodeSimple === undefined) {
+    delete process.env.CLAUDE_CODE_SIMPLE
+  } else {
+    process.env.CLAUDE_CODE_SIMPLE = original.claudeCodeSimple
+  }
+  setAdditionalDirectoriesForClaudeMd(original.additionalDirectories)
+  setAllowedSettingSources(original.sources)
+  resetSettingsCache()
 }
 
 async function withTempDir<T>(fn: (tempDir: string) => Promise<T>): Promise<T> {
@@ -635,7 +666,7 @@ test.serial('removes only the targeted project skill directory', async () => {
     const skillsRoot = join(cwd, '.openclaude', 'skills')
     const target = join(skillsRoot, 'sample-skill')
     const sibling = join(skillsRoot, 'sibling-skill')
-    const originalSources = enableUserAndProjectSettingSources()
+    const originalSettingsState = enableUserAndProjectSettingSources()
     mkdirSync(target, { recursive: true })
     mkdirSync(sibling, { recursive: true })
     writeFileSync(join(target, 'SKILL.md'), VALID_SKILL, 'utf8')
@@ -643,11 +674,13 @@ test.serial('removes only the targeted project skill directory', async () => {
 
     clearCommandsCache()
     try {
+      process.exitCode = 0
       await runWithCwdOverride(cwd, () =>
         skillsRemoveHandler('sample-skill', {}),
       )
+      assert.equal(process.exitCode, 0)
     } finally {
-      setAllowedSettingSources(originalSources)
+      restoreSettingState(originalSettingsState)
       clearCommandsCache()
     }
 
