@@ -282,7 +282,7 @@ describe('system-check memory guard diagnostics', () => {
     expect(results).toContainEqual({
       ok: true,
       label: 'Active-message hard cap',
-      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages (default; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}).`,
     })
     expect(results.find(result => result.label === 'Memory pressure guard'))
       .toMatchObject({ ok: true })
@@ -300,7 +300,23 @@ describe('system-check memory guard diagnostics', () => {
     expect(results).toContainEqual({
       ok: true,
       label: 'Active-message hard cap',
-      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+      detail: `Active at ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP} messages; malformed override fell back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+    })
+  })
+
+  test('reports valid custom hard-cap overrides without fallback wording', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: undefined,
+      env: {
+        OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP: '500',
+      },
+    })
+
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Active-message hard cap',
+      detail: 'Active at 500 messages.',
     })
   })
 

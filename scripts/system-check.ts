@@ -86,6 +86,19 @@ function parsePositiveInteger(value: string | undefined): number {
   return Number.isSafeInteger(parsed) ? parsed : 0
 }
 
+function formatActiveHardCapDetail(
+  hardCap: number,
+  rawOverride: string | undefined,
+): string {
+  if (rawOverride === undefined) {
+    return `Active at ${hardCap} messages (default; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}).`
+  }
+  if (parsePositiveInteger(rawOverride) > 0) {
+    return `Active at ${hardCap} messages.`
+  }
+  return `Active at ${hardCap} messages; malformed override fell back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`
+}
+
 export function buildMemoryGuardChecks(
   input: MemoryGuardConfigInput,
 ): CheckResult[] {
@@ -95,6 +108,7 @@ export function buildMemoryGuardChecks(
   const disableAutoCompact = isTruthy(env.DISABLE_AUTO_COMPACT)
   const autoCompactAvailable =
     input.autoCompactEnabled && !disableCompact && !disableAutoCompact
+  const hardCapOverride = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
   const hardCap = getMaxActiveMessagesHardCap(env)
   const configuredLimit =
     input.maxMessagesCompactionThreshold &&
@@ -129,7 +143,7 @@ export function buildMemoryGuardChecks(
         )
       : pass(
           'Active-message hard cap',
-          `Active at ${hardCap} messages; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+          formatActiveHardCapDetail(hardCap, hardCapOverride),
         ),
   )
 
