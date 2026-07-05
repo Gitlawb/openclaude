@@ -187,9 +187,11 @@ import {
 } from './hooks/AsyncHookRegistry.js'
 import {
   checkForLSPDiagnostics,
-  clearAllLSPDiagnostics,
+  getNextLSPDiagnosticDeliveryDelay,
+  type LSPDiagnosticSet,
 } from '../services/lsp/LSPDiagnosticRegistry.js'
 import { logForDebugging } from './debug.js'
+import { sleep } from './sleep.js'
 import {
   extractTextContent,
   getUserMessageText,
@@ -2932,8 +2934,57 @@ async function getDiagnosticAttachments(
  * Get LSP diagnostic attachments from passive LSP servers.
  * Follows the AsyncHookRegistry pattern for consistent async attachment delivery.
  */
+type LSPDiagnosticAttachmentDeps = {
+  now?: () => number
+  wait?: (ms: number, signal?: AbortSignal) => Promise<void>
+}
+
+const LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS = 250
+
+function getLSPDiagnosticCheckOptions(now?: () => number): {
+  respectDebounce: true
+  now?: number
+} {
+  const currentTime = now?.()
+  return currentTime === undefined
+    ? { respectDebounce: true }
+    : { respectDebounce: true, now: currentTime }
+}
+
+async function checkForStableLSPDiagnosticsAtQueryBoundary(
+  toolUseContext: ToolUseContext,
+  deps: LSPDiagnosticAttachmentDeps,
+): Promise<LSPDiagnosticSet[]> {
+  const diagnosticSets = checkForLSPDiagnostics(
+    getLSPDiagnosticCheckOptions(deps.now),
+  )
+  if (diagnosticSets.length > 0) {
+    return diagnosticSets
+  }
+
+  const nextDelay = getNextLSPDiagnosticDeliveryDelay(deps.now?.())
+  if (nextDelay === null) {
+    return []
+  }
+
+  const waitMs = Math.min(nextDelay, LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS)
+  if (waitMs > 0) {
+    logForDebugging(
+      `LSP Diagnostics: Waiting ${waitMs}ms for pending diagnostics to stabilize`,
+    )
+    const wait =
+      deps.wait ??
+      ((ms: number, signal?: AbortSignal) =>
+        sleep(ms, signal, { unref: true }))
+    await wait(waitMs, toolUseContext.abortController.signal)
+  }
+
+  return checkForLSPDiagnostics(getLSPDiagnosticCheckOptions(deps.now))
+}
+
 async function getLSPDiagnosticAttachments(
   toolUseContext: ToolUseContext,
+  deps: LSPDiagnosticAttachmentDeps = {},
 ): Promise<Attachment[]> {
   // LSP diagnostics are only useful if the agent has the Bash tool to act on them
   if (
@@ -2945,7 +2996,10 @@ async function getLSPDiagnosticAttachments(
   logForDebugging('LSP Diagnostics: getLSPDiagnosticAttachments called')
 
   try {
-    const diagnosticSets = checkForLSPDiagnostics()
+    const diagnosticSets = await checkForStableLSPDiagnosticsAtQueryBoundary(
+      toolUseContext,
+      deps,
+    )
 
     if (diagnosticSets.length === 0) {
       return []
@@ -2962,15 +3016,6 @@ async function getLSPDiagnosticAttachments(
       isNew: true,
     }))
 
-    // Clear delivered diagnostics from registry to prevent memory leak
-    // Follows same pattern as removeDeliveredAsyncHooks
-    if (diagnosticSets.length > 0) {
-      clearAllLSPDiagnostics()
-      logForDebugging(
-        `LSP Diagnostics: Cleared ${diagnosticSets.length} delivered diagnostic(s) from registry`,
-      )
-    }
-
     logForDebugging(
       `LSP Diagnostics: Returning ${attachments.length} diagnostic attachment(s)`,
     )
@@ -2984,6 +3029,10 @@ async function getLSPDiagnosticAttachments(
     // Return empty array to allow other attachments to proceed
     return []
   }
+}
+
+export const __test = {
+  getLSPDiagnosticAttachments,
 }
 
 export async function* getAttachmentMessages(

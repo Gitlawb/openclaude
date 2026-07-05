@@ -304,10 +304,10 @@ export const FileWriteTool = buildTool({
     // overwriting a CRLF file or when binaries in cwd poisoned the repo sample.
     writeTextContent(fullFilePath, content, enc, 'LF')
 
-    // Notify LSP servers about file modification (didChange) and save (didSave)
     const lspManager = getLspServerManager()
     if (lspManager) {
-      // Clear previously delivered diagnostics so new ones will be shown
+      // Clear previously delivered diagnostics after a successful write so
+      // new diagnostics will be shown.
       clearDeliveredDiagnosticsForFile(`file://${fullFilePath}`)
       // didChange: Content has been modified
       lspManager.changeFile(fullFilePath, content).catch((err: Error) => {

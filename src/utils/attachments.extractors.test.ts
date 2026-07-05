@@ -1,5 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
+import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
 import {
+  getPendingLSPDiagnosticCount,
+  registerPendingLSPDiagnostic,
+  resetAllLSPDiagnosticState,
+} from '../services/lsp/LSPDiagnosticRegistry.js'
+import type { DiagnosticFile } from '../services/diagnosticTracking.js'
+import {
+  __test,
   extractAtMentionedFiles,
   extractMcpResourceMentions,
   shouldIncludeSkillListingAttachment,
@@ -99,4 +107,62 @@ describe('skill listing attachment policy', () => {
       expect(shouldIncludeSkillListingAttachment(querySource)).toBe(true)
     },
   )
+})
+
+describe('LSP diagnostic attachments', () => {
+  beforeEach(() => {
+    resetAllLSPDiagnosticState()
+  })
+
+  test('waits once for debounced diagnostics at the query boundary', async () => {
+    const file: DiagnosticFile = {
+      uri: '/repo/a.ts',
+      diagnostics: [
+        {
+          message: 'stable diagnostic',
+          severity: 'Error',
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 1 },
+          },
+          source: 'typescript',
+          code: 'TS1000',
+        },
+      ],
+    }
+    let now = 100
+    const waits: number[] = []
+
+    registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+      timestamp: 0,
+    })
+
+    const attachments = await __test.getLSPDiagnosticAttachments(
+      {
+        options: {
+          tools: [{ name: BASH_TOOL_NAME }],
+        },
+        abortController: new AbortController(),
+      } as unknown as Parameters<typeof __test.getLSPDiagnosticAttachments>[0],
+      {
+        now: () => now,
+        wait: async ms => {
+          waits.push(ms)
+          now += ms
+        },
+      },
+    )
+
+    expect(waits).toEqual([150])
+    expect(attachments).toEqual([
+      {
+        type: 'diagnostics',
+        files: [file],
+        isNew: true,
+      },
+    ])
+    expect(getPendingLSPDiagnosticCount()).toBe(0)
+  })
 })

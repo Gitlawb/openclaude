@@ -47,6 +47,10 @@ function diagnosticCount(files: DiagnosticFile[]): number {
   return files.reduce((sum, file) => sum + file.diagnostics.length, 0)
 }
 
+function checkWithDebounce(now: number) {
+  return registry.checkForLSPDiagnostics({ now, respectDebounce: true })
+}
+
 describe('LSPDiagnosticRegistry storm control', () => {
   beforeEach(() => {
     registry.resetAllLSPDiagnosticState()
@@ -68,6 +72,256 @@ describe('LSPDiagnosticRegistry storm control', () => {
     ])
   })
 
+  test('coalesces repeated same-file burst snapshots into one stable delivery', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['stale diagnostic'])],
+      timestamp: 1_000,
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['final diagnostic'])],
+      timestamp: 1_100,
+    })
+
+    expect(checkWithDebounce(1_150)).toEqual([])
+
+    const diagnosticSets = checkWithDebounce(1_400)
+
+    expect(diagnosticSets).toHaveLength(1)
+    expect(diagnosticSets[0]?.files).toEqual([
+      diagnosticFile('/repo/a.ts', ['final diagnostic']),
+    ])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('coalesces several files into a bounded deterministic stable delivery', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [
+        ...Array.from({ length: 32 }, (_, index) =>
+          diagnosticFile(`/repo/file-${index}.ts`, [`initial ${index}`]),
+        ),
+      ],
+      timestamp: 2_000,
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/file-1.ts', ['latest file 1'])],
+      timestamp: 2_100,
+    })
+
+    const files = checkWithDebounce(2_400)[0]?.files ?? []
+
+    expect(diagnosticCount(files)).toBe(30)
+    expect(files.map(file => file.uri)).toEqual([
+      '/repo/file-0.ts',
+      '/repo/file-1.ts',
+      '/repo/file-2.ts',
+      '/repo/file-3.ts',
+      '/repo/file-4.ts',
+      '/repo/file-5.ts',
+      '/repo/file-6.ts',
+      '/repo/file-7.ts',
+      '/repo/file-8.ts',
+      '/repo/file-9.ts',
+      '/repo/file-10.ts',
+      '/repo/file-11.ts',
+      '/repo/file-12.ts',
+      '/repo/file-13.ts',
+      '/repo/file-14.ts',
+      '/repo/file-15.ts',
+      '/repo/file-16.ts',
+      '/repo/file-17.ts',
+      '/repo/file-18.ts',
+      '/repo/file-19.ts',
+      '/repo/file-20.ts',
+      '/repo/file-21.ts',
+      '/repo/file-22.ts',
+      '/repo/file-23.ts',
+      '/repo/file-24.ts',
+      '/repo/file-25.ts',
+      '/repo/file-26.ts',
+      '/repo/file-27.ts',
+      '/repo/file-28.ts',
+      '/repo/file-29.ts',
+    ])
+    expect(files[1]?.diagnostics[0]?.message).toBe('latest file 1')
+  })
+
+  test('delivers new diagnostics after the debounce window', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['first diagnostic'])],
+      timestamp: 3_000,
+    })
+
+    expect(checkWithDebounce(3_100)).toEqual([])
+
+    const firstDelivery = checkWithDebounce(3_300)
+    expect(firstDelivery[0]?.files).toEqual([
+      diagnosticFile('/repo/a.ts', ['first diagnostic']),
+    ])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['second diagnostic'])],
+      timestamp: 3_650,
+    })
+
+    expect(checkWithDebounce(3_700)).toEqual([])
+    const secondDelivery = checkWithDebounce(3_950)
+
+    expect(secondDelivery[0]?.files).toEqual([
+      diagnosticFile('/repo/a.ts', ['second diagnostic']),
+    ])
+  })
+
+  test('flushes active bursts after the max coalescing delay', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['first diagnostic'])],
+      timestamp: 4_000,
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['latest diagnostic'])],
+      timestamp: 5_900,
+    })
+
+    const diagnosticSets = checkWithDebounce(6_100)
+
+    expect(diagnosticSets[0]?.files).toEqual([
+      diagnosticFile('/repo/a.ts', ['latest diagnostic']),
+    ])
+  })
+
+  test('reports the next stable delivery delay for pending diagnostics', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [diagnosticFile('/repo/a.ts', ['first diagnostic'])],
+      timestamp: 15_000,
+    })
+
+    expect(registry.getNextLSPDiagnosticDeliveryDelay(15_100)).toBe(150)
+
+    const diagnosticSets = checkWithDebounce(15_250)
+    expect(diagnosticSets[0]?.files).toEqual([
+      diagnosticFile('/repo/a.ts', ['first diagnostic']),
+    ])
+    expect(registry.getNextLSPDiagnosticDeliveryDelay(15_260)).toBeNull()
+  })
+
+  test('clearing diagnostics updates state without producing attachments', () => {
+    const file = diagnosticFile('/repo/a.ts', ['transient diagnostic'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+      timestamp: 7_000,
+    })
+    expect(checkWithDebounce(7_300)).toHaveLength(1)
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [{ uri: '/repo/a.ts', diagnostics: [] }],
+      timestamp: 7_600,
+    })
+
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(checkWithDebounce(7_900)).toEqual([])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+      timestamp: 8_200,
+    })
+
+    expect(checkWithDebounce(8_500)[0]?.files).toEqual([
+      file,
+    ])
+  })
+
+  test('does not dedupe identical diagnostics across different servers', () => {
+    const sharedFile = diagnosticFile('/repo/a.ts', ['same text and range'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [sharedFile],
+      timestamp: 9_000,
+    })
+    expect(checkWithDebounce(9_300)[0]?.files).toEqual([
+      sharedFile,
+    ])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'eslint',
+      files: [sharedFile],
+      timestamp: 9_600,
+    })
+
+    expect(checkWithDebounce(9_900)[0]?.files).toEqual([
+      sharedFile,
+    ])
+  })
+
+  test('does not let one active server burst block stable diagnostics from another server', () => {
+    const stableFile = diagnosticFile('/repo/stable.ts', ['stable diagnostic'])
+    const activeFile = diagnosticFile('/repo/active.ts', ['active diagnostic'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [stableFile],
+      timestamp: 10_000,
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'eslint',
+      files: [activeFile],
+      timestamp: 10_390,
+    })
+
+    const firstDelivery = checkWithDebounce(10_400)
+
+    expect(firstDelivery[0]?.serverName).toBe('typescript')
+    expect(firstDelivery[0]?.files).toEqual([stableFile])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(1)
+
+    const secondDelivery = checkWithDebounce(10_700)
+
+    expect(secondDelivery[0]?.serverName).toBe('eslint')
+    expect(secondDelivery[0]?.files).toEqual([activeFile])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('does not let one same-server file hitting max delay flush a fresh file', () => {
+    const oldFile = diagnosticFile('/repo/old.ts', ['old diagnostic'])
+    const freshFile = diagnosticFile('/repo/fresh.ts', ['fresh diagnostic'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [oldFile],
+      timestamp: 11_000,
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [freshFile],
+      timestamp: 12_990,
+    })
+
+    const firstDelivery = checkWithDebounce(13_001)
+
+    expect(firstDelivery[0]?.serverName).toBe('typescript')
+    expect(firstDelivery[0]?.files).toEqual([oldFile])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(1)
+
+    expect(checkWithDebounce(13_100)).toEqual([])
+
+    const secondDelivery = checkWithDebounce(13_250)
+
+    expect(secondDelivery[0]?.files).toEqual([freshFile])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
   test('does not reattach unchanged diagnostics across turns', () => {
     const file = diagnosticFile('/repo/a.ts', ['same missing import'])
 
@@ -85,6 +339,19 @@ describe('LSPDiagnosticRegistry storm control', () => {
     })
 
     expect(registry.checkForLSPDiagnostics()).toEqual([])
+  })
+
+  test('clock injection does not enable debounce unless requested', () => {
+    const file = diagnosticFile('/repo/a.ts', ['clock-only diagnostic'])
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+      timestamp: 14_000,
+    })
+
+    expect(registry.checkForLSPDiagnostics({ now: 14_001 })[0]?.files).toEqual([
+      file,
+    ])
   })
 
   test('snapshots pending diagnostics without consuming delivery', () => {

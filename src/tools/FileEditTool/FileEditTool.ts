@@ -490,10 +490,10 @@ export const FileEditTool = buildTool({
     // 5. Write to disk
     writeTextContent(absoluteFilePath, updatedFile, encoding, endings)
 
-    // Notify LSP servers about file modification (didChange) and save (didSave)
     const lspManager = getLspServerManager()
     if (lspManager) {
-      // Clear previously delivered diagnostics so new ones will be shown
+      // Clear previously delivered diagnostics after a successful write so
+      // new diagnostics will be shown.
       clearDeliveredDiagnosticsForFile(`file://${absoluteFilePath}`)
       // didChange: Content has been modified
       lspManager
