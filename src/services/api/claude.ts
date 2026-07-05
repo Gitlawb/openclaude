@@ -831,6 +831,21 @@ export function getClaudeExpectedSideTaskApiAbortLogMessage(
   return `Expected side-task API abort (${normalizeAbortReason(signal.reason)}): ${errorMessage(error)}`
 }
 
+function handleClaudeExpectedSideTaskApiAbort(
+  signal: Pick<AbortSignal, 'aborted' | 'reason'>,
+  errorFromRetry: unknown,
+  releaseStreamResources: () => void,
+): boolean {
+  const expectedSideTaskAbortLogMessage =
+    getClaudeExpectedSideTaskApiAbortLogMessage(signal, errorFromRetry)
+  if (!expectedSideTaskAbortLogMessage) return false
+  if (!(errorFromRetry instanceof CannotRetryError)) {
+    logForDebugging(expectedSideTaskAbortLogMessage)
+  }
+  releaseStreamResources()
+  return true
+}
+
 /**
  * Determines if an LSP tool should be deferred (tool appears with defer_loading: true)
  * because LSP initialization is not yet complete.
@@ -2834,13 +2849,13 @@ async function* queryModel(
       throw errorFromRetry
     }
 
-    const expectedSideTaskAbortLogMessage =
-      getClaudeExpectedSideTaskApiAbortLogMessage(signal, errorFromRetry)
-    if (expectedSideTaskAbortLogMessage) {
-      if (!(errorFromRetry instanceof CannotRetryError)) {
-        logForDebugging(expectedSideTaskAbortLogMessage)
-      }
-      releaseStreamResources()
+    if (
+      handleClaudeExpectedSideTaskApiAbort(
+        signal,
+        errorFromRetry,
+        releaseStreamResources,
+      )
+    ) {
       return
     }
 
@@ -2946,13 +2961,13 @@ async function* queryModel(
           throw fallbackError
         }
 
-        const expectedSideTaskAbortLogMessage =
-          getClaudeExpectedSideTaskApiAbortLogMessage(signal, fallbackError)
-        if (expectedSideTaskAbortLogMessage) {
-          if (!(fallbackError instanceof CannotRetryError)) {
-            logForDebugging(expectedSideTaskAbortLogMessage)
-          }
-          releaseStreamResources()
+        if (
+          handleClaudeExpectedSideTaskApiAbort(
+            signal,
+            fallbackError,
+            releaseStreamResources,
+          )
+        ) {
           return
         }
 

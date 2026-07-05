@@ -49,6 +49,7 @@ import {
   createCacheSafeParams,
   runForkedAgent,
 } from '../../utils/forkedAgent.js'
+import { isAbortError } from '../../utils/errors.js'
 import type { REPLHookContext } from '../../utils/hooks/postSamplingHooks.js'
 import {
   createMemorySavedMessage,
@@ -508,7 +509,10 @@ export function initExtractMemories(): void {
     } catch (error) {
       if (
         extractionAbortController.signal.aborted &&
-        isExpectedSideTaskAbortReason(extractionAbortController.signal.reason)
+        isExpectedSideTaskAbortReason(
+          extractionAbortController.signal.reason,
+        ) &&
+        isAbortError(error)
       ) {
         logForDebugging(
           `[extractMemories] expected cancellation: ${extractionAbortController.signal.reason}`,
