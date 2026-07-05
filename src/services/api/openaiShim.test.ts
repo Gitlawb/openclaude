@@ -9190,6 +9190,58 @@ test('renders tool_reference blocks as text on the chat/completions path', async
   expect(content).toContain('mcp__example__memory_store')
 })
 
+test('preserves valid tool pairs after history pruning while dropping orphaned tool calls', async () => {
+  const { __test } = await import('./openaiShim.ts')
+
+  const messages = __test.convertMessages(
+    [
+      { role: 'user', content: 'compacted summary of previous work' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_pruned_without_result',
+            name: 'Read',
+            input: { file_path: 'old.ts' },
+          },
+        ],
+      },
+      { role: 'user', content: 'continue with retained context' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Reading the current file.' },
+          {
+            type: 'tool_use',
+            id: 'call_retained',
+            name: 'Read',
+            input: { file_path: 'current.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_retained',
+            content: 'current contents',
+          },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const toolCalls = messages.flatMap(message => message.tool_calls ?? [])
+  expect(toolCalls.map(toolCall => toolCall.id)).toEqual(['call_retained'])
+
+  const toolMessages = messages.filter(message => message.role === 'tool')
+  expect(toolMessages).toHaveLength(1)
+  expect(toolMessages[0]?.tool_call_id).toBe('call_retained')
+})
+
 function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   const data = JSON.stringify(responseData)
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])

@@ -1117,34 +1117,40 @@ function convertMessages(
     if (role === 'user') {
       // Check for tool_result blocks in user messages
       if (Array.isArray(content)) {
-        const toolResults = content.filter(
-          (b: { type?: string }) => b.type === 'tool_result',
-        )
-        const otherContent = content.filter(
-          (b: { type?: string }) => b.type !== 'tool_result',
-        )
+        let otherContent: unknown[] | undefined
 
         // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
         // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
         // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
         // emitting it here would cause a "role must alternate" or "unexpected role" error.
-        for (const tr of toolResults) {
-          const id = tr.tool_use_id ?? 'unknown'
-          if (knownToolCallIds.has(id)) {
-            result.push({
-              role: 'tool',
-              tool_call_id: id,
-              content: convertToolResultContent(tr.content, tr.is_error),
-            })
+        for (const block of content) {
+          const blockType = (block as { type?: string }).type
+          if (blockType === 'tool_result') {
+            const tr = block as {
+              tool_use_id?: string
+              content?: unknown
+              is_error?: boolean
+            }
+            const id = tr.tool_use_id ?? 'unknown'
+            if (knownToolCallIds.has(id)) {
+              result.push({
+                role: 'tool',
+                tool_call_id: id,
+                content: convertToolResultContent(tr.content, tr.is_error),
+              })
+            } else {
+              logForDebugging(
+                `Dropping orphan tool_result for ID: ${id} to prevent API error`,
+              )
+            }
           } else {
-            logForDebugging(
-              `Dropping orphan tool_result for ID: ${id} to prevent API error`,
-            )
+            otherContent ??= []
+            otherContent.push(block)
           }
         }
 
         // Emit remaining user content
-        if (otherContent.length > 0) {
+        if (otherContent && otherContent.length > 0) {
           result.push({
             role: 'user',
             content: convertContentBlocks(otherContent),
@@ -1159,25 +1165,51 @@ function convertMessages(
     } else if (role === 'assistant') {
       // Check for tool_use blocks
       if (Array.isArray(content)) {
-        const toolUses = content.filter(
-          (b: { type?: string }) => b.type === 'tool_use',
-        )
-        const thinkingBlock = content.find(
-          (b: { type?: string }) =>
-            b.type === 'thinking' ||
-            b.type === 'redacted_thinking',
-        )
-        const textContent = content.filter(
-          (b: { type?: string }) =>
-            b.type !== 'tool_use' &&
-            b.type !== 'thinking' &&
-            b.type !== 'redacted_thinking',
-        )
+        let toolUses: Array<{
+          id?: string
+          name?: string
+          input?: unknown
+          extra_content?: Record<string, unknown>
+          signature?: string
+        }> | undefined
+        let thinkingBlock:
+          | { type?: string; thinking?: string; data?: string; signature?: string }
+          | undefined
+        let textContent: unknown[] | undefined
+
+        for (const block of content) {
+          const blockType = (block as { type?: string }).type
+          if (blockType === 'tool_use') {
+            toolUses ??= []
+            toolUses.push(
+              block as {
+                id?: string
+                name?: string
+                input?: unknown
+                extra_content?: Record<string, unknown>
+                signature?: string
+              },
+            )
+          } else if (
+            blockType === 'thinking' ||
+            blockType === 'redacted_thinking'
+          ) {
+            thinkingBlock ??= block as {
+              type?: string
+              thinking?: string
+              data?: string
+              signature?: string
+            }
+          } else {
+            textContent ??= []
+            textContent.push(block)
+          }
+        }
 
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(textContent)
+            const c = convertContentBlocks(textContent ?? [])
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -1199,82 +1231,70 @@ function convertMessages(
           // blocks carry it in `.data` (see token estimation and message-size
           // accounting). Read the right field per type so a real redacted block
           // with non-empty content is not silently dropped to "".
-          const block = thinkingBlock as
-            | { type?: string; thinking?: string; data?: string }
-            | undefined
           const thinkingText =
-            block?.type === 'redacted_thinking'
-              ? block?.data
-              : block?.thinking
+            thinkingBlock?.type === 'redacted_thinking'
+              ? thinkingBlock?.data
+              : thinkingBlock?.thinking
           if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
             assistantMsg.reasoning_content = thinkingText
           } else if (
-            toolUses.length > 0 &&
+            (toolUses?.length ?? 0) > 0 &&
             reasoningContentFallback === ''
           ) {
             assistantMsg.reasoning_content = ''
           }
         }
 
-        if (toolUses.length > 0) {
-          const mappedToolCalls = toolUses
-            .map(
-              (tu: {
-                id?: string
-                name?: string
-                input?: unknown
-                extra_content?: Record<string, unknown>
-                signature?: string
-              }) => {
-                const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+        if (toolUses && toolUses.length > 0) {
+          const mappedToolCalls: NonNullable<OpenAIMessage['tool_calls']> = []
+          for (const tu of toolUses) {
+            const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
 
-                // Only keep tool calls that have a corresponding result in the history,
-                // or if it's the last message (prefill scenario).
-                // Orphaned tool calls (e.g. from user interruption) cause 400 errors.
-                if (!toolResultIds.has(id) && !isLastInHistory) {
-                  return null
-                }
+            // Only keep tool calls that have a corresponding result in the history,
+            // or if it's the last message (prefill scenario).
+            // Orphaned tool calls (e.g. from user interruption) cause 400 errors.
+            if (!toolResultIds.has(id) && !isLastInHistory) {
+              continue
+            }
 
-                knownToolCallIds.add(id)
-                const toolCall: NonNullable<
-                  OpenAIMessage['tool_calls']
-                >[number] = {
-                  id,
-                  type: 'function' as const,
-                  function: {
-                    name: tu.name ?? 'unknown',
-                    arguments:
-                      typeof tu.input === 'string'
-                        ? tu.input
-                        : JSON.stringify(tu.input ?? {}),
-                  },
-                }
-
-                // Preserve existing extra_content if present
-                if (tu.extra_content) {
-                  toolCall.extra_content = { ...tu.extra_content }
-                }
-
-                // Gemini OpenAI-compatible endpoints require Google's
-                // thought_signature to be replayed with prior function-call
-                // parts. Preserve only real signatures received from the
-                // provider; synthetic placeholders are rejected by GMI.
-                if (preserveGeminiThoughtSignature) {
-                  const signature =
-                    tu.signature ??
-                    geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
-                    (thinkingBlock as { signature?: string } | undefined)?.signature
-
-                  toolCall.extra_content = mergeGeminiThoughtSignature(
-                    toolCall.extra_content,
-                    signature,
-                  )
-                }
-
-                return toolCall
+            knownToolCallIds.add(id)
+            const toolCall: NonNullable<
+              OpenAIMessage['tool_calls']
+            >[number] = {
+              id,
+              type: 'function' as const,
+              function: {
+                name: tu.name ?? 'unknown',
+                arguments:
+                  typeof tu.input === 'string'
+                    ? tu.input
+                    : JSON.stringify(tu.input ?? {}),
               },
-            )
-            .filter((tc): tc is NonNullable<typeof tc> => tc !== null)
+            }
+
+            // Preserve existing extra_content if present
+            if (tu.extra_content) {
+              toolCall.extra_content = { ...tu.extra_content }
+            }
+
+            // Gemini OpenAI-compatible endpoints require Google's
+            // thought_signature to be replayed with prior function-call
+            // parts. Preserve only real signatures received from the
+            // provider; synthetic placeholders are rejected by GMI.
+            if (preserveGeminiThoughtSignature) {
+              const signature =
+                tu.signature ??
+                geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
+                thinkingBlock?.signature
+
+              toolCall.extra_content = mergeGeminiThoughtSignature(
+                toolCall.extra_content,
+                signature,
+              )
+            }
+
+            mappedToolCalls.push(toolCall)
+          }
 
           if (mappedToolCalls.length > 0) {
             assistantMsg.tool_calls = mappedToolCalls
