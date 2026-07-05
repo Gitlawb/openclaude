@@ -669,18 +669,19 @@ test.serial('removes only the targeted project skill directory', async () => {
   await withTempDir(async tempDir => {
     const cwd = join(tempDir, 'project')
     const skillsRoot = join(cwd, '.openclaude', 'skills')
-    const target = join(skillsRoot, 'sample-skill')
+    const targetName = 'remove-target-skill'
+    const target = join(skillsRoot, targetName)
     const sibling = join(skillsRoot, 'sibling-skill')
     const originalSettingsState = enableUserAndProjectSettingSources()
     mkdirSync(target, { recursive: true })
     mkdirSync(sibling, { recursive: true })
-    writeFileSync(join(target, 'SKILL.md'), VALID_SKILL, 'utf8')
+    writeFileSync(join(target, 'SKILL.md'), VALID_SKILL.replace('sample-skill', targetName), 'utf8')
     writeFileSync(join(sibling, 'SKILL.md'), VALID_SKILL.replace('sample-skill', 'sibling-skill'), 'utf8')
 
     clearCommandsCache()
     try {
       process.exitCode = 0
-      await skillsRemoveHandler('sample-skill', { projectDir: cwd })
+      await skillsRemoveHandler(targetName, { projectDir: cwd })
       assert.equal(process.exitCode, 0)
     } finally {
       restoreSettingState(originalSettingsState)
