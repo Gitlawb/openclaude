@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
 import {
+  DIAGNOSTIC_DELIVERY_DEBOUNCE_MS,
   getPendingLSPDiagnosticCount,
   registerPendingLSPDiagnostic,
   resetAllLSPDiagnosticState,
@@ -12,6 +13,24 @@ import {
   extractMcpResourceMentions,
   shouldIncludeSkillListingAttachment,
 } from './attachments.js'
+
+function lspDiagnosticFile(message = 'stable diagnostic'): DiagnosticFile {
+  return {
+    uri: '/repo/a.ts',
+    diagnostics: [
+      {
+        message,
+        severity: 'Error',
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 1 },
+        },
+        source: 'typescript',
+        code: 'TS1000',
+      },
+    ],
+  }
+}
 
 // Contract tests for the two @-mention extractors.
 //
@@ -115,21 +134,7 @@ describe('LSP diagnostic attachments', () => {
   })
 
   test('waits once for debounced diagnostics at the query boundary', async () => {
-    const file: DiagnosticFile = {
-      uri: '/repo/a.ts',
-      diagnostics: [
-        {
-          message: 'stable diagnostic',
-          severity: 'Error',
-          range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 1 },
-          },
-          source: 'typescript',
-          code: 'TS1000',
-        },
-      ],
-    }
+    const file = lspDiagnosticFile()
     let now = 100
     const waits: number[] = []
 
@@ -164,5 +169,37 @@ describe('LSP diagnostic attachments', () => {
       },
     ])
     expect(getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('caps the query-boundary wait when the next ready delay is longer', async () => {
+    const file = lspDiagnosticFile('future diagnostic')
+    let now = 0
+    const waits: number[] = []
+
+    registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+      timestamp: 500,
+    })
+
+    const attachments = await __test.getLSPDiagnosticAttachments(
+      {
+        options: {
+          tools: [{ name: BASH_TOOL_NAME }],
+        },
+        abortController: new AbortController(),
+      } as unknown as Parameters<typeof __test.getLSPDiagnosticAttachments>[0],
+      {
+        now: () => now,
+        wait: async ms => {
+          waits.push(ms)
+          now += ms
+        },
+      },
+    )
+
+    expect(waits).toEqual([DIAGNOSTIC_DELIVERY_DEBOUNCE_MS])
+    expect(attachments).toEqual([])
+    expect(getPendingLSPDiagnosticCount()).toBe(1)
   })
 })

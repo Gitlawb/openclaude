@@ -189,7 +189,7 @@ export function registerLSPNotificationHandlers(
             // file was cleared, and the registry uses them to update state
             // without producing an empty model attachment.
             const firstFile = diagnosticFiles[0]
-            if (!firstFile || diagnosticFiles.length === 0) {
+            if (!firstFile) {
               logForDebugging(
                 `Skipping invalid diagnostics from ${serverName} for ${diagnosticParams.uri}`,
               )

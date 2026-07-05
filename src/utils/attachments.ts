@@ -187,6 +187,7 @@ import {
 } from './hooks/AsyncHookRegistry.js'
 import {
   checkForLSPDiagnostics,
+  DIAGNOSTIC_DELIVERY_DEBOUNCE_MS,
   getNextLSPDiagnosticDeliveryDelay,
   type LSPDiagnosticSet,
 } from '../services/lsp/LSPDiagnosticRegistry.js'
@@ -2939,7 +2940,7 @@ type LSPDiagnosticAttachmentDeps = {
   wait?: (ms: number, signal?: AbortSignal) => Promise<void>
 }
 
-const LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS = 250
+const LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS = DIAGNOSTIC_DELIVERY_DEBOUNCE_MS
 
 function getLSPDiagnosticCheckOptions(now?: () => number): {
   respectDebounce: true
