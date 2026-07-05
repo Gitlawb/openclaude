@@ -5,8 +5,10 @@ import { join } from 'path'
 import { invalidateCache, buildRepoMap } from './index.js'
 import { extractTags } from './symbolExtractor.js'
 import { buildGraph } from './graph.js'
+import { rankFiles } from './pagerank.js'
 import { initParser } from './parser.js'
 import { countTokens } from './tokenize.js'
+import type { FileTags } from './types.js'
 
 const FIXTURE_ROOT = join(import.meta.dir, '__fixtures__', 'mini-repo')
 const FIXTURE_FILES = ['fileA.ts', 'fileB.ts', 'fileC.ts', 'fileD.ts', 'fileE.ts']
@@ -53,7 +55,7 @@ describe('symbol extraction', () => {
 
 describe('graph', () => {
   test('builds edges between files that reference each other\'s symbols', async () => {
-    const allTags = []
+    const allTags: FileTags[] = []
     for (const f of FIXTURE_FILES) {
       const tags = await extractTags(f, FIXTURE_ROOT)
       if (tags) allTags.push(tags)
@@ -104,6 +106,56 @@ describe('pagerank', () => {
     // fileE should be last (or among the last)
     const lastFile = filePositions[filePositions.length - 1]!.file
     expect(['fileD.ts', 'fileE.ts']).toContain(lastFile)
+  })
+
+  test('directory focus boosts matching file nodes', () => {
+    const graph = buildGraph([
+      {
+        path: 'src/tools/isolated.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'IsolatedTool',
+            line: 1,
+            signature: 'export class IsolatedTool {}',
+          },
+        ],
+      },
+      {
+        path: 'src/core.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'Core',
+            line: 1,
+            signature: 'export class Core {}',
+          },
+          {
+            kind: 'ref',
+            name: 'Helper',
+            line: 2,
+            signature: 'new Helper()',
+          },
+        ],
+      },
+      {
+        path: 'src/helper.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'Helper',
+            line: 1,
+            signature: 'export class Helper {}',
+          },
+        ],
+      },
+    ])
+
+    const noFocus = rankFiles(graph).map(file => file.path)
+    const dirFocus = rankFiles(graph, ['src/tools/']).map(file => file.path)
+
+    expect(noFocus[0]).not.toBe('src/tools/isolated.ts')
+    expect(dirFocus[0]).toBe('src/tools/isolated.ts')
   })
 })
 

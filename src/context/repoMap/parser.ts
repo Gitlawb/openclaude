@@ -2,6 +2,7 @@ import { join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { getBundledQuery } from './queries.js'
 import type { SupportedLanguage } from './types.js'
+import type { Language } from 'web-tree-sitter'
 
 // Resolve project root in both source and bundled modes.
 // In source (bun test/dev): import.meta.url is src/context/repoMap/parser.ts → go up 4 levels
@@ -19,20 +20,16 @@ type TreeSitterParser = {
   delete(): void
 }
 
-type TreeSitterLanguage = {
-  query(source: string): unknown
-}
-
 // The actual module exports { Parser, Language } as named exports
 let ParserClass: (new () => TreeSitterParser) & {
   init(opts?: { locateFile?: (file: string) => string }): Promise<void>
 } | null = null
 let LanguageLoader: {
-  load(path: string | Uint8Array): Promise<TreeSitterLanguage>
+  load(path: string | Uint8Array): Promise<Language>
 } | null = null
 
 let initialized = false
-const languageCache = new Map<SupportedLanguage, TreeSitterLanguage>()
+const languageCache = new Map<SupportedLanguage, Language>()
 const queryCache = new Map<SupportedLanguage, string>()
 
 /** Resolve the path to the tree-sitter WASM file. */
@@ -90,7 +87,7 @@ export async function initParser(): Promise<void> {
 }
 
 /** Load a language grammar. Cached after first load. */
-export async function loadLanguage(language: SupportedLanguage): Promise<TreeSitterLanguage | null> {
+export async function loadLanguage(language: SupportedLanguage): Promise<Language | null> {
   if (languageCache.has(language)) {
     return languageCache.get(language)!
   }

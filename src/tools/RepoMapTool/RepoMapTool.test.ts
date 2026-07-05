@@ -145,8 +145,8 @@ describe('RepoMapTool call', () => {
 
 describe('RepoMapTool properties', () => {
   test('is marked read-only and concurrency-safe', () => {
-    expect(RepoMapTool.isReadOnly({})).toBe(true)
-    expect(RepoMapTool.isConcurrencySafe({})).toBe(true)
+    expect(RepoMapTool.isReadOnly()).toBe(true)
+    expect(RepoMapTool.isConcurrencySafe()).toBe(true)
   })
 })
 

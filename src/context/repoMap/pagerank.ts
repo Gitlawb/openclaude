@@ -6,6 +6,32 @@ export interface RankedFile {
   score: number
 }
 
+function normalizeFocusPath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/^\.\//, '')
+}
+
+function expandFocusFiles(graph: Graph, focusFiles: string[]): string[] {
+  const expanded = new Set<string>()
+
+  for (const rawFocus of focusFiles) {
+    const focus = normalizeFocusPath(rawFocus)
+    if (!focus) continue
+
+    if (graph.hasNode(focus)) {
+      expanded.add(focus)
+    }
+
+    const prefix = focus.endsWith('/') ? focus : `${focus}/`
+    graph.forEachNode((node) => {
+      if (node.startsWith(prefix)) {
+        expanded.add(node)
+      }
+    })
+  }
+
+  return [...expanded]
+}
+
 /**
  * Run PageRank on the file reference graph.
  *
@@ -20,7 +46,8 @@ export function rankFiles(
 ): RankedFile[] {
   if (graph.order === 0) return []
 
-  const hasPersonalization = focusFiles.length > 0
+  const expandedFocusFiles = expandFocusFiles(graph, focusFiles)
+  const hasPersonalization = expandedFocusFiles.length > 0
 
   // graphology-pagerank accepts getEdgeWeight option
   const scores: Record<string, number> = pagerank(graph, {
@@ -32,14 +59,14 @@ export function rankFiles(
 
   // Apply focus boost post-hoc if focus files are specified
   if (hasPersonalization) {
-    for (const file of focusFiles) {
+    for (const file of expandedFocusFiles) {
       if (scores[file] !== undefined) {
         scores[file] *= 100
       }
     }
 
     // Also boost direct neighbors of focus files
-    for (const file of focusFiles) {
+    for (const file of expandedFocusFiles) {
       if (!graph.hasNode(file)) continue
       graph.forEachNeighbor(file, (neighbor) => {
         if (scores[neighbor] !== undefined) {

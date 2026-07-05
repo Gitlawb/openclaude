@@ -46,6 +46,10 @@ export function isSupportedFile(filePath: string): boolean {
   return getLanguageForFile(filePath) !== null
 }
 
+function normalizeRepoPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/')
+}
+
 /** List files using git ls-files. Returns relative paths. */
 function gitLsFiles(root: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
@@ -71,7 +75,7 @@ function gitLsFiles(root: string): Promise<string[]> {
 /** Walk directory tree manually as fallback when git is unavailable. */
 function walkDirectory(root: string, currentDir: string = root): string[] {
   const results: string[] = []
-  let entries: ReturnType<typeof readdirSync>
+  let entries
   try {
     entries = readdirSync(currentDir, { withFileTypes: true })
   } catch {
@@ -86,7 +90,7 @@ function walkDirectory(root: string, currentDir: string = root): string[] {
       }
     } else if (entry.isFile()) {
       if (!EXCLUDED_FILES.has(name)) {
-        results.push(relative(root, join(currentDir, name)))
+        results.push(normalizeRepoPath(relative(root, join(currentDir, name))))
       }
     }
   }
