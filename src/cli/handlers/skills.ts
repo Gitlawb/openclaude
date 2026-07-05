@@ -2,7 +2,6 @@
  * Skills subcommand handler — lists and inspects configured skills.
  */
 
-import { readFile } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
 import {
   findCommand,
@@ -132,7 +131,9 @@ export async function skillsShowHandler(name: string): Promise<void> {
 
   if (skill.skillFilePath) {
     try {
-      const content = await readFile(skill.skillFilePath, 'utf8')
+      const content = await getFsImplementation().readFile(skill.skillFilePath, {
+        encoding: 'utf8',
+      })
       lines.push('', '--- SKILL.md ---', content.trimEnd())
     } catch {
       lines.push('', 'SKILL.md could not be read.')
@@ -160,20 +161,20 @@ export async function skillsRemoveHandler(
   name: string,
   options: RemoveOptions,
 ): Promise<void> {
+  const directSkillRoot = await existingLocalSkillRootForRemoval(name, options)
+  if (directSkillRoot) {
+    await getFsImplementation().rm(directSkillRoot, { recursive: true, force: false })
+    console.log(
+      `Removed skill "${name}" from ${options.global ? 'user' : 'project'}.`,
+    )
+    return
+  }
+
   const skills = (await loadSkills(options.projectDir)).filter(isPublicSkill)
   const targetSource = options.global ? 'userSettings' : 'projectSettings'
   const skill = findLocalSkillForRemoval(skills, name, targetSource)
 
   if (!skill) {
-    const skillRoot = await existingLocalSkillRootForRemoval(name, options)
-    if (skillRoot) {
-      await getFsImplementation().rm(skillRoot, { recursive: true, force: false })
-      console.log(
-        `Removed skill "${name}" from ${options.global ? 'user' : 'project'}.`,
-      )
-      return
-    }
-
     console.error(getSkillRemoveNotFoundMessage(skills, name, options))
     process.exitCode = 1
     return

@@ -39,6 +39,11 @@ type SkillRegistryEntry = {
   author?: unknown
 }
 
+type RegistryEntriesResult = {
+  entries: SkillRegistryEntry[]
+  registrySource: string
+}
+
 const DEFAULT_SKILLS_REGISTRY_URL =
   'https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/registry.json'
 const VALID_INSTALL_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
@@ -137,7 +142,7 @@ async function readSourceText(source: string): Promise<string> {
   return readFile(resolve(source), 'utf8')
 }
 
-async function readRegistryEntries(source: string): Promise<SkillRegistryEntry[]> {
+async function readRegistryEntries(source: string): Promise<RegistryEntriesResult> {
   let registrySource = source
   if (!isUrl(source)) {
     const resolved = resolve(source)
@@ -153,26 +158,45 @@ async function readRegistryEntries(source: string): Promise<SkillRegistryEntry[]
 
   const raw = await readSourceText(registrySource)
   const parsed = JSON.parse(raw) as unknown
-  return normalizeRegistryEntries(parsed)
+  return {
+    entries: normalizeRegistryEntries(parsed),
+    registrySource,
+  }
+}
+
+function resolveRegistryEntrySource(
+  entrySource: string,
+  registrySource: string,
+): string {
+  if (isUrl(entrySource) || isAbsolute(entrySource)) {
+    return entrySource
+  }
+
+  if (isUrl(registrySource)) {
+    return new URL(entrySource, registrySource).toString()
+  }
+
+  return resolve(dirname(registrySource), entrySource)
 }
 
 async function resolveRegistryEntry(
   idOrName: string,
   options: InstallOptions,
-): Promise<SkillRegistryEntry | null> {
+): Promise<{ entry: SkillRegistryEntry; registrySource: string } | null> {
   const registrySource =
     options.registry ??
     process.env.OPENCLAUDE_SKILLS_REGISTRY_URL ??
     DEFAULT_SKILLS_REGISTRY_URL
-  const entries = await readRegistryEntries(registrySource)
-  return (
-    entries.find(
-      entry =>
-        entry.id === idOrName ||
-        entry.name === idOrName ||
-        (typeof entry.id === 'string' && entry.id.endsWith(`/${idOrName}`)),
-    ) ?? null
+  const registry = await readRegistryEntries(registrySource)
+  const entry = registry.entries.find(
+    candidate =>
+      candidate.id === idOrName ||
+      candidate.name === idOrName ||
+      (typeof candidate.id === 'string' &&
+        candidate.id.endsWith(`/${idOrName}`)),
   )
+
+  return entry ? { entry, registrySource: registry.registrySource } : null
 }
 
 function registryMetadata(entry: SkillRegistryEntry): Record<string, unknown> {
@@ -471,18 +495,23 @@ async function prepareInstallCandidate(
     }
   }
 
-  const entry = await resolveRegistryEntry(spec, options)
+  const registryMatch = await resolveRegistryEntry(spec, options)
+  const entry = registryMatch?.entry
   if (!entry || typeof entry.source !== 'string') {
     throw new Error(`Skill "${spec}" was not found in the registry.`)
   }
 
   const expectedSha256 = requireRegistrySha256(entry, spec)
   const minOpenClaudeVersion = assertCompatibleOpenClaudeVersion(entry, spec)
-  const markdown = await readSourceText(entry.source)
+  const entrySource = resolveRegistryEntrySource(
+    entry.source,
+    registryMatch.registrySource,
+  )
+  const markdown = await readSourceText(entrySource)
   assertSha256Matches(markdown, expectedSha256, spec)
 
   const fallbackName =
-    typeof entry.name === 'string' ? entry.name : skillNameFromSource(entry.source)
+    typeof entry.name === 'string' ? entry.name : skillNameFromSource(entrySource)
   const prepared = await prepareSkillFromMarkdown({
     markdown,
     fallbackName,
@@ -490,7 +519,7 @@ async function prepareInstallCandidate(
   })
   return {
     ...prepared,
-    sourceDescription: entry.source,
+    sourceDescription: entrySource,
     trust: typeof entry.trust === 'string' ? entry.trust : 'registry',
     toolsRequired: stringArray(entry.tools_required),
     minOpenClaudeVersion,

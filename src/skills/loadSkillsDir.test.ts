@@ -14,17 +14,14 @@ import { join } from 'node:path'
 import { test } from 'bun:test'
 
 import {
-  getAdditionalDirectoriesForClaudeMd,
-  getAllowedSettingSources,
-  setAdditionalDirectoriesForClaudeMd,
-  setAllowedSettingSources,
-} from '../bootstrap/state.ts'
+  enableUserAndProjectSettingSources,
+  restoreSettingState,
+} from '../test/settingSourceState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { Command } from '../types/command.ts'
-import type { SettingSource } from '../utils/settings/constants.ts'
 import {
   getClaudeConfigHomeDir,
   getClaudeConfigHomeDirOverrideForTesting,
@@ -40,7 +37,6 @@ import {
   clearSkillCaches,
   getSkillDirCommands,
   getProjectSkillsPaths,
-  loadSkillsFromSkillsDir,
 } from './loadSkillsDir.ts'
 
 function writeSkill(
@@ -84,52 +80,6 @@ function writeUserSkill(
     `---\ndescription: ${description}\n---\n# ${skillPath}\n`,
     'utf8',
   )
-}
-
-function enableUserAndProjectSettingSources(): {
-  additionalDirectories: string[]
-  argv: string[]
-  claudeCodeSimple: string | undefined
-  sources: SettingSource[]
-} {
-  const originalSources = getAllowedSettingSources()
-  const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
-  const originalArgv = [...process.argv]
-  const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
-  process.argv = process.argv.filter(arg => arg !== '--bare')
-  delete process.env.CLAUDE_CODE_SIMPLE
-  setAdditionalDirectoriesForClaudeMd([])
-  setAllowedSettingSources([
-    'userSettings',
-    'projectSettings',
-    'localSettings',
-    'flagSettings',
-    'policySettings',
-  ])
-  resetSettingsCache()
-  return {
-    additionalDirectories: originalAdditionalDirectories,
-    argv: originalArgv,
-    claudeCodeSimple: originalClaudeCodeSimple,
-    sources: originalSources,
-  }
-}
-
-function restoreSettingState(original: {
-  additionalDirectories: string[]
-  argv: string[]
-  claudeCodeSimple: string | undefined
-  sources: SettingSource[]
-}): void {
-  process.argv = original.argv
-  if (original.claudeCodeSimple === undefined) {
-    delete process.env.CLAUDE_CODE_SIMPLE
-  } else {
-    process.env.CLAUDE_CODE_SIMPLE = original.claudeCodeSimple
-  }
-  setAdditionalDirectoriesForClaudeMd(original.additionalDirectories)
-  setAllowedSettingSources(original.sources)
-  resetSettingsCache()
 }
 
 function clearSkillAndConfigCaches(): void {
@@ -311,16 +261,7 @@ test.serial('project skills are ordered before user skills with the same name', 
     setConfigDirEnv(configDir)
     clearSkillAndConfigCaches()
 
-    const projectSkills = await loadSkillsFromSkillsDir(
-      join(cwd, '.openclaude', 'skills'),
-      'projectSettings',
-    )
-    const userSkills = await loadSkillsFromSkillsDir(
-      join(configDir, 'skills'),
-      'userSettings',
-    )
-    const sharedSkills = [...projectSkills, ...userSkills]
-      .map(({ skill }) => skill)
+    const sharedSkills = (await getSkillDirCommands(cwd))
       .filter(skill => isPromptSkillNamed(skill, 'shared'))
       .map(skill => ({
         description: skill.description,

@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,15 +15,19 @@ import { join } from 'node:path'
 import { test } from 'bun:test'
 
 import {
-  getAdditionalDirectoriesForClaudeMd,
-  getAllowedSettingSources,
-  setAdditionalDirectoriesForClaudeMd,
-  setAllowedSettingSources,
-} from '../../bootstrap/state.ts'
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import {
+  enableUserAndProjectSettingSources,
+  restoreSettingState,
+} from '../../test/settingSourceState.js'
 import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
-import type { SettingSource } from '../../utils/settings/constants.ts'
-import { resetSettingsCache } from '../../utils/settings/settingsCache.ts'
+import {
+  getFsImplementation,
+  setFsImplementation,
+} from '../../utils/fsOperations.js'
 import { skillsInstallHandler } from './skillsInstall.ts'
 import { skillsRemoveHandler } from './skills.ts'
 import {
@@ -150,52 +155,6 @@ function stagedInstallTempDirs(): string[] {
 
 function assertNoNewStagedInstallDirs(before: string[]): void {
   assert.deepEqual(stagedInstallTempDirs().sort(), before.sort())
-}
-
-function enableUserAndProjectSettingSources(): {
-  additionalDirectories: string[]
-  argv: string[]
-  claudeCodeSimple: string | undefined
-  sources: SettingSource[]
-} {
-  const originalSources = getAllowedSettingSources()
-  const originalAdditionalDirectories = getAdditionalDirectoriesForClaudeMd()
-  const originalArgv = [...process.argv]
-  const originalClaudeCodeSimple = process.env.CLAUDE_CODE_SIMPLE
-  process.argv = process.argv.filter(arg => arg !== '--bare')
-  delete process.env.CLAUDE_CODE_SIMPLE
-  setAdditionalDirectoriesForClaudeMd([])
-  setAllowedSettingSources([
-    'userSettings',
-    'projectSettings',
-    'localSettings',
-    'flagSettings',
-    'policySettings',
-  ])
-  resetSettingsCache()
-  return {
-    additionalDirectories: originalAdditionalDirectories,
-    argv: originalArgv,
-    claudeCodeSimple: originalClaudeCodeSimple,
-    sources: originalSources,
-  }
-}
-
-function restoreSettingState(original: {
-  additionalDirectories: string[]
-  argv: string[]
-  claudeCodeSimple: string | undefined
-  sources: SettingSource[]
-}): void {
-  process.argv = original.argv
-  if (original.claudeCodeSimple === undefined) {
-    delete process.env.CLAUDE_CODE_SIMPLE
-  } else {
-    process.env.CLAUDE_CODE_SIMPLE = original.claudeCodeSimple
-  }
-  setAdditionalDirectoriesForClaudeMd(original.additionalDirectories)
-  setAllowedSettingSources(original.sources)
-  resetSettingsCache()
 }
 
 async function withTempDir<T>(fn: (tempDir: string) => Promise<T>): Promise<T> {
@@ -478,6 +437,7 @@ test.serial('refuses to overwrite installed skills without --force', async () =>
 
     await skillsInstallHandler(source, { projectDir: cwd })
 
+    assert.equal(process.exitCode, 1)
     const installed = readFileSync(
       join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
       'utf8',
@@ -527,6 +487,40 @@ test.serial('installs a registry skill by id from a local registry file', async 
     assert.equal(installedMetadata.sha256, sha256OfSkillSource(VALID_SKILL))
     assert.equal(installedMetadata.min_openclaude_version, '0.1.0')
     assert.deepEqual(installedMetadata.tools_required, ['Read', 'Bash'])
+  })
+})
+
+test.serial('resolves relative registry skill sources from the registry file', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const registryDir = join(tempDir, 'registry')
+    const sourceDir = writeSkillDir(join(registryDir, 'skills'))
+    const registryPath = join(registryDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          source: 'skills/sample-skill/SKILL.md',
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 0)
+    assert.equal(
+      readFileSync(
+        join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
+        'utf8',
+      ),
+      VALID_SKILL,
+    )
   })
 })
 
@@ -666,29 +660,54 @@ test.serial('cleans staged temp roots when markdown staging fails', async () => 
 })
 
 test.serial('removes only the targeted project skill directory', async () => {
-  await withTempDir(async tempDir => {
-    const cwd = join(tempDir, 'project')
-    const skillsRoot = join(cwd, '.openclaude', 'skills')
-    const targetName = 'remove-target-skill'
-    const target = join(skillsRoot, targetName)
-    const sibling = join(skillsRoot, 'sibling-skill')
-    const originalSettingsState = enableUserAndProjectSettingSources()
-    mkdirSync(target, { recursive: true })
-    mkdirSync(sibling, { recursive: true })
-    writeFileSync(join(target, 'SKILL.md'), VALID_SKILL.replace('sample-skill', targetName), 'utf8')
-    writeFileSync(join(sibling, 'SKILL.md'), VALID_SKILL.replace('sample-skill', 'sibling-skill'), 'utf8')
+  await acquireSharedMutationLock('skillsRemoveHandler')
+  const originalFs = getFsImplementation()
+  try {
+    setFsImplementation({
+      ...originalFs,
+      existsSync,
+      stat: async path => statSync(path),
+      readdir: async path => readdirSync(path, { withFileTypes: true }),
+      readFile: async (path, options) => readFileSync(path, options),
+      rm: async (path, options) => {
+        rmSync(path, options)
+      },
+    })
+    await withTempDir(async tempDir => {
+      const cwd = join(tempDir, 'project')
+      const skillsRoot = join(cwd, '.openclaude', 'skills')
+      const targetName = 'remove-target-skill'
+      const target = join(skillsRoot, targetName)
+      const sibling = join(skillsRoot, 'sibling-skill')
+      const originalSettingsState = enableUserAndProjectSettingSources()
+      mkdirSync(target, { recursive: true })
+      mkdirSync(sibling, { recursive: true })
+      writeFileSync(
+        join(target, 'SKILL.md'),
+        VALID_SKILL.replace('sample-skill', targetName),
+        'utf8',
+      )
+      writeFileSync(
+        join(sibling, 'SKILL.md'),
+        VALID_SKILL.replace('sample-skill', 'sibling-skill'),
+        'utf8',
+      )
 
-    clearCommandsCache()
-    try {
-      process.exitCode = 0
-      await skillsRemoveHandler(targetName, { projectDir: cwd })
-      assert.equal(process.exitCode, 0)
-    } finally {
-      restoreSettingState(originalSettingsState)
       clearCommandsCache()
-    }
+      try {
+        process.exitCode = 0
+        await skillsRemoveHandler(targetName, { projectDir: cwd })
+        assert.equal(process.exitCode, 0)
+      } finally {
+        restoreSettingState(originalSettingsState)
+        clearCommandsCache()
+      }
 
-    assert.equal(existsSync(target), false)
-    assert.equal(existsSync(join(sibling, 'SKILL.md')), true)
-  })
+      assert.equal(existsSync(target), false)
+      assert.equal(existsSync(join(sibling, 'SKILL.md')), true)
+    })
+  } finally {
+    setFsImplementation(originalFs)
+    releaseSharedMutationLock()
+  }
 })
