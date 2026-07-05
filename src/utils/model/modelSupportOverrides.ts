@@ -1,5 +1,4 @@
 import memoize from 'lodash-es/memoize.js'
-import { getAPIProvider } from './providers.js'
 
 export type ModelCapabilityOverride =
   | 'effort'
@@ -29,9 +28,6 @@ const TIERS = [
  */
 export const get3PModelCapabilityOverride = memoize(
   (model: string, capability: ModelCapabilityOverride): boolean | undefined => {
-    if (getAPIProvider() === 'firstParty') {
-      return undefined
-    }
     const m = model.toLowerCase()
     for (const tier of TIERS) {
       const pinned = process.env[tier.modelEnvVar]

@@ -7,15 +7,11 @@ import {
 } from '@anthropic-ai/sdk'
 import type { QuerySource } from 'src/constants/querySource.js'
 import type { SystemAPIErrorMessage } from 'src/types/message.js'
-import { isAwsCredentialsProviderError } from 'src/utils/aws.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logError } from 'src/utils/log.js'
 import { createSystemAPIErrorMessage } from 'src/utils/messages.js'
-import { getAPIProvider, getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import {
   clearApiKeyHelperCache,
-  clearAwsCredentialsCache,
-  clearGcpCredentialsCache,
   getClaudeAIOAuthTokens,
   handleOAuth401Error,
   isClaudeAISubscriber,
@@ -219,10 +215,8 @@ export async function* withRetry<T>(
       }
 
       // Get a fresh client instance on first attempt or after authentication errors
-      // - 401 for first-party API authentication failures
+      // - 401 for API authentication failures
       // - 403 "OAuth token has been revoked" (another process refreshed the token)
-      // - Bedrock-specific auth errors (403 or CredentialsProviderError)
-      // - Vertex-specific auth errors (credential refresh failures, 401)
       // - ECONNRESET/EPIPE: stale keep-alive socket; disable pooling and reconnect
       const isStaleConnection = isStaleConnectionError(lastError)
       if (
@@ -242,8 +236,6 @@ export async function* withRetry<T>(
         client === null ||
         (lastError instanceof APIError && lastError.status === 401) ||
         isOAuthTokenRevokedError(lastError) ||
-        isBedrockAuthError(lastError) ||
-        isVertexAuthError(lastError) ||
         isStaleConnection
       ) {
         // On 401 "token expired" or 403 "token revoked", force a token refresh
@@ -359,7 +351,7 @@ export async function* withRetry<T>(
                 options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               fallback_model:
                 options.fallbackModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              provider: getAPIProviderForStatsig(),
+              provider: 'openai',
             })
 
             // Throw special error to indicate fallback was triggered
@@ -390,13 +382,8 @@ export async function* withRetry<T>(
         throw new CannotRetryError(error, retryContext)
       }
 
-      // AWS/GCP errors aren't always APIError, but can be retried
-      const handledCloudAuthError =
-        handleAwsCredentialError(error) || handleGcpCredentialError(error)
-      if (
-        !handledCloudAuthError &&
-        (!(error instanceof APIError) || !shouldRetry(error))
-      ) {
+      // Only retry if the error indicates we should
+      if (!(error instanceof APIError) || !shouldRetry(error)) {
         throw new CannotRetryError(error, retryContext)
       }
 
@@ -490,7 +477,7 @@ export async function* withRetry<T>(
         error: (error as APIError)
           .message as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         status: (error as APIError).status,
-        provider: getAPIProviderForStatsig(),
+        provider: 'openai',
       })
 
       if (persistent) {
@@ -499,7 +486,7 @@ export async function* withRetry<T>(
             status: (error as APIError).status,
             delayMs,
             attempt: reportedAttempt,
-            provider: getAPIProviderForStatsig(),
+            provider: 'openai',
           })
         }
         // Chunk long sleeps so the host sees periodic stdout activity and
@@ -647,71 +634,6 @@ function isOAuthTokenRevokedError(error: unknown): boolean {
   )
 }
 
-function isBedrockAuthError(error: unknown): boolean {
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {
-    // AWS libs reject without an API call if .aws holds a past Expiration value
-    // otherwise, API calls that receive expired tokens give generic 403
-    // "The security token included in the request is invalid"
-    if (
-      isAwsCredentialsProviderError(error) ||
-      (error instanceof APIError && error.status === 403)
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-/**
- * Clear AWS auth caches if appropriate.
- * @returns true if action was taken.
- */
-function handleAwsCredentialError(error: unknown): boolean {
-  if (isBedrockAuthError(error)) {
-    clearAwsCredentialsCache()
-    return true
-  }
-  return false
-}
-
-// google-auth-library throws plain Error (no typed name like AWS's
-// CredentialsProviderError). Match common SDK-level credential-failure messages.
-function isGoogleAuthLibraryCredentialError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const msg = error.message
-  return (
-    msg.includes('Could not load the default credentials') ||
-    msg.includes('Could not refresh access token') ||
-    msg.includes('invalid_grant')
-  )
-}
-
-function isVertexAuthError(error: unknown): boolean {
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)) {
-    // SDK-level: google-auth-library fails in prepareOptions() before the HTTP call
-    if (isGoogleAuthLibraryCredentialError(error)) {
-      return true
-    }
-    // Server-side: Vertex returns 401 for expired/invalid tokens
-    if (error instanceof APIError && error.status === 401) {
-      return true
-    }
-  }
-  return false
-}
-
-/**
- * Clear GCP auth caches if appropriate.
- * @returns true if action was taken.
- */
-function handleGcpCredentialError(error: unknown): boolean {
-  if (isVertexAuthError(error)) {
-    clearGcpCredentialsCache()
-    return true
-  }
-  return false
-}
-
 function shouldRetry(error: APIError): boolean {
   // Never retry mock errors - they're from /mock-limits command for testing
   if (isMockRateLimitError(error)) {
@@ -721,17 +643,6 @@ function shouldRetry(error: APIError): boolean {
   // Persistent mode: 429/529 always retryable, bypass subscriber gates and
   // x-should-retry header.
   if (isPersistentRetryEnabled() && isTransientCapacityError(error)) {
-    return true
-  }
-
-  // CCR mode: auth is via infrastructure-provided JWTs, so a 401/403 is a
-  // transient blip (auth service flap, network hiccup) rather than bad
-  // credentials. Bypass x-should-retry:false — the server assumes we'd retry
-  // the same bad key, but our key is fine.
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) &&
-    (error.status === 401 || error.status === 403)
-  ) {
     return true
   }
 
@@ -851,29 +762,12 @@ export function parseOpenAIDuration(s: string): number | null {
 }
 
 export function getRateLimitResetDelayMs(error: APIError): number | null {
-  const provider = getAPIProvider()
-
-  if (provider === 'firstParty') {
-    const resetHeader = error.headers?.get?.('anthropic-ratelimit-unified-reset')
-    if (!resetHeader) return null
-    const resetUnixSec = Number(resetHeader)
-    if (!Number.isFinite(resetUnixSec)) return null
-    const delayMs = resetUnixSec * 1000 - Date.now()
-    if (delayMs <= 0) return null
-    return Math.min(delayMs, PERSISTENT_RESET_CAP_MS)
-  }
-
-  if (provider === 'openai' || provider === 'codex' || provider === 'github') {
-    const reqHeader = error.headers?.get?.('x-ratelimit-reset-requests')
-    const tokHeader = error.headers?.get?.('x-ratelimit-reset-tokens')
-    const reqMs = reqHeader ? parseOpenAIDuration(reqHeader) : null
-    const tokMs = tokHeader ? parseOpenAIDuration(tokHeader) : null
-    if (reqMs === null && tokMs === null) return null
-    // Use the larger delay so we don't retry before both limits reset
-    const delayMs = Math.max(reqMs ?? 0, tokMs ?? 0)
-    return Math.min(delayMs, PERSISTENT_RESET_CAP_MS)
-  }
-
-  // bedrock, vertex, foundry, gemini — no standard reset header
-  return null
+  const reqHeader = error.headers?.get?.('x-ratelimit-reset-requests')
+  const tokHeader = error.headers?.get?.('x-ratelimit-reset-tokens')
+  const reqMs = reqHeader ? parseOpenAIDuration(reqHeader) : null
+  const tokMs = tokHeader ? parseOpenAIDuration(tokHeader) : null
+  if (reqMs === null && tokMs === null) return null
+  // Use the larger delay so we don't retry before both limits reset
+  const delayMs = Math.max(reqMs ?? 0, tokMs ?? 0)
+  return Math.min(delayMs, PERSISTENT_RESET_CAP_MS)
 }

@@ -1,5 +1,4 @@
 import { feature } from 'bun:bundle'
-import { getAPIProvider } from './model/providers.js'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   ContentBlock,
@@ -1766,7 +1765,6 @@ export function stripCallerFieldFromAssistantMessage(
           id: block.id,
           name: block.name,
           input: block.input,
-          ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
         }
       }),
     },
@@ -2228,7 +2226,6 @@ export function normalizeMessagesForAPI(
                       ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
-                      ...(getAPIProvider() === 'gemini' && extra_content ? { extra_content } : {})
                     }
                   }
 
@@ -2240,7 +2237,6 @@ export function normalizeMessagesForAPI(
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
                   }
                 }
                 return block

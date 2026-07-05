@@ -9,7 +9,6 @@ import { getClaudeAIOAuthTokens } from 'src/utils/auth.js'
 import { getGlobalConfig, saveGlobalConfig } from 'src/utils/config.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { isEnvDefinedFalsy } from 'src/utils/envUtils.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
 import { clearMcpAuthCache } from './client.js'
 import { normalizeNameForMCP } from './normalization.js'
 import type { ScopedMcpServerConfig } from './types.js'
@@ -40,15 +39,15 @@ const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 export const fetchClaudeAIMcpConfigsIfEligible = memoize(
   async (): Promise<Record<string, ScopedMcpServerConfig>> => {
     try {
-      if (getAPIProvider() !== 'firstParty') {
-        logForDebugging('[claudeai-mcp] Skipped: non-first-party provider')
-        logEvent('tengu_claudeai_mcp_eligibility', {
-          state:
-            'non_first_party_provider' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-        })
-        return {}
-      }
+      // Claude.ai MCP servers require first-party provider — always skip for openai.
+      logForDebugging('[claudeai-mcp] Skipped: not first-party provider')
+      logEvent('tengu_claudeai_mcp_eligibility', {
+        state:
+          'non_first_party_provider' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      })
+      return {}
 
+      // Legacy first-party code below is unreachable
       if (isEnvDefinedFalsy(process.env.ENABLE_CLAUDEAI_MCP_SERVERS)) {
         logForDebugging('[claudeai-mcp] Disabled via env var')
         logEvent('tengu_claudeai_mcp_eligibility', {
@@ -69,9 +68,9 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
       }
 
       // Check for user:mcp_servers scope directly instead of isClaudeAISubscriber().
-      // In non-interactive mode, isClaudeAISubscriber() returns false when ANTHROPIC_API_KEY
+      // In non-interactive mode, isClaudeAISubscriber() returns false when OPENAI_API_KEY
       // is set (even with valid OAuth tokens) because preferThirdPartyAuthentication() causes
-      // isAnthropicAuthEnabled() to return false. Checking the scope directly allows users
+      // isOpenAIAuthEnabled() to return false. Checking the scope directly allows users
       // with both API keys and OAuth tokens to access claude.ai MCPs in print mode.
       if (!tokens.scopes?.includes('user:mcp_servers')) {
         logForDebugging(

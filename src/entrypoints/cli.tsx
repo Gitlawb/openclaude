@@ -122,16 +122,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available
-  {
-    const {
-      hydrateGithubModelsTokenFromSecureStorage,
-      refreshGithubModelsTokenIfNeeded,
-    } = await import('../utils/githubModelsCredentials.js')
-    await refreshGithubModelsTokenIfNeeded()
-    hydrateGithubModelsTokenFromSecureStorage()
-  }
-
   await validateProviderEnvOrExit()
 
   // Print the gradient startup screen before the Ink UI loads

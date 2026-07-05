@@ -11,7 +11,6 @@ import {
   modelSupportsEffort,
   modelUsesOpenAIEffort,
 } from '../utils/effort.js'
-import { getAPIProvider } from '../utils/model/providers.js'
 import { getReasoningEffortForModel } from '../services/api/providerConfig.js'
 import { Select } from './CustomSelect/select.js'
 import { effortLevelToSymbol } from './EffortIndicator.js'
@@ -34,7 +33,7 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   const model = useMainLoopModel()
   const appStateEffort = useAppState((s: any) => s.effortValue)
   const setAppState = useSetAppState()
-  const provider = getAPIProvider()
+  const provider = 'openai'
   const usesOpenAIEffort = modelUsesOpenAIEffort(model)
   const availableLevels = getAvailableEffortLevels(model)
   const currentDisplayedLevel = getDisplayedEffortLevel(model, appStateEffort)

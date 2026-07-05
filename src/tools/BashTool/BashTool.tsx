@@ -19,7 +19,8 @@ import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/
 import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
-import { isENOENT, ShellError } from '../../utils/errors.js';
+import { isENOENT, ShellError } from '../../utils/errors.js'
+import { withTransientRetry, isTransientError } from './transientErrors.js';
 import { detectFileEncoding, detectLineEndings, getFileModificationTime, writeTextContent } from '../../utils/file.js';
 import { fileHistoryEnabled, fileHistoryTrackEdit } from '../../utils/fileHistory.js';
 import { truncate } from '../../utils/format.js';
@@ -643,7 +644,10 @@ export const BashTool = buildTool({
     let result: ExecResult;
     const isMainThread = !toolUseContext.agentId;
     const preventCwdChanges = !isMainThread;
+    const MAX_TRANSIENT_RETRIES = 2;
+    let retryCount = 0;
     try {
+      while (true) {
       // Use the new async generator version of runShellCommand
       const commandGenerator = runShellCommand({
         input,
@@ -662,7 +666,8 @@ export const BashTool = buildTool({
       let generatorResult;
       do {
         generatorResult = await commandGenerator.next();
-        if (!generatorResult.done && onProgress) {
+        // Only report progress on first attempt — retries are silent
+        if (!generatorResult.done && onProgress && retryCount === 0) {
           const progress = generatorResult.value;
           onProgress({
             toolUseID: `bash-progress-${progressCounter++}`,
@@ -714,12 +719,26 @@ export const BashTool = buildTool({
         throw new Error(result.preSpawnError);
       }
       if (interpretationResult.isError && !isInterrupt) {
+        // Auto-retry transient errors silently (network EOF, 429, 5xx, etc.)
+        if (isTransientError(result) && retryCount < MAX_TRANSIENT_RETRIES) {
+          retryCount++;
+          // Reset accumulators for retry
+          stdoutAccumulator.clear();
+          interpretationResult = undefined;
+          result = undefined as unknown as ExecResult;
+          // Exponential backoff: 1s, 2s
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
+          continue; // Retry the command
+        }
+        // Non-transient error or retries exhausted — surface to model
         // stderr is merged into stdout (merged fd); outputWithSbFailures
         // already has the full output. Pass '' for stdout to avoid
         // duplication in getErrorParts() and processBashCommand.
         throw new ShellError('', outputWithSbFailures, result.code, result.interrupted);
       }
       wasInterrupted = result.interrupted;
+      break; // Success — exit retry loop
+      }
     } finally {
       if (setToolJSX) setToolJSX(null);
     }

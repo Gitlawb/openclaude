@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { logForDebugging } from '../debug.js'
 import type { ModelOption } from './modelOptions.js'
-import { getAPIProvider } from './providers.js'
 
 const DISCOVERY_TIMEOUT_MS = 5000
 const DISCOVERED_MODEL_DESCRIPTION =
@@ -162,10 +161,6 @@ async function fetchOllamaModels(
 export async function discoverOpenAICompatibleModelOptions(): Promise<
   ModelOption[]
 > {
-  if (getAPIProvider() !== 'openai') {
-    return []
-  }
-
   const baseUrl = getNormalizedOpenAIBaseUrl()
   const headers = getOpenAIAuthHeaders(baseUrl)
 

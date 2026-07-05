@@ -35,7 +35,6 @@ import { logForDebugging } from '../../utils/debug.js'
 import { isRunningOnHomespace } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { logError } from '../../utils/log.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import {
@@ -236,7 +235,7 @@ export async function authStatus(opts: {
   const { source: authTokenSource, hasToken } = getAuthTokenSource()
   const { source: apiKeySource } = getAnthropicApiKeyWithSource()
   const hasApiKeyEnvVar =
-    !!process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace()
+    !!process.env.OPENAI_API_KEY && !isRunningOnHomespace()
   const oauthAccount = getOauthAccountInfo()
   const subscriptionType = getSubscriptionType()
   const using3P = isUsing3PServices()
@@ -253,7 +252,7 @@ export async function authStatus(opts: {
     authMethod = 'api_key_helper'
   } else if (authTokenSource !== 'none') {
     authMethod = 'oauth_token'
-  } else if (apiKeySource === 'ANTHROPIC_API_KEY' || hasApiKeyEnvVar) {
+  } else if (apiKeySource === 'OPENAI_API_KEY' || hasApiKeyEnvVar) {
     authMethod = 'api_key'
   } else if (apiKeySource === '/login managed key') {
     authMethod = 'claude.ai'
@@ -283,7 +282,7 @@ export async function authStatus(opts: {
       }
     }
     if (!hasAuthProperty && hasApiKeyEnvVar) {
-      process.stdout.write('API key: ANTHROPIC_API_KEY\n')
+      process.stdout.write('API key: OPENAI_API_KEY\n')
     }
     if (!loggedIn) {
       process.stdout.write(
@@ -291,17 +290,16 @@ export async function authStatus(opts: {
       )
     }
   } else {
-    const apiProvider = getAPIProvider()
     const resolvedApiKeySource =
       apiKeySource !== 'none'
         ? apiKeySource
         : hasApiKeyEnvVar
-          ? 'ANTHROPIC_API_KEY'
+          ? 'OPENAI_API_KEY'
           : null
     const output: Record<string, string | boolean | null> = {
       loggedIn,
       authMethod,
-      apiProvider,
+      apiProvider: 'openai',
     }
     if (resolvedApiKeySource) {
       output.apiKeySource = resolvedApiKeySource

@@ -1292,7 +1292,7 @@ export async function powershellToolHasPermission(
   // succeeded; 'application' means a script/executable path, not a cmdlet.
   // SECURITY: Same argLeaksValue gate as the per-subcommand loop below
   // (finding #32). Without it, `PowerShell(Write-Output:*)` exact-matches
-  // `Write-Output $env:ANTHROPIC_API_KEY`, pushes allow to decisions[], and
+  // `Write-Output $env:OPENAI_API_KEY`, pushes allow to decisions[], and
   // reduce returns it before the per-subcommand gate ever runs. The
   // allSubCommands.every check ensures NO command in the statement leaks
   // (a single-command exact-allow has one element; a pipeline has several).
@@ -1471,7 +1471,7 @@ export async function powershellToolHasPermission(
       // SECURITY: User allow rule asserts the cmdlet is safe, NOT that
       // arbitrary variable expansion through it is safe. A user who allows
       // PowerShell(Write-Output:*) did not intend to auto-allow
-      // `Write-Output $env:ANTHROPIC_API_KEY`. Apply the same argLeaksValue
+      // `Write-Output $env:OPENAI_API_KEY`. Apply the same argLeaksValue
       // gate that protects the built-in allowlist path below — rejects
       // Variable/Other/ScriptBlock/SubExpression elementTypes and colon-bound
       // expression children. (security finding #32)

@@ -7,7 +7,6 @@ import {
 import type { ModelOption } from './model/modelOptions.js'
 
 export type ProviderPreset =
-  | 'anthropic'
   | 'ollama'
   | 'openai'
   | 'moonshotai'
@@ -55,7 +54,7 @@ function normalizeBaseUrl(value: string): string {
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const id = trimValue(profile.id)
   const name = trimValue(profile.name)
-  const provider = profile.provider === 'anthropic' ? 'anthropic' : 'openai'
+  const provider = 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
 
@@ -118,15 +117,6 @@ export function getProviderPresetDefaults(
   preset: ProviderPreset,
 ): ProviderPresetDefaults {
   switch (preset) {
-    case 'anthropic':
-      return {
-        provider: 'anthropic',
-        name: 'Anthropic',
-        baseUrl: process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
-        model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
-        apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-        requiresApiKey: true,
-      }
     case 'openai':
       return {
         provider: 'openai',
@@ -255,32 +245,14 @@ export function hasProviderProfiles(config = getGlobalConfig()): boolean {
 function hasProviderSelectionFlags(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
-    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
-  )
+  return processEnv.CLAUDE_CODE_USE_OPENAI !== undefined
 }
 
 function hasConflictingProviderFlagsForProfile(
   processEnv: NodeJS.ProcessEnv,
-  profile: ProviderProfile,
+  _profile: ProviderProfile,
 ): boolean {
-  if (profile.provider === 'anthropic') {
-    return hasProviderSelectionFlags(processEnv)
-  }
-
-  return (
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
-    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
-  )
+  return false
 }
 
 function sameOptionalEnvValue(
@@ -307,24 +279,8 @@ function isProcessEnvAlignedWithProfile(
     return false
   }
 
-  if (profile.provider === 'anthropic') {
-    return (
-      !hasProviderSelectionFlags(processEnv) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, profile.model) &&
-      (!includeApiKey ||
-        sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
-    )
-  }
-
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-    processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
-    processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
-    processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
-    processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
-    processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
-    processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, profile.model) &&
     (!includeApiKey ||
@@ -348,21 +304,12 @@ export function clearProviderProfileEnvFromProcessEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
   delete processEnv.CLAUDE_CODE_USE_OPENAI
-  delete processEnv.CLAUDE_CODE_USE_GEMINI
-  delete processEnv.CLAUDE_CODE_USE_MISTRAL
-  delete processEnv.CLAUDE_CODE_USE_GITHUB
-  delete processEnv.CLAUDE_CODE_USE_BEDROCK
-  delete processEnv.CLAUDE_CODE_USE_VERTEX
-  delete processEnv.CLAUDE_CODE_USE_FOUNDRY
 
   delete processEnv.OPENAI_BASE_URL
   delete processEnv.OPENAI_API_BASE
   delete processEnv.OPENAI_MODEL
   delete processEnv.OPENAI_API_KEY
 
-  delete processEnv.ANTHROPIC_BASE_URL
-  delete processEnv.ANTHROPIC_MODEL
-  delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
@@ -371,23 +318,6 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   clearProviderProfileEnvFromProcessEnv()
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
-
-  process.env.ANTHROPIC_MODEL = profile.model
-  if (profile.provider === 'anthropic') {
-    process.env.ANTHROPIC_BASE_URL = profile.baseUrl
-
-    if (profile.apiKey) {
-      process.env.ANTHROPIC_API_KEY = profile.apiKey
-    } else {
-      delete process.env.ANTHROPIC_API_KEY
-    }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_BASE
-    delete process.env.OPENAI_MODEL
-    delete process.env.OPENAI_API_KEY
-    return
-  }
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl

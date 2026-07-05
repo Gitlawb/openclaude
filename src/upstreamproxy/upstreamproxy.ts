@@ -111,14 +111,14 @@ export async function initUpstreamProxy(opts?: {
 
   setNonDumpable()
 
-  // CCR injects ANTHROPIC_BASE_URL via StartupContext (sessionExecutor.ts /
+  // CCR injects OPENAI_BASE_URL via StartupContext (sessionExecutor.ts /
   // sessionHandler.ts). getOauthConfig() is wrong here: it keys off
   // USER_TYPE + USE_{LOCAL,STAGING}_OAUTH, none of which the container sets,
   // so it always returned the prod URL and the CA fetch 404'd.
   const baseUrl =
     opts?.ccrBaseUrl ??
-    process.env.ANTHROPIC_BASE_URL ??
-    'https://api.anthropic.com'
+    process.env.OPENAI_BASE_URL ??
+    'https://api.openai.com'
   const caBundlePath =
     opts?.caBundlePath ?? join(homedir(), '.ccr', 'ca-bundle.crt')
 

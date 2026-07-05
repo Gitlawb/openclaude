@@ -15,9 +15,6 @@ import type {
   UserMessage,
 } from 'src/types/message.js'
 import {
-  getAnthropicApiKeyWithSource,
-  getClaudeAIOAuthTokens,
-  getOauthAccountInfo,
   isClaudeAISubscriber,
 } from 'src/utils/auth.js'
 import {
@@ -29,7 +26,7 @@ import {
   isNonCustomOpusModel,
 } from 'src/utils/model/model.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+// Provider import removed — always OpenAI-compatible
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import {
   API_PDF_MAX_PAGES,
@@ -156,18 +153,16 @@ export const INVALID_API_KEY_ERROR_MESSAGE = 'Not logged in · Please run /login
 export const INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL =
   'Invalid API key · Fix external API key'
 export const ORG_DISABLED_ERROR_MESSAGE_ENV_KEY_WITH_OAUTH =
-  'Your ANTHROPIC_API_KEY belongs to a disabled organization · Unset the environment variable to use your subscription instead'
+  'Your API key belongs to a disabled organization · Unset the environment variable to use your subscription instead'
 export const ORG_DISABLED_ERROR_MESSAGE_ENV_KEY =
-  'Your ANTHROPIC_API_KEY belongs to a disabled organization · Update or unset the environment variable'
+  'Your API key belongs to a disabled organization · Update or unset the environment variable'
 export const TOKEN_REVOKED_ERROR_MESSAGE =
   'OAuth token revoked · Please run /login'
 export const CCR_AUTH_ERROR_MESSAGE =
   'Authentication error · This may be a temporary network issue, please try again'
 export const REPEATED_529_ERROR_MESSAGE = 'Repeated 529 Overloaded errors'
 export function getCustomOffSwitchMessage(): string {
-  return getAPIProvider() === 'firstParty'
-    ? 'Opus is experiencing high load, please use /model to switch to Sonnet'
-    : 'The API is experiencing high load, please try again shortly or use /model to switch models'
+  return 'The API is experiencing high load, please try again shortly or use /model to switch models'
 }
 // Backward-compatible constant for string matching in error handlers
 export const CUSTOM_OFF_SWITCH_MESSAGE =
@@ -213,15 +208,6 @@ export function getOauthOrgNotAllowedErrorMessage(): string {
   return getIsNonInteractiveSession()
     ? 'Your organization does not have access to Claude. Please login again or contact your administrator.'
     : OAUTH_ORG_NOT_ALLOWED_ERROR_MESSAGE
-}
-
-/**
- * Check if we're in CCR (Claude Code Remote) mode.
- * In CCR mode, auth is handled via JWTs provided by the infrastructure,
- * not via /login. Transient auth errors should suggest retrying, not logging in.
- */
-function isCCRMode(): boolean {
-  return isEnvTruthy(process.env.CLAUDE_CODE_REMOTE)
 }
 
 // Temp helper to log tool_use/tool_result mismatch errors
@@ -401,31 +387,6 @@ export function isValidAPIMessage(value: unknown): value is BetaMessage {
     typeof (value as BetaMessage).model === 'string' &&
     typeof (value as BetaMessage).usage === 'object'
   )
-}
-
-/** Lower-level error that AWS can return. */
-type AmazonError = {
-  Output?: {
-    __type?: string
-  }
-  Version?: string
-}
-
-/**
- * Given a response that doesn't look quite right, see if it contains any known error types we can extract.
- */
-export function extractUnknownErrorFormat(value: unknown): string | undefined {
-  // Check if value is a valid object first
-  if (!value || typeof value !== 'object') {
-    return undefined
-  }
-
-  // Amazon Bedrock routing errors
-  if ((value as AmazonError).Output?.__type) {
-    return (value as AmazonError).Output!.__type
-  }
-
-  return undefined
 }
 
 export function getAssistantMessageFromError(
@@ -757,24 +718,15 @@ export function getAssistantMessageFromError(
     })
   }
 
-  // Check for invalid model name error for Ant users. Claude Code may be
-  // defaulting to a custom internal-only model for Ants, and there might be
-  // Ants using new or unknown org IDs that haven't been gated in.
+  // Check for invalid model name error.
   if (
-    process.env.USER_TYPE === 'ant' &&
-    !process.env.ANTHROPIC_MODEL &&
+    !process.env.OPENAI_MODEL &&
     error instanceof Error &&
     error.message.toLowerCase().includes('invalid model name')
   ) {
-    // Get organization ID from config - only use OAuth account data when actively using OAuth
-    const orgId = getOauthAccountInfo()?.organizationUuid
-    const baseMsg = `[internal] Your org isn't gated into the \`${model}\` model. Either run \`claude\` with \`ANTHROPIC_MODEL=${getDefaultMainLoopModelSetting()}\``
-    const msg = orgId
-      ? `${baseMsg} or share your orgId (${orgId}) in ${MACRO.FEEDBACK_CHANNEL} for help getting access.`
-      : `${baseMsg} or reach out in ${MACRO.FEEDBACK_CHANNEL} for help getting access.`
-
+    const baseMsg = `The model \`${model}\` is not available. Run with \`OPENAI_MODEL=${getDefaultMainLoopModelSetting()}\` or use /model to switch models.`
     return createAssistantAPIErrorMessage({
-      content: msg,
+      content: baseMsg,
       error: 'invalid_request',
     })
   }
@@ -788,61 +740,26 @@ export function getAssistantMessageFromError(
       error: 'billing_error',
     })
   }
-  // "Organization has been disabled" — commonly a stale ANTHROPIC_API_KEY
-  // from a previous employer/project overriding subscription auth. Only handle
-  // the env-var case; apiKeyHelper and /login-managed keys mean the active
-  // auth's org is genuinely disabled with no dormant fallback to point at.
+  // "Organization has been disabled" — commonly a stale API key
+  // from a previous employer/project overriding subscription auth.
   if (
     error instanceof APIError &&
     error.status === 400 &&
     error.message.toLowerCase().includes('organization has been disabled')
   ) {
-    const { source } = getAnthropicApiKeyWithSource()
-    // getAnthropicApiKeyWithSource conflates the env var with FD-passed keys
-    // under the same source value, and in CCR mode OAuth stays active despite
-    // the env var. The three guards ensure we only blame the env var when it's
-    // actually set and actually on the wire.
-    if (
-      source === 'ANTHROPIC_API_KEY' &&
-      process.env.ANTHROPIC_API_KEY &&
-      !isClaudeAISubscriber()
-    ) {
-      const hasStoredOAuth = getClaudeAIOAuthTokens()?.accessToken != null
-      // Not 'authentication_failed' — that triggers VS Code's showLogin(), but
-      // login can't fix this (approved env var keeps overriding OAuth). The fix
-      // is configuration-based (unset the var), so invalid_request is correct.
-      return createAssistantAPIErrorMessage({
-        error: 'invalid_request',
-        content: hasStoredOAuth
-          ? ORG_DISABLED_ERROR_MESSAGE_ENV_KEY_WITH_OAUTH
-          : ORG_DISABLED_ERROR_MESSAGE_ENV_KEY,
-      })
-    }
+    return createAssistantAPIErrorMessage({
+      error: 'invalid_request',
+      content: ORG_DISABLED_ERROR_MESSAGE_ENV_KEY,
+    })
   }
 
   if (
     error instanceof Error &&
-    error.message.toLowerCase().includes('x-api-key') &&
-    getAPIProvider() === 'firstParty'
+    error.message.toLowerCase().includes('x-api-key')
   ) {
-    // In CCR mode, auth is via JWTs - this is likely a transient network issue
-    if (isCCRMode()) {
-      return createAssistantAPIErrorMessage({
-        error: 'authentication_failed',
-        content: CCR_AUTH_ERROR_MESSAGE,
-      })
-    }
-
-    // Check if the API key is from an external source
-    const { source } = getAnthropicApiKeyWithSource()
-    const isExternalSource =
-      source === 'ANTHROPIC_API_KEY' || source === 'apiKeyHelper'
-
     return createAssistantAPIErrorMessage({
       error: 'authentication_failed',
-      content: isExternalSource
-        ? INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL
-        : INVALID_API_KEY_ERROR_MESSAGE,
+      content: INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL,
     })
   }
 
@@ -877,36 +794,11 @@ export function getAssistantMessageFromError(
     error instanceof APIError &&
     (error.status === 401 || error.status === 403)
   ) {
-    // In CCR mode, auth is via JWTs - this is likely a transient network issue
-    if (isCCRMode()) {
-      return createAssistantAPIErrorMessage({
-        error: 'authentication_failed',
-        content: CCR_AUTH_ERROR_MESSAGE,
-      })
-    }
-
     return createAssistantAPIErrorMessage({
       error: 'authentication_failed',
       content: getIsNonInteractiveSession()
         ? `Failed to authenticate. ${API_ERROR_MESSAGE_PREFIX}: ${error.message}`
         : `Please run /login · ${API_ERROR_MESSAGE_PREFIX}: ${error.message}`,
-    })
-  }
-
-  // Bedrock errors like "403 You don't have access to the model with the specified model ID."
-  // don't contain the actual model ID
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-    error instanceof Error &&
-    error.message.toLowerCase().includes('model id')
-  ) {
-    const switchCmd = getIsNonInteractiveSession() ? '--model' : '/model'
-    const fallbackSuggestion = get3PModelFallbackSuggestion(model)
-    return createAssistantAPIErrorMessage({
-      content: fallbackSuggestion
-        ? `${API_ERROR_MESSAGE_PREFIX} (${model}): ${error.message}. Try ${switchCmd} to switch to ${fallbackSuggestion}.`
-        : `${API_ERROR_MESSAGE_PREFIX} (${model}): ${error.message}. Run ${switchCmd} to pick a different model.`,
-      error: 'invalid_request',
     })
   }
 
@@ -918,7 +810,7 @@ export function getAssistantMessageFromError(
     const fallbackSuggestion = get3PModelFallbackSuggestion(model)
     return createAssistantAPIErrorMessage({
       content: fallbackSuggestion
-        ? `The model ${model} is not available on your ${getAPIProvider()} deployment. Try ${switchCmd} to switch to ${fallbackSuggestion}, or ask your admin to enable this model.`
+        ? `The model ${model} is not available on your deployment. Try ${switchCmd} to switch to ${fallbackSuggestion}, or ask your admin to enable this model.`
         : `There's an issue with the selected model (${model}). It may not exist or you may not have access to it. Run ${switchCmd} to pick a different model.`,
       error: 'invalid_request',
     })
@@ -945,16 +837,13 @@ export function getAssistantMessageFromError(
 }
 
 /**
- * For 3P users, suggest a fallback model when the selected model is unavailable.
+ * Suggest a fallback model when the selected model is unavailable.
  * Returns a model name suggestion, or undefined if no suggestion is applicable.
  */
 function get3PModelFallbackSuggestion(model: string): string | undefined {
-  if (getAPIProvider() === 'firstParty') {
-    return undefined
-  }
-  // @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version for 3P
+  // @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version
   const m = model.toLowerCase()
-  // If the failing model looks like an Opus 4.6 variant, suggest the default Opus (4.1 for 3P)
+  // If the failing model looks like an Opus 4.6 variant, suggest the default Opus (4.1)
   if (m.includes('opus-4-6') || m.includes('opus_4_6')) {
     return getModelStrings().opus41
   }
@@ -1143,15 +1032,6 @@ export function classifyAPIError(error: unknown): string {
     return 'auth_error'
   }
 
-  // Bedrock-specific errors
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-    error instanceof Error &&
-    error.message.toLowerCase().includes('model id')
-  ) {
-    return 'bedrock_model_access'
-  }
-
   // Status code based fallbacks
   if (error instanceof APIError) {
     const status = error.status
@@ -1202,10 +1082,7 @@ export function getErrorMessageIfRefusal(
 
   logEvent('tengu_refusal_api_response', {})
 
-  const usagePolicyUrl =
-    getAPIProvider() === 'firstParty'
-      ? 'https://www.anthropic.com/legal/aup'
-      : "your provider's acceptable use policy"
+  const usagePolicyUrl = "your provider's acceptable use policy"
 
   const baseMessage = getIsNonInteractiveSession()
     ? `${API_ERROR_MESSAGE_PREFIX}: Claude Code is unable to respond to this request, which appears to violate our Usage Policy (${usagePolicyUrl}). Try rephrasing the request or attempting a different approach.`

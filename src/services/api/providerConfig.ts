@@ -1,66 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs'
 import { isIP } from 'node:net'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 
 import { isEnvTruthy } from '../../utils/envUtils.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
-export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
-export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-/** Default GitHub Copilot API model when user selects copilot / github:copilot */
-export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 
-const CODEX_ALIAS_MODELS: Record<
-  string,
-  {
-    model: string
-    reasoningEffort?: ReasoningEffort
-  }
-> = {
-  codexplan: {
-    model: 'gpt-5.4',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.4': {
-    model: 'gpt-5.4',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.3-codex': {
-    model: 'gpt-5.3-codex',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.3-codex-spark': {
-    model: 'gpt-5.3-codex-spark',
-  },
-  codexspark: {
-    model: 'gpt-5.3-codex-spark',
-  },
-  'gpt-5.2-codex': {
-    model: 'gpt-5.2-codex',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.1-codex-max': {
-    model: 'gpt-5.1-codex-max',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.1-codex-mini': {
-    model: 'gpt-5.1-codex-mini',
-  },
-  'gpt-5.4-mini': {
-    model: 'gpt-5.4-mini',
-    reasoningEffort: 'medium',
-  },
-  'gpt-5.2': {
-    model: 'gpt-5.2',
-    reasoningEffort: 'medium',
-  },
-} as const
-
-type CodexAlias = keyof typeof CODEX_ALIAS_MODELS
 type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
-export type ProviderTransport = 'chat_completions' | 'codex_responses'
+export type ProviderTransport = 'chat_completions'
 
 export type ResolvedProviderRequest = {
   transport: ProviderTransport
@@ -70,13 +16,6 @@ export type ResolvedProviderRequest = {
   reasoning?: {
     effort: ReasoningEffort
   }
-}
-
-export type ResolvedCodexCredentials = {
-  apiKey: string
-  accountId?: string
-  authPath?: string
-  source: 'env' | 'auth.json' | 'none'
 }
 
 type ModelDescriptor = {
@@ -112,12 +51,6 @@ function isPrivateIpv6Address(hostname: string): boolean {
   return (prefix & 0xfe00) === 0xfc00 || (prefix & 0xffc0) === 0xfe80
 }
 
-function asTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed ? trimmed : undefined
-}
-
 // Reads an env-var-style string intended as a URL or path, rejecting both
 // empty strings and the literal string "undefined" that Windows shells can
 // write when a variable is unset-then-referenced without quotes (issue #336).
@@ -126,44 +59,6 @@ function asEnvUrl(value: string | undefined): string | undefined {
   const trimmed = value.trim()
   if (!trimmed || trimmed === 'undefined') return undefined
   return trimmed
-}
-
-function readNestedString(
-  value: unknown,
-  paths: string[][],
-): string | undefined {
-  for (const path of paths) {
-    let current = value
-    let valid = true
-    for (const key of path) {
-      if (!current || typeof current !== 'object' || !(key in current)) {
-        valid = false
-        break
-      }
-      current = (current as Record<string, unknown>)[key]
-    }
-    if (!valid) continue
-    const stringValue = asTrimmedString(current)
-    if (stringValue) return stringValue
-  }
-  return undefined
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
-  const parts = token.split('.')
-  if (parts.length < 2) return undefined
-
-  try {
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-    const json = Buffer.from(padded, 'base64').toString('utf8')
-    const parsed = JSON.parse(json)
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, unknown>)
-      : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
@@ -179,17 +74,6 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   const trimmed = model.trim()
   const queryIndex = trimmed.indexOf('?')
   if (queryIndex === -1) {
-    const alias = trimmed.toLowerCase() as CodexAlias
-    const aliasConfig = CODEX_ALIAS_MODELS[alias]
-    if (aliasConfig) {
-      return {
-        raw: trimmed,
-        baseModel: aliasConfig.model,
-        reasoning: aliasConfig.reasoningEffort
-          ? { effort: aliasConfig.reasoningEffort }
-          : undefined,
-      }
-    }
     return {
       raw: trimmed,
       baseModel: trimmed,
@@ -198,49 +82,13 @@ function parseModelDescriptor(model: string): ModelDescriptor {
 
   const baseModel = trimmed.slice(0, queryIndex).trim()
   const params = new URLSearchParams(trimmed.slice(queryIndex + 1))
-  const alias = baseModel.toLowerCase() as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
-  const resolvedBaseModel = aliasConfig?.model ?? baseModel
-  const reasoning =
-    parseReasoningEffort(params.get('reasoning') ?? undefined) ??
-    (aliasConfig?.reasoningEffort
-      ? { effort: aliasConfig.reasoningEffort }
-      : undefined)
+  const reasoning = parseReasoningEffort(params.get('reasoning') ?? undefined)
 
   return {
     raw: trimmed,
-    baseModel: resolvedBaseModel,
-    reasoning: typeof reasoning === 'string' ? { effort: reasoning } : reasoning,
+    baseModel,
+    reasoning: reasoning ? { effort: reasoning } : undefined,
   }
-}
-
-export function isCodexAlias(model: string): boolean {
-  const normalized = model.trim().toLowerCase()
-  const base = normalized.split('?', 1)[0] ?? normalized
-  return base in CODEX_ALIAS_MODELS
-}
-
-export function shouldUseCodexTransport(
-  model: string,
-  baseUrl: string | undefined,
-): boolean {
-  const explicitBaseUrl = asEnvUrl(baseUrl)
-  return isCodexBaseUrl(explicitBaseUrl) || (!explicitBaseUrl && isCodexAlias(model))
-}
-
-function shouldUseGithubResponsesApi(model: string): boolean {
-  const normalized = model.trim().toLowerCase()
-
-  // Codex-branded models require /responses.
-  if (normalized.includes('codex')) return true
-
-  // GPT-5+ models use /responses, except gpt-5-mini.
-  const match = /^gpt-(\d+)/.exec(normalized)
-  if (!match) return false
-  const major = Number(match[1])
-  if (major < 5) return false
-  if (normalized.startsWith('gpt-5-mini')) return false
-  return true
 }
 
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
@@ -282,162 +130,38 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   }
 }
 
-export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-  try {
-    const parsed = new URL(baseUrl)
-    return (
-      parsed.hostname === 'chatgpt.com' &&
-      parsed.pathname.replace(/\/+$/, '') === '/backend-api/codex'
-    )
-  } catch {
-    return false
-  }
-}
-
-/**
- * Normalize user model string for GitHub Copilot API inference.
- * Mirrors how Copilot resolves model IDs internally.
- */
-export function normalizeGithubCopilotModel(requestedModel: string): string {
-  const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
-  if (!segment || segment.toLowerCase() === 'copilot') {
-    return DEFAULT_GITHUB_MODELS_API_MODEL
-  }
-  // Strip provider prefix if present (e.g., "openai/gpt-4o" -> "gpt-4o")
-  const slashIndex = segment.indexOf('/')
-  if (slashIndex !== -1) {
-    return segment.slice(slashIndex + 1)
-  }
-  return segment
-}
-
-/**
- * Normalize user model string for GitHub Models API inference.
- * Only normalizes the default alias, preserves provider-qualified models.
- */
-export function normalizeGithubModelsApiModel(requestedModel: string): string {
-  const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
-  // Only normalize the default alias for GitHub Models
-  if (!segment || segment.toLowerCase() === 'copilot') {
-    return DEFAULT_GITHUB_MODELS_API_MODEL
-  }
-  // Preserve provider prefix for GitHub Models (e.g., "openai/gpt-4.1" stays as-is)
-  return segment
-}
-
-export const GITHUB_COPILOT_BASE_URL = 'https://api.githubcopilot.com'
-export const GITHUB_MODELS_BASE_URL = 'https://models.github.ai/inference'
-
-export function getGithubEndpointType(
-  baseUrl: string | undefined,
-): 'copilot' | 'models' | 'custom' {
-  if (!baseUrl) return 'copilot'
-  try {
-    const hostname = new URL(baseUrl).hostname.toLowerCase()
-    if (hostname === 'api.githubcopilot.com') {
-      return 'copilot'
-    }
-    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai')) {
-      return 'models'
-    }
-    return 'custom'
-  } catch {
-    return 'copilot'
-  }
-}
-
 export function resolveProviderRequest(options?: {
   model?: string
   baseUrl?: string
   fallbackModel?: string
   reasoningEffortOverride?: ReasoningEffort
 }): ResolvedProviderRequest {
-  const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const requestedModel =
     options?.model?.trim() ||
-    (isMistralMode
-      ? process.env.MISTRAL_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
+    process.env.OPENAI_MODEL?.trim() ||
     options?.fallbackModel?.trim() ||
-    (isGithubMode ? 'github:copilot' : 'gpt-4o')
+    'gpt-4o'
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
     asEnvUrl(options?.baseUrl) ??
-    asEnvUrl(
-      isMistralMode ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL) : process.env.OPENAI_BASE_URL,
-    ) ??
+    asEnvUrl(process.env.OPENAI_BASE_URL) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
-
-  const githubEndpointType = isGithubMode
-    ? getGithubEndpointType(rawBaseUrl)
-    : 'custom'
-  const isGithubCopilot = isGithubMode && githubEndpointType === 'copilot'
-  const isGithubModels = isGithubMode && githubEndpointType === 'models'
-  const isGithubCustom = isGithubMode && githubEndpointType === 'custom'
-
-  const githubResolvedModel = isGithubMode
-    ? normalizeGithubModelsApiModel(requestedModel)
-    : requestedModel
-
-  const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, rawBaseUrl) ||
-      (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
-      ? 'codex_responses'
-      : 'chat_completions'
-
-  // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
-  // For GitHub Models/custom endpoints:
-  //   - Normalize default alias (github:copilot -> gpt-4o)
-  //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
-  const resolvedModel = isGithubCopilot
-    ? normalizeGithubCopilotModel(descriptor.baseModel)
-    : (isGithubModels || isGithubCustom
-      ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : descriptor.baseModel)
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoning
 
   return {
-    transport,
+    transport: 'chat_completions',
     requestedModel,
-    resolvedModel,
-    baseUrl:
-      (rawBaseUrl ??
-        (isGithubCopilot && transport === 'codex_responses'
-          ? GITHUB_COPILOT_BASE_URL
-          : (isGithubMode
-            ? GITHUB_COPILOT_BASE_URL
-            : DEFAULT_OPENAI_BASE_URL))
-      ).replace(/\/+$/, ''),
+    resolvedModel: descriptor.baseModel,
+    baseUrl: (rawBaseUrl ?? DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
     reasoning,
   }
 }
 
 export function getAdditionalModelOptionsCacheScope(): string | null {
-  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
-      return 'firstParty'
-    }
-    return null
-  }
-
   const request = resolveProviderRequest()
-  if (request.transport !== 'chat_completions') {
-    return null
-  }
 
   if (!isLocalProviderUrl(request.baseUrl)) {
     return null
@@ -446,116 +170,7 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
   return `openai:${request.baseUrl.toLowerCase()}`
 }
 
-export function resolveCodexAuthPath(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  const explicit = asTrimmedString(env.CODEX_AUTH_JSON_PATH)
-  if (explicit) return explicit
-
-  const codexHome = asTrimmedString(env.CODEX_HOME)
-  if (codexHome) return join(codexHome, 'auth.json')
-
-  return join(homedir(), '.codex', 'auth.json')
-}
-
-export function parseChatgptAccountId(
-  token: string | undefined,
-): string | undefined {
-  if (!token) return undefined
-  const payload = decodeJwtPayload(token)
-  const fromClaim = asTrimmedString(
-    payload?.['https://api.openai.com/auth.chatgpt_account_id'],
-  )
-  if (fromClaim) return fromClaim
-  return asTrimmedString(payload?.chatgpt_account_id)
-}
-
-function loadCodexAuthJson(
-  authPath: string,
-): Record<string, unknown> | undefined {
-  if (!existsSync(authPath)) return undefined
-  try {
-    const raw = readFileSync(authPath, 'utf8')
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, unknown>)
-      : undefined
-  } catch {
-    return undefined
-  }
-}
-
-export function resolveCodexApiCredentials(
-  env: NodeJS.ProcessEnv = process.env,
-): ResolvedCodexCredentials {
-  const envApiKey = asTrimmedString(env.CODEX_API_KEY)
-  const envAccountId =
-    asTrimmedString(env.CODEX_ACCOUNT_ID) ??
-    asTrimmedString(env.CHATGPT_ACCOUNT_ID)
-
-  if (envApiKey) {
-    return {
-      apiKey: envApiKey,
-      accountId: envAccountId ?? parseChatgptAccountId(envApiKey),
-      source: 'env',
-    }
-  }
-
-  const authPath = resolveCodexAuthPath(env)
-  const authJson = loadCodexAuthJson(authPath)
-  if (!authJson) {
-    return {
-      apiKey: '',
-      authPath,
-      source: 'none',
-    }
-  }
-
-  const apiKey = readNestedString(authJson, [
-    ['access_token'],
-    ['accessToken'],
-    ['tokens', 'access_token'],
-    ['tokens', 'accessToken'],
-    ['auth', 'access_token'],
-    ['auth', 'accessToken'],
-    ['token', 'access_token'],
-    ['token', 'accessToken'],
-    ['tokens', 'id_token'],
-    ['tokens', 'idToken'],
-  ])
-  const accountId =
-    envAccountId ??
-    readNestedString(authJson, [
-      ['account_id'],
-      ['accountId'],
-      ['tokens', 'account_id'],
-      ['tokens', 'accountId'],
-      ['auth', 'account_id'],
-      ['auth', 'accountId'],
-    ]) ??
-    parseChatgptAccountId(apiKey)
-
-  if (!apiKey) {
-    return {
-      apiKey: '',
-      accountId,
-      authPath,
-      source: 'none',
-    }
-  }
-
-  return {
-    apiKey,
-    accountId,
-    authPath,
-    source: 'auth.json',
-  }
-}
-
-export function getReasoningEffortForModel(model: string): ReasoningEffort | undefined {
-  const normalized = model.trim().toLowerCase()
-  const base = normalized.split('?', 1)[0] ?? normalized
-  const alias = base as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
-  return aliasConfig?.reasoningEffort
+export function getReasoningEffortForModel(_model: string): ReasoningEffort | undefined {
+  // Codex alias models removed — no built-in reasoning effort mappings remain.
+  return undefined
 }

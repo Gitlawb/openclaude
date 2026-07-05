@@ -94,29 +94,12 @@ export function buildInheritedCliFlags(options?: {
  * parent's env, so we forward any that are set in the current process.
  */
 const TEAMMATE_ENV_VARS = [
-  // API provider selection — without these, teammates default to firstParty
-  // and send requests to the wrong endpoint (GitHub issue #23561)
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_MISTRAL',
+  // API provider configuration — forward OpenAI-compatible settings so
+  // teammates connect to the same endpoint (GitHub issue #23561)
   'CLAUDE_CODE_USE_OPENAI',
-  'GITHUB_TOKEN',
-  'GH_TOKEN',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
-  'GEMINI_API_KEY',
-  'GEMINI_BASE_URL',
-  'GEMINI_MODEL',
-  'GOOGLE_API_KEY',
-  'MISTRAL_API_KEY',
-  'MISTRAL_MODEL',
-  'MISTRAL_BASE_URL',
-  // Custom API endpoint
-  'ANTHROPIC_BASE_URL',
   // Config directory override
   'CLAUDE_CONFIG_DIR',
   // CCR marker — teammates need this for CCR-aware code paths. Auth finds

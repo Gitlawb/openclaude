@@ -10,13 +10,11 @@ import { useKeybinding } from '../../keybindings/useKeybinding.js';
 import { type ExtraUsage, fetchUtilization, type RateLimit, type Utilization } from '../../services/api/usage.js';
 import { formatResetText } from '../../utils/format.js';
 import { logError } from '../../utils/log.js';
-import { getAPIProvider } from '../../utils/model/providers.js';
 import { jsonStringify } from '../../utils/slowOperations.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Byline } from '../design-system/Byline.js';
 import { ProgressBar } from '../design-system/ProgressBar.js';
 import { isEligibleForOverageCreditGrant, OverageCreditUpsell } from '../LogoV2/OverageCreditUpsell.js';
-import { CodexUsage } from './CodexUsage.js';
 type LimitBarProps = {
   title: string;
   limit: RateLimit;
@@ -266,9 +264,6 @@ function AnthropicUsage(): React.ReactNode {
     </Box>;
 }
 export function Usage(): React.ReactNode {
-  if (getAPIProvider() === 'codex') {
-    return <CodexUsage />;
-  }
   return <AnthropicUsage />;
 }
 type ExtraUsageSectionProps = {

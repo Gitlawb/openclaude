@@ -41,15 +41,14 @@ import { useShowOverageCreditUpsell, incrementOverageCreditUpsellSeenCount, crea
 import { plural } from '../../utils/stringUtils.js';
 import { useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
-import { getAPIProvider } from '../../utils/model/providers.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { renderModelSetting } from '../../utils/model/model.js';
 const LEFT_PANEL_MAX_WIDTH = 50;
 export function LogoV2() {
   const $ = _c(94);
   const activities = getRecentActivitySync();
-  const showAccountIdentity = getAPIProvider() === 'firstParty';
-  const username = showAccountIdentity ? getGlobalConfig().oauthAccount?.displayName ?? "" : "";
+  const showAccountIdentity = false;
+  const username = "";
   const {
     columns
   } = useTerminalSize();

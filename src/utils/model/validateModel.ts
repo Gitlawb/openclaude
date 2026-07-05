@@ -1,7 +1,6 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { MODEL_ALIASES } from './aliases.js'
 import { isModelAllowed } from './modelAllowlist.js'
-import { getAPIProvider } from './providers.js'
 import { sideQuery } from '../sideQuery.js'
 import {
   NotFoundError,
@@ -30,7 +29,7 @@ export async function validateModel(
 
   // For Ollama provider, validate against cached model list instead of API call
   // (skip enterprise allowlist since Ollama models are user-managed)
-  if (getAPIProvider() === 'openai' && isOllamaProvider()) {
+  if (isOllamaProvider()) {
     const ollamaModels = getCachedOllamaModelOptions()
     const found = ollamaModels.some(m => m.value === normalizedModel)
     if (found) {
@@ -162,9 +161,6 @@ function handleValidationError(
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */
 function get3PFallbackSuggestion(model: string): string | undefined {
-  if (getAPIProvider() === 'firstParty') {
-    return undefined
-  }
   const lowerModel = model.toLowerCase()
   if (lowerModel.includes('opus-4-6') || lowerModel.includes('opus_4_6')) {
     return getModelStrings().opus41

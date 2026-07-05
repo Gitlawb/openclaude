@@ -216,22 +216,6 @@ test('buildProfileSaveMessage labels local openai-compatible profiles consistent
   expect(message).toContain('Endpoint: http://127.0.0.1:8080/v1')
 })
 
-test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
-  const message = buildProfileSaveMessage(
-    'gemini',
-    {
-      GEMINI_AUTH_MODE: 'access-token',
-      GEMINI_MODEL: 'gemini-2.5-flash',
-      GEMINI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    },
-    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
-  )
-
-  expect(message).toContain('Saved Google Gemini profile.')
-  expect(message).toContain('Model: gemini-2.5-flash')
-  expect(message).toContain('Credentials: access token (stored securely)')
-  expect(message).not.toContain('AIza')
-})
 
 test('buildCurrentProviderSummary redacts poisoned model and endpoint values', () => {
   const summary = buildCurrentProviderSummary({
@@ -279,31 +263,13 @@ test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Co
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
-test('buildCurrentProviderSummary recognizes GitHub Models mode', () => {
-  const summary = buildCurrentProviderSummary({
-    processEnv: {
-      CLAUDE_CODE_USE_GITHUB: '1',
-      OPENAI_MODEL: 'github:copilot',
-      OPENAI_BASE_URL: 'https://models.github.ai/inference',
-    },
-    persisted: null,
-  })
-
-  expect(summary.providerLabel).toBe('GitHub Models')
-  expect(summary.modelLabel).toBe('github:copilot')
-  expect(summary.endpointLabel).toBe('https://models.github.ai/inference')
-})
-
 test('getProviderWizardDefaults ignores poisoned current provider values', () => {
   const defaults = getProviderWizardDefaults({
     OPENAI_API_KEY: 'sk-secret-12345678',
     OPENAI_MODEL: 'sk-secret-12345678',
     OPENAI_BASE_URL: 'sk-secret-12345678',
-    GEMINI_API_KEY: 'AIzaSecret12345678',
-    GEMINI_MODEL: 'AIzaSecret12345678',
   })
 
   expect(defaults.openAIModel).toBe('gpt-4o')
   expect(defaults.openAIBaseUrl).toBe('https://api.openai.com/v1')
-  expect(defaults.geminiModel).toBe('gemini-2.0-flash')
 })

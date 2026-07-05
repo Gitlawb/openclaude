@@ -378,7 +378,7 @@ const SAFE_ENV_VARS = new Set([
   'PYTEST_DEBUG', // debug output
 
   // API keys and authentication
-  'ANTHROPIC_API_KEY', // API authentication
+  'OPENAI_API_KEY', // API authentication
 
   // Locale and character encoding
   'LANG', // default locale
@@ -469,7 +469,6 @@ const ANT_ONLY_SAFE_ENV_VARS = new Set([
 
   // Credentials (approved subset - these don't change exfil risk)
   'PGPASSWORD', // Postgres password
-  'GH_TOKEN', // GitHub token
   'GROWTHBOOK_API_KEY', // self-hosted growthbook
 ])
 

@@ -8,14 +8,9 @@ import {
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
-  'GEMINI_MODEL',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -29,14 +24,9 @@ beforeEach(() => {
 
 const RESET_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
-  'GEMINI_MODEL',
 ] as const
 
 beforeEach(() => {
@@ -62,10 +52,6 @@ describe('parseProviderFlag', () => {
     expect(parseProviderFlag(['--provider', 'openai'])).toBe('openai')
   })
 
-  test('returns provider name with --model alongside', () => {
-    expect(parseProviderFlag(['--provider', 'gemini', '--model', 'gemini-2.0-flash'])).toBe('gemini')
-  })
-
   test('returns null when --provider flag absent', () => {
     expect(parseProviderFlag(['--model', 'gpt-4o'])).toBeNull()
   })
@@ -85,15 +71,6 @@ describe('parseProviderFlag', () => {
 
 // --- applyProviderFlag ---
 
-describe('applyProviderFlag - anthropic', () => {
-  test('sets no env vars for anthropic (default)', () => {
-    const result = applyProviderFlag('anthropic', [])
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
-  })
-})
-
 describe('applyProviderFlag - openai', () => {
   test('sets CLAUDE_CODE_USE_OPENAI=1', () => {
     const result = applyProviderFlag('openai', [])
@@ -104,43 +81,6 @@ describe('applyProviderFlag - openai', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
-  })
-})
-
-describe('applyProviderFlag - gemini', () => {
-  test('sets CLAUDE_CODE_USE_GEMINI=1', () => {
-    const result = applyProviderFlag('gemini', [])
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
-  })
-
-  test('sets GEMINI_MODEL when --model is provided', () => {
-    applyProviderFlag('gemini', ['--model', 'gemini-2.0-flash'])
-    expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
-  })
-})
-
-describe('applyProviderFlag - github', () => {
-  test('sets CLAUDE_CODE_USE_GITHUB=1', () => {
-    const result = applyProviderFlag('github', [])
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
-  })
-})
-
-describe('applyProviderFlag - bedrock', () => {
-  test('sets CLAUDE_CODE_USE_BEDROCK=1', () => {
-    const result = applyProviderFlag('bedrock', [])
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_BEDROCK).toBe('1')
-  })
-})
-
-describe('applyProviderFlag - vertex', () => {
-  test('sets CLAUDE_CODE_USE_VERTEX=1', () => {
-    const result = applyProviderFlag('vertex', [])
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_VERTEX).toBe('1')
   })
 })
 

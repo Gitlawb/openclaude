@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
 
 type RegistryServer = {
   server: {
@@ -37,10 +36,12 @@ export async function prefetchOfficialMcpUrls(): Promise<void> {
   }
 
   // The official first-party MCP registry is only relevant for first-party mode.
-  if (getAPIProvider() !== 'firstParty') {
-    return
-  }
+  // Skip for openai provider.
+  return
+}
 
+// Legacy function kept for interface compatibility — official MCP registry is disabled.
+export async function prefetchOfficialMcpUrlsLegacy(): Promise<void> {
   try {
     const response = await axios.get<RegistryResponse>(
       'https://api.anthropic.com/mcp-registry/v0/servers?version=latest&visibility=commercial',

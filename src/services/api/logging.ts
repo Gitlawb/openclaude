@@ -19,7 +19,6 @@ import type { AssistantMessage } from 'src/types/message.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import type { EffortLevel } from 'src/utils/effort.js'
 import { logError } from 'src/utils/log.js'
-import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import { logOTelEvent } from 'src/utils/telemetry/events.js'
@@ -93,7 +92,7 @@ const GATEWAY_FINGERPRINTS: Partial<
 }
 
 // Gateways that use provider-owned domains (not self-hosted), so the
-// ANTHROPIC_BASE_URL hostname is a reliable signal even without a
+// OPENAI_BASE_URL hostname is a reliable signal even without a
 // distinctive response header.
 const GATEWAY_HOST_SUFFIXES: Partial<Record<KnownGateway, string[]>> = {
   // https://docs.databricks.com/aws/en/ai-gateway/
@@ -138,12 +137,12 @@ function detectGateway({
   return undefined
 }
 
-function getAnthropicEnvMetadata() {
+function getApiEnvMetadata() {
   return {
-    ...(process.env.ANTHROPIC_BASE_URL
+    ...(process.env.OPENAI_BASE_URL
       ? {
           baseUrl: process.env
-            .ANTHROPIC_BASE_URL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            .OPENAI_BASE_URL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
     ...(process.env.ANTHROPIC_MODEL
@@ -197,7 +196,7 @@ export function logAPIQuery({
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     messagesLength,
     temperature: temperature,
-    provider: getAPIProviderForStatsig(),
+    provider: 'openai',
     buildAgeMins: getBuildAgeMinutes(),
     ...(betas?.length
       ? {
@@ -228,7 +227,7 @@ export function logAPIQuery({
             previousRequestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
-    ...getAnthropicEnvMetadata(),
+    ...getApiEnvMetadata(),
   })
 }
 
@@ -274,7 +273,7 @@ export function logAPIError({
   const gateway = detectGateway({
     headers:
       error instanceof APIError && error.headers ? error.headers : headers,
-    baseUrl: process.env.ANTHROPIC_BASE_URL,
+    baseUrl: process.env.OPENAI_BASE_URL,
   })
 
   const errStr = getErrorMessage(error)
@@ -313,7 +312,7 @@ export function logAPIError({
     durationMs,
     durationMsIncludingRetries,
     attempt,
-    provider: getAPIProviderForStatsig(),
+    provider: 'openai',
     requestId:
       (requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS) ||
       undefined,
@@ -361,7 +360,7 @@ export function logAPIError({
             previousRequestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
-    ...getAnthropicEnvMetadata(),
+    ...getApiEnvMetadata(),
   })
 
   // Log API error event for OTLP
@@ -486,7 +485,7 @@ function logAPISuccess({
     attempt: attempt,
     ttftMs: ttftMs ?? undefined,
     buildAgeMins: getBuildAgeMinutes(),
-    provider: getAPIProviderForStatsig(),
+    provider: 'openai',
     requestId:
       (requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS) ??
       undefined,
@@ -571,7 +570,7 @@ function logAPISuccess({
         }
       : {}),
     ...(isPostCompaction ? { isPostCompaction } : {}),
-    ...getAnthropicEnvMetadata(),
+    ...getApiEnvMetadata(),
     timeSinceLastApiCallMs,
   })
 
@@ -640,7 +639,7 @@ export function logAPISuccessAndDuration({
 }): void {
   const gateway = detectGateway({
     headers,
-    baseUrl: process.env.ANTHROPIC_BASE_URL,
+    baseUrl: process.env.OPENAI_BASE_URL,
   })
 
   let textContentLength: number | undefined

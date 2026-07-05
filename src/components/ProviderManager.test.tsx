@@ -330,7 +330,7 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
     () => undefined,
     async () => undefined,
     {
-      addProviderProfile,
+      addProviderProfile: addProviderProfile as (...args: unknown[]) => unknown,
       hasLocalOllama: async () => true,
       listOllamaModels: async () => [
         {

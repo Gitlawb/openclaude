@@ -24,9 +24,6 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
-  ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -50,9 +47,6 @@ beforeEach(() => {
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_MODEL
-  delete process.env.ANTHROPIC_API_KEY
-  delete process.env.ANTHROPIC_AUTH_TOKEN
-  delete process.env.ANTHROPIC_CUSTOM_HEADERS
 })
 
 afterEach(() => {
@@ -67,9 +61,6 @@ afterEach(() => {
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
-  restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
-  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
   globalThis.fetch = originalFetch
 })
 

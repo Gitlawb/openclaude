@@ -20,10 +20,7 @@ import type {
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 import { randomUUID } from 'crypto'
-import {
-  getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
-} from 'src/utils/model/providers.js'
+// Provider imports removed — always OpenAI-compatible
 import {
   getAttributionHeader,
   getCLISyspromptPrefix,
@@ -57,7 +54,6 @@ import {
 } from '../../utils/api.js'
 import { getOauthAccountInfo } from '../../utils/auth.js'
 import {
-  getBedrockExtraBodyParamsBetas,
   getMergedBetas,
   getModelBetas,
 } from '../../utils/betas.js'
@@ -199,7 +195,6 @@ import { count } from '../../utils/array.js'
 import { insertBlockAfterToolResults } from '../../utils/contentArray.js'
 import { validateBoundedIntEnvVar } from '../../utils/envValidation.js'
 import { safeParseJSON } from '../../utils/json.js'
-import { getInferenceProfileBackingModel } from '../../utils/model/bedrock.js'
 import {
   normalizeModelStringForAPI,
   parseUserSpecifiedModel,
@@ -330,37 +325,10 @@ export function getExtraBodyParams(betaHeaders?: string[]): JsonObject {
   return result
 }
 
-export function getPromptCachingEnabled(model: string): boolean {
-  // Prompt caching is an Anthropic-specific feature. Third-party providers
-  // do not understand cache_control blocks and strict backends (e.g. Azure
-  // Foundry) reject or flag requests that contain them.
-  const provider = getAPIProvider()
-  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex') {
-    return false
-  }
-
-  // Global disable takes precedence
-  if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING)) return false
-
-  // Check if we should disable for small/fast model
-  if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING_HAIKU)) {
-    const smallFastModel = getSmallFastModel()
-    if (model === smallFastModel) return false
-  }
-
-  // Check if we should disable for default Sonnet
-  if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING_SONNET)) {
-    const defaultSonnet = getDefaultSonnetModel()
-    if (model === defaultSonnet) return false
-  }
-
-  // Check if we should disable for default Opus
-  if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING_OPUS)) {
-    const defaultOpus = getDefaultOpusModel()
-    if (model === defaultOpus) return false
-  }
-
-  return true
+export function getPromptCachingEnabled(_model: string): boolean {
+  // Prompt caching is an Anthropic-specific feature. OpenAI-compatible providers
+  // do not understand cache_control blocks.
+  return false
 }
 
 export function getCacheControl({
@@ -399,15 +367,6 @@ export function getCacheControl({
  * TTLs when GrowthBook's disk cache updates mid-request.
  */
 function should1hCacheTTL(querySource?: QuerySource): boolean {
-  // 3P Bedrock users get 1h TTL when opted in via env var — they manage their own billing
-  // No GrowthBook gating needed since 3P users don't have GrowthBook configured
-  if (
-    getAPIProvider() === 'bedrock' &&
-    isEnvTruthy(process.env.ENABLE_PROMPT_CACHING_1H_BEDROCK)
-  ) {
-    return true
-  }
-
   // Latch eligibility in bootstrap state for session stability — prevents
   // mid-session overage flips from changing the cache_control TTL, which
   // would bust the server-side prompt cache (~20K tokens per flip).
@@ -1065,12 +1024,7 @@ async function* queryModel(
   // Also naturally handles rollback/undo since removed messages won't be in the array.
   const previousRequestId = getPreviousRequestIdFromMessages(messages)
 
-  const resolvedModel =
-    getAPIProvider() === 'bedrock' &&
-    options.model.includes('application-inference-profile')
-      ? ((await getInferenceProfileBackingModel(options.model)) ??
-        options.model)
-      : options.model
+  const resolvedModel = options.model
 
   queryCheckpoint('query_tool_schema_build_start')
   const isAgenticQuery =
@@ -1183,10 +1137,9 @@ async function* queryModel(
   }
 
   // Add tool search beta header if enabled - required for defer_loading to be accepted
-  // Header differs by provider: 1P/Foundry use advanced-tool-use, Vertex/Bedrock use tool-search-tool
-  // For Bedrock, this header must go in extraBodyParams, not the betas array
+  // Add tool search beta header if enabled
   const toolSearchHeader = useToolSearch ? getToolSearchBetaHeader() : null
-  if (toolSearchHeader && getAPIProvider() !== 'bedrock') {
+  if (toolSearchHeader) {
     if (!betas.includes(toolSearchHeader)) {
       betas.push(toolSearchHeader)
     }
@@ -1440,17 +1393,6 @@ async function* queryModel(
   }
 
   let cacheEditingHeaderLatched = getCacheEditingHeaderLatched() === true
-  if (feature('CACHED_MICROCOMPACT')) {
-    if (
-      !cacheEditingHeaderLatched &&
-      cachedMCEnabled &&
-      getAPIProvider() === 'firstParty' &&
-      options.querySource === 'repl_main_thread'
-    ) {
-      cacheEditingHeaderLatched = true
-      setCacheEditingHeaderLatched(true)
-    }
-  }
 
   // Only latch from agentic queries so a classifier call doesn't flip the
   // main thread's context_management mid-turn.
@@ -1559,15 +1501,7 @@ async function* queryModel(
       betasParams.push(CONTEXT_1M_BETA_HEADER)
     }
 
-    // For Bedrock, include both model-based betas and dynamically-added tool search header
-    const bedrockBetas =
-      getAPIProvider() === 'bedrock'
-        ? [
-            ...getBedrockExtraBodyParamsBetas(retryContext.model),
-            ...(toolSearchHeader ? [toolSearchHeader] : []),
-          ]
-        : []
-    const extraBodyParams = getExtraBodyParams(bedrockBetas)
+    const extraBodyParams = getExtraBodyParams([])
 
     const outputConfig: BetaOutputConfig = {
       ...((extraBodyParams.output_config as BetaOutputConfig) ?? {}),
@@ -1682,24 +1616,9 @@ async function* queryModel(
       }
     }
 
-    // Cache editing beta: header is latched session-stable; useCachedMC
-    // (controls cache_edits body behavior) stays live so edits stop when
-    // the feature disables but the header doesn't flip.
-    const useCachedMC =
-      cachedMCEnabled &&
-      getAPIProvider() === 'firstParty' &&
-      options.querySource === 'repl_main_thread'
-    if (
-      cacheEditingHeaderLatched &&
-      getAPIProvider() === 'firstParty' &&
-      options.querySource === 'repl_main_thread' &&
-      !betasParams.includes(cacheEditingBetaHeader)
-    ) {
-      betasParams.push(cacheEditingBetaHeader)
-      logForDebugging(
-        'Cache editing beta header enabled for cached microcompact',
-      )
-    }
+    // Cache editing is an Anthropic-specific beta feature.
+    // Not available on OpenAI-compatible providers.
+    const useCachedMC = false
 
     // Only send temperature when thinking is disabled — the API requires
     // temperature: 1 when thinking is enabled, which is already the default.
@@ -1827,13 +1746,9 @@ async function* queryModel(
           headlessProfilerCheckpoint('api_request_sent')
         }
 
-        // Generate and track client request ID so timeouts (which return no
-        // server request ID) can still be correlated with server logs.
-        // First-party only — 3P providers don't log it (inc-4029 class).
-        clientRequestId =
-          getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
-            ? randomUUID()
-            : undefined
+        // Client request ID is Anthropic first-party only.
+        // OpenAI-compatible providers don't use this.
+        clientRequestId = undefined
 
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need

@@ -9,7 +9,6 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { type ReleaseChannel, saveGlobalConfig } from './config.js'
-import { getAPIProvider } from './model/providers.js'
 import { logForDebugging } from './debug.js'
 import { env } from './env.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
@@ -73,36 +72,7 @@ export async function assertMinVersion(): Promise<void> {
     return
   }
 
-  // Skip version check for third-party providers — the min version
-  // kill-switch is first-party-specific and should not block 3P users
-  if (getAPIProvider() !== 'firstParty') {
-    return
-  }
-
-  try {
-    const versionConfig = await getDynamicConfig_BLOCKS_ON_INIT<{
-      minVersion: string
-    }>('tengu_version_config', { minVersion: '0.0.0' })
-
-    if (
-      versionConfig.minVersion &&
-      lt(MACRO.VERSION, versionConfig.minVersion)
-    ) {
-      // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.error(`
-It looks like your version of Claude Code (${MACRO.VERSION}) needs an update.
-A newer version (${versionConfig.minVersion} or higher) is required to continue.
-
-To update, please run:
-    claude update
-
-This will ensure you have access to the latest features and improvements.
-`)
-      gracefulShutdownSync(1)
-    }
-  } catch (error) {
-    logError(error as Error)
-  }
+  // Min version kill-switch is first-party-specific — skip for openai provider.
 }
 
 /**

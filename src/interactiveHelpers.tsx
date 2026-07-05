@@ -25,7 +25,6 @@ import { isEnvTruthy, isRunningOnHomespace } from './utils/envUtils.js';
 import { type FpsMetrics, FpsTracker } from './utils/fpsTracker.js';
 import { updateGithubRepoPathMapping } from './utils/githubRepoPathMapping.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
-import { usesAnthropicAccountFlow } from './utils/model/providers.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
@@ -108,7 +107,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     return false;
   }
 
-  const usesAnthropicSetup = usesAnthropicAccountFlow();
+  const usesAnthropicSetup = false;
   const config = getGlobalConfig();
   let onboardingShown = false;
 
@@ -210,10 +209,10 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // Check for custom API key
-  // On homespace, ANTHROPIC_API_KEY is preserved in process.env for child
+  // On homespace, OPENAI_API_KEY is preserved in process.env for child
   // processes but ignored by Claude Code itself (see auth.ts).
-  if (process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace()) {
-    const customApiKeyTruncated = normalizeApiKeyForConfig(process.env.ANTHROPIC_API_KEY);
+  if (process.env.OPENAI_API_KEY && !isRunningOnHomespace()) {
+    const customApiKeyTruncated = normalizeApiKeyForConfig(process.env.OPENAI_API_KEY);
     const keyStatus = getCustomApiKeyStatus(customApiKeyTruncated);
     if (keyStatus === 'new') {
       const {

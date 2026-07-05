@@ -32,10 +32,6 @@ import { logForDebugging } from '../../utils/debug.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { classifyAxiosError } from '../../utils/errors.js'
 import { safeParseJSON } from '../../utils/json.js'
-import {
-  getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
-} from '../../utils/model/providers.js'
 import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
 import { sleep } from '../../utils/sleep.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
@@ -165,49 +161,8 @@ function computeChecksum(
  * getSettings() to avoid circular dependencies during settings loading.
  */
 export function isPolicyLimitsEligible(): boolean {
-  // 3p provider users should not hit the policy limits endpoint
-  if (getAPIProvider() !== 'firstParty') {
-    return false
-  }
-
-  // Custom base URL users should not hit the policy limits endpoint
-  if (!isFirstPartyAnthropicBaseUrl()) {
-    return false
-  }
-
-  // Console users (API key) are eligible if we can get the actual key
-  try {
-    const { key: apiKey } = getAnthropicApiKeyWithSource({
-      skipRetrievingKeyFromApiKeyHelper: true,
-    })
-    if (apiKey) {
-      return true
-    }
-  } catch {
-    // No API key available - continue to check OAuth
-  }
-
-  // For OAuth users, check if they have Claude.ai tokens
-  const tokens = getClaudeAIOAuthTokens()
-  if (!tokens?.accessToken) {
-    return false
-  }
-
-  // Must have Claude.ai inference scope
-  if (!tokens.scopes?.includes(CLAUDE_AI_INFERENCE_SCOPE)) {
-    return false
-  }
-
-  // Only Team and Enterprise OAuth users are eligible — these orgs have
-  // admin-configurable policy restrictions (e.g. allow_remote_sessions)
-  if (
-    tokens.subscriptionType !== 'enterprise' &&
-    tokens.subscriptionType !== 'team'
-  ) {
-    return false
-  }
-
-  return true
+  // Policy limits require first-party provider — always ineligible for openai.
+  return false
 }
 
 /**

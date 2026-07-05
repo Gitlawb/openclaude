@@ -13,23 +13,14 @@ import { LoadingState } from '../../components/design-system/LoadingState.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
 import {
-  DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
   isLocalProviderUrl,
-  resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
 import {
-  buildCodexProfileEnv,
-  buildGeminiProfileEnv,
-  buildMistralProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
-  DEFAULT_GEMINI_BASE_URL,
-  DEFAULT_GEMINI_MODEL,
-  DEFAULT_MISTRAL_BASE_URL,
-  DEFAULT_MISTRAL_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -42,14 +33,6 @@ import {
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
 import {
-  getGeminiProjectIdHint,
-  mayHaveGeminiAdcCredentials,
-} from '../../utils/geminiAuth.js'
-import {
-  readGeminiAccessToken,
-  saveGeminiAccessToken,
-} from '../../utils/geminiCredentials.js'
-import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
   rankOllamaModels,
@@ -58,6 +41,7 @@ import {
 } from '../../utils/providerRecommendation.js'
 import {
   getLocalOpenAICompatibleProviderLabel,
+  getOllamaChatBaseUrl,
   hasLocalOllama,
   listOllamaModels,
 } from '../../utils/providerDiscovery.js'
@@ -77,23 +61,6 @@ type Step =
       baseUrl: string | null
       defaultModel: string
     }
-  | { name: 'mistral-key'; defaultModel: string }
-  | { name: 'mistral-base'; apiKey: string; defaultModel: string }
-  | {
-      name: 'mistral-model'
-      apiKey: string
-      baseUrl: string | null
-      defaultModel: string
-    }
-  | { name: 'gemini-auth-method' }
-  | { name: 'gemini-key' }
-  | { name: 'gemini-access-token' }
-  | {
-      name: 'gemini-model'
-      apiKey?: string
-      authMode: 'api-key' | 'access-token' | 'adc'
-    }
-  | { name: 'codex-check' }
 
 type CurrentProviderSummary = {
   providerLabel: string
@@ -126,9 +93,6 @@ type TextEntryDialogProps = {
 type ProviderWizardDefaults = {
   openAIModel: string
   openAIBaseUrl: string
-  geminiModel: string
-  mistralModel: string
-  mistralBaseUrl: string
 }
 
 function isEnvTruthy(value: string | undefined): boolean {
@@ -144,35 +108,24 @@ function getSafeDisplayValue(
   fallback = '(not set)',
 ): string {
   return (
-    redactSecretValueForDisplay(value, processEnv, profileEnv) ?? fallback
+    redactSecretValueForDisplay(value, { OPENAI_API_KEY: processEnv.OPENAI_API_KEY }, profileEnv) ?? fallback
   )
 }
 
 export function getProviderWizardDefaults(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): ProviderWizardDefaults {
+  const envSecrets = { OPENAI_API_KEY: processEnv.OPENAI_API_KEY }
   const safeOpenAIModel =
-    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, processEnv) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, envSecrets) ||
     'gpt-4o'
   const safeOpenAIBaseUrl =
-    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, processEnv) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, envSecrets) ||
     DEFAULT_OPENAI_BASE_URL
-  const safeGeminiModel =
-    sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, processEnv) ||
-    DEFAULT_GEMINI_MODEL
-  const safeMistralModel =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
-    DEFAULT_MISTRAL_MODEL
-  const safeMistralBaseUrl =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, processEnv) ||
-    DEFAULT_MISTRAL_BASE_URL
 
   return {
     openAIModel: safeOpenAIModel,
     openAIBaseUrl: safeOpenAIBaseUrl,
-    geminiModel: safeGeminiModel,
-    mistralModel: safeMistralModel,
-    mistralBaseUrl: safeMistralBaseUrl,
   }
 }
 
@@ -184,65 +137,15 @@ export function buildCurrentProviderSummary(options?: {
   const persisted = options?.persisted ?? loadProfileFile()
   const savedProfileLabel = persisted?.profile ?? 'none'
 
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
-    return {
-      providerLabel: 'Google Gemini',
-      modelLabel: getSafeDisplayValue(
-        processEnv.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
-        processEnv,
-      ),
-      endpointLabel: getSafeDisplayValue(
-        processEnv.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
-        processEnv,
-      ),
-      savedProfileLabel,
-    }
-  }
-
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
-    return {
-      providerLabel: 'Mistral',
-      modelLabel: getSafeDisplayValue(
-        processEnv.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
-        processEnv
-      ),
-      endpointLabel: getSafeDisplayValue(
-        processEnv.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
-        processEnv
-      ),
-      savedProfileLabel,
-    }
-  }
-
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    return {
-      providerLabel: 'GitHub Models',
-      modelLabel: getSafeDisplayValue(
-        processEnv.OPENAI_MODEL ?? 'github:copilot',
-        processEnv,
-      ),
-      endpointLabel: getSafeDisplayValue(
-        processEnv.OPENAI_BASE_URL ??
-          processEnv.OPENAI_API_BASE ??
-          'https://models.github.ai/inference',
-        processEnv,
-      ),
-      savedProfileLabel,
-    }
-  }
-
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
     const request = resolveProviderRequest({
       model: processEnv.OPENAI_MODEL,
       baseUrl: processEnv.OPENAI_BASE_URL,
     })
 
-    let providerLabel = 'OpenAI-compatible'
-    if (request.transport === 'codex_responses') {
-      providerLabel = 'Codex'
-    } else if (isLocalProviderUrl(request.baseUrl)) {
-      providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
-    }
+    const providerLabel = isLocalProviderUrl(request.baseUrl)
+      ? getLocalOpenAICompatibleProviderLabel(request.baseUrl)
+      : 'OpenAI-compatible'
 
     return {
       providerLabel,
@@ -255,13 +158,13 @@ export function buildCurrentProviderSummary(options?: {
   return {
     providerLabel: 'Anthropic',
     modelLabel: getSafeDisplayValue(
-      processEnv.ANTHROPIC_MODEL ??
+      processEnv.OPENAI_MODEL ??
         processEnv.CLAUDE_MODEL ??
         'claude-sonnet-4-6',
       processEnv,
     ),
     endpointLabel: getSafeDisplayValue(
-      processEnv.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+      processEnv.OPENAI_BASE_URL ?? 'https://api.openai.com',
       processEnv,
     ),
     savedProfileLabel,
@@ -273,64 +176,6 @@ function buildSavedProfileSummary(
   env: ProfileEnv,
 ): SavedProfileSummary {
   switch (profile) {
-    case 'gemini':
-      return {
-        providerLabel: 'Google Gemini',
-        modelLabel: getSafeDisplayValue(
-          env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
-          process.env,
-          env,
-        ),
-        endpointLabel: getSafeDisplayValue(
-          env.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
-          process.env,
-          env,
-        ),
-        credentialLabel:
-          env.GEMINI_AUTH_MODE === 'access-token'
-            ? 'access token (stored securely)'
-            : env.GEMINI_AUTH_MODE === 'adc'
-              ? 'local ADC'
-            : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
-              ? 'configured'
-              : undefined,
-      }
-    case 'mistral':
-      return {
-        providerLabel: 'Mistral',
-        modelLabel: getSafeDisplayValue(
-          env.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
-          process.env,
-          env,
-        ),
-        endpointLabel: getSafeDisplayValue(
-          env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
-          process.env,
-          env,
-        ),
-        credentialLabel:
-          maskSecretForDisplay(env.MISTRAL_API_KEY) !== undefined
-            ? 'configured'
-            : undefined,
-      }
-    case 'codex':
-      return {
-        providerLabel: 'Codex',
-        modelLabel: getSafeDisplayValue(
-          env.OPENAI_MODEL ?? 'codexplan',
-          process.env,
-          env,
-        ),
-        endpointLabel: getSafeDisplayValue(
-          env.OPENAI_BASE_URL ?? DEFAULT_CODEX_BASE_URL,
-          process.env,
-          env,
-        ),
-        credentialLabel:
-          maskSecretForDisplay(env.CODEX_API_KEY) !== undefined
-            ? 'configured'
-            : undefined,
-      }
     case 'ollama':
       return {
         providerLabel: 'Ollama',
@@ -406,7 +251,7 @@ function buildUsageText(): string {
     `Current endpoint: ${summary.endpointLabel}`,
     `Saved profile: ${summary.savedProfileLabel}`,
     '',
-    'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a profile for the next OpenClaude restart.',
+    'Choose Auto, Ollama, or OpenAI-compatible, then save a profile for the next OpenClaude restart.',
   ].join('\n')
 }
 
@@ -521,21 +366,6 @@ function ProviderChooser({
       value: 'openai',
       description:
         'GPT-4o, DeepSeek, OpenRouter, Groq, LM Studio, and similar APIs',
-    },
-    {
-      label: 'Gemini',
-      value: 'gemini',
-      description: 'Use Google Gemini with API key, access token, or local ADC',
-    },
-    {
-      label: 'Mistral',
-      value: 'mistral',
-      description: 'Use Mistral with API key'
-    },
-    {
-      label: 'Codex',
-      value: 'codex',
-      description: 'Use existing ChatGPT Codex CLI auth or env credentials',
     },
   ]
 
@@ -903,109 +733,6 @@ function OllamaModelStep({
   )
 }
 
-function CodexCredentialStep({
-  onSave,
-  onBack,
-  onCancel,
-}: {
-  onSave: (profile: ProviderProfile, env: ProfileEnv) => void
-  onBack: () => void
-  onCancel: () => void
-}): React.ReactNode {
-  const credentials = resolveCodexCredentials(process.env)
-
-  if (!credentials.ok) {
-    return (
-      <Dialog title="Codex setup" onCancel={onCancel} color="warning">
-        <Box flexDirection="column" gap={1}>
-          <Text>{credentials.message}</Text>
-          <Select
-            options={[
-              { label: 'Back', value: 'back' },
-              { label: 'Cancel', value: 'cancel' },
-            ]}
-            onChange={value => (value === 'back' ? onBack() : onCancel())}
-            onCancel={onCancel}
-          />
-        </Box>
-      </Dialog>
-    )
-  }
-
-  const options: OptionWithDescription<string>[] = [
-    {
-      label: 'codexplan',
-      value: 'codexplan',
-      description: 'GPT-5.4 with higher reasoning on the Codex backend',
-    },
-    {
-      label: 'codexspark',
-      value: 'codexspark',
-      description: 'Faster Codex Spark tool loop profile',
-    },
-  ]
-
-  return (
-    <Dialog title="Choose a Codex profile" onCancel={onBack}>
-      <Box flexDirection="column" gap={1}>
-        <Text>
-          Reuse your existing Codex credentials from{' '}
-          {credentials.sourceDescription} and save a model alias profile.
-        </Text>
-        <Select
-          options={options}
-          defaultValue="codexplan"
-          defaultFocusValue="codexplan"
-          inlineDescriptions
-          visibleOptionCount={options.length}
-          onChange={value => {
-            const env = buildCodexProfileEnv({
-              model: value,
-              processEnv: process.env,
-            })
-            if (env) {
-              onSave('codex', env)
-            }
-          }}
-          onCancel={onBack}
-        />
-      </Box>
-    </Dialog>
-  )
-}
-
-function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
-  | { ok: true; sourceDescription: string }
-  | { ok: false; message: string } {
-  const credentials = resolveCodexApiCredentials(processEnv)
-
-  if (!credentials.apiKey) {
-    const authHint = credentials.authPath
-      ? `Expected auth file: ${credentials.authPath}.`
-      : 'Set CODEX_API_KEY or re-login with the Codex CLI.'
-    return {
-      ok: false,
-      message: `Codex setup needs existing credentials. Re-login with the Codex CLI or set CODEX_API_KEY. ${authHint}`,
-    }
-  }
-
-  if (!credentials.accountId) {
-    return {
-      ok: false,
-      message:
-        'Codex auth is missing chatgpt_account_id. Re-login with the Codex CLI or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID first.',
-    }
-  }
-
-  return {
-    ok: true,
-    sourceDescription:
-      credentials.source === 'env'
-        ? 'the current shell environment'
-        : credentials.authPath ?? DEFAULT_CODEX_BASE_URL,
-  }
-}
-
 export function ProviderWizard({
   onDone,
 }: {
@@ -1028,20 +755,11 @@ export function ProviderWizard({
                 name: 'openai-key',
                 defaultModel: defaults.openAIModel,
               })
-            } else if (value === 'gemini') {
-              setStep({ name: 'gemini-auth-method' })
-            } else if (value === 'mistral') {
-              setStep({
-                name: 'mistral-key',
-                defaultModel: defaults.mistralModel,
-              })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
                 display: 'system',
               })
-            } else {
-              setStep({ name: 'codex-check' })
             }
           }}
           onCancel={() => onDone()}
@@ -1174,302 +892,6 @@ export function ProviderWizard({
         />
       )
 
-    case 'mistral-key':
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Mistral setup"
-          subtitle="Step 1 of 3"
-          description={
-            process.env.MISTRAL_API_KEY
-              ? 'Enter an API key, or leave this blank to reuse the current MISTRAL_API_KEY from this session.'
-              : 'Enter the API key for your Mistral provider.'
-          }
-          initialValue=""
-          placeholder="..."
-          mask="*"
-          allowEmpty={Boolean(process.env.MISTRAL_API_KEY)}
-          validate={value => {
-            const candidate = value.trim() || process.env.MISTRAL_API_KEY || ''
-            return sanitizeApiKey(candidate)
-              ? null
-              : 'Enter a real API key. Placeholder values like SUA_CHAVE are not valid.'
-          }}
-          onSubmit={value => {
-            const apiKey = value.trim() || process.env.MISTRAL_API_KEY || ''
-            setStep({
-              name: 'mistral-base',
-              apiKey,
-              defaultModel: step.defaultModel,
-            })
-          }}
-          onCancel={() => setStep({ name: 'choose' })}
-        />
-      )
-
-    case 'mistral-base':
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Mistral setup"
-          subtitle="Step 2 of 3"
-          description={`Optionally enter a base URL. Leave blank for ${DEFAULT_MISTRAL_BASE_URL}.`}
-          initialValue={
-            defaults.mistralBaseUrl === DEFAULT_MISTRAL_BASE_URL
-              ? ''
-              : defaults.mistralBaseUrl
-          }
-          placeholder={DEFAULT_MISTRAL_BASE_URL}
-          allowEmpty
-          onSubmit={value => {
-            setStep({
-              name: 'mistral-model',
-              apiKey: step.apiKey,
-              baseUrl: value.trim() || null,
-              defaultModel: step.defaultModel,
-            })
-          }}
-          onCancel={() =>
-            setStep({
-              name: 'mistral-key',
-              defaultModel: step.defaultModel,
-            })
-          }
-        />
-      )
-
-    case 'mistral-model':
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Mistral setup"
-          subtitle="Step 3 of 3"
-          description={`Enter a model name. Leave blank for ${step.defaultModel}.`}
-          initialValue={defaults.mistralModel ?? step.defaultModel}
-          placeholder={step.defaultModel}
-          allowEmpty
-          onSubmit={value => {
-            const env = buildMistralProfileEnv({
-              model: value.trim() || step.defaultModel,
-              baseUrl: step.baseUrl,
-              apiKey: step.apiKey,
-              processEnv: process.env,
-            })
-            if (env) {
-              finishProfileSave(onDone, 'mistral', env)
-            }
-          }}
-          onCancel={() =>
-            setStep({
-              name: 'mistral-base',
-              apiKey: step.apiKey,
-              defaultModel: step.defaultModel,
-            })
-          }
-        />
-      )
-
-    case 'gemini-auth-method': {
-      const hasShellGeminiKey = Boolean(
-        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-      )
-      const hasShellGeminiAccessToken = Boolean(process.env.GEMINI_ACCESS_TOKEN)
-      const hasStoredGeminiAccessToken = Boolean(readGeminiAccessToken())
-      const hasAdc = mayHaveGeminiAdcCredentials(process.env)
-      const projectHint = getGeminiProjectIdHint(process.env)
-
-      const options: OptionWithDescription[] = [
-        {
-          label: 'API key',
-          value: 'api-key',
-          description: hasShellGeminiKey
-            ? 'Use the current Gemini API key from this shell, or enter a new one'
-            : 'Use a Google Gemini API key',
-        },
-        {
-          label: 'Access token',
-          value: 'access-token',
-          description: hasShellGeminiAccessToken || hasStoredGeminiAccessToken
-            ? `Use ${
-                hasShellGeminiAccessToken
-                  ? 'the current GEMINI_ACCESS_TOKEN'
-                  : 'the securely stored Gemini access token'
-              }`
-            : 'Enter a Gemini access token and store it securely',
-        },
-        {
-          label: 'Local ADC',
-          value: 'adc',
-          description: hasAdc
-            ? `Use local Google ADC credentials${projectHint ? ` (project: ${projectHint})` : ''}`
-            : 'Use local Google ADC credentials after running gcloud auth application-default login',
-        },
-      ]
-
-      return (
-        <Dialog title="Gemini setup" onCancel={() => onDone()}>
-          <Box flexDirection="column" gap={1}>
-            <Text>Choose how this Gemini profile should authenticate.</Text>
-            <Select
-              options={options}
-              inlineDescriptions
-              visibleOptionCount={options.length}
-              onChange={value => {
-                if (value === 'api-key') {
-                  setStep({ name: 'gemini-key' })
-                } else if (value === 'access-token') {
-                  setStep({ name: 'gemini-access-token' })
-                } else {
-                  setStep({
-                    name: 'gemini-model',
-                    authMode: 'adc',
-                  })
-                }
-              }}
-              onCancel={() => setStep({ name: 'choose' })}
-            />
-          </Box>
-        </Dialog>
-      )
-    }
-
-    case 'gemini-key':
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Gemini setup"
-          subtitle="Step 1 of 3"
-          description={
-            process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-              ? 'Enter a Gemini API key, or leave this blank to reuse the current GEMINI_API_KEY/GOOGLE_API_KEY from this session.'
-              : 'Enter a Gemini API key. You can create one at https://aistudio.google.com/apikey.'
-          }
-          initialValue=""
-          placeholder="AIza..."
-          mask="*"
-          allowEmpty={Boolean(
-            process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
-          )}
-          onSubmit={value => {
-            const apiKey =
-              value.trim() ||
-              process.env.GEMINI_API_KEY ||
-              process.env.GOOGLE_API_KEY ||
-              ''
-            setStep({ name: 'gemini-model', apiKey, authMode: 'api-key' })
-          }}
-          onCancel={() => setStep({ name: 'gemini-auth-method' })}
-        />
-      )
-
-    case 'gemini-access-token': {
-      const currentToken =
-        process.env.GEMINI_ACCESS_TOKEN || readGeminiAccessToken() || ''
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Gemini setup"
-          subtitle="Step 2 of 3"
-          description={
-            currentToken
-              ? 'Enter a Gemini access token, or leave this blank to reuse the current token from this session or secure storage.'
-              : 'Enter a Gemini access token. It will be stored securely for this profile.'
-          }
-          initialValue=""
-          placeholder="ya29...."
-          mask="*"
-          allowEmpty={Boolean(currentToken)}
-          validate={value => {
-            const token = value.trim() || currentToken
-            return token ? null : 'Enter a Gemini access token or go back and choose Local ADC.'
-          }}
-          onSubmit={value => {
-            const token = value.trim() || currentToken
-            const saved = saveGeminiAccessToken(token)
-            if (!saved.success) {
-              onDone(
-                `Failed to save Gemini access token: ${saved.warning ?? 'unknown error'}`,
-                {
-                  display: 'system',
-                },
-              )
-              return
-            }
-
-            setStep({
-              name: 'gemini-model',
-              authMode: 'access-token',
-            })
-          }}
-          onCancel={() => setStep({ name: 'gemini-auth-method' })}
-        />
-      )
-    }
-
-    case 'gemini-model':
-      return (
-        <TextEntryDialog
-          resetStateKey={step.name}
-          title="Gemini setup"
-          subtitle={
-            step.authMode === 'api-key'
-              ? 'Step 3 of 3'
-              : step.authMode === 'access-token'
-                ? 'Step 3 of 3'
-                : 'Step 2 of 2'
-          }
-          description={
-            step.authMode === 'api-key'
-              ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`
-              : step.authMode === 'access-token'
-                ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use the stored Gemini access token at runtime.`
-                : `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use local Google ADC credentials at runtime.`
-          }
-          initialValue={defaults.geminiModel}
-          placeholder={DEFAULT_GEMINI_MODEL}
-          allowEmpty
-          onSubmit={value => {
-            if (
-              step.authMode === 'adc' &&
-              !mayHaveGeminiAdcCredentials(process.env)
-            ) {
-              onDone(
-                'Local ADC credentials were not detected. Run `gcloud auth application-default login` first, then save the Gemini ADC profile again.',
-                {
-                  display: 'system',
-                },
-              )
-              return
-            }
-
-            const env = buildGeminiProfileEnv({
-              apiKey: step.apiKey,
-              authMode: step.authMode,
-              model: value.trim() || DEFAULT_GEMINI_MODEL,
-              processEnv: {},
-            })
-            if (env) {
-              finishProfileSave(onDone, 'gemini', env)
-            }
-          }}
-          onCancel={() =>
-            step.authMode === 'api-key'
-              ? setStep({ name: 'gemini-key' })
-              : step.authMode === 'access-token'
-                ? setStep({ name: 'gemini-access-token' })
-                : setStep({ name: 'gemini-auth-method' })
-          }
-        />
-      )
-
-    case 'codex-check':
-      return (
-        <CodexCredentialStep
-          onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
-          onBack={() => setStep({ name: 'choose' })}
-          onCancel={() => onDone()}
-        />
-      )
   }
 }
 

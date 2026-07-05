@@ -1,5 +1,4 @@
 import chalk from 'chalk'
-import { exec } from 'child_process'
 import { execa } from 'execa'
 import { mkdir, stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
@@ -9,8 +8,6 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
-import { getModelStrings } from 'src/utils/model/modelStrings.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
 import {
   getIsNonInteractiveSession,
   preferThirdPartyAuthentication,
@@ -34,12 +31,6 @@ import {
   maybeRemoveApiKeyFromMacOSKeychainThrows,
   normalizeApiKeyForConfig,
 } from './authPortable.js'
-import {
-  checkStsCallerIdentity,
-  clearAwsIniCache,
-  isValidAwsStsOutput,
-} from './aws.js'
-import { AwsAuthStatusManager } from './awsAuthStatusManager.js'
 import { clearBetasCaches } from './betas.js'
 import {
   type AccountInfo,
@@ -58,7 +49,6 @@ import { errorMessage } from './errors.js'
 import { execSyncWithDefaults_DEPRECATED } from './execFileNoThrow.js'
 import * as lockfile from './lockfile.js'
 import { logError } from './log.js'
-import { memoizeWithTTLAsync } from './memoize.js'
 import { getSecureStorage } from './secureStorage/index.js'
 import {
   clearLegacyApiKeyPrefetch,
@@ -83,7 +73,7 @@ const DEFAULT_API_KEY_HELPER_TTL = 5 * 60 * 1000
 /**
  * CCR and Claude Desktop spawn the CLI with OAuth and should never fall back
  * to the user's ~/.claude/settings.json API-key config (apiKeyHelper,
- * env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH_TOKEN). Those settings exist for
+ * env.OPENAI_API_KEY, env.ANTHROPIC_AUTH_TOKEN). Those settings exist for
  * the user's terminal CLI, not managed sessions. Without this guard, a user
  * who runs `claude` in their terminal with an API key sees every CCD session
  * also use that key — and fail if it's stale/wrong-org.
@@ -105,21 +95,12 @@ export function isAnthropicAuthEnabled(): boolean {
   // local auth-injecting proxy. The launcher sets CLAUDE_CODE_OAUTH_TOKEN as a
   // placeholder iff the local side is a subscriber (so the remote includes the
   // oauth-2025 beta header to match what the proxy will inject). The remote's
-  // ~/.claude settings (apiKeyHelper, settings.env.ANTHROPIC_API_KEY) MUST NOT
+  // ~/.claude settings (apiKeyHelper, settings.env.OPENAI_API_KEY) MUST NOT
   // flip this — they'd cause a header mismatch with the proxy and a bogus
   // "invalid x-api-key" from the API. See src/ssh/sshAuthProxy.ts.
   if (process.env.ANTHROPIC_UNIX_SOCKET) {
     return !!process.env.CLAUDE_CODE_OAUTH_TOKEN
   }
-
-  const is3P =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
   // Check if user has configured an external API key source
   // This allows externally-provided API keys to work (without requiring proxy configuration)
@@ -135,17 +116,15 @@ export function isAnthropicAuthEnabled(): boolean {
     skipRetrievingKeyFromApiKeyHelper: true,
   })
   const hasExternalApiKey =
-    apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
+    apiKeySource === 'OPENAI_API_KEY' || apiKeySource === 'apiKeyHelper'
 
   // Disable Anthropic auth if:
-  // 1. Using 3rd party services (Bedrock/Vertex/Foundry)
-  // 2. User has an external API key (regardless of proxy configuration)
-  // 3. User has an external auth token (regardless of proxy configuration)
+  // 1. User has an external API key (regardless of proxy configuration)
+  // 2. User has an external auth token (regardless of proxy configuration)
   // this may cause issues if users have complex proxy / gateway "client-side creds" auth scenarios,
   // e.g. if they want to set X-Api-Key to a gateway key but use Anthropic OAuth for the Authorization
   // if we get reports of that, we should probably add an env var to force OAuth enablement
   const shouldDisableAuth =
-    is3P ||
     (hasExternalAuthToken && !isManagedOAuthContext()) ||
     (hasExternalApiKey && !isManagedOAuthContext())
 
@@ -210,7 +189,7 @@ export function getAuthTokenSource() {
 }
 
 export type ApiKeySource =
-  | 'ANTHROPIC_API_KEY'
+  | 'OPENAI_API_KEY'
   | 'apiKeyHelper'
   | '/login managed key'
   | 'none'
@@ -233,12 +212,12 @@ export function getAnthropicApiKeyWithSource(
   key: null | string
   source: ApiKeySource
 } {
-  // --bare: hermetic auth. Only ANTHROPIC_API_KEY env or apiKeyHelper from
+  // --bare: hermetic auth. Only OPENAI_API_KEY env or apiKeyHelper from
   // the --settings flag. Never touches keychain, config file, or approval
-  // lists. 3P (Bedrock/Vertex/Foundry) uses provider creds, not this path.
+  // lists.
   if (isBareMode()) {
-    if (process.env.ANTHROPIC_API_KEY) {
-      return { key: process.env.ANTHROPIC_API_KEY, source: 'ANTHROPIC_API_KEY' }
+    if (process.env.OPENAI_API_KEY) {
+      return { key: process.env.OPENAI_API_KEY, source: 'OPENAI_API_KEY' }
     }
     if (getConfiguredApiKeyHelper()) {
       return {
@@ -251,18 +230,18 @@ export function getAnthropicApiKeyWithSource(
     return { key: null, source: 'none' }
   }
 
-  // On homespace, don't use ANTHROPIC_API_KEY (use Console key instead)
+  // On homespace, don't use OPENAI_API_KEY (use Console key instead)
   // https://anthropic.slack.com/archives/C08428WSLKV/p1747331773214779
   const apiKeyEnv = isRunningOnHomespace()
     ? undefined
-    : process.env.ANTHROPIC_API_KEY
+    : process.env.OPENAI_API_KEY
 
   // Always check for direct environment variable when the user ran claude --print.
   // This is useful for CI, etc.
   if (preferThirdPartyAuthentication() && apiKeyEnv) {
     return {
       key: apiKeyEnv,
-      source: 'ANTHROPIC_API_KEY',
+      source: 'OPENAI_API_KEY',
     }
   }
 
@@ -272,7 +251,7 @@ export function getAnthropicApiKeyWithSource(
     if (apiKeyFromFd) {
       return {
         key: apiKeyFromFd,
-        source: 'ANTHROPIC_API_KEY',
+        source: 'OPENAI_API_KEY',
       }
     }
 
@@ -283,25 +262,25 @@ export function getAnthropicApiKeyWithSource(
       !process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
     ) {
       throw new Error(
-        'ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var is required',
+        'OPENAI_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var is required',
       )
     }
 
     if (apiKeyEnv && !isUsing3PServices()) {
       return {
         key: apiKeyEnv,
-        source: 'ANTHROPIC_API_KEY',
+        source: 'OPENAI_API_KEY',
       }
     }
 
     // OAuth token is present but this function returns API keys only
-    // Also reached when 3P provider is active — ANTHROPIC_API_KEY is ignored
+    // Also reached when 3P provider is active — OPENAI_API_KEY is ignored
     return {
       key: null,
       source: 'none',
     }
   }
-  // Check for ANTHROPIC_API_KEY before checking the apiKeyHelper or /login-managed key
+  // Check for OPENAI_API_KEY before checking the apiKeyHelper or /login-managed key
   if (
     apiKeyEnv &&
     getGlobalConfig().customApiKeyResponses?.approved?.includes(
@@ -310,7 +289,7 @@ export function getAnthropicApiKeyWithSource(
   ) {
     return {
       key: apiKeyEnv,
-      source: 'ANTHROPIC_API_KEY',
+      source: 'OPENAI_API_KEY',
     }
   }
 
@@ -319,7 +298,7 @@ export function getAnthropicApiKeyWithSource(
   if (apiKeyFromFd) {
     return {
       key: apiKeyFromFd,
-      source: 'ANTHROPIC_API_KEY',
+      source: 'OPENAI_API_KEY',
     }
   }
 
@@ -380,56 +359,6 @@ function isApiKeyHelperFromProjectOrLocalSettings(): boolean {
   return (
     projectSettings?.apiKeyHelper === apiKeyHelper ||
     localSettings?.apiKeyHelper === apiKeyHelper
-  )
-}
-
-/**
- * Get the configured awsAuthRefresh from settings
- */
-function getConfiguredAwsAuthRefresh(): string | undefined {
-  const mergedSettings = getSettings_DEPRECATED() || {}
-  return mergedSettings.awsAuthRefresh
-}
-
-/**
- * Check if the configured awsAuthRefresh comes from project settings
- */
-export function isAwsAuthRefreshFromProjectSettings(): boolean {
-  const awsAuthRefresh = getConfiguredAwsAuthRefresh()
-  if (!awsAuthRefresh) {
-    return false
-  }
-
-  const projectSettings = getSettingsForSource('projectSettings')
-  const localSettings = getSettingsForSource('localSettings')
-  return (
-    projectSettings?.awsAuthRefresh === awsAuthRefresh ||
-    localSettings?.awsAuthRefresh === awsAuthRefresh
-  )
-}
-
-/**
- * Get the configured awsCredentialExport from settings
- */
-function getConfiguredAwsCredentialExport(): string | undefined {
-  const mergedSettings = getSettings_DEPRECATED() || {}
-  return mergedSettings.awsCredentialExport
-}
-
-/**
- * Check if the configured awsCredentialExport comes from project settings
- */
-export function isAwsCredentialExportFromProjectSettings(): boolean {
-  const awsCredentialExport = getConfiguredAwsCredentialExport()
-  if (!awsCredentialExport) {
-    return false
-  }
-
-  const projectSettings = getSettingsForSource('projectSettings')
-  const localSettings = getSettingsForSource('localSettings')
-  return (
-    projectSettings?.awsCredentialExport === awsCredentialExport ||
-    localSettings?.awsCredentialExport === awsCredentialExport
   )
 }
 
@@ -606,451 +535,6 @@ export function prefetchApiKeyFromApiKeyHelperIfSafe(
     return
   }
   void getApiKeyFromApiKeyHelper(isNonInteractiveSession)
-}
-
-/** Default STS credentials are one hour. We manually manage invalidation, so not too worried about this being accurate. */
-const DEFAULT_AWS_STS_TTL = 60 * 60 * 1000
-
-/**
- * Run awsAuthRefresh to perform interactive authentication (e.g., aws sso login)
- * Streams output in real-time for user visibility
- */
-async function runAwsAuthRefresh(): Promise<boolean> {
-  const awsAuthRefresh = getConfiguredAwsAuthRefresh()
-
-  if (!awsAuthRefresh) {
-    return false // Not configured, treat as success
-  }
-
-  // SECURITY: Check if awsAuthRefresh is from project settings
-  if (isAwsAuthRefreshFromProjectSettings()) {
-    // Check if trust has been established for this project
-    const hasTrust = checkHasTrustDialogAccepted()
-    if (!hasTrust && !getIsNonInteractiveSession()) {
-      const error = new Error(
-        `Security: awsAuthRefresh executed before workspace trust is confirmed. If you see this message, post in ${MACRO.FEEDBACK_CHANNEL}.`,
-      )
-      logAntError('awsAuthRefresh invoked before trust check', error)
-      logEvent('tengu_awsAuthRefresh_missing_trust', {})
-      return false
-    }
-  }
-
-  try {
-    logForDebugging('Fetching AWS caller identity for AWS auth refresh command')
-    await checkStsCallerIdentity()
-    logForDebugging(
-      'Fetched AWS caller identity, skipping AWS auth refresh command',
-    )
-    return false
-  } catch {
-    // only actually do the refresh if caller-identity calls
-    return refreshAwsAuth(awsAuthRefresh)
-  }
-}
-
-// Timeout for AWS auth refresh command (3 minutes).
-// Long enough for browser-based SSO flows, short enough to prevent indefinite hangs.
-const AWS_AUTH_REFRESH_TIMEOUT_MS = 3 * 60 * 1000
-
-export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
-  logForDebugging('Running AWS auth refresh command')
-  // Start tracking authentication status
-  const authStatusManager = AwsAuthStatusManager.getInstance()
-  authStatusManager.startAuthentication()
-
-  return new Promise(resolve => {
-    const refreshProc = exec(awsAuthRefresh, {
-      timeout: AWS_AUTH_REFRESH_TIMEOUT_MS,
-    })
-    refreshProc.stdout!.on('data', data => {
-      const output = data.toString().trim()
-      if (output) {
-        // Add output to status manager for UI display
-        authStatusManager.addOutput(output)
-        // Also log for debugging
-        logForDebugging(output, { level: 'debug' })
-      }
-    })
-
-    refreshProc.stderr!.on('data', data => {
-      const error = data.toString().trim()
-      if (error) {
-        authStatusManager.setError(error)
-        logForDebugging(error, { level: 'error' })
-      }
-    })
-
-    refreshProc.on('close', (code, signal) => {
-      if (code === 0) {
-        logForDebugging('AWS auth refresh completed successfully')
-        authStatusManager.endAuthentication(true)
-        void resolve(true)
-      } else {
-        const timedOut = signal === 'SIGTERM'
-        const message = timedOut
-          ? chalk.red(
-              'AWS auth refresh timed out after 3 minutes. Run your auth command manually in a separate terminal.',
-            )
-          : chalk.red(
-              'Error running awsAuthRefresh (in settings or ~/.claude.json):',
-            )
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.error(message)
-        authStatusManager.endAuthentication(false)
-        void resolve(false)
-      }
-    })
-  })
-}
-
-/**
- * Run awsCredentialExport to get credentials and set environment variables
- * Expects JSON output containing AWS credentials
- */
-async function getAwsCredsFromCredentialExport(): Promise<{
-  accessKeyId: string
-  secretAccessKey: string
-  sessionToken: string
-} | null> {
-  const awsCredentialExport = getConfiguredAwsCredentialExport()
-
-  if (!awsCredentialExport) {
-    return null
-  }
-
-  // SECURITY: Check if awsCredentialExport is from project settings
-  if (isAwsCredentialExportFromProjectSettings()) {
-    // Check if trust has been established for this project
-    const hasTrust = checkHasTrustDialogAccepted()
-    if (!hasTrust && !getIsNonInteractiveSession()) {
-      const error = new Error(
-        `Security: awsCredentialExport executed before workspace trust is confirmed. If you see this message, post in ${MACRO.FEEDBACK_CHANNEL}.`,
-      )
-      logAntError('awsCredentialExport invoked before trust check', error)
-      logEvent('tengu_awsCredentialExport_missing_trust', {})
-      return null
-    }
-  }
-
-  try {
-    logForDebugging(
-      'Fetching AWS caller identity for credential export command',
-    )
-    await checkStsCallerIdentity()
-    logForDebugging(
-      'Fetched AWS caller identity, skipping AWS credential export command',
-    )
-    return null
-  } catch {
-    // only actually do the export if caller-identity calls
-    try {
-      logForDebugging('Running AWS credential export command')
-      const result = await execa(awsCredentialExport, {
-        shell: true,
-        reject: false,
-      })
-      if (result.exitCode !== 0 || !result.stdout) {
-        throw new Error('awsCredentialExport did not return a valid value')
-      }
-
-      // Parse the JSON output from aws sts commands
-      const awsOutput = jsonParse(result.stdout.trim())
-
-      if (!isValidAwsStsOutput(awsOutput)) {
-        throw new Error(
-          'awsCredentialExport did not return valid AWS STS output structure',
-        )
-      }
-
-      logForDebugging('AWS credentials retrieved from awsCredentialExport')
-      return {
-        accessKeyId: awsOutput.Credentials.AccessKeyId,
-        secretAccessKey: awsOutput.Credentials.SecretAccessKey,
-        sessionToken: awsOutput.Credentials.SessionToken,
-      }
-    } catch (e) {
-      const message = chalk.red(
-        'Error getting AWS credentials from awsCredentialExport (in settings or ~/.claude.json):',
-      )
-      if (e instanceof Error) {
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.error(message, e.message)
-      } else {
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.error(message, e)
-      }
-      return null
-    }
-  }
-}
-
-/**
- * Refresh AWS authentication and get credentials with cache clearing
- * This combines runAwsAuthRefresh, getAwsCredsFromCredentialExport, and clearAwsIniCache
- * to ensure fresh credentials are always used
- */
-export const refreshAndGetAwsCredentials = memoizeWithTTLAsync(
-  async (): Promise<{
-    accessKeyId: string
-    secretAccessKey: string
-    sessionToken: string
-  } | null> => {
-    // First run auth refresh if needed
-    const refreshed = await runAwsAuthRefresh()
-
-    // Get credentials from export
-    const credentials = await getAwsCredsFromCredentialExport()
-
-    // Clear AWS INI cache to ensure fresh credentials are used
-    if (refreshed || credentials) {
-      await clearAwsIniCache()
-    }
-
-    return credentials
-  },
-  DEFAULT_AWS_STS_TTL,
-)
-
-export function clearAwsCredentialsCache(): void {
-  refreshAndGetAwsCredentials.cache.clear()
-}
-
-/**
- * Get the configured gcpAuthRefresh from settings
- */
-function getConfiguredGcpAuthRefresh(): string | undefined {
-  const mergedSettings = getSettings_DEPRECATED() || {}
-  return mergedSettings.gcpAuthRefresh
-}
-
-/**
- * Check if the configured gcpAuthRefresh comes from project settings
- */
-export function isGcpAuthRefreshFromProjectSettings(): boolean {
-  const gcpAuthRefresh = getConfiguredGcpAuthRefresh()
-  if (!gcpAuthRefresh) {
-    return false
-  }
-
-  const projectSettings = getSettingsForSource('projectSettings')
-  const localSettings = getSettingsForSource('localSettings')
-  return (
-    projectSettings?.gcpAuthRefresh === gcpAuthRefresh ||
-    localSettings?.gcpAuthRefresh === gcpAuthRefresh
-  )
-}
-
-/** Short timeout for the GCP credentials probe. Without this, when no local
- *  credential source exists (no ADC file, no env var), google-auth-library falls
- *  through to the GCE metadata server which hangs ~12s outside GCP. */
-const GCP_CREDENTIALS_CHECK_TIMEOUT_MS = 5_000
-
-/**
- * Check if GCP credentials are currently valid by attempting to get an access token.
- * This uses the same authentication chain that the Vertex SDK uses.
- */
-export async function checkGcpCredentialsValid(): Promise<boolean> {
-  try {
-    // Dynamically import to avoid loading google-auth-library unnecessarily
-    const { GoogleAuth } = await import('google-auth-library')
-    const auth = new GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    })
-    const probe = (async () => {
-      const client = await auth.getClient()
-      await client.getAccessToken()
-    })()
-    const timeout = sleep(GCP_CREDENTIALS_CHECK_TIMEOUT_MS).then(() => {
-      throw new GcpCredentialsTimeoutError('GCP credentials check timed out')
-    })
-    await Promise.race([probe, timeout])
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Default GCP credential TTL - 1 hour to match typical ADC token lifetime */
-const DEFAULT_GCP_CREDENTIAL_TTL = 60 * 60 * 1000
-
-/**
- * Run gcpAuthRefresh to perform interactive authentication (e.g., gcloud auth application-default login)
- * Streams output in real-time for user visibility
- */
-async function runGcpAuthRefresh(): Promise<boolean> {
-  const gcpAuthRefresh = getConfiguredGcpAuthRefresh()
-
-  if (!gcpAuthRefresh) {
-    return false // Not configured, treat as success
-  }
-
-  // SECURITY: Check if gcpAuthRefresh is from project settings
-  if (isGcpAuthRefreshFromProjectSettings()) {
-    // Check if trust has been established for this project
-    // Pass true to indicate this is a dangerous feature that requires trust
-    const hasTrust = checkHasTrustDialogAccepted()
-    if (!hasTrust && !getIsNonInteractiveSession()) {
-      const error = new Error(
-        `Security: gcpAuthRefresh executed before workspace trust is confirmed. If you see this message, post in ${MACRO.FEEDBACK_CHANNEL}.`,
-      )
-      logAntError('gcpAuthRefresh invoked before trust check', error)
-      logEvent('tengu_gcpAuthRefresh_missing_trust', {})
-      return false
-    }
-  }
-
-  try {
-    logForDebugging('Checking GCP credentials validity for auth refresh')
-    const isValid = await checkGcpCredentialsValid()
-    if (isValid) {
-      logForDebugging(
-        'GCP credentials are valid, skipping auth refresh command',
-      )
-      return false
-    }
-  } catch {
-    // Credentials check failed, proceed with refresh
-  }
-
-  return refreshGcpAuth(gcpAuthRefresh)
-}
-
-// Timeout for GCP auth refresh command (3 minutes).
-// Long enough for browser-based auth flows, short enough to prevent indefinite hangs.
-const GCP_AUTH_REFRESH_TIMEOUT_MS = 3 * 60 * 1000
-
-export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
-  logForDebugging('Running GCP auth refresh command')
-  // Start tracking authentication status. AwsAuthStatusManager is cloud-provider-agnostic
-  // despite the name — print.ts emits its updates as generic SDK 'auth_status' messages.
-  const authStatusManager = AwsAuthStatusManager.getInstance()
-  authStatusManager.startAuthentication()
-
-  return new Promise(resolve => {
-    const refreshProc = exec(gcpAuthRefresh, {
-      timeout: GCP_AUTH_REFRESH_TIMEOUT_MS,
-    })
-    refreshProc.stdout!.on('data', data => {
-      const output = data.toString().trim()
-      if (output) {
-        // Add output to status manager for UI display
-        authStatusManager.addOutput(output)
-        // Also log for debugging
-        logForDebugging(output, { level: 'debug' })
-      }
-    })
-
-    refreshProc.stderr!.on('data', data => {
-      const error = data.toString().trim()
-      if (error) {
-        authStatusManager.setError(error)
-        logForDebugging(error, { level: 'error' })
-      }
-    })
-
-    refreshProc.on('close', (code, signal) => {
-      if (code === 0) {
-        logForDebugging('GCP auth refresh completed successfully')
-        authStatusManager.endAuthentication(true)
-        void resolve(true)
-      } else {
-        const timedOut = signal === 'SIGTERM'
-        const message = timedOut
-          ? chalk.red(
-              'GCP auth refresh timed out after 3 minutes. Run your auth command manually in a separate terminal.',
-            )
-          : chalk.red(
-              'Error running gcpAuthRefresh (in settings or ~/.claude.json):',
-            )
-        // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.error(message)
-        authStatusManager.endAuthentication(false)
-        void resolve(false)
-      }
-    })
-  })
-}
-
-/**
- * Refresh GCP authentication if needed.
- * This function checks if credentials are valid and runs the refresh command if not.
- * Memoized with TTL to avoid excessive refresh attempts.
- */
-export const refreshGcpCredentialsIfNeeded = memoizeWithTTLAsync(
-  async (): Promise<boolean> => {
-    // Run auth refresh if needed
-    const refreshed = await runGcpAuthRefresh()
-    return refreshed
-  },
-  DEFAULT_GCP_CREDENTIAL_TTL,
-)
-
-export function clearGcpCredentialsCache(): void {
-  refreshGcpCredentialsIfNeeded.cache.clear()
-}
-
-/**
- * Prefetches GCP credentials only if workspace trust has already been established.
- * This allows us to start the potentially slow GCP commands early for trusted workspaces
- * while maintaining security for untrusted ones.
- *
- * Returns void to prevent misuse - use refreshGcpCredentialsIfNeeded() to actually refresh.
- */
-export function prefetchGcpCredentialsIfSafe(): void {
-  // Check if gcpAuthRefresh is configured
-  const gcpAuthRefresh = getConfiguredGcpAuthRefresh()
-
-  if (!gcpAuthRefresh) {
-    return
-  }
-
-  // Check if gcpAuthRefresh is from project settings
-  if (isGcpAuthRefreshFromProjectSettings()) {
-    // Only prefetch if trust has already been established
-    const hasTrust = checkHasTrustDialogAccepted()
-    if (!hasTrust && !getIsNonInteractiveSession()) {
-      // Don't prefetch - wait for trust to be established first
-      return
-    }
-  }
-
-  // Safe to prefetch - either not from project settings or trust already established
-  void refreshGcpCredentialsIfNeeded()
-}
-
-/**
- * Prefetches AWS credentials only if workspace trust has already been established.
- * This allows us to start the potentially slow AWS commands early for trusted workspaces
- * while maintaining security for untrusted ones.
- *
- * Returns void to prevent misuse - use refreshAndGetAwsCredentials() to actually retrieve credentials.
- */
-export function prefetchAwsCredentialsAndBedRockInfoIfSafe(): void {
-  // Check if either AWS command is configured
-  const awsAuthRefresh = getConfiguredAwsAuthRefresh()
-  const awsCredentialExport = getConfiguredAwsCredentialExport()
-
-  if (!awsAuthRefresh && !awsCredentialExport) {
-    return
-  }
-
-  // Check if either command is from project settings
-  if (
-    isAwsAuthRefreshFromProjectSettings() ||
-    isAwsCredentialExportFromProjectSettings()
-  ) {
-    // Only prefetch if trust has already been established
-    const hasTrust = checkHasTrustDialogAccepted()
-    if (!hasTrust && !getIsNonInteractiveSession()) {
-      // Don't prefetch - wait for trust to be established first
-      return
-    }
-  }
-
-  // Safe to prefetch - either not from project settings or trust already established
-  void refreshAndGetAwsCredentials()
-  getModelStrings()
 }
 
 /** @private Use {@link getAnthropicApiKey} or {@link getAnthropicApiKeyWithSource} */
@@ -1590,22 +1074,7 @@ export function hasProfileScope(): boolean {
 }
 
 export function is1PApiCustomer(): boolean {
-  // 1P API customers are users who are NOT:
-  // 1. Claude.ai subscribers (Max, Pro, Enterprise, Team)
-  // 2. Vertex AI users
-  // 3. AWS Bedrock users
-  // 4. Foundry users
-
-  // Exclude Vertex, Bedrock, and Foundry customers
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
-  ) {
-    return false
-  }
-
-  // Exclude Claude.ai subscribers
+  // 1P API customers are users who are NOT Claude.ai subscribers
   if (isClaudeAISubscriber()) {
     return false
   }
@@ -1734,17 +1203,9 @@ export function getSubscriptionName(): string {
   }
 }
 
-/** Check if using third-party services (Bedrock or Vertex or Foundry or OpenAI-compatible or Gemini or GitHub Models) */
+/** Check if using third-party services. Always false since we only support OpenAI-compatible. */
 export function isUsing3PServices(): boolean {
-  return !!(
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  )
+  return false
 }
 
 /**
@@ -1871,11 +1332,6 @@ export type UserAccountInfo = {
 }
 
 export function getAccountInformation() {
-  const apiProvider = getAPIProvider()
-  // Only provide account info for first-party Anthropic API
-  if (apiProvider !== 'firstParty') {
-    return undefined
-  }
   const { source: authTokenSource } = getAuthTokenSource()
   const accountInfo: UserAccountInfo = {}
   if (
@@ -2009,4 +1465,3 @@ export async function validateForceLoginOrg(): Promise<OrgValidationResult> {
   }
 }
 
-class GcpCredentialsTimeoutError extends Error {}

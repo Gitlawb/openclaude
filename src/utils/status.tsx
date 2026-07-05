@@ -6,12 +6,11 @@ import type { MCPServerConnection } from '../services/mcp/types.js';
 import { getAccountInformation, isClaudeAISubscriber } from './auth.js';
 import { getLargeMemoryFiles, getMemoryFiles, MAX_MEMORY_CHARACTER_COUNT } from './claudemd.js';
 import { getDoctorDiagnostic } from './doctorDiagnostic.js';
-import { getAWSRegion, getDefaultVertexRegion, isEnvTruthy } from './envUtils.js';
+import { isEnvTruthy } from './envUtils.js';
 import { getDisplayPath } from './file.js';
 import { formatNumber } from './format.js';
 import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, toIDEDisplayName } from './ide.js';
 import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
-import { getAPIProvider } from './model/providers.js';
 import { resolveProviderRequest } from '../services/api/providerConfig.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
@@ -240,177 +239,36 @@ export function buildAccountProperties(): Property[] {
   return properties;
 }
 export function buildAPIProviderProperties(): Property[] {
-  const apiProvider = getAPIProvider();
   const properties: Property[] = [];
-  if (apiProvider !== 'firstParty') {
-    const providerLabel = {
-      bedrock: 'AWS Bedrock',
-      vertex: 'Google Vertex AI',
-      foundry: 'Microsoft Foundry',
-      openai: 'OpenAI-compatible',
-      codex: 'Codex',
-      gemini: 'Google Gemini',
-      github: 'GitHub Models',
-      mistral: 'Mistral',
-    }[apiProvider];
+  properties.push({
+    label: 'API provider',
+    value: 'OpenAI-compatible'
+  });
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL;
+  if (openaiBaseUrl) {
     properties.push({
-      label: 'API provider',
-      value: providerLabel
+      label: 'OpenAI base URL',
+      value: redactSecretValueForDisplay(openaiBaseUrl, process.env) ?? openaiBaseUrl
     });
   }
-  if (apiProvider === 'firstParty') {
-    const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
-    if (anthropicBaseUrl) {
-      properties.push({
-        label: 'Anthropic base URL',
-        value: anthropicBaseUrl
-      });
+  const openaiModel = process.env.OPENAI_MODEL;
+  if (openaiModel) {
+    // Build display model string with resolved model + reasoning effort
+    let modelDisplay = openaiModel;
+    const resolved = resolveProviderRequest({ model: openaiModel });
+    const resolvedModel = resolved.resolvedModel;
+    const reasoningEffort = resolved.reasoning?.effort;
+    if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
+      // Show resolved model name
+      modelDisplay = resolvedModel;
     }
-  } else if (apiProvider === 'bedrock') {
-    const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
-    if (bedrockBaseUrl) {
-      properties.push({
-        label: 'Bedrock base URL',
-        value: bedrockBaseUrl
-      });
+    if (reasoningEffort) {
+      modelDisplay = `${modelDisplay} (${reasoningEffort})`;
     }
     properties.push({
-      label: 'AWS region',
-      value: getAWSRegion()
+      label: 'Model',
+      value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
     });
-    if (isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH)) {
-      properties.push({
-        value: 'AWS auth skipped'
-      });
-    }
-  } else if (apiProvider === 'vertex') {
-    const vertexBaseUrl = process.env.VERTEX_BASE_URL;
-    if (vertexBaseUrl) {
-      properties.push({
-        label: 'Vertex base URL',
-        value: vertexBaseUrl
-      });
-    }
-    const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
-    if (gcpProject) {
-      properties.push({
-        label: 'GCP project',
-        value: gcpProject
-      });
-    }
-    properties.push({
-      label: 'Default region',
-      value: getDefaultVertexRegion()
-    });
-    if (isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {
-      properties.push({
-        value: 'GCP auth skipped'
-      });
-    }
-  } else if (apiProvider === 'foundry') {
-    const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
-    if (foundryBaseUrl) {
-      properties.push({
-        label: 'Microsoft Foundry base URL',
-        value: foundryBaseUrl
-      });
-    }
-    const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
-    if (foundryResource) {
-      properties.push({
-        label: 'Microsoft Foundry resource',
-        value: foundryResource
-      });
-    }
-    if (isEnvTruthy(process.env.CLAUDE_CODE_SKIP_FOUNDRY_AUTH)) {
-      properties.push({
-        value: 'Microsoft Foundry auth skipped'
-      });
-    }
-  } else if (apiProvider === 'openai') {
-    const openaiBaseUrl = process.env.OPENAI_BASE_URL;
-    if (openaiBaseUrl) {
-      properties.push({
-        label: 'OpenAI base URL',
-        value: redactSecretValueForDisplay(openaiBaseUrl, process.env) ?? openaiBaseUrl
-      });
-    }
-    const openaiModel = process.env.OPENAI_MODEL;
-    if (openaiModel) {
-      // Build display model string with resolved model + reasoning effort
-      let modelDisplay = openaiModel;
-      const resolved = resolveProviderRequest({ model: openaiModel });
-      const resolvedModel = resolved.resolvedModel;
-      const reasoningEffort = resolved.reasoning?.effort;
-      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
-        // Show resolved model name
-        modelDisplay = resolvedModel;
-      }
-      if (reasoningEffort) {
-        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
-      }
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
-      });
-    }
-  } else if (apiProvider === 'codex') {
-    const codexBaseUrl = process.env.OPENAI_BASE_URL;
-    if (codexBaseUrl) {
-      properties.push({
-        label: 'Codex base URL',
-        value: redactSecretValueForDisplay(codexBaseUrl, process.env) ?? codexBaseUrl
-      });
-    }
-    const openaiModel = process.env.OPENAI_MODEL;
-    if (openaiModel) {
-      // Build display model string with resolved model + reasoning effort
-      let modelDisplay = openaiModel;
-      const resolved = resolveProviderRequest({ model: openaiModel });
-      const resolvedModel = resolved.resolvedModel;
-      const reasoningEffort = resolved.reasoning?.effort;
-      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
-        // Show resolved model name
-        modelDisplay = resolvedModel;
-      }
-      if (reasoningEffort) {
-        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
-      }
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
-      });
-    }
-  } else if (apiProvider === 'gemini') {
-    const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    if (geminiBaseUrl) {
-      properties.push({
-        label: 'Gemini base URL',
-        value: redactSecretValueForDisplay(geminiBaseUrl, process.env) ?? geminiBaseUrl
-      });
-    }
-    const geminiModel = process.env.GEMINI_MODEL;
-    if (geminiModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(geminiModel, process.env) ?? geminiModel
-      });
-    }
-  } else if (apiProvider === 'mistral') {
-    const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    if (mistralBaseUrl) {
-      properties.push({
-        label: 'Mistral base URL',
-        value: redactSecretValueForDisplay(mistralBaseUrl, process.env) ?? mistralBaseUrl
-      })
-    }
-    const mistralModel = process.env.MISTRAL_MODEL;
-    if (mistralModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(mistralModel, process.env) ?? mistralModel
-      })
-    }
   }
   const proxyUrl = getProxyUrl();
   if (proxyUrl) {

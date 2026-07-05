@@ -2,16 +2,7 @@ import { getSessionId } from '../../bootstrap/state.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
-import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import { getMainLoopModel } from '../../utils/model/model.js'
-
-const COPILOT_HEADERS: Record<string, string> = {
-  'User-Agent': 'GitHubCopilotChat/0.26.7',
-  'Editor-Version': 'vscode/1.99.3',
-  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
-  'Copilot-Integration-Id': 'vscode-chat',
-}
 
 // Large system prompt (~6000 chars, ~1500 tokens) to cross the 1024-token cache threshold
 const SYSTEM_PROMPT = [
@@ -184,26 +175,13 @@ export const call: LocalCommandCall = async (args) => {
   const modelOverride = parts.find((p) => !p.startsWith('--')) || undefined
   const modelStr = modelOverride ?? getMainLoopModel()
   const request = resolveProviderRequest({ model: modelStr })
-  const isGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  // Resolve API key the same way the OpenAI shim does
-  let apiKey = process.env.OPENAI_API_KEY ?? ''
-  if (!apiKey && isGithub) {
-    hydrateGithubModelsTokenFromSecureStorage()
-    apiKey =
-      process.env.OPENAI_API_KEY ??
-      process.env.GITHUB_TOKEN ??
-      process.env.GH_TOKEN ??
-      ''
-  }
-
+  const apiKey = process.env.OPENAI_API_KEY ?? ''
   if (!apiKey) {
     return {
       type: 'text',
       value:
-        'No API key found. Make sure you are in an active OpenAI-compatible or GitHub Copilot session.\n' +
-        'For GitHub Copilot: run /onboard-github first.\n' +
-        'For OpenAI-compatible: set OPENAI_API_KEY.',
+        'No API key found. Set OPENAI_API_KEY environment variable.',
     }
   }
 
@@ -217,9 +195,6 @@ export const call: LocalCommandCall = async (args) => {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
     originator: 'openclaude',
-  }
-  if (isGithub) {
-    Object.assign(headers, COPILOT_HEADERS)
   }
 
   let body: Record<string, unknown>

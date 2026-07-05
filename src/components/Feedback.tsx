@@ -13,14 +13,11 @@ import { useKeybinding } from '../keybindings/useKeybinding.js';
 import { queryHaiku } from '../services/api/claude.js';
 import { startsWithApiErrorPrefix } from '../services/api/errors.js';
 import type { Message } from '../types/message.js';
-import { checkAndRefreshOAuthTokenIfNeeded } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
 import { logForDebugging } from '../utils/debug.js';
 import { env } from '../utils/env.js';
 import { type GitRepoState, getGitState, getIsGit } from '../utils/git.js';
-import { getAuthHeaders, getUserAgent } from '../utils/http.js';
 import { getInMemoryErrors, logError } from '../utils/log.js';
-import { getAPIProvider } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
@@ -533,53 +530,11 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
     };
   }
   try {
-    // Third-party providers should not post feedback to Anthropic, but they
+    // Non-first-party providers should not post feedback to Anthropic, but
     // should still reach the done state so users can open a GitHub issue draft.
-    if (getAPIProvider() !== 'firstParty') {
-      return {
-        success: true,
-        issueDraftOnly: true
-      };
-    }
-
-    // Ensure OAuth token is fresh before getting auth headers
-    // This prevents 401 errors from stale cached tokens
-    await checkAndRefreshOAuthTokenIfNeeded();
-    const authResult = getAuthHeaders();
-    if (authResult.error) {
-      return {
-        success: false
-      };
-    }
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'User-Agent': getUserAgent(),
-      ...authResult.headers
-    };
-    const response = await axios.post('https://api.anthropic.com/api/claude_cli_feedback', {
-      content: jsonStringify(data)
-    }, {
-      headers,
-      timeout: 30000,
-      // 30 second timeout to prevent hanging
-      signal
-    });
-    if (response.status === 200) {
-      const result = response.data;
-      if (result?.feedback_id) {
-        return {
-          success: true,
-          feedbackId: result.feedback_id
-        };
-      }
-      sanitizeAndLogError(new Error('Failed to submit feedback: request did not return feedback_id'));
-      return {
-        success: false
-      };
-    }
-    sanitizeAndLogError(new Error('Failed to submit feedback:' + response.status));
     return {
-      success: false
+      success: true,
+      issueDraftOnly: true
     };
   } catch (err) {
     // Handle cancellation/abort - don't log as error

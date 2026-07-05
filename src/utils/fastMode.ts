@@ -26,7 +26,6 @@ import {
   type ModelSetting,
   parseUserSpecifiedModel,
 } from './model/model.js'
-import { getAPIProvider } from './model/providers.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
 import {
   getInitialSettings,
@@ -36,10 +35,8 @@ import {
 import { createSignal } from './signal.js'
 
 export function isFastModeEnabled(): boolean {
-  if (getAPIProvider() !== 'firstParty') {
-    return false
-  }
-  return !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FAST_MODE)
+  // Fast mode is only available for first-party provider — always disabled for openai.
+  return false
 }
 
 export function isFastModeAvailable(): boolean {
@@ -73,12 +70,8 @@ function getDisabledReasonMessage(
 }
 
 export function getFastModeUnavailableReason(): string | null {
-  if (getAPIProvider() !== 'firstParty') {
-    return 'Fast mode is not available on third-party providers'
-  }
-
   if (!isFastModeEnabled()) {
-    return 'Fast mode is not available'
+    return 'Fast mode is not available on this provider'
   }
 
   const statigReason = getFeatureValue_CACHED_MAY_BE_STALE(

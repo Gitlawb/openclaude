@@ -47,10 +47,6 @@ import {
 import { logForDebugging } from '../../utils/debug.js'
 import { classifyAxiosError } from '../../utils/errors.js'
 import { getGithubRepo } from '../../utils/git.js'
-import {
-  getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
-} from '../../utils/model/providers.js'
 import { sleep } from '../../utils/sleep.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
@@ -149,15 +145,8 @@ function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
  * Check if user is authenticated with first-party OAuth (required for team memory sync).
  */
 function isUsingOAuth(): boolean {
-  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
-    return false
-  }
-  const tokens = getClaudeAIOAuthTokens()
-  return Boolean(
-    tokens?.accessToken &&
-      tokens.scopes?.includes(CLAUDE_AI_INFERENCE_SCOPE) &&
-      tokens.scopes.includes(CLAUDE_AI_PROFILE_SCOPE),
-  )
+  // Team memory sync requires first-party OAuth — always unavailable for openai.
+  return false
 }
 
 function getTeamMemorySyncEndpoint(repoSlug: string): string {

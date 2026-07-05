@@ -1,22 +1,10 @@
 import type { Anthropic } from '@anthropic-ai/sdk'
 import type { BetaMessageParam as MessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-// @aws-sdk/client-bedrock-runtime is imported dynamically in countTokensWithBedrock()
-// to defer ~279KB of AWS SDK code until a Bedrock call is actually made
-import type { CountTokensCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { getAPIProvider } from 'src/utils/model/providers.js'
-import { VERTEX_COUNT_TOKENS_ALLOWED_BETAS } from '../constants/betas.js'
 import type { Attachment } from '../utils/attachments.js'
 import { getModelBetas } from '../utils/betas.js'
-import { getVertexRegionForModel, isEnvTruthy } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
 import { normalizeAttachmentForAPI } from '../utils/messages.js'
 import {
-  createBedrockRuntimeClient,
-  getInferenceProfileBackingModel,
-  isFoundationModel,
-} from '../utils/model/bedrock.js'
-import {
-  getDefaultSonnetModel,
   getMainLoopModel,
   getSmallFastModel,
   normalizeModelStringForAPI,
@@ -147,27 +135,11 @@ export async function countMessagesTokensWithAPI(
       const betas = getModelBetas(model)
       const containsThinking = hasThinkingBlocks(messages)
 
-      if (getAPIProvider() === 'bedrock') {
-        // @anthropic-sdk/bedrock-sdk doesn't support countTokens currently
-        return countTokensWithBedrock({
-          model: normalizeModelStringForAPI(model),
-          messages,
-          tools,
-          betas,
-          containsThinking,
-        })
-      }
-
       const anthropic = await getAnthropicClient({
         maxRetries: 1,
         model,
         source: 'count_tokens',
       })
-
-      const filteredBetas =
-        getAPIProvider() === 'vertex'
-          ? betas.filter(b => VERTEX_COUNT_TOKENS_ALLOWED_BETAS.has(b))
-          : betas
 
       const response = await anthropic.beta.messages.countTokens({
         model: normalizeModelStringForAPI(model),
@@ -176,7 +148,7 @@ export async function countMessagesTokensWithAPI(
           // to get an accurate tool token count.
           messages.length > 0 ? messages : [{ role: 'user', content: 'foo' }],
         tools,
-        ...(filteredBetas.length > 0 && { betas: filteredBetas }),
+        ...(betas.length > 0 && { betas }),
         // Enable thinking if messages contain thinking blocks
         ...(containsThinking && {
           thinking: {
@@ -188,7 +160,6 @@ export async function countMessagesTokensWithAPI(
 
       if (typeof response.input_tokens !== 'number') {
         // Vertex client throws
-        // Bedrock client succeeds with { Output: { __type: 'com.amazon.coral.service#UnknownOperationException' }, Version: '1.0' }
         return null
       }
 
@@ -227,9 +198,9 @@ export function bytesPerTokenForFileType(fileExtension: string): number {
  * Like {@link roughTokenCountEstimation} but uses a more accurate
  * bytes-per-token ratio when the file type is known.
  *
- * This matters when the API-based token count is unavailable (e.g. on
- * Bedrock) and we fall back to the rough estimate — an underestimate can
- * let an oversized tool result slip into the conversation.
+ * This matters when the API-based token count is unavailable and we
+ * fall back to the rough estimate — an underestimate can let an
+ * oversized tool result slip into the conversation.
  */
 export function roughTokenCountEstimationForFileType(
   content: string,
@@ -246,7 +217,6 @@ export function roughTokenCountEstimationForFileType(
  * This provides a more reliable estimate than getTokenUsage for messages that may have been compacted.
  * Uses Haiku for token counting (Haiku 4.5 supports thinking blocks), except:
  * - Vertex global region: uses Sonnet (Haiku not available)
- * - Bedrock with thinking blocks: uses Sonnet (Haiku 3.5 doesn't support thinking)
  */
 export async function countTokensViaHaikuFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
@@ -255,26 +225,11 @@ export async function countTokensViaHaikuFallback(
   // Check if messages contain thinking blocks
   const containsThinking = hasThinkingBlocks(messages)
 
-  // If we're on Vertex and using global region, always use Sonnet since Haiku is not available there.
-  const isVertexGlobalEndpoint =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-    getVertexRegionForModel(getSmallFastModel()) === 'global'
-  // If we're on Bedrock with thinking blocks, use Sonnet since Haiku 3.5 doesn't support thinking
-  const isBedrockWithThinking =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) && containsThinking
-  // If we're on Vertex with thinking blocks, use Sonnet since Haiku 3.5 doesn't support thinking
-  const isVertexWithThinking =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) && containsThinking
-  // Otherwise always use Haiku - Haiku 4.5 supports thinking blocks.
+  // Always use Haiku - Haiku 4.5 supports thinking blocks.
   // WARNING: if you change this to use a non-Haiku model, this request will fail in 1P unless it uses getCLISyspromptPrefix.
   // Note: We don't need Sonnet for tool_reference blocks because we strip them via
   // stripToolSearchFieldsFromMessages() before sending.
-  // Use getSmallFastModel() to respect ANTHROPIC_SMALL_FAST_MODEL env var for Bedrock users
-  // with global inference profiles (see issue #10883).
-  const model =
-    isVertexGlobalEndpoint || isBedrockWithThinking || isVertexWithThinking
-      ? getDefaultSonnetModel()
-      : getSmallFastModel()
+  const model = getSmallFastModel()
   const anthropic = await getAnthropicClient({
     maxRetries: 1,
     model,
@@ -291,12 +246,6 @@ export async function countTokensViaHaikuFallback(
       : [{ role: 'user', content: 'count' }]
 
   const betas = getModelBetas(model)
-  // Filter betas for Vertex - some betas (like web-search) cause 400 errors
-  // on certain Vertex endpoints. See issue #10789.
-  const filteredBetas =
-    getAPIProvider() === 'vertex'
-      ? betas.filter(b => VERTEX_COUNT_TOKENS_ALLOWED_BETAS.has(b))
-      : betas
 
   // biome-ignore lint/plugin: token counting needs specialized parameters (thinking, betas) that sideQuery doesn't support
   const response = await anthropic.beta.messages.create({
@@ -304,7 +253,7 @@ export async function countTokensViaHaikuFallback(
     max_tokens: containsThinking ? TOKEN_COUNT_MAX_TOKENS : 1,
     messages: messagesToSend,
     tools: tools.length > 0 ? tools : undefined,
-    ...(filteredBetas.length > 0 && { betas: filteredBetas }),
+    ...(betas.length > 0 && { betas }),
     metadata: getAPIMetadata(),
     ...getExtraBodyParams(),
     // Enable thinking if messages contain thinking blocks
@@ -432,64 +381,4 @@ function roughTokenCountEstimationForBlock(
   // Stringify-length tracks the serialized form the API sees; the
   // key/bracket overhead is single-digit percent on real blocks.
   return roughTokenCountEstimation(jsonStringify(block))
-}
-
-async function countTokensWithBedrock({
-  model,
-  messages,
-  tools,
-  betas,
-  containsThinking,
-}: {
-  model: string
-  messages: Anthropic.Beta.Messages.BetaMessageParam[]
-  tools: Anthropic.Beta.Messages.BetaToolUnion[]
-  betas: string[]
-  containsThinking: boolean
-}): Promise<number | null> {
-  try {
-    const client = await createBedrockRuntimeClient()
-    // Bedrock CountTokens requires a model ID, not an inference profile / ARN
-    const modelId = isFoundationModel(model)
-      ? model
-      : await getInferenceProfileBackingModel(model)
-    if (!modelId) {
-      return null
-    }
-
-    const requestBody = {
-      anthropic_version: 'bedrock-2023-05-31',
-      // When we pass tools and no messages, we need to pass a dummy message
-      // to get an accurate tool token count.
-      messages:
-        messages.length > 0 ? messages : [{ role: 'user', content: 'foo' }],
-      max_tokens: containsThinking ? TOKEN_COUNT_MAX_TOKENS : 1,
-      ...(tools.length > 0 && { tools }),
-      ...(betas.length > 0 && { anthropic_beta: betas }),
-      ...(containsThinking && {
-        thinking: {
-          type: 'enabled',
-          budget_tokens: TOKEN_COUNT_THINKING_BUDGET,
-        },
-      }),
-    }
-
-    const { CountTokensCommand } = await import(
-      '@aws-sdk/client-bedrock-runtime'
-    )
-    const input: CountTokensCommandInput = {
-      modelId,
-      input: {
-        invokeModel: {
-          body: new TextEncoder().encode(jsonStringify(requestBody)),
-        },
-      },
-    }
-    const response = await client.send(new CountTokensCommand(input))
-    const tokenCount = response.inputTokens ?? null
-    return tokenCount
-  } catch (error) {
-    logError(error)
-    return null
-  }
 }

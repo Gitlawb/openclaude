@@ -6,20 +6,11 @@
  *
  * Usage:
  *   openclaude --provider openai --model gpt-4o
- *   openclaude --provider gemini --model gemini-2.0-flash
- *   openclaude --provider mistral --model ministral-3b-latest
  *   openclaude --provider ollama --model llama3.2
- *   openclaude --provider anthropic   (default, no-op)
  */
 
 export const VALID_PROVIDERS = [
-  'anthropic',
   'openai',
-  'gemini',
-  'mistral',
-  'github',
-  'bedrock',
-  'vertex',
   'ollama',
 ] as const
 
@@ -63,7 +54,7 @@ function parseModelFlag(args: string[]): string | null {
 
 /**
  * Apply a provider name to process.env.
- * Sets the required CLAUDE_CODE_USE_* flag and any provider-specific
+ * Sets the required environment variables and any provider-specific
  * defaults (Ollama base URL, model routing). Does NOT overwrite values
  * that are already set — explicit env vars always win.
  *
@@ -79,46 +70,12 @@ export function applyProviderFlag(
     }
   }
 
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_MISTRAL
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-
   const model = parseModelFlag(args)
 
   switch (provider as ProviderFlagName) {
-    case 'anthropic':
-      // Default — no env vars needed
-      break
-
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       if (model) process.env.OPENAI_MODEL = model
-      break
-
-    case 'gemini':
-      process.env.CLAUDE_CODE_USE_GEMINI = '1'
-      if (model) process.env.GEMINI_MODEL = model
-      break
-
-    case 'mistral':
-      process.env.CLAUDE_CODE_USE_MISTRAL = '1'
-      if (model) process.env.MISTRAL_MODEL = model
-      break
-
-    case 'github':
-      process.env.CLAUDE_CODE_USE_GITHUB = '1'
-      if (model) process.env.OPENAI_MODEL = model
-      break
-
-    case 'bedrock':
-      process.env.CLAUDE_CODE_USE_BEDROCK = '1'
-      break
-
-    case 'vertex':
-      process.env.CLAUDE_CODE_USE_VERTEX = '1'
       break
 
     case 'ollama':

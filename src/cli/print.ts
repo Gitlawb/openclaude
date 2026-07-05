@@ -190,7 +190,6 @@ import { getLastCacheSafeParams } from 'src/utils/forkedAgent.js'
 import { getAccountInformation } from 'src/utils/auth.js'
 import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
@@ -3640,7 +3639,7 @@ function runHeadlessStreaming(
                     subscriptionType: accountInfo?.subscription,
                     tokenSource: accountInfo?.tokenSource,
                     apiKeySource: accountInfo?.apiKeySource,
-                    apiProvider: getAPIProvider(),
+                    apiProvider: 'openai',
                   },
                 })
               },
@@ -4476,7 +4475,7 @@ async function handleInitializeRequest(
       // getAccountInformation() returns undefined under 3P providers, so the
       // other fields are all absent. apiProvider disambiguates "not logged
       // in" (firstParty + tokenSource:none) from "3P, login not applicable".
-      apiProvider: getAPIProvider(),
+      apiProvider: 'openai',
     },
     pid: process.pid,
   }

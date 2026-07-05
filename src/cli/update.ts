@@ -1,5 +1,4 @@
 import chalk from 'chalk'
-import { getAPIProvider } from 'src/utils/model/providers.js'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
   getLatestVersion,
@@ -29,18 +28,16 @@ import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 export async function update() {
-  // Block updates for third-party providers. The update mechanism downloads
+  // Block updates for non-first-party providers. The update mechanism downloads
   // from the first-party distribution bucket, which would silently replace the
   // OpenClaude build (with the OpenAI shim) with the upstream Claude Code
   // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
-    writeToStdout(
-      chalk.yellow('Auto-update is not available for third-party provider builds.\n') +
-      'To update, pull the latest source from the repository and rebuild:\n' +
-      '  git pull && bun install && bun run build\n',
-    )
-    return
-  }
+  writeToStdout(
+    chalk.yellow('Auto-update is not available for non-first-party provider builds.\n') +
+    'To update, pull the latest source from the repository and rebuild:\n' +
+    '  git pull && bun install && bun run build\n',
+  )
+  return
 
   logEvent('tengu_update_check', {})
   writeToStdout(`Current version: ${MACRO.VERSION}\n`)

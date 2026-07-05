@@ -20,7 +20,6 @@ import diff from './commands/diff/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
-import onboardGithub from './commands/onboard-github/index.js'
 import memory from './commands/memory/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
@@ -175,7 +174,6 @@ import {
 } from './utils/plugins/loadPluginCommands.js'
 import memoize from 'lodash-es/memoize.js'
 import { isUsing3PServices, isClaudeAISubscriber } from './utils/auth.js'
-import { isFirstPartyAnthropicBaseUrl } from './utils/model/providers.js'
 import env from './commands/env/index.js'
 import exit from './commands/exit/index.js'
 import exportCommand from './commands/export/index.js'
@@ -298,7 +296,6 @@ const COMMANDS = memoize((): Command[] => [
   memory,
   mobile,
   model,
-  onboardGithub,
   outputStyle,
   remoteEnv,
   plugin,
@@ -436,14 +433,7 @@ export function meetsAvailabilityRequirement(cmd: Command): boolean {
         break
       case 'console':
         // Console API key user = direct 1P API customer (not 3P, not claude.ai).
-        // Excludes 3P (Bedrock/Vertex/Foundry) who don't set ANTHROPIC_BASE_URL
-        // and gateway users who proxy through a custom base URL.
-        if (
-          !isClaudeAISubscriber() &&
-          !isUsing3PServices() &&
-          isFirstPartyAnthropicBaseUrl()
-        )
-          return true
+        // Not available for openai provider — always falls through.
         break
       default: {
         const _exhaustive: never = a

@@ -15,7 +15,6 @@ import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
 import type { ModelOption } from '../../utils/model/modelOptions.js';
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
-import { getAPIProvider } from '../../utils/model/providers.js';
 import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
