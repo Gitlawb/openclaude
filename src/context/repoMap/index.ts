@@ -41,7 +41,7 @@ export async function extractTagsWithCache({
   fileStats?: Map<string, FileStatFingerprint | null>
   shouldContinue?: () => void
 }): Promise<FileTags[]> {
-  const allFileTags: FileTags[] = []
+  const fileTagsByPath = new Map<string, FileTags>()
   const uncachedFiles: string[] = []
 
   for (const file of files) {
@@ -53,7 +53,7 @@ export async function extractTagsWithCache({
       fileStats?.get(file) ?? undefined,
     )
     if (cachedTags) {
-      allFileTags.push({ path: file, tags: cachedTags })
+      fileTagsByPath.set(file, { path: file, tags: cachedTags })
     } else {
       uncachedFiles.push(file)
     }
@@ -67,7 +67,7 @@ export async function extractTagsWithCache({
     )
     for (const fileTags of results) {
       if (!fileTags) continue
-      allFileTags.push(fileTags)
+      fileTagsByPath.set(fileTags.path, fileTags)
       setCachedTags(
         cache,
         fileTags.path,
@@ -78,7 +78,10 @@ export async function extractTagsWithCache({
     }
   }
 
-  return allFileTags
+  return files.flatMap(file => {
+    const fileTags = fileTagsByPath.get(file)
+    return fileTags ? [fileTags] : []
+  })
 }
 
 /**

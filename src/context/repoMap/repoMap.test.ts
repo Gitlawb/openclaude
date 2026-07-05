@@ -2,8 +2,14 @@ import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, win32 } from 'path'
-import { invalidateCache, buildRepoMap } from './index.js'
-import { getCachedTags, loadCache, saveCache, statFile } from './cache.js'
+import { invalidateCache, buildRepoMap, extractTagsWithCache } from './index.js'
+import {
+  getCachedTags,
+  loadCache,
+  saveCache,
+  setCachedTags,
+  statFile,
+} from './cache.js'
 import { clearSymbolExtractorCaches, extractTags } from './symbolExtractor.js'
 import { buildGraph } from './graph.js'
 import { getRepoFiles } from './gitFiles.js'
@@ -231,6 +237,43 @@ describe('graph', () => {
 
     const graph = buildGraph(tags)
     expect(graph.outDegree('source.ts')).toBe(0)
+  })
+})
+
+describe('tag cache extraction', () => {
+  test('preserves input file order when mixing cached and uncached tags', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-cache-order-'))
+    try {
+      const files = ['b.ts', 'a.ts', 'c.ts']
+      for (const file of files) {
+        const symbolName = file.replace('.ts', '').toUpperCase()
+        writeFileSync(join(tempDir, file), `export const ${symbolName} = 1\n`)
+      }
+
+      const fileStats = new Map(files.map(file => [file, statFile(tempDir, file)]))
+      const cache = { version: 2, entries: {}, renderedEntries: {} }
+      const cachedTags = await extractTags('b.ts', tempDir)
+      expect(cachedTags).not.toBeNull()
+      setCachedTags(
+        cache,
+        cachedTags!.path,
+        tempDir,
+        cachedTags!.tags,
+        fileStats.get(cachedTags!.path) ?? undefined,
+      )
+
+      const result = await extractTagsWithCache({
+        files,
+        root: tempDir,
+        cache,
+        fileStats,
+      })
+
+      expect(result.map(fileTags => fileTags.path)).toEqual(files)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
   })
 })
 
