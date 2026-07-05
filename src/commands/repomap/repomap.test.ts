@@ -4,9 +4,41 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { invalidateCache } from '../../context/repoMap/index.js'
 import { parseArgs, runRepoMapCommand } from './repomap.js'
+import type { CacheStats, RepoMapResult } from '../../context/repoMap/index.js'
+
+const SAMPLE_RESULT: RepoMapResult = {
+  map: 'main.ts:\n  export function main(): string',
+  cacheHit: false,
+  buildTimeMs: 12,
+  fileCount: 1,
+  totalFileCount: 1,
+  tokenCount: 42,
+}
+
+function fakeDeps(overrides: Partial<{
+  buildRepoMap: () => Promise<RepoMapResult>
+  invalidateCache: () => void
+  getCacheStats: () => CacheStats
+}> = {}) {
+  return Promise.resolve({
+    buildRepoMap: async () => SAMPLE_RESULT,
+    invalidateCache: () => {},
+    getCacheStats: () => ({
+      cacheDir: '/tmp/cache',
+      cacheFile: null,
+      entryCount: 0,
+      exists: false,
+    }),
+    ...overrides,
+  })
+}
 
 async function runTextCommand(args: string, root: string): Promise<string> {
   const result = await runRepoMapCommand(args, root)
+  return textValue(result)
+}
+
+function textValue(result: Awaited<ReturnType<typeof runRepoMapCommand>>): string {
   if (result.type !== 'text') {
     throw new Error(`/repomap must return type:'text', got ${result.type}`)
   }
@@ -116,5 +148,73 @@ describe('/repomap command', () => {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }
+  })
+
+  test('reports build failures without throwing', async () => {
+    const result = await runRepoMapCommand(
+      '',
+      '/tmp/repo',
+      fakeDeps({
+        buildRepoMap: async () => {
+          throw new Error('parser unavailable')
+        },
+      }),
+    )
+
+    expect(textValue(result)).toContain('Failed to build repository map: parser unavailable')
+  })
+
+  test('distinguishes invalidate failures from rebuild failures', async () => {
+    const invalidateResult = await runRepoMapCommand(
+      '--invalidate',
+      '/tmp/repo',
+      fakeDeps({
+        invalidateCache: () => {
+          throw new Error('cache denied')
+        },
+      }),
+    )
+    expect(textValue(invalidateResult)).toContain(
+      'Failed to invalidate repository map cache: cache denied',
+    )
+
+    const rebuildResult = await runRepoMapCommand(
+      '--invalidate',
+      '/tmp/repo',
+      fakeDeps({
+        buildRepoMap: async () => {
+          throw new Error('wasm missing')
+        },
+      }),
+    )
+    expect(textValue(rebuildResult)).toContain(
+      'Cache invalidated, but rebuilding the repository map failed: wasm missing',
+    )
+  })
+
+  test('reports stats failures without throwing', async () => {
+    const result = await runRepoMapCommand(
+      '--stats',
+      '/tmp/repo',
+      fakeDeps({
+        getCacheStats: () => {
+          throw new Error('stats denied')
+        },
+      }),
+    )
+
+    expect(textValue(result)).toContain(
+      'Failed to read repository map cache stats: stats denied',
+    )
+  })
+
+  test('reports lazy import failures without throwing', async () => {
+    const result = await runRepoMapCommand(
+      '',
+      '/tmp/repo',
+      Promise.reject(new Error('module missing')),
+    )
+
+    expect(textValue(result)).toContain('Failed to load repo map module: module missing')
   })
 })

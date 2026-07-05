@@ -50,13 +50,21 @@ function normalizeRepoPath(filePath: string): string {
   return filePath.replace(/\\/g, '/')
 }
 
+function gitChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  delete env.GIT_DIR
+  delete env.GIT_WORK_TREE
+  delete env.GIT_INDEX_FILE
+  return env
+}
+
 /** List files using git ls-files. Returns relative paths. */
 function gitLsFiles(root: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['ls-files', '--cached', '--others', '--exclude-standard'],
-      { cwd: root, maxBuffer: 10 * 1024 * 1024 },
+      { cwd: root, env: gitChildEnv(), maxBuffer: 10 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {
           reject(error)

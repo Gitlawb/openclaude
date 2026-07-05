@@ -1,13 +1,14 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, win32 } from 'path'
 import { invalidateCache, buildRepoMap } from './index.js'
-import { getCachedTags, loadCache, statFile } from './cache.js'
+import { getCachedTags, loadCache, saveCache, statFile } from './cache.js'
 import { clearSymbolExtractorCaches, extractTags } from './symbolExtractor.js'
 import { buildGraph } from './graph.js'
+import { getRepoFiles } from './gitFiles.js'
 import { rankFiles } from './pagerank.js'
-import { initParser } from './parser.js'
+import { initParser, resolveProjectRoot } from './parser.js'
 import { renderMap } from './renderer.js'
 import { countTokens } from './tokenize.js'
 import type { FileTags } from './types.js'
@@ -103,6 +104,51 @@ describe('graph', () => {
 
     // fileE is isolated — no edges to/from it
     expect(graph.degree('fileE.ts')).toBe(0)
+  })
+
+  test('skips edge creation when one symbol is defined in too many files', () => {
+    const tags: FileTags[] = [
+      {
+        path: 'source.ts',
+        tags: [
+          {
+            kind: 'ref',
+            name: 'SharedName',
+            line: 1,
+            signature: 'const value = SharedName',
+          },
+        ],
+      },
+    ]
+
+    for (let i = 0; i < 101; i++) {
+      tags.push({
+        path: `defs/file${i}.ts`,
+        tags: [
+          {
+            kind: 'def',
+            name: 'SharedName',
+            line: 1,
+            signature: `export const SharedName = ${i}`,
+          },
+        ],
+      })
+    }
+
+    const graph = buildGraph(tags)
+    expect(graph.outDegree('source.ts')).toBe(0)
+  })
+})
+
+describe('parser project root resolution', () => {
+  test('resolves source checkout roots for Windows paths', () => {
+    const filePath = 'C:\\repo\\src\\context\\repoMap\\parser.ts'
+    expect(resolveProjectRoot(filePath)).toBe('C:\\repo\\')
+  })
+
+  test('resolves bundled roots from dist paths', () => {
+    const filePath = win32.join('C:\\repo', 'dist', 'cli.mjs')
+    expect(resolveProjectRoot(filePath)).toBe('C:\\repo\\')
   })
 })
 
@@ -273,6 +319,22 @@ describe('renderer', () => {
 })
 
 describe('cache', () => {
+  test('saveCache does not throw when persistence is unavailable', () => {
+    expect(() => {
+      saveCache('\0invalid-root', {
+        version: 2,
+        entries: {
+          bad: {
+            tags: [{ value: BigInt(1) }],
+            mtimeMs: 0,
+            size: 0,
+          },
+        },
+        renderedEntries: {},
+      } as never)
+    }).not.toThrow()
+  })
+
   test('second build of unchanged fixture uses the cache', async () => {
     // First build (cold)
     const result1 = await buildRepoMap({
@@ -351,6 +413,30 @@ describe('cache', () => {
 })
 
 describe('gitFiles', () => {
+  test('ignores inherited git environment overrides', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-git-env-'))
+    const previousGitDir = process.env.GIT_DIR
+    const previousGitWorkTree = process.env.GIT_WORK_TREE
+    try {
+      writeFileSync(
+        join(tempDir, 'hello.ts'),
+        'export function hello(): string { return "world" }\n',
+      )
+
+      process.env.GIT_DIR = join(process.cwd(), '.git')
+      process.env.GIT_WORK_TREE = process.cwd()
+
+      expect(await getRepoFiles(tempDir)).toEqual(['hello.ts'])
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = previousGitDir
+      if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE
+      else process.env.GIT_WORK_TREE = previousGitWorkTree
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
   test('falls back gracefully when not in a git repo', async () => {
     // Create a temp directory with source files but NO .git
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-nogit-'))

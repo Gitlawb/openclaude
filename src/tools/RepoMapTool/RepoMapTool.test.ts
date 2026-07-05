@@ -1,9 +1,14 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
+import { execFileSync } from 'child_process'
 import { cpSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { initParser } from '../../context/repoMap/parser.js'
 import { invalidateCache } from '../../context/repoMap/index.js'
+import { getRepoFiles } from '../../context/repoMap/gitFiles.js'
+import { getCwd, pwd, runWithCwdOverride } from '../../utils/cwd.js'
+import { runWithSdkContext, setCwdState } from '../../bootstrap/state.js'
+import type { SessionId } from '../../types/ids.js'
 import { RepoMapTool } from './RepoMapTool.js'
 import { getToolUseSummary } from './UI.js'
 
@@ -28,6 +33,41 @@ beforeAll(async () => {
   await initParser()
 })
 
+function populateFixtureRepo(tempDir: string): void {
+  for (const f of FIXTURE_FILES) {
+    cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
+  }
+  const env = { ...process.env }
+  delete env.GIT_DIR
+  delete env.GIT_WORK_TREE
+  delete env.GIT_INDEX_FILE
+  execFileSync('git', ['init'], { cwd: tempDir, env, stdio: 'ignore' })
+  execFileSync('git', ['add', '.'], { cwd: tempDir, env, stdio: 'ignore' })
+}
+
+async function callRepoMapToolInCwd(
+  cwd: string,
+  input: Parameters<typeof RepoMapTool.call>[0],
+) {
+  const previousCwd = getCwd()
+  return await runWithSdkContext({
+    sessionId: 'repomap-tool-test' as SessionId,
+    sessionProjectDir: null,
+    cwd,
+    originalCwd: cwd,
+  }, () => runWithCwdOverride(cwd, async () => {
+    setCwdState(cwd)
+    expect(pwd()).toBe(cwd)
+    try {
+      return await RepoMapTool.call(
+        input,
+        { abortController: new AbortController() } as Parameters<typeof RepoMapTool.call>[1],
+      )
+    } finally {
+      setCwdState(previousCwd)
+    }
+  }))
+}
 
 describe('RepoMapTool schema', () => {
   test('validates a minimal input {}', () => {
@@ -59,25 +99,30 @@ describe('RepoMapTool schema', () => {
 
 describe('RepoMapTool call', () => {
   test('call returns the declared output shape', async () => {
-    const result = await RepoMapTool.call(
-      { max_tokens: 256 },
-      { abortController: new AbortController() } as Parameters<typeof RepoMapTool.call>[1],
-    )
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
+    try {
+      populateFixtureRepo(tempDir)
+      expect(await getRepoFiles(tempDir)).toEqual(FIXTURE_FILES)
 
-    expect(typeof result.data.rendered).toBe('string')
-    expect(typeof result.data.token_count).toBe('number')
-    expect(typeof result.data.file_count).toBe('number')
-    expect(typeof result.data.total_file_count).toBe('number')
-    expect(typeof result.data.cache_hit).toBe('boolean')
-    expect(typeof result.data.build_time_ms).toBe('number')
+      const result = await callRepoMapToolInCwd(tempDir, { max_tokens: 256 })
+
+      expect(typeof result.data.rendered).toBe('string')
+      expect(typeof result.data.token_count).toBe('number')
+      expect(typeof result.data.file_count).toBe('number')
+      expect(typeof result.data.total_file_count).toBe('number')
+      expect(typeof result.data.cache_hit).toBe('boolean')
+      expect(typeof result.data.build_time_ms).toBe('number')
+      expect(result.data.total_file_count).toBe(FIXTURE_FILES.length)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
   })
 
   test('returns a rendered map for a directory', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
     try {
-      for (const f of FIXTURE_FILES) {
-        cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
-      }
+      populateFixtureRepo(tempDir)
 
       const { buildRepoMap } = await import(
         '../../context/repoMap/index.js'
@@ -101,9 +146,7 @@ describe('RepoMapTool call', () => {
   test('respects max_tokens parameter', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
     try {
-      for (const f of FIXTURE_FILES) {
-        cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
-      }
+      populateFixtureRepo(tempDir)
 
       const { buildRepoMap } = await import(
         '../../context/repoMap/index.js'
@@ -124,9 +167,7 @@ describe('RepoMapTool call', () => {
   test('focus_files boosts specified files in the ranking', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
     try {
-      for (const f of FIXTURE_FILES) {
-        cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
-      }
+      populateFixtureRepo(tempDir)
 
       const { buildRepoMap } = await import(
         '../../context/repoMap/index.js'
@@ -154,6 +195,26 @@ describe('RepoMapTool call', () => {
       invalidateCache(tempDir)
     }
   })
+
+  test('focus_symbols resolves matching files through the public tool call', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tool-'))
+    try {
+      populateFixtureRepo(tempDir)
+
+      const result = await callRepoMapToolInCwd(tempDir, {
+        max_tokens: 2048,
+        focus_symbols: ['ConsoleLogger'],
+      })
+
+      expect(result.data.rendered).toContain('fileE.ts:')
+      expect(result.data.rendered).toContain(
+        'export class ConsoleLogger implements Logger',
+      )
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
 })
 
 describe('RepoMapTool properties', () => {
@@ -164,6 +225,7 @@ describe('RepoMapTool properties', () => {
 
   test('exposes a path hook for read permission grants', () => {
     expect(typeof RepoMapTool.getPath).toBe('function')
+    expect(RepoMapTool.getPath?.()).toBe(pwd())
   })
 })
 

@@ -1,4 +1,4 @@
-import { join, resolve } from 'path'
+import { join, posix, resolve, win32 } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { getBundledQuery } from './queries.js'
@@ -7,9 +7,16 @@ import type { Language } from 'web-tree-sitter'
 
 const require = createRequire(import.meta.url)
 const __filename = fileURLToPath(import.meta.url)
-const __projectRoot = __filename.includes('/src/context/repoMap/')
-  ? join(__filename, '../../../../')
-  : join(__filename, '../../')
+const __projectRoot = resolveProjectRoot(__filename)
+
+export function resolveProjectRoot(filePath: string): string {
+  const pathApi = filePath.includes('\\') ? win32 : posix
+  const normalized = filePath.replace(/\\/g, '/')
+  const isSourcePath = normalized.includes('/src/context/repoMap/')
+  return isSourcePath
+    ? pathApi.join(pathApi.dirname(filePath), '../../../')
+    : pathApi.join(pathApi.dirname(filePath), '../')
+}
 
 // web-tree-sitter types
 type TreeSitterParser = {

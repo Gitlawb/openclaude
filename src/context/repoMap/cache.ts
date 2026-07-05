@@ -54,9 +54,14 @@ export function loadCache(root: string): CacheData {
 
 /** Save cache to disk. */
 export function saveCache(root: string, cache: CacheData): void {
-  ensureCacheDir()
-  const path = getCacheFilePath(root)
-  writeFileSync(path, JSON.stringify(cache), 'utf-8')
+  try {
+    ensureCacheDir()
+    const path = getCacheFilePath(root)
+    writeFileSync(path, JSON.stringify(cache), 'utf-8')
+  } catch {
+    // Cache persistence is an optimization; repo-map results should still be
+    // usable in read-only home directories or sandboxed runtimes.
+  }
 }
 
 /**

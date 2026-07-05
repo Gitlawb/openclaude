@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import { buildTool, type ToolDef } from '../../Tool.js'
-import { getCwd } from '../../utils/cwd.js'
+import { pwd } from '../../utils/cwd.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
@@ -94,7 +94,7 @@ export const RepoMapTool = buildTool({
     return { isSearch: false, isRead: true }
   },
   getPath() {
-    return getCwd()
+    return pwd()
   },
   toAutoClassifierInput(input) {
     const parts: string[] = ['repomap']
@@ -134,7 +134,7 @@ export const RepoMapTool = buildTool({
     { max_tokens = 1024, focus_files, focus_symbols },
     { abortController },
   ) {
-    const root = getCwd()
+    const root = pwd()
 
     // Resolve focus_symbols to file paths by searching the tag cache
     let resolvedFocusFiles = focus_files ?? []
