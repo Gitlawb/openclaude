@@ -1,5 +1,7 @@
 export const DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP = 1000
 
+type MaxActiveMessagesEnv = Record<string, string | undefined>
+
 export function parseMaxActiveMessagesLimit(value: string | undefined): number {
   if (!value) {
     return 0
@@ -12,9 +14,11 @@ export function parseMaxActiveMessagesLimit(value: string | undefined): number {
   return Number.isSafeInteger(parsed) ? parsed : 0
 }
 
-export function getMaxActiveMessagesHardCap(): number {
+export function getMaxActiveMessagesHardCap(
+  env: MaxActiveMessagesEnv = process.env,
+): number {
   const hardCapOverride =
-    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
   if (hardCapOverride === undefined) {
     return DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP
   }

@@ -32,6 +32,7 @@ import {
   checkSupportedNodeVersion,
 } from '../src/utils/nodeRuntime.js'
 import { SandboxManager } from '../src/utils/sandbox/sandbox-adapter.js'
+import { getMaxActiveMessagesHardCap } from '../src/utils/maxActiveMessages.js'
 
 type CheckResult = {
   ok: boolean
@@ -91,12 +92,7 @@ export function buildMemoryGuardChecks(
   const disableAutoCompact = isTruthy(env.DISABLE_AUTO_COMPACT)
   const autoCompactAvailable =
     input.autoCompactEnabled && !disableCompact && !disableAutoCompact
-  const hardCapRaw = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
-  const hardCap = hardCapRaw === undefined
-    ? 1000
-    : hardCapRaw.trim() === '0'
-      ? 0
-      : parsePositiveInteger(hardCapRaw) || 1000
+  const hardCap = getMaxActiveMessagesHardCap(env)
   const configuredLimit =
     input.maxMessagesCompactionThreshold &&
     input.maxMessagesCompactionThreshold !== 'off'

@@ -287,6 +287,22 @@ describe('system-check memory guard diagnostics', () => {
       .toMatchObject({ ok: true })
   })
 
+  test('falls back to the default hard cap when the override is malformed', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: undefined,
+      env: {
+        OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP: 'not-a-number',
+      },
+    })
+
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Active-message hard cap',
+      detail: 'Active at 1000 messages; malformed overrides fall back to 1000.',
+    })
+  })
+
   test('fails when auto-compact is disabled by settings or env flags', () => {
     const results = buildMemoryGuardChecks({
       autoCompactEnabled: false,
