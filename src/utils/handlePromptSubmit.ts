@@ -29,7 +29,11 @@ import { resolveSkillModelOverride } from './model/model.js'
 import type { ProcessUserInputContext } from './processUserInput/processUserInput.js'
 import { processUserInput } from './processUserInput/processUserInput.js'
 import type { QueryGuard } from './QueryGuard.js'
-import { queryCheckpoint, startQueryProfile } from './queryProfiler.js'
+import {
+  clearQueryProfile,
+  queryCheckpoint,
+  startQueryProfile,
+} from './queryProfiler.js'
 import { runWithWorkload } from './workloadContext.js'
 
 function exit(): void {
@@ -69,7 +73,8 @@ type BaseExecutionParams = {
     onBeforeQuery?: (input: string, newMessages: Message[]) => Promise<boolean>,
     input?: string,
     effort?: EffortValue,
-  ) => Promise<void>
+    // Return false when the query guard declines ownership before a turn starts.
+  ) => Promise<void | false>
   setAppState: (updater: (prev: AppState) => AppState) => void
   onBeforeQuery?: (input: string, newMessages: Message[]) => Promise<boolean>
   canUseTool?: CanUseToolFn
@@ -432,6 +437,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // throws or onQuery is skipped. onQuery's finally calls queryGuard.end(),
   // which transitions running→idle; cancelReservation() below is a no-op in
   // that case (only acts on dispatching state).
+  let queryProfileOwnedByOnQuery = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -563,7 +569,8 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             ? primaryCmd.value
             : undefined
         const shouldCallBeforeQuery = primaryMode === 'prompt'
-        await onQuery(
+        queryProfileOwnedByOnQuery = true
+        const queryOwnershipResult = await onQuery(
           newMessages,
           abortController,
           shouldQuery,
@@ -575,6 +582,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           primaryInput,
           effort,
         )
+        if (queryOwnershipResult === false) {
+          queryProfileOwnedByOnQuery = false
+        }
       } else {
         // Local slash commands that skip messages (e.g., /model, /theme).
         // Release the guard BEFORE clearing toolJSX to prevent spinner flash —
@@ -607,6 +617,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     // This is the single source of truth for releasing the reservation;
     // useQueueProcessor no longer needs its own .finally().
     queryGuard.cancelReservation()
+    if (!queryProfileOwnedByOnQuery) {
+      clearQueryProfile()
+    }
     // Safety net: clear the placeholder if processUserInput produced no
     // messages or threw — otherwise it would stay visible until the next
     // turn's resetLoadingState. Harmless when onQuery ran: setMessages grew

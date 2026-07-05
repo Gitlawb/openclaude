@@ -138,7 +138,7 @@ import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
-import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
+import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
 import type { Message as MessageType, UserMessage, ProgressMessage, HookResultMessage, PartialCompactDirection } from '../types/message.js';
 import { query } from '../query.js';
 import type { AutoCompactTrackingState } from '../services/compact/autoCompact.js';
@@ -3065,7 +3065,7 @@ export function REPL({
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
   }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
-  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
+  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
       const teamName = getTeamName();
@@ -3102,7 +3102,7 @@ export function REPL({
           logEvent('tengu_concurrent_onquery_enqueued', {});
         }
       });
-      return;
+      return false;
     }
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
@@ -3177,6 +3177,7 @@ export function REPL({
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
       if (queryGuard.end(thisGeneration, terminalReason, abortReason)) {
+        clearQueryProfile();
         logCompletedLifecycle(completedContext);
         lifecycleTracker.clear();
         setLastQueryCompletionTime(Date.now());
@@ -3270,8 +3271,10 @@ export function REPL({
           logCompletedLifecycle(guardCompletedContext);
           setLastQueryCompletionTime(Date.now());
           lifecycleTracker.clear();
+          clearQueryProfile();
         } else if (!queryGuard.isActive) {
           lifecycleTracker.clear();
+          clearQueryProfile();
         }
       }
 
