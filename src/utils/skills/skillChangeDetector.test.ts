@@ -139,7 +139,7 @@ describe('skillChangeDetector reload batching', () => {
     expect(chokidarWatch).not.toHaveBeenCalled()
   })
 
-  test('watches native and legacy project/add-dir skill paths that the loader reads', async () => {
+  test('watches OpenClaude project/add-dir skill paths that the loader reads', async () => {
     const detector = await importFreshModule()
     const addDir = platformPath.join('/tmp', 'openclaude-add-dir')
     const userSkillsPath = platformPath.join('/tmp', 'user', 'skills')
@@ -163,16 +163,11 @@ describe('skillChangeDetector reload batching', () => {
     expect(watchedPaths).toContain(userSkillsPath)
     expect(watchedPaths).toContain(userCommandsPath)
     expect(watchedPaths).toContain(
-      platformPath.join(addDir, '.claude', 'skills'),
-    )
-    expect(watchedPaths).toContain(
       platformPath.join(addDir, '.openclaude', 'skills'),
     )
-    expect(
-      watchedPaths.some(path =>
-        path.endsWith(platformPath.join('.claude', 'skills')),
-      ),
-    ).toBe(true)
+    expect(watchedPaths).not.toContain(
+      platformPath.join(addDir, '.claude', 'skills'),
+    )
     expect(
       watchedPaths.some(path =>
         path.endsWith(platformPath.join('.openclaude', 'skills')),
@@ -182,7 +177,7 @@ describe('skillChangeDetector reload batching', () => {
       watchedPaths.some(path =>
         path.endsWith(platformPath.join('.claude', 'commands')),
       ),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       watchedPaths.some(path =>
         path.endsWith(platformPath.join('.openclaude', 'commands')),

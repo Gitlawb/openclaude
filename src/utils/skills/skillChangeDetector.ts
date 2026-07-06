@@ -229,8 +229,8 @@ async function getWatchablePaths(): Promise<string[]> {
     await pushIfExists(userCommandsPath)
   }
 
-  // Project skills/commands directories. The loader accepts both native
-  // .openclaude and legacy .claude project paths, so live reload watches both.
+  // Project skills/commands directories. Keep this in sync with the loader's
+  // OpenClaude project config directories.
   for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
     await pushIfExists(platformPath.resolve(configDirName, 'skills'))
     await pushIfExists(platformPath.resolve(configDirName, 'commands'))
