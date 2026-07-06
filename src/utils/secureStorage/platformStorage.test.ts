@@ -1,5 +1,7 @@
 import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAll } from "bun:test";
 import * as realExeca from "execa";
+import { homedir } from "os";
+import { join } from "path";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
 import {
   acquireSharedMutationLock,
@@ -146,6 +148,17 @@ describe("Secure Storage Platform Implementations", () => {
       expect(preferredName).not.toBe(defaultName);
       expect(preferredName).toContain("Claude Code");
       expect(preferredName).toContain(CREDENTIALS_SERVICE_SUFFIX);
+    });
+
+    test("service name stays default when OPENCLAUDE_CONFIG_DIR points at default config dir", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      process.env.OPENCLAUDE_CONFIG_DIR = join(homedir(), ".openclaude");
+      const explicitDefaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      expect(explicitDefaultName).toBe(defaultName);
     });
 
     test("Linux storage ignores CLAUDE_CONFIG_DIR scoped service name", () => {
