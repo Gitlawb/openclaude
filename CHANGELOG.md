@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.22.0](https://github.com/Gitlawb/openclaude/compare/v0.21.0...v0.22.0) (2026-07-06)
+
+
+### Features
+
+* **lsp:** expose captured diagnostics ([#1813](https://github.com/Gitlawb/openclaude/issues/1813)) ([5b1db55](https://github.com/Gitlawb/openclaude/commit/5b1db554fde3fa9651ab38b53f773231d6df8b7e))
+* **report:** render task reports as markdown ([#1826](https://github.com/Gitlawb/openclaude/issues/1826)) ([8182a46](https://github.com/Gitlawb/openclaude/commit/8182a46441793a33aebb5837bd759e9dc0a38eff))
+* **resume:** group branched sessions in picker ([#1824](https://github.com/Gitlawb/openclaude/issues/1824)) ([166d0ce](https://github.com/Gitlawb/openclaude/commit/166d0ce7843f33d355caddf9c49473d9d1133446))
+* **ux:** honest feedback pass — visible retries, statusline truncation marker, hint grace period ([#1862](https://github.com/Gitlawb/openclaude/issues/1862)) ([77c0a0d](https://github.com/Gitlawb/openclaude/commit/77c0a0d7806e2698ca3716bbfd6373f39b161f10))
+
+
+### Bug Fixes
+
+* **api:** quiet expected side-task aborts ([#1868](https://github.com/Gitlawb/openclaude/issues/1868)) ([62fa7d4](https://github.com/Gitlawb/openclaude/commit/62fa7d48c158f40c085fd9ee1a78e315b868c44a))
+* **bash:** share parser analysis across checks ([#1735](https://github.com/Gitlawb/openclaude/issues/1735)) ([cd1cf3c](https://github.com/Gitlawb/openclaude/commit/cd1cf3ca707f9008705dcc412630975822ca238e))
+* **bash:** surface rolled-output file path on non-zero exit ([#1359](https://github.com/Gitlawb/openclaude/issues/1359)) ([#1392](https://github.com/Gitlawb/openclaude/issues/1392)) ([0c9b814](https://github.com/Gitlawb/openclaude/commit/0c9b81493a0780d9debb245fbff66a32c37c5fc2))
+* **bash:** use indexOf instead of lastIndexOf for multi-flag shell prefix ([#1851](https://github.com/Gitlawb/openclaude/issues/1851)) ([68fcb91](https://github.com/Gitlawb/openclaude/commit/68fcb919307fe247a88d163224b53b045c65b754))
+* bound profiler performance entries ([#1865](https://github.com/Gitlawb/openclaude/issues/1865)) ([ad796e0](https://github.com/Gitlawb/openclaude/commit/ad796e0d9f8284baa0d9d32543bc8d5a6a92776c))
+* **build:** shim jsxDEV when bundling production React — TUI rendered nothing ([#1863](https://github.com/Gitlawb/openclaude/issues/1863)) ([203f055](https://github.com/Gitlawb/openclaude/commit/203f05538e4c84b9f368f716ff87c9a47d74aab2))
+* **clipboard:** use .NET Clipboard.GetImage() for Windows raw bitmap paste ([#1855](https://github.com/Gitlawb/openclaude/issues/1855)) ([2ac20c7](https://github.com/Gitlawb/openclaude/commit/2ac20c759b5c026b1e12112920a5c59b95bacceb))
+* **codex:** make Codex alias lookup prototype-safe ([#1833](https://github.com/Gitlawb/openclaude/issues/1833)) ([d03b6a8](https://github.com/Gitlawb/openclaude/commit/d03b6a879c0cad7d4133ea2d2e2488c25098ea63))
+* **format:** show sub-second durations with one decimal instead of "0s" ([#1820](https://github.com/Gitlawb/openclaude/issues/1820)) ([784d9a9](https://github.com/Gitlawb/openclaude/commit/784d9a92ef3b59daa948ca1a11e8fa7707f85fd9))
+* **gitdiff:** count in-hunk lines that start with ++ or -- in raw diff stats ([#1843](https://github.com/Gitlawb/openclaude/issues/1843)) ([069febb](https://github.com/Gitlawb/openclaude/commit/069febb737b64a8b409ce0adab35a8b56879ca48))
+* governance controls for memory and git attribution ([#1806](https://github.com/Gitlawb/openclaude/issues/1806)) ([00b8c15](https://github.com/Gitlawb/openclaude/commit/00b8c15b5b2bed3724288282a2faf5358a704e37))
+* **lsp:** suppress empty diagnostic deliveries ([#1859](https://github.com/Gitlawb/openclaude/issues/1859)) ([9700bd3](https://github.com/Gitlawb/openclaude/commit/9700bd3c41d2630e3e2eea22ae328b8562155d48))
+* **memory:** prevent reported idle retention paths ([#1856](https://github.com/Gitlawb/openclaude/issues/1856)) ([354feb4](https://github.com/Gitlawb/openclaude/commit/354feb483cecc3724d4bdb9a1cf816c2d2e4e166))
+* **memory:** recover from autocompact overflow failures ([#1858](https://github.com/Gitlawb/openclaude/issues/1858)) ([cd13a61](https://github.com/Gitlawb/openclaude/commit/cd13a615370e4bd79544c8e973df065924c41e86))
+* **memoryscan:** abort remaining workers when one throws on iterator … ([#1836](https://github.com/Gitlawb/openclaude/issues/1836)) ([b73a879](https://github.com/Gitlawb/openclaude/commit/b73a879c546fcf632d9ad946ee8b0b2c038fe2a8))
+* **model:** resolve [1m]-tagged aliases when 1M context is disabled ([#1822](https://github.com/Gitlawb/openclaude/issues/1822)) ([e6019d3](https://github.com/Gitlawb/openclaude/commit/e6019d379704aa9f0d89fc9dd8a69e24a3dee408))
+* **openai-shim:** recover stalled provider streams ([#1817](https://github.com/Gitlawb/openclaude/issues/1817)) ([67227cf](https://github.com/Gitlawb/openclaude/commit/67227cf7723beb53f09e38dece2e4ba09a1f8f10))
+* **openai-shim:** strip `store` when baseUrl points at Mistral ([#1047](https://github.com/Gitlawb/openclaude/issues/1047)) ([deb4176](https://github.com/Gitlawb/openclaude/commit/deb41761c100ffdebddb43fa38fc341d0915c52f)), closes [#739](https://github.com/Gitlawb/openclaude/issues/739)
+* **openai-shim:** wire stream controller abort ([#1828](https://github.com/Gitlawb/openclaude/issues/1828)) ([bb61d84](https://github.com/Gitlawb/openclaude/commit/bb61d8430bd14f75e7054f2099c2c1eb71c221d5))
+* **permissions:** make legacy tool-name alias lookup prototype-safe ([#1847](https://github.com/Gitlawb/openclaude/issues/1847)) ([b9b5685](https://github.com/Gitlawb/openclaude/commit/b9b5685143b524541766211c6f262ea38cd5fef3))
+* **plugins:** match reserved-marketplace git URL owner by host, not substring ([#1840](https://github.com/Gitlawb/openclaude/issues/1840)) ([17f4a5b](https://github.com/Gitlawb/openclaude/commit/17f4a5b963532eec76beb7ba9d90062828f474ad))
+* **query:** clean up lifecycle tool tracking ([#1845](https://github.com/Gitlawb/openclaude/issues/1845)) ([d1530c2](https://github.com/Gitlawb/openclaude/commit/d1530c28aa1788a9be78773f4ecec13f82a1f083))
+* **query:** configure hard max and abort reasons ([#1850](https://github.com/Gitlawb/openclaude/issues/1850)) ([5226fb9](https://github.com/Gitlawb/openclaude/commit/5226fb9ee7e912a5a0beccc3f0e3e9fc6a8c041b))
+
 ## [0.21.0](https://github.com/Gitlawb/openclaude/compare/v0.20.1...v0.21.0) (2026-06-30)
 
 
