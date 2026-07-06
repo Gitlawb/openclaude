@@ -152,3 +152,67 @@ test('--print keeps skills as a prompt instead of the management subcommand', as
   expect(stdout).not.toContain('Skills: 0 enabled')
   expect(stderr).toContain('OPENAI_API_KEY')
 }, 15_000)
+
+test('--print with intervening global flags keeps skills as prompt text', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--print',
+    '--model',
+    'gpt-4',
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(1)
+  expect(stdout).not.toContain('Skills: 0 enabled')
+  expect(stderr).toContain('OPENAI_API_KEY')
+}, 15_000)
+
+test('--continue keeps skills as prompt text instead of the management subcommand', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--continue',
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(1)
+  expect(stdout).not.toContain('Skills: 0 enabled')
+  expect(stderr).toContain('OPENAI_API_KEY')
+}, 15_000)
+
+test('skills list accepts trailing global flags', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    'skills',
+    'list',
+    '--bare',
+  ])
+
+  expect(exitCode).toBe(0)
+  expect(stdout).toContain('Skills: 0 enabled')
+  expect(stderr).not.toContain('Unknown skills option')
+}, 15_000)
+
+test('skills list honors trailing --add-dir', async () => {
+  const addDirRoot = mkdtempSync(join(tmpdir(), 'openclaude-skills-add-dir-'))
+  const skillDir = join(addDirRoot, '.openclaude', 'skills', 'addon')
+  try {
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\ndescription: Skill loaded from trailing add-dir.\n---\n# Addon\n`,
+      'utf8',
+    )
+
+    const { exitCode, stderr, stdout } = await runSkillsList([
+      'skills',
+      'list',
+      '--add-dir',
+      addDirRoot,
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('addon')
+    expect(stderr).not.toContain('Unknown skills option')
+  } finally {
+    rmSync(addDirRoot, { recursive: true, force: true })
+  }
+}, 15_000)

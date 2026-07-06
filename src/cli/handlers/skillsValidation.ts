@@ -1,7 +1,7 @@
-import { lstat, open, readdir, readFile, stat } from 'fs/promises'
 import { basename, join, resolve, sep } from 'path'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { getFsImplementation } from '../../utils/fsOperations.js'
 
 const REQUIRED_METADATA = [
   'name',
@@ -57,11 +57,12 @@ async function readOptionalSkillJson(
   skillDir: string,
 ): Promise<Record<string, unknown>> {
   const skillJsonPath = join(skillDir, 'skill.json')
+  const fs = getFsImplementation()
   try {
-    if ((await stat(skillJsonPath)).size > MAX_SKILL_TEXT_FILE_BYTES) {
+    if ((await fs.stat(skillJsonPath)).size > MAX_SKILL_TEXT_FILE_BYTES) {
       return {}
     }
-    const raw = await readFile(skillJsonPath, 'utf8')
+    const raw = await fs.readFile(skillJsonPath, { encoding: 'utf8' })
     const parsed = JSON.parse(raw) as unknown
     return isPlainObject(parsed) ? parsed : {}
   } catch {
@@ -71,9 +72,10 @@ async function readOptionalSkillJson(
 
 async function collectSkillFiles(skillDir: string): Promise<string[]> {
   const files: string[] = []
+  const fs = getFsImplementation()
 
   async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true })
+    const entries = await fs.readdir(dir)
     for (const entry of entries) {
       const fullPath = join(dir, entry.name)
       const relativePath = fullPath.slice(skillDir.length + 1)
@@ -104,14 +106,7 @@ async function collectSkillFiles(skillDir: string): Promise<string[]> {
 }
 
 async function fileLooksBinary(path: string): Promise<boolean> {
-  const file = await open(path, 'r')
-  try {
-    const buffer = Buffer.allocUnsafe(4096)
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
-    return buffer.subarray(0, bytesRead).includes(0)
-  } finally {
-    await file.close()
-  }
+  return (await getFsImplementation().readFileBytes(path, 4096)).includes(0)
 }
 
 export async function validateSkillPath(
@@ -121,9 +116,10 @@ export async function validateSkillPath(
   const errors: string[] = []
   const skillDir = resolve(path)
   const skillFilePath = join(skillDir, 'SKILL.md')
+  const fs = getFsImplementation()
 
   try {
-    const dirStats = await stat(skillDir)
+    const dirStats = await fs.stat(skillDir)
     if (!dirStats.isDirectory()) {
       return [`${getDisplayPath(skillDir)} is not a directory.`]
     }
@@ -132,7 +128,7 @@ export async function validateSkillPath(
   }
 
   try {
-    const skillFileStats = await stat(skillFilePath)
+    const skillFileStats = await fs.stat(skillFilePath)
     if (!skillFileStats.isFile()) {
       errors.push('SKILL.md is not a file.')
     }
@@ -143,12 +139,12 @@ export async function validateSkillPath(
 
   let skillMarkdown = ''
   let frontmatter: Record<string, unknown> = {}
-  const skillFileStats = await stat(skillFilePath)
+  const skillFileStats = await fs.stat(skillFilePath)
   if (skillFileStats.size > MAX_SKILL_TEXT_FILE_BYTES) {
     errors.push(`SKILL.md is too large. Skill text files must be at most ${MAX_SKILL_TEXT_FILE_BYTES} bytes.`)
   } else {
     try {
-      skillMarkdown = await readFile(skillFilePath, 'utf8')
+      skillMarkdown = await fs.readFile(skillFilePath, { encoding: 'utf8' })
       frontmatter = parseFrontmatter(skillMarkdown, skillFilePath).frontmatter
     } catch {
       errors.push('SKILL.md could not be read as UTF-8 markdown.')
@@ -180,7 +176,7 @@ export async function validateSkillPath(
   for (const file of files) {
     const fullPath = join(skillDir, file)
     const fileName = basename(file)
-    const fileStats = await lstat(fullPath)
+    const fileStats = await fs.lstat(fullPath)
 
     if (fileStats.isSymbolicLink()) {
       errors.push(`Symlinks are not allowed: ${file}.`)
@@ -201,7 +197,7 @@ export async function validateSkillPath(
         errors.push(`${file} is too large. Skill text files must be at most ${MAX_SKILL_TEXT_FILE_BYTES} bytes.`)
         continue
       }
-      const text = await readFile(fullPath, 'utf8')
+      const text = await fs.readFile(fullPath, { encoding: 'utf8' })
       for (const [pattern, label] of UNSAFE_TEXT_PATTERNS) {
         if (pattern.test(text)) {
           errors.push(`Unsafe pattern detected in ${file}: ${label}.`)

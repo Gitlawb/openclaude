@@ -122,10 +122,14 @@ type SkillsCliParseResult = {
 
 function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
   const additionalDirectories: string[] = []
+  let sawPromptModeFlag = false
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === 'skills') {
+      if (sawPromptModeFlag) {
+        return undefined
+      }
       return { additionalDirectories, args: args.slice(index) }
     }
     if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
@@ -137,6 +141,9 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
         index += 1
         const value = args[index]
         if (value === 'skills') {
+          if (sawPromptModeFlag) {
+            return undefined
+          }
           return {
             additionalDirectories,
             args: args.slice(index),
@@ -180,12 +187,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
       continue
     }
     if (SKILLS_LEADING_OPTIONAL_VALUE_FLAGS.has(arg)) {
-      if (
-        (arg === '--print' || arg === '-p') &&
-        args[index + 1] === 'skills'
-      ) {
-        return undefined
-      }
+      sawPromptModeFlag = true
       if (
         args[index + 1] &&
         args[index + 1] !== 'skills' &&
@@ -200,6 +202,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
         arg?.startsWith(`${flag}=`),
       )
     ) {
+      sawPromptModeFlag = true
       continue
     }
     return undefined

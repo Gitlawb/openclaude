@@ -13,6 +13,7 @@ import { getCwd } from '../../utils/cwd.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getDisplayPath } from '../../utils/file.js'
 import { getFsImplementation } from '../../utils/fsOperations.js'
+import { PROJECT_CONFIG_DIR_NAMES } from '../../utils/markdownConfigLoader.js'
 import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
@@ -78,18 +79,22 @@ function isContainedInRoot(root: string, child: string): boolean {
   )
 }
 
-function localSkillRoot(options: RemoveOptions): string {
+function localSkillRoots(options: RemoveOptions): string[] {
   return options.global
-    ? join(getClaudeConfigHomeDir(), 'skills')
-    : join(options.projectDir ?? getCwd(), '.openclaude', 'skills')
+    ? [join(getClaudeConfigHomeDir(), 'skills')]
+    : PROJECT_CONFIG_DIR_NAMES.map(configDirName =>
+        join(options.projectDir ?? getCwd(), configDirName, 'skills'),
+      )
 }
 
-function localSkillRootForRemoval(name: string, options: RemoveOptions): string | undefined {
+function localSkillRootsForRemoval(
+  name: string,
+  options: RemoveOptions,
+): string[] {
   const skillName = name.trim()
-  if (!VALID_REMOVE_SKILL_NAME.test(skillName)) return undefined
-  return resolveContainedPath(
-    localSkillRoot(options),
-    join(...skillName.split(':')),
+  if (!VALID_REMOVE_SKILL_NAME.test(skillName)) return []
+  return localSkillRoots(options).map(root =>
+    resolveContainedPath(root, join(...skillName.split(':'))),
   )
 }
 
@@ -100,7 +105,7 @@ function isSkillInRemovalRoot(
   return (
     skill.loadedFrom === 'skills' &&
     typeof skill.skillRoot === 'string' &&
-    isContainedInRoot(localSkillRoot(options), skill.skillRoot)
+    localSkillRoots(options).some(root => isContainedInRoot(root, skill.skillRoot!))
   )
 }
 
@@ -108,15 +113,15 @@ async function existingLocalSkillRootForRemoval(
   name: string,
   options: RemoveOptions,
 ): Promise<string | undefined> {
-  const skillRoot = localSkillRootForRemoval(name, options)
-  if (!skillRoot) return undefined
-
-  try {
-    await getFsImplementation().stat(join(skillRoot, 'SKILL.md'))
-    return skillRoot
-  } catch {
-    return undefined
+  for (const skillRoot of localSkillRootsForRemoval(name, options)) {
+    try {
+      await getFsImplementation().stat(join(skillRoot, 'SKILL.md'))
+      return skillRoot
+    } catch {
+      // Keep checking other supported roots.
+    }
   }
+  return undefined
 }
 
 export async function skillsListHandler(options: ListOptions = {}): Promise<void> {

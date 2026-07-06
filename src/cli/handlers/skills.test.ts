@@ -762,6 +762,92 @@ test.serial('removes only the targeted project skill directory', async () => {
   }
 })
 
+test.serial('removes legacy project skills from .claude directories', async () => {
+  await acquireSharedMutationLock('skillsRemoveHandler')
+  const originalFs = getFsImplementation()
+  try {
+    setFsImplementation({
+      ...originalFs,
+      existsSync,
+      stat: async path => statSync(path),
+      readdir: async path => readdirSync(path, { withFileTypes: true }),
+      readFile: async (path, options) => readFileSync(path, options),
+      rm: async (path, options) => {
+        rmSync(path, options)
+      },
+    })
+    await withTempDir(async tempDir => {
+      const cwd = join(tempDir, 'project')
+      const targetName = 'legacy-remove-skill'
+      const target = join(cwd, '.claude', 'skills', targetName)
+      const originalSettingsState = enableUserAndProjectSettingSources()
+      mkdirSync(target, { recursive: true })
+      writeFileSync(
+        join(target, 'SKILL.md'),
+        VALID_SKILL.replace('sample-skill', targetName),
+        'utf8',
+      )
+
+      clearCommandsCache()
+      try {
+        process.exitCode = 0
+        await skillsRemoveHandler(targetName, { projectDir: cwd })
+        assert.equal(process.exitCode, 0)
+      } finally {
+        restoreSettingState(originalSettingsState)
+        clearCommandsCache()
+      }
+
+      assert.equal(existsSync(target), false)
+    })
+  } finally {
+    setFsImplementation(originalFs)
+    releaseSharedMutationLock()
+  }
+})
+
+test.serial('routes install and validation file access through the fs abstraction', async () => {
+  await acquireSharedMutationLock('skillsInstallHandler')
+  const originalFs = getFsImplementation()
+  let statCalls = 0
+  let readFileCalls = 0
+  let writeFileCalls = 0
+  try {
+    setFsImplementation({
+      ...originalFs,
+      stat: async path => {
+        statCalls += 1
+        return originalFs.stat(path)
+      },
+      readFile: async (path, options) => {
+        readFileCalls += 1
+        return originalFs.readFile(path, options)
+      },
+      writeFile: async (path, data, options) => {
+        writeFileCalls += 1
+        return originalFs.writeFile(path, data, options)
+      },
+    })
+    await withTempDir(async tempDir => {
+      const cwd = join(tempDir, 'project')
+      const source = writeSkillDir(join(tempDir, 'source'))
+      const sourceFile = join(source, 'SKILL.md')
+      mkdirSync(cwd, { recursive: true })
+
+      await skillsInstallHandler(sourceFile, { projectDir: cwd })
+      assert.equal(process.exitCode, 0)
+      assert.deepEqual(await validateSkillPath(source), [])
+    })
+
+    assert.ok(statCalls > 0)
+    assert.ok(readFileCalls > 0)
+    assert.ok(writeFileCalls > 0)
+  } finally {
+    setFsImplementation(originalFs)
+    releaseSharedMutationLock()
+  }
+})
+
 test.serial('does not remove skills from --add-dir directories', async () => {
   await acquireSharedMutationLock('skillsRemoveHandler')
   const originalFs = getFsImplementation()

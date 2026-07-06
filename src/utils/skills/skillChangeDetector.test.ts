@@ -155,9 +155,11 @@ describe('skillChangeDetector reload batching', () => {
     await detector.initialize()
 
     expect(chokidarWatch).toHaveBeenCalledTimes(1)
-    const watchedPaths = (
-      chokidarWatch.mock.calls as unknown as Array<[string[]]>
-    )[0]?.[0] ?? []
+    const [watchedPaths = [], watchOptions = {}] = (
+      chokidarWatch.mock.calls as unknown as Array<
+        [string[] | undefined, { depth?: number } | undefined]
+      >
+    )[0] ?? []
     expect(watchedPaths).toContain(userSkillsPath)
     expect(watchedPaths).toContain(userCommandsPath)
     expect(watchedPaths).toContain(
@@ -186,6 +188,7 @@ describe('skillChangeDetector reload batching', () => {
         path.endsWith(platformPath.join('.openclaude', 'commands')),
       ),
     ).toBe(true)
+    expect(watchOptions.depth).toBeUndefined()
   })
 
   test('batches rapid reload requests into one hook/cache clear/notification', async () => {

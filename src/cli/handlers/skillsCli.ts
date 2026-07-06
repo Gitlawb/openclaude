@@ -1,4 +1,7 @@
+import { setAdditionalDirectoriesForClaudeMd } from '../../bootstrap/state.js'
+
 type SkillsCliOptions = {
+  additionalDirectories: string[]
   force?: boolean
   global?: boolean
   help?: boolean
@@ -6,6 +9,73 @@ type SkillsCliOptions = {
   registry?: string
   sha256?: string
 }
+
+const TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([
+  '--bare',
+  '--debug',
+  '--debug-to-stderr',
+  '--dangerously-skip-permissions',
+  '--allow-dangerously-skip-permissions',
+  '--disable-slash-commands',
+  '--enable-auth-status',
+  '--fork-session',
+  '--ide',
+  '--include-hook-events',
+  '--include-partial-messages',
+  '--init',
+  '--init-only',
+  '--maintenance',
+  '--mcp-debug',
+  '--no-chrome',
+  '--no-session-persistence',
+  '--replay-user-messages',
+  '--strict-mcp-config',
+  '--verbose',
+])
+
+const TRAILING_GLOBAL_VALUE_FLAGS = new Set([
+  '--agent',
+  '--append-system-prompt',
+  '--append-system-prompt-file',
+  '--debug-file',
+  '--effort',
+  '--fallback-model',
+  '--heartbeat',
+  '--input-format',
+  '--json-schema',
+  '--max-budget-usd',
+  '--max-thinking-tokens',
+  '--max-turns',
+  '--model',
+  '--output-format',
+  '--permission-mode',
+  '--permission-prompt-tool',
+  '--provider',
+  '--resume-session-at',
+  '--session-id',
+  '--settings',
+  '--setting-sources',
+  '--system-prompt',
+  '--system-prompt-file',
+  '--thinking',
+  '--workload',
+  '-n',
+  '--name',
+])
+
+const TRAILING_GLOBAL_MULTI_VALUE_FLAGS = new Set([
+  '--add-dir',
+  '--allowedTools',
+  '--allowed-tools',
+  '--betas',
+  '--disallowedTools',
+  '--disallowed-tools',
+  '--file',
+  '--mcp-config',
+  '--plugin-dir',
+  '--provider-env-file',
+  '--tools',
+])
 
 const SKILLS_HELP = `Usage: openclaude skills <command> [options]
 
@@ -21,7 +91,7 @@ function parseSkillsCliArgs(args: string[]): {
   positionals: string[]
   error?: string
 } {
-  const options: SkillsCliOptions = {}
+  const options: SkillsCliOptions = { additionalDirectories: [] }
   const positionals: string[] = []
 
   for (let index = 0; index < args.length; index += 1) {
@@ -60,10 +130,54 @@ function parseSkillsCliArgs(args: string[]): {
         return { options, positionals, error: '--sha256 requires a value.' }
       }
       options.sha256 = value
-    } else if (arg?.startsWith('--')) {
+    } else if (TRAILING_GLOBAL_BOOLEAN_FLAGS.has(arg)) {
+      continue
+    } else if (TRAILING_GLOBAL_VALUE_FLAGS.has(arg)) {
+      const value = args[index + 1]
+      if (!value || value.startsWith('--')) {
+        return { options, positionals, error: `${arg} requires a value.` }
+      }
+      index += 1
+    } else if (
+      Array.from(TRAILING_GLOBAL_VALUE_FLAGS).some(flag =>
+        arg?.startsWith(`${flag}=`),
+      )
+    ) {
+      continue
+    } else if (TRAILING_GLOBAL_MULTI_VALUE_FLAGS.has(arg)) {
+      let consumed = false
+      while (args[index + 1] && !args[index + 1]!.startsWith('-')) {
+        index += 1
+        consumed = true
+        if (arg === '--add-dir') {
+          options.additionalDirectories.push(args[index]!)
+        }
+      }
+      if (!consumed) {
+        return { options, positionals, error: `${arg} requires a value.` }
+      }
+    } else {
+      const multiValueEqualsFlag = Array.from(TRAILING_GLOBAL_MULTI_VALUE_FLAGS)
+        .find(flag => arg?.startsWith(`${flag}=`))
+      if (multiValueEqualsFlag) {
+        const value = arg.slice(`${multiValueEqualsFlag}=`.length)
+        if (!value) {
+          return {
+            options,
+            positionals,
+            error: `${multiValueEqualsFlag} requires a value.`,
+          }
+        }
+        if (multiValueEqualsFlag === '--add-dir') {
+          options.additionalDirectories.push(value)
+        }
+        continue
+      }
+      if (!arg?.startsWith('--')) {
+        positionals.push(arg)
+        continue
+      }
       return { options, positionals, error: `Unknown skills option: ${arg}` }
-    } else if (arg) {
-      positionals.push(arg)
     }
   }
 
@@ -91,6 +205,9 @@ export async function runSkillsCli(args: string[]): Promise<void> {
   if (subcommand === '--help' || subcommand === '-h' || options.help) {
     console.log(SKILLS_HELP)
     process.exit(0)
+  }
+  if (options.additionalDirectories.length > 0) {
+    setAdditionalDirectoriesForClaudeMd(options.additionalDirectories)
   }
 
   const {

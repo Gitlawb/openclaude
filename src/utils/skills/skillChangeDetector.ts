@@ -142,7 +142,6 @@ export async function initialize(): Promise<void> {
   watcher = dependencies.watch(paths, {
     persistent: true,
     ignoreInitial: true,
-    depth: 2, // Skills use skill-name/SKILL.md format
     awaitWriteFinish: {
       stabilityThreshold:
         testOverrides?.stabilityThreshold ?? FILE_STABILITY_THRESHOLD_MS,

@@ -1,13 +1,14 @@
 import { createHash } from 'crypto'
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
+import { fileURLToPath } from 'url'
 import { coerce, lt } from 'semver'
 import { getCwd } from '../../utils/cwd.js'
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { getFsImplementation } from '../../utils/fsOperations.js'
 import { publicBuildVersion } from '../../utils/version.js'
 import { validateSkillPath } from './skillsValidation.js'
 
@@ -66,7 +67,7 @@ function isUrl(value: string): boolean {
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await stat(path)
+    await getFsImplementation().stat(path)
     return true
   } catch {
     return false
@@ -93,7 +94,9 @@ async function readSourceText(source: string): Promise<string> {
   if (isUrl(source)) {
     const url = new URL(source)
     if (url.protocol === 'file:') {
-      return readFile(url, 'utf8')
+      return getFsImplementation().readFile(fileURLToPath(url), {
+        encoding: 'utf8',
+      })
     }
 
     const { signal, cleanup } = createCombinedAbortSignal(undefined, {
@@ -139,7 +142,7 @@ async function readSourceText(source: string): Promise<string> {
     }
   }
 
-  return readFile(resolve(source), 'utf8')
+  return getFsImplementation().readFile(resolve(source), { encoding: 'utf8' })
 }
 
 async function readRegistryEntries(source: string): Promise<RegistryEntriesResult> {
@@ -147,7 +150,7 @@ async function readRegistryEntries(source: string): Promise<RegistryEntriesResul
   if (!isUrl(source)) {
     const resolved = resolve(source)
     try {
-      const sourceStats = await stat(resolved)
+      const sourceStats = await getFsImplementation().stat(resolved)
       registrySource = sourceStats.isDirectory()
         ? join(resolved, 'registry.json')
         : resolved
@@ -369,7 +372,10 @@ function resolveSkillInstallPath(root: string, skillName: string): string {
 async function getSkillNameFromDirectory(sourcePath: string): Promise<string> {
   const fallbackName = basename(sourcePath)
   try {
-    const markdown = await readFile(join(sourcePath, 'SKILL.md'), 'utf8')
+    const markdown = await getFsImplementation().readFile(
+      join(sourcePath, 'SKILL.md'),
+      { encoding: 'utf8' },
+    )
     return getSkillNameFromMarkdown(markdown, fallbackName)
   } catch {
     // Validation reports missing or malformed SKILL.md after the directory is staged.
@@ -391,21 +397,24 @@ async function prepareSkillFromMarkdown({
       ? registryEntry.name
       : getSkillNameFromMarkdown(markdown, fallbackName),
   )
-  const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
+  const fs = getFsImplementation()
+  const tempRoot = await fs.mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
   try {
     const tempDir = resolveSkillInstallPath(tempRoot, skillName)
-    await mkdir(tempDir, { recursive: true })
-    await writeFile(join(tempDir, 'SKILL.md'), markdown, 'utf8')
+    await fs.mkdir(tempDir)
+    await fs.writeFile(join(tempDir, 'SKILL.md'), markdown, {
+      encoding: 'utf8',
+    })
     if (registryEntry) {
-      await writeFile(
+      await fs.writeFile(
         join(tempDir, 'skill.json'),
         `${JSON.stringify(registryMetadata(registryEntry), null, 2)}\n`,
-        'utf8',
+        { encoding: 'utf8' },
       )
     }
     return { tempRoot, tempDir, skillName }
   } catch (error) {
-    await rm(tempRoot, { recursive: true, force: true })
+    await fs.rm(tempRoot, { recursive: true, force: true })
     throw error
   }
 }
@@ -424,16 +433,17 @@ async function prepareInstallCandidate(
   registryBacked: boolean
 }> {
   if (!isUrl(spec) && (await pathExists(resolve(spec)))) {
+    const fs = getFsImplementation()
     const sourcePath = resolve(spec)
-    const sourceStats = await stat(sourcePath)
+    const sourceStats = await fs.stat(sourcePath)
     if (sourceStats.isDirectory()) {
       const skillName = normalizeInstallSkillName(
         await getSkillNameFromDirectory(sourcePath),
       )
-      const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
+      const tempRoot = await fs.mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
       try {
         const tempDir = resolveSkillInstallPath(tempRoot, skillName)
-        await cp(sourcePath, tempDir, {
+        await fs.cp(sourcePath, tempDir, {
           recursive: true,
           errorOnExist: true,
           force: false,
@@ -449,12 +459,12 @@ async function prepareInstallCandidate(
           registryBacked: false,
         }
       } catch (error) {
-        await rm(tempRoot, { recursive: true, force: true })
+        await fs.rm(tempRoot, { recursive: true, force: true })
         throw error
       }
     }
 
-    const markdown = await readFile(sourcePath, 'utf8')
+    const markdown = await fs.readFile(sourcePath, { encoding: 'utf8' })
     const fallbackName = skillNameFromSource(sourcePath)
     const prepared = await prepareSkillFromMarkdown({ markdown, fallbackName })
     return {
@@ -574,11 +584,12 @@ export async function skillsInstallHandler(
     }
     console.log(`Target: ${getDisplayPath(targetDir)}`)
 
-    await mkdir(root, { recursive: true })
+    const fs = getFsImplementation()
+    await fs.mkdir(root)
     if (options.force) {
-      await rm(targetDir, { recursive: true, force: true })
+      await fs.rm(targetDir, { recursive: true, force: true })
     }
-    await cp(candidate.tempDir, targetDir, {
+    await fs.cp(candidate.tempDir, targetDir, {
       recursive: true,
       errorOnExist: true,
       force: false,
@@ -591,7 +602,10 @@ export async function skillsInstallHandler(
     process.exitCode = 1
   } finally {
     if (candidate) {
-      await rm(candidate.tempRoot, { recursive: true, force: true })
+      await getFsImplementation().rm(candidate.tempRoot, {
+        recursive: true,
+        force: true,
+      })
     }
   }
 }
