@@ -75,6 +75,12 @@ describe('/repomap argument parsing', () => {
     expect(result.focus).toEqual(['src/tools/'])
   })
 
+  test('parses quoted --focus paths with spaces', () => {
+    const result = parseArgs('--focus "src/my dir" --tokens 4096')
+    expect(result.tokens).toBe(4096)
+    expect(result.focus).toEqual(['src/my dir'])
+  })
+
   test('parses multiple --focus flags', () => {
     const result = parseArgs('--focus src/tools/ --focus src/context.ts')
     expect(result.focus).toEqual(['src/tools/', 'src/context.ts'])

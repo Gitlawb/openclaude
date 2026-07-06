@@ -69,6 +69,7 @@ export function buildGraph(allFileTags: FileTags[]): Graph {
       if (defFiles.size > MAX_DEFINITION_FANOUT) continue
 
       const weight = idf(tag.name)
+      if (!Number.isFinite(weight) || weight <= 0) continue
       for (const defFile of defFiles) {
         if (defFile === ft.path) continue // skip self-references
         const current = edgeWeights.get(defFile) ?? 0
@@ -77,6 +78,7 @@ export function buildGraph(allFileTags: FileTags[]): Graph {
     }
 
     for (const [target, weight] of edgeWeights) {
+      if (!Number.isFinite(weight) || weight <= 0) continue
       if (graph.hasEdge(ft.path, target)) {
         graph.setEdgeAttribute(ft.path, target, 'weight',
           graph.getEdgeAttribute(ft.path, target, 'weight') + weight)

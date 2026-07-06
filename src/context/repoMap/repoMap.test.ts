@@ -52,6 +52,41 @@ describe('symbol extraction', () => {
     }
   })
 
+  test('extracts TypeScript const arrow and function expression definitions', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-ts-const-functions-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'actions.ts'),
+        [
+          'export const makeUser = () => ({ id: 1 })',
+          'export const named = function named() { return 1 }',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('actions.ts', tempDir)
+      expect(result).not.toBeNull()
+
+      const defs = result!.tags
+        .filter(tag => tag.kind === 'def')
+        .map(tag => tag.name)
+
+      expect(defs).toContain('makeUser')
+      expect(defs).toContain('named')
+
+      const map = await buildRepoMap({
+        root: tempDir,
+        files: ['actions.ts'],
+        maxTokens: 1024,
+      })
+      expect(map.map).toContain('makeUser')
+      expect(map.map).toContain('named')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
   test('extracts references to imported symbols', async () => {
     const result = await extractTags('fileA.ts', FIXTURE_ROOT)
     expect(result).not.toBeNull()
@@ -239,6 +274,35 @@ describe('graph', () => {
 
     const graph = buildGraph(tags)
     expect(graph.outDegree('source.ts')).toBe(0)
+  })
+
+  test('does not create zero-weight edges for symbols defined in every file', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-zero-weight-'))
+    try {
+      for (const file of ['a.ts', 'b.ts']) {
+        writeFileSync(
+          join(tempDir, file),
+          [
+            'export class Config {}',
+            'export function useConfig(input: Config): Config { return input }',
+            '',
+          ].join('\n'),
+        )
+      }
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        files: ['a.ts', 'b.ts'],
+        maxTokens: 2048,
+      })
+
+      expect(result.fileCount).toBe(2)
+      expect(result.map).toContain('a.ts:')
+      expect(result.map).toContain('b.ts:')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
   })
 })
 

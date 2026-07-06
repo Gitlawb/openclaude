@@ -43,6 +43,16 @@ const TYPESCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/a
 (function_declaration
   name: (identifier) @name.definition.function) @definition.function
 
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @name.definition.function
+    value: [(arrow_function) (function_expression)]) @definition.function)
+
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @name.definition.function
+    value: [(arrow_function) (function_expression)]) @definition.function)
+
 (method_definition
   name: (property_identifier) @name.definition.method) @definition.method
 

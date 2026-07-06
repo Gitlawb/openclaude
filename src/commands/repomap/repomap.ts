@@ -4,6 +4,7 @@ import type {
 } from '../../types/command.js'
 import type { CacheStats, RepoMapResult } from '../../context/repoMap/index.js'
 import { getCwd } from '../../utils/cwd.js'
+import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 
 /** Parse CLI-style arguments from the command string. */
 export function parseArgs(args: string): {
@@ -12,7 +13,10 @@ export function parseArgs(args: string): {
   invalidate: boolean
   stats: boolean
 } {
-  const parts = args.trim().split(/\s+/).filter(Boolean)
+  const parsed = tryParseShellCommand(args)
+  const parts = parsed.success
+    ? parsed.tokens.filter((part): part is string => typeof part === 'string')
+    : args.trim().split(/\s+/).filter(Boolean)
   let tokens = 2048
   const focus: string[] = []
   let invalidate = false
