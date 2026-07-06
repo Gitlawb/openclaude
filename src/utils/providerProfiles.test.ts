@@ -823,6 +823,62 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
   })
 
+  test('cloudflare profile on a non-Workers api.cloudflare.com path does not mirror CLOUDFLARE_API_TOKEN', async () => {
+    // Same api.cloudflare.com host, but the REST management path — NOT Workers
+    // AI. The mirror is gated on the isCloudflareBaseUrl path predicate, so the
+    // token must not be attached to this non-Workers endpoint even though the
+    // host matches.
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildCloudflareProfile({
+        baseUrl: 'https://api.cloudflare.com/client/v4/user/tokens/verify',
+      }),
+    )
+
+    expect(process.env.CLOUDFLARE_API_TOKEN).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
+  })
+
+  test('cloudflare profile on a non-Workers api.cloudflare.com path does not persist CLOUDFLARE_API_TOKEN', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const nonWorkersProfile = buildCloudflareProfile({
+        id: 'cloudflare_non_workers',
+        baseUrl: 'https://api.cloudflare.com/client/v4/user/tokens/verify',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [nonWorkersProfile],
+      }))
+
+      const result = setActiveProviderProfile('cloudflare_non_workers', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('cloudflare_non_workers')
+      // The base URL / key are still persisted, but the dedicated Workers AI
+      // token must not be, since this is not a Workers AI endpoint.
+      expect(persisted.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
+      expect(persisted.env.CLOUDFLARE_API_TOKEN).toBeUndefined()
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
