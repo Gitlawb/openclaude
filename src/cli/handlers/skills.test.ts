@@ -22,6 +22,7 @@ import {
   enableUserAndProjectSettingSources,
   restoreSettingState,
 } from '../../test/settingSourceState.js'
+import { setAdditionalDirectoriesForClaudeMd } from '../../bootstrap/state.js'
 import { clearCommandsCache } from '../../commands.js'
 import type { Command } from '../../types/command.js'
 import {
@@ -754,6 +755,54 @@ test.serial('removes only the targeted project skill directory', async () => {
 
       assert.equal(existsSync(target), false)
       assert.equal(existsSync(join(sibling, 'SKILL.md')), true)
+    })
+  } finally {
+    setFsImplementation(originalFs)
+    releaseSharedMutationLock()
+  }
+})
+
+test.serial('does not remove skills from --add-dir directories', async () => {
+  await acquireSharedMutationLock('skillsRemoveHandler')
+  const originalFs = getFsImplementation()
+  try {
+    setFsImplementation({
+      ...originalFs,
+      existsSync,
+      stat: async path => statSync(path),
+      readdir: async path => readdirSync(path, { withFileTypes: true }),
+      readFile: async (path, options) => readFileSync(path, options),
+      rm: async (path, options) => {
+        rmSync(path, options)
+      },
+    })
+    await withTempDir(async tempDir => {
+      const cwd = join(tempDir, 'project')
+      const addDir = join(tempDir, 'additional-project')
+      const targetName = 'add-dir-skill'
+      const target = join(addDir, '.openclaude', 'skills', targetName)
+      const originalSettingsState = enableUserAndProjectSettingSources()
+      mkdirSync(cwd, { recursive: true })
+      mkdirSync(target, { recursive: true })
+      writeFileSync(
+        join(target, 'SKILL.md'),
+        VALID_SKILL.replace('sample-skill', targetName),
+        'utf8',
+      )
+      setAdditionalDirectoriesForClaudeMd([addDir])
+
+      clearCommandsCache()
+      try {
+        process.exitCode = 0
+        await skillsRemoveHandler(targetName, { projectDir: cwd })
+        assert.equal(process.exitCode, 1)
+      } finally {
+        setAdditionalDirectoriesForClaudeMd([])
+        restoreSettingState(originalSettingsState)
+        clearCommandsCache()
+      }
+
+      assert.equal(existsSync(join(target, 'SKILL.md')), true)
     })
   } finally {
     setFsImplementation(originalFs)

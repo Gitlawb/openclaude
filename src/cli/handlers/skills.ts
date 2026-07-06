@@ -68,13 +68,40 @@ function resolveContainedPath(root: string, child: string): string {
   return resolvedChild
 }
 
+function isContainedInRoot(root: string, child: string): boolean {
+  const resolvedRoot = resolve(root)
+  const resolvedChild = resolve(child)
+  const relativePath = relative(resolvedRoot, resolvedChild)
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+  )
+}
+
+function localSkillRoot(options: RemoveOptions): string {
+  return options.global
+    ? join(getClaudeConfigHomeDir(), 'skills')
+    : join(options.projectDir ?? getCwd(), '.openclaude', 'skills')
+}
+
 function localSkillRootForRemoval(name: string, options: RemoveOptions): string | undefined {
   const skillName = name.trim()
   if (!VALID_REMOVE_SKILL_NAME.test(skillName)) return undefined
-  const root = options.global
-    ? join(getClaudeConfigHomeDir(), 'skills')
-    : join(options.projectDir ?? getCwd(), '.openclaude', 'skills')
-  return resolveContainedPath(root, join(...skillName.split(':')))
+  return resolveContainedPath(
+    localSkillRoot(options),
+    join(...skillName.split(':')),
+  )
+}
+
+function isSkillInRemovalRoot(
+  skill: SkillCommand,
+  options: RemoveOptions,
+): boolean {
+  return (
+    skill.loadedFrom === 'skills' &&
+    typeof skill.skillRoot === 'string' &&
+    isContainedInRoot(localSkillRoot(options), skill.skillRoot)
+  )
 }
 
 async function existingLocalSkillRootForRemoval(
@@ -170,7 +197,12 @@ export async function skillsRemoveHandler(
     return
   }
 
-  const skills = (await loadSkills(options.projectDir)).filter(isPublicSkill)
+  const skills = (await loadSkills(options.projectDir))
+    .filter(isPublicSkill)
+    .filter(skill =>
+      isSkillInRemovalRoot(skill, options) ||
+      isSkillInRemovalRoot(skill, { ...options, global: !options.global }),
+    )
   const targetSource = options.global ? 'userSettings' : 'projectSettings'
   const skill = findLocalSkillForRemoval(skills, name, targetSource)
 

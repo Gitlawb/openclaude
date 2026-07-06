@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as platformPath from 'path'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -140,11 +141,13 @@ describe('skillChangeDetector reload batching', () => {
 
   test('watches native and legacy project/add-dir skill paths that the loader reads', async () => {
     const detector = await importFreshModule()
-    const addDir = '/tmp/openclaude-add-dir'
+    const addDir = platformPath.join('/tmp', 'openclaude-add-dir')
+    const userSkillsPath = platformPath.join('/tmp', 'user', 'skills')
+    const userCommandsPath = platformPath.join('/tmp', 'user', 'commands')
     additionalDirectories = [addDir]
     getSkillsPathImpl = (source, dir) => {
-      if (source === 'userSettings' && dir === 'skills') return '/tmp/user/skills'
-      if (source === 'userSettings' && dir === 'commands') return '/tmp/user/commands'
+      if (source === 'userSettings' && dir === 'skills') return userSkillsPath
+      if (source === 'userSettings' && dir === 'commands') return userCommandsPath
       return ''
     }
     statImpl = mock(async () => {})
@@ -155,14 +158,34 @@ describe('skillChangeDetector reload batching', () => {
     const watchedPaths = (
       chokidarWatch.mock.calls as unknown as Array<[string[]]>
     )[0]?.[0] ?? []
-    expect(watchedPaths).toContain('/tmp/user/skills')
-    expect(watchedPaths).toContain('/tmp/user/commands')
-    expect(watchedPaths).toContain('/tmp/openclaude-add-dir/.claude/skills')
-    expect(watchedPaths).toContain('/tmp/openclaude-add-dir/.openclaude/skills')
-    expect(watchedPaths.some(path => path.endsWith('/.claude/skills'))).toBe(true)
-    expect(watchedPaths.some(path => path.endsWith('/.openclaude/skills'))).toBe(true)
-    expect(watchedPaths.some(path => path.endsWith('/.claude/commands'))).toBe(true)
-    expect(watchedPaths.some(path => path.endsWith('/.openclaude/commands'))).toBe(true)
+    expect(watchedPaths).toContain(userSkillsPath)
+    expect(watchedPaths).toContain(userCommandsPath)
+    expect(watchedPaths).toContain(
+      platformPath.join(addDir, '.claude', 'skills'),
+    )
+    expect(watchedPaths).toContain(
+      platformPath.join(addDir, '.openclaude', 'skills'),
+    )
+    expect(
+      watchedPaths.some(path =>
+        path.endsWith(platformPath.join('.claude', 'skills')),
+      ),
+    ).toBe(true)
+    expect(
+      watchedPaths.some(path =>
+        path.endsWith(platformPath.join('.openclaude', 'skills')),
+      ),
+    ).toBe(true)
+    expect(
+      watchedPaths.some(path =>
+        path.endsWith(platformPath.join('.claude', 'commands')),
+      ),
+    ).toBe(true)
+    expect(
+      watchedPaths.some(path =>
+        path.endsWith(platformPath.join('.openclaude', 'commands')),
+      ),
+    ).toBe(true)
   })
 
   test('batches rapid reload requests into one hook/cache clear/notification', async () => {

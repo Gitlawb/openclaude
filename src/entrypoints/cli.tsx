@@ -152,12 +152,16 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
       }
       continue
     }
-    if (arg?.startsWith('--add-dir=')) {
-      const value = arg.slice('--add-dir='.length)
+    const multiValueEqualsFlag = Array.from(SKILLS_LEADING_MULTI_VALUE_FLAGS)
+      .find(flag => arg?.startsWith(`${flag}=`))
+    if (multiValueEqualsFlag) {
+      const value = arg.slice(`${multiValueEqualsFlag}=`.length)
       if (!value) {
         return undefined
       }
-      additionalDirectories.push(value)
+      if (multiValueEqualsFlag === '--add-dir') {
+        additionalDirectories.push(value)
+      }
       continue
     }
     if (

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
@@ -115,6 +115,30 @@ test('skills list honors --add-dir before provider startup validation', async ()
   expect(exitCode).toBe(0)
   expect(stdout).toContain('addon')
   expect(stderr).not.toContain('OPENAI_API_KEY is required')
+}, 15_000)
+
+test('skills list accepts equals-form global flags before provider startup validation', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'openclaude-skills-cli-flags-'))
+  const providerEnvFile = join(root, 'provider.env')
+  const pluginDir = join(root, 'plugin')
+  try {
+    writeFileSync(providerEnvFile, '', 'utf8')
+    mkdirSync(pluginDir, { recursive: true })
+
+    const { exitCode, stderr, stdout } = await runSkillsList([
+      `--provider-env-file=${providerEnvFile}`,
+      `--plugin-dir=${pluginDir}`,
+      '--mcp-config={}',
+      'skills',
+      'list',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Skills: 0 enabled')
+    expect(stderr).not.toContain('OPENAI_API_KEY is required')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 }, 15_000)
 
 test('--print keeps skills as a prompt instead of the management subcommand', async () => {
