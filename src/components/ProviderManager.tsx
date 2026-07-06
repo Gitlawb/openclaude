@@ -1443,17 +1443,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return error.message
     }
 
-    const hydratedTokenInSession = process.env.GITHUB_TOKEN?.trim()
-    if (
-      process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] === '1' &&
-      hydratedTokenInSession &&
-      (!storedTokenBeforeClear || hydratedTokenInSession === storedTokenBeforeClear)
-    ) {
-      delete process.env.GITHUB_TOKEN
-    }
-
     delete process.env.CLAUDE_CODE_USE_GITHUB
-    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    // Undo any GitHub Models token hydrated into the session from secure
+    // storage and drop the marker. Use the shared helper so both hydration
+    // modes are reverted: GITHUB_TOKEN and the copilot_key blob's
+    // GITHUB_COPILOT_KEY. The old hand-rolled cleanup here only cleared
+    // GITHUB_TOKEN, leaving a hydrated Copilot key behind after the marker was
+    // removed. A user-supplied token is preserved.
+    clearHydratedGithubModelsTokenFromEnv(storedTokenBeforeClear)
     delete process.env.OPENAI_MODEL
     delete process.env.OPENAI_API_KEYS
     delete process.env.OPENAI_API_KEY

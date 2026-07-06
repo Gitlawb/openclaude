@@ -2335,3 +2335,114 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
     }
   }
 })
+
+test('ProviderManager deleting the GitHub provider reverts the hydrated credential via the shared cleanup helper', async () => {
+  // Regression for the #1429 review: the GitHub Models delete path used to
+  // hand-roll its own cleanup that only dropped GITHUB_TOKEN, so a hydrated
+  // `copilot_key` (which hydrateGithubModelsTokenFromSecureStorage stores in
+  // GITHUB_COPILOT_KEY under the same marker) was left behind once the marker
+  // was removed. The delete flow must now delegate to the shared
+  // clearHydratedGithubModelsTokenFromEnv helper — the same one the switch-back
+  // path uses — so both GitHub Models removal paths revert the hydrated
+  // credential consistently. Asserting the helper is invoked with the stored
+  // token proves the delete path shares that cleanup rather than the old
+  // partial version.
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GITHUB_COPILOT_KEY',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
+  let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+
+  try {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+    const githubSyncRead = mock(() => undefined)
+    const githubAsyncRead = mock(async () => undefined)
+    mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    })
+
+    const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
+    // Seed a stored GitHub Models token so the delete path forwards a real token
+    // into the cleanup helper (rather than `undefined`).
+    const storedToken = 'ghp_stored_secure_storage_token'
+
+    mock.module('../utils/providerProfiles.js', () => ({
+      ...realProviderProfiles,
+      applyActiveProviderProfileFromConfig: () => {},
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    }))
+    mock.module('../utils/githubModelsCredentials.js', () => ({
+      clearGithubModelsToken: () => ({ success: true }),
+      clearHydratedGithubModelsTokenFromEnv,
+      GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+      hydrateGithubModelsTokenFromSecureStorage: () => {},
+      readGithubModelsToken: () => storedToken,
+      readGithubModelsTokenAsync: async () => storedToken,
+    }))
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    mounted = await mountProviderManager(ProviderManager)
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') &&
+        frame.includes('Delete provider'),
+    )
+
+    // Menu order is [Add, Set active, Edit, Delete, ...]; move to "Delete
+    // provider" and open it.
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // The active GitHub Models provider is the deletable entry; wait for the
+    // delete list to render before selecting it (avoid a render race).
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Delete provider') && frame.includes('GitHub Models'),
+    )
+    await Bun.sleep(40)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(
+      () => clearHydratedGithubModelsTokenFromEnv.mock.calls.length > 0,
+    )
+
+    // The delete path must forward the stored token into the shared cleanup
+    // helper (which reverts both the GITHUB_TOKEN and GITHUB_COPILOT_KEY
+    // hydration modes). Asserting the argument — not just that it was called —
+    // fails the test if the delete path regresses to a partial hand-rolled
+    // cleanup that leaves the hydrated Copilot key behind.
+    expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+  } finally {
+    if (mounted) {
+      await mounted.dispose()
+    }
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
