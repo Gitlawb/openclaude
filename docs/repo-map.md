@@ -47,6 +47,7 @@ The `/repomap` command is always available regardless of the feature flag. It le
 /repomap --tokens 4096            # Increase the token budget for a larger map
 /repomap --focus src/tools/       # Boost specific paths in the ranking
 /repomap --focus src/context.ts   # Can use multiple --focus flags
+/repomap --focus-symbols buildTool # Boost files that define specific symbols
 /repomap --stats                  # Show cache statistics
 /repomap --invalidate             # Clear cache and rebuild from scratch
 ```

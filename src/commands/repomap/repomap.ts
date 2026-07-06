@@ -13,6 +13,7 @@ type ArgPart = string | null
 export function parseArgs(args: string): {
   tokens: number
   focus: string[]
+  focusSymbols: string[]
   invalidate: boolean
   stats: boolean
 } {
@@ -22,6 +23,7 @@ export function parseArgs(args: string): {
     : args.trim().split(/\s+/).filter(Boolean)
   let tokens = 2048
   const focus: string[] = []
+  const focusSymbols: string[] = []
   let invalidate = false
   let stats = false
 
@@ -37,6 +39,9 @@ export function parseArgs(args: string): {
     } else if (part === '--focus' && typeof next === 'string') {
       focus.push(next)
       i++
+    } else if (part === '--focus-symbols' && typeof next === 'string') {
+      focusSymbols.push(next)
+      i++
     } else if (part === '--invalidate') {
       invalidate = true
     } else if (part === '--stats') {
@@ -44,7 +49,7 @@ export function parseArgs(args: string): {
     }
   }
 
-  return { tokens, focus, invalidate, stats }
+  return { tokens, focus, focusSymbols, invalidate, stats }
 }
 
 function normalizeParsedToken(part: ParseEntry): ArgPart {
@@ -70,6 +75,7 @@ type RepoMapCommandDeps = {
     root: string
     maxTokens: number
     focusFiles?: string[]
+    focusSymbols?: string[]
   }) => Promise<RepoMapResult>
   invalidateCache: (root?: string) => void
   getCacheStats: (root?: string) => CacheStats
@@ -84,7 +90,7 @@ export async function runRepoMapCommand(
   root: string,
   depsPromise: Promise<RepoMapCommandDeps> = loadRepoMapDeps(),
 ): Promise<LocalCommandResult> {
-  const { tokens, focus, invalidate, stats } = parseArgs(args)
+  const { tokens, focus, focusSymbols, invalidate, stats } = parseArgs(args)
 
   let deps: RepoMapCommandDeps
   try {
@@ -121,6 +127,7 @@ export async function runRepoMapCommand(
         root,
         maxTokens: tokens,
         focusFiles: focus.length > 0 ? focus : undefined,
+        focusSymbols: focusSymbols.length > 0 ? focusSymbols : undefined,
       })
       return formatRepoMapResult('Cache invalidated and rebuilt.', result)
     } catch (err) {
@@ -133,6 +140,7 @@ export async function runRepoMapCommand(
       root,
       maxTokens: tokens,
       focusFiles: focus.length > 0 ? focus : undefined,
+      focusSymbols: focusSymbols.length > 0 ? focusSymbols : undefined,
     })
 
     return formatRepoMapResult('Repository map:', result)

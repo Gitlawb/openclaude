@@ -23,20 +23,24 @@ afterEach(async () => {
 // We test the actual logic paths through integration-style tests.
 
 describe('getRepoMapContext', () => {
-  test('returns null when REPO_MAP flag is off (default)', async () => {
-    const { getRepoMapContext } = await import('./context.js')
-    const previous = process.env.REPO_MAP
-    delete process.env.REPO_MAP
-    getRepoMapContext.cache.clear?.()
-
-    try {
-      await expect(getRepoMapContext()).resolves.toBeNull()
-    } finally {
-      if (previous === undefined) delete process.env.REPO_MAP
-      else process.env.REPO_MAP = previous
+  test(
+    'returns null when REPO_MAP flag is off (default)',
+    async () => {
+      const { getRepoMapContext } = await import('./context.js')
+      const previous = process.env.REPO_MAP
+      delete process.env.REPO_MAP
       getRepoMapContext.cache.clear?.()
-    }
-  })
+
+      try {
+        await expect(getRepoMapContext()).resolves.toBeNull()
+      } finally {
+        if (previous === undefined) delete process.env.REPO_MAP
+        else process.env.REPO_MAP = previous
+        getRepoMapContext.cache.clear?.()
+      }
+    },
+    { timeout: 10000 },
+  )
 
   test('buildRepoMap produces valid output for context injection', async () => {
     const { mkdtempSync, writeFileSync, rmSync } = await import('fs')

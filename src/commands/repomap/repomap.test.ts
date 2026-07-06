@@ -17,7 +17,12 @@ const SAMPLE_RESULT: RepoMapResult = {
 }
 
 function fakeDeps(overrides: Partial<{
-  buildRepoMap: () => Promise<RepoMapResult>
+  buildRepoMap: (options: {
+    root: string
+    maxTokens: number
+    focusFiles?: string[]
+    focusSymbols?: string[]
+  }) => Promise<RepoMapResult>
   invalidateCache: () => void
   getCacheStats: () => CacheStats
 }> = {}) {
@@ -96,6 +101,23 @@ describe('/repomap argument parsing', () => {
   test('parses multiple --focus flags', () => {
     const result = parseArgs('--focus src/tools/ --focus src/context.ts')
     expect(result.focus).toEqual(['src/tools/', 'src/context.ts'])
+  })
+
+  test('parses --focus-symbols flag', () => {
+    const result = parseArgs('--focus-symbols buildTool')
+    expect(result.focusSymbols).toEqual(['buildTool'])
+  })
+
+  test('parses multiple --focus-symbols flags', () => {
+    const result = parseArgs('--focus-symbols buildTool --focus-symbols ToolUseContext')
+    expect(result.focusSymbols).toEqual(['buildTool', 'ToolUseContext'])
+  })
+
+  test('parses combined --focus and --focus-symbols flags', () => {
+    const result = parseArgs('--focus src/tools/ --focus-symbols buildTool --tokens 4096')
+    expect(result.tokens).toBe(4096)
+    expect(result.focus).toEqual(['src/tools/'])
+    expect(result.focusSymbols).toEqual(['buildTool'])
   })
 
   test('parses --invalidate flag', () => {
@@ -188,6 +210,23 @@ describe('/repomap command', () => {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }
+  })
+
+  test('forwards focus-symbols to buildRepoMap', async () => {
+    const captured: { focusSymbols?: string[] } = {}
+    const result = await runRepoMapCommand(
+      '--focus-symbols buildTool --focus-symbols ToolUseContext',
+      '/tmp/repo',
+      fakeDeps({
+        buildRepoMap: async (options) => {
+          captured.focusSymbols = options.focusSymbols
+          return SAMPLE_RESULT
+        },
+      }),
+    )
+
+    expect(textValue(result)).toContain('Repository map:')
+    expect(captured.focusSymbols).toEqual(['buildTool', 'ToolUseContext'])
   })
 
   test('reports build failures without throwing', async () => {
