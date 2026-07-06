@@ -2,12 +2,12 @@ import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAl
 import * as realExeca from "execa";
 import { homedir } from "os";
 import { join } from "path";
-import { setClaudeConfigHomeDirForTesting } from "../envUtils.js";
-import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from "../../test/sharedMutationLock.js";
+import type * as EnvUtils from "../envUtils.js";
+import type * as MacOsKeychainHelpers from "./macOsKeychainHelpers.js";
 import type { linuxSecretStorage as LinuxSecretStorage } from "./linuxSecretStorage.js";
 import type { windowsCredentialStorage as WindowsCredentialStorage } from "./windowsCredentialStorage.js";
 
@@ -78,6 +78,10 @@ function getSecretToolArgs(index = 0): readonly string[] {
 
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
+  let realEnvUtils: typeof EnvUtils;
+  let getSecureStorageServiceName: typeof MacOsKeychainHelpers.getSecureStorageServiceName;
+  let CREDENTIALS_SERVICE_SUFFIX: typeof MacOsKeychainHelpers.CREDENTIALS_SERVICE_SUFFIX;
+  let setClaudeConfigHomeDirForTesting: typeof EnvUtils.setClaudeConfigHomeDirForTesting;
   let linuxSecretStorage: typeof LinuxSecretStorage;
   let windowsCredentialStorage: typeof WindowsCredentialStorage;
 
@@ -89,6 +93,12 @@ describe("Secure Storage Platform Implementations", () => {
       execaSync: mockExecaSync,
     }));
     const moduleSuffix = `?platformStorageTest=${Date.now()}-${Math.random()}`;
+    realEnvUtils = await import(`../envUtils.js${moduleSuffix}`);
+    mock.module("../envUtils.js", () => realEnvUtils);
+    ({ setClaudeConfigHomeDirForTesting } = realEnvUtils);
+    ({ getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } = await import(
+      `./macOsKeychainHelpers.js${moduleSuffix}`
+    ));
     ({ linuxSecretStorage } = await import(`./linuxSecretStorage.js${moduleSuffix}`));
     ({ windowsCredentialStorage } = await import(`./windowsCredentialStorage.js${moduleSuffix}`));
   });
@@ -109,6 +119,9 @@ describe("Secure Storage Platform Implementations", () => {
   afterAll(() => {
     try {
       mock.module("execa", () => realExeca);
+      if (realEnvUtils) {
+        mock.module("../envUtils.js", () => realEnvUtils);
+      }
     } finally {
       releaseSharedMutationLock();
     }

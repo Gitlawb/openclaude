@@ -37,7 +37,10 @@ export const CREDENTIALS_SERVICE_SUFFIX = '-credentials'
 export function getSecureStorageServiceName(
   serviceSuffix: string = '',
 ): string {
-  const configDir = getClaudeConfigHomeDir()
+  const configDirEnv = process.env.OPENCLAUDE_CONFIG_DIR || undefined
+  const configDir = configDirEnv
+    ? resolveClaudeConfigHomeDir({ configDirEnv })
+    : getClaudeConfigHomeDir()
   const defaultConfigDir = resolveClaudeConfigHomeDir({ homeDir: homedir() })
   const normalizedConfigDir = resolve(configDir).normalize('NFC')
   const normalizedDefaultConfigDir = resolve(defaultConfigDir).normalize('NFC')
