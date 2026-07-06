@@ -4,6 +4,7 @@ import type {
 } from '../../types/command.js'
 import type { CacheStats, RepoMapResult } from '../../context/repoMap/index.js'
 import { getCwd } from '../../utils/cwd.js'
+import type { ParseEntry } from '../../utils/bash/shellQuote.js'
 import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 
 type ArgPart = string | null
@@ -46,11 +47,9 @@ export function parseArgs(args: string): {
   return { tokens, focus, invalidate, stats }
 }
 
-function normalizeParsedToken(part: unknown): ArgPart {
+function normalizeParsedToken(part: ParseEntry): ArgPart {
   if (typeof part === 'string') return part
   if (
-    part &&
-    typeof part === 'object' &&
     'op' in part &&
     part.op === 'glob' &&
     'pattern' in part &&

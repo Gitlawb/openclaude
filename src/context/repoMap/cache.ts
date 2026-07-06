@@ -7,8 +7,8 @@ import {
   statSync,
   writeFileSync,
 } from 'fs'
-import { homedir } from 'os'
 import { join } from 'path'
+import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import type {
   CacheData,
   CacheStats,
@@ -18,12 +18,15 @@ import type {
 } from './types.js'
 
 const CACHE_VERSION = 2
-const CACHE_DIR = join(homedir(), '.openclaude', 'repomap-cache')
 const MAX_RENDERED_ENTRIES = 20
+
+function getCacheDir(): string {
+  return join(getClaudeConfigHomeDir(), 'repomap-cache')
+}
 
 function getCacheFilePath(root: string): string {
   const hash = createHash('sha256').update(root).digest('hex')
-  return join(CACHE_DIR, `${hash}.json`)
+  return join(getCacheDir(), `${hash}.json`)
 }
 
 function emptyCache(): CacheData {
@@ -31,8 +34,9 @@ function emptyCache(): CacheData {
 }
 
 function ensureCacheDir(): void {
-  if (!existsSync(CACHE_DIR)) {
-    mkdirSync(CACHE_DIR, { recursive: true })
+  const cacheDir = getCacheDir()
+  if (!existsSync(cacheDir)) {
+    mkdirSync(cacheDir, { recursive: true })
   }
 }
 
@@ -213,7 +217,7 @@ export function getCacheStats(root: string): CacheStats {
   }
 
   return {
-    cacheDir: CACHE_DIR,
+    cacheDir: getCacheDir(),
     cacheFile: exists ? cacheFile : null,
     entryCount,
     exists,

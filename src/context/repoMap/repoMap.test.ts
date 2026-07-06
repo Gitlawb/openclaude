@@ -1,9 +1,23 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, win32 } from 'path'
-import { invalidateCache, buildRepoMap, extractTagsWithCache } from './index.js'
+import { fileURLToPath } from 'url'
+import {
+  getClaudeConfigHomeDir,
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../../utils/envUtils.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import {
+  invalidateCache,
+  buildRepoMap,
+  extractTagsWithCache,
+} from './index.js'
 import {
   getCachedTags,
   loadCache,
@@ -22,10 +36,33 @@ import type { FileTags } from './types.js'
 
 const FIXTURE_ROOT = join(import.meta.dir, '__fixtures__', 'mini-repo')
 const FIXTURE_FILES = ['fileA.ts', 'fileB.ts', 'fileC.ts', 'fileD.ts', 'fileE.ts']
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 beforeAll(async () => {
   await initParser()
 })
+
+async function withWritableConfigHome<T>(
+  callback: (configDir: string) => Promise<T>,
+): Promise<T> {
+  await acquireSharedMutationLock('context/repoMap/repoMap.test.ts config home')
+  const previousConfigHomeOverride = getClaudeConfigHomeDirOverrideForTesting()
+  let configDir: string | undefined
+
+  try {
+    configDir = mkdtempSync(join(tmpdir(), 'repomap-test-config-'))
+    setClaudeConfigHomeDirForTesting(configDir)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    return await callback(configDir)
+  } finally {
+    setClaudeConfigHomeDirForTesting(previousConfigHomeOverride)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    if (configDir) {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+    releaseSharedMutationLock()
+  }
+}
 
 // Clean up cache between tests to avoid cross-test interference
 afterEach(() => {
@@ -551,7 +588,54 @@ describe('cache', () => {
     }).not.toThrow()
   })
 
-  test('second build of unchanged fixture uses the cache', async () => {
+  test('stores repo map cache under OPENCLAUDE_CONFIG_DIR when configured', async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'repomap-config-home-'))
+    const expectedCacheDir = join(configDir, 'repomap-cache')
+    const {
+      CLAUDE_CONFIG_DIR: _legacyConfigDir,
+      OPENCLAUDE_CONFIG_DIR: _openClaudeConfigDir,
+      ...env
+    } = process.env
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--eval',
+          [
+            "import { getCacheStats } from './src/context/repoMap/index.ts'",
+            'const stats = getCacheStats(process.argv[1])',
+            'if (stats.cacheDir !== process.argv[2]) {',
+            '  console.error(`Expected ${process.argv[2]}, got ${stats.cacheDir}`)',
+            '  process.exit(1)',
+            '}',
+          ].join('\n'),
+          FIXTURE_ROOT,
+          expectedCacheDir,
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: {
+            ...env,
+            FORCE_COLOR: '0',
+            OPENCLAUDE_CONFIG_DIR: configDir,
+          },
+        },
+      )
+
+      if (result.error) {
+        throw result.error
+      }
+
+      expect(result.stderr).toBe('')
+      expect(result.status).toBe(0)
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('second build of unchanged fixture uses the cache', async () => withWritableConfigHome(async () => {
     // First build (cold)
     const result1 = await buildRepoMap({
       root: FIXTURE_ROOT,
@@ -570,9 +654,9 @@ describe('cache', () => {
 
     // Output should be identical
     expect(result2.map).toBe(result1.map)
-  })
+  }))
 
-  test('modifying a file invalidates the rendered cache without clearing cache data', async () => {
+  test('modifying a file invalidates the rendered cache without clearing cache data', async () => withWritableConfigHome(async () => {
     // Create a temp copy of the fixture
     const tempDir = mkdtempSync(join(tmpdir(), 'repomap-test-'))
     try {
@@ -625,7 +709,7 @@ describe('cache', () => {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }
-  })
+  }))
 })
 
 describe('gitFiles', () => {
