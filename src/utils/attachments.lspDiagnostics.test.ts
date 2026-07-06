@@ -13,10 +13,21 @@ const realLSPRegistry = await import(
 )
 
 let diagnosticSets: Array<{ serverName: string; files: DiagnosticFile[] }> = []
+let nextDeliveryDelay: number | null = null
+const checkForLSPDiagnosticsOptions: unknown[] = []
+const getNextLSPDiagnosticDeliveryDelayCalls: Array<number | undefined> = []
+const { DIAGNOSTIC_DELIVERY_DEBOUNCE_MS } = realLSPRegistry
 
-const checkForLSPDiagnosticsMock = mock(() => diagnosticSets)
+const checkForLSPDiagnosticsMock = mock((options?: unknown) => {
+  checkForLSPDiagnosticsOptions.push(options)
+  return diagnosticSets
+})
 const clearAllLSPDiagnosticsMock = mock(() => {
   diagnosticSets = []
+})
+const getNextLSPDiagnosticDeliveryDelayMock = mock((now?: number) => {
+  getNextLSPDiagnosticDeliveryDelayCalls.push(now)
+  return nextDeliveryDelay
 })
 
 mock.module('./debug.js', () => ({
@@ -30,9 +41,10 @@ mock.module('../services/lsp/LSPDiagnosticRegistry.js', () => ({
   ...realLSPRegistry,
   checkForLSPDiagnostics: checkForLSPDiagnosticsMock,
   clearAllLSPDiagnostics: clearAllLSPDiagnosticsMock,
+  getNextLSPDiagnosticDeliveryDelay: getNextLSPDiagnosticDeliveryDelayMock,
 }))
 
-const { getAttachmentMessages } = await import(
+const { getAttachmentMessages, __test } = await import(
   `./attachments.ts?test=${Date.now()}-${Math.random()}`
 )
 
@@ -40,6 +52,24 @@ const SAVED_SIMPLE = process.env.CLAUDE_CODE_SIMPLE
 const SAVED_DISABLE_ATTACHMENTS = process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS
 
 type DiagnosticsAttachment = Extract<Attachment, { type: 'diagnostics' }>
+
+function lspDiagnosticFile(message = 'stable diagnostic'): DiagnosticFile {
+  return {
+    uri: '/repo/a.ts',
+    diagnostics: [
+      {
+        message,
+        severity: 'Error',
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 1 },
+        },
+        source: 'typescript',
+        code: 'TS1000',
+      },
+    ],
+  }
+}
 
 function makeToolUseContext(): ToolUseContext {
   let inProgressToolUseIDs = new Set<string>()
@@ -110,9 +140,13 @@ describe('LSP diagnostic attachment filtering', () => {
     delete process.env.CLAUDE_CODE_SIMPLE
     delete process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS
     diagnosticSets = []
+    nextDeliveryDelay = null
+    checkForLSPDiagnosticsOptions.length = 0
+    getNextLSPDiagnosticDeliveryDelayCalls.length = 0
     debugMessages.length = 0
     checkForLSPDiagnosticsMock.mockClear()
     clearAllLSPDiagnosticsMock.mockClear()
+    getNextLSPDiagnosticDeliveryDelayMock.mockClear()
   })
 
   afterEach(() => {
@@ -173,5 +207,63 @@ describe('LSP diagnostic attachment filtering', () => {
     expect(debugMessages).toContain(
       'LSP Diagnostics: Returning 1 diagnostic attachment(s)',
     )
+  })
+
+  test('waits once for debounced diagnostics at the query boundary', async () => {
+    const file = lspDiagnosticFile()
+    let now = 100
+    const waits: number[] = []
+    nextDeliveryDelay = 150
+
+    const attachments = await __test.getLSPDiagnosticAttachments(
+      makeToolUseContext(),
+      {
+        now: () => now,
+        wait: async ms => {
+          waits.push(ms)
+          now += ms
+          diagnosticSets = [{ serverName: 'typescript', files: [file] }]
+        },
+      },
+    )
+
+    expect(checkForLSPDiagnosticsOptions).toEqual([
+      { respectDebounce: true, now: 100 },
+      { respectDebounce: true, now: 250 },
+    ])
+    expect(getNextLSPDiagnosticDeliveryDelayCalls).toEqual([100])
+    expect(waits).toEqual([150])
+    expect(attachments).toEqual([
+      {
+        type: 'diagnostics',
+        files: [file],
+        isNew: true,
+      },
+    ])
+  })
+
+  test('caps the query-boundary wait when the next ready delay is longer', async () => {
+    let now = 0
+    const waits: number[] = []
+    nextDeliveryDelay = DIAGNOSTIC_DELIVERY_DEBOUNCE_MS + 250
+
+    const attachments = await __test.getLSPDiagnosticAttachments(
+      makeToolUseContext(),
+      {
+        now: () => now,
+        wait: async ms => {
+          waits.push(ms)
+          now += ms
+        },
+      },
+    )
+
+    expect(checkForLSPDiagnosticsOptions).toEqual([
+      { respectDebounce: true, now: 0 },
+      { respectDebounce: true, now: DIAGNOSTIC_DELIVERY_DEBOUNCE_MS },
+    ])
+    expect(getNextLSPDiagnosticDeliveryDelayCalls).toEqual([0])
+    expect(waits).toEqual([DIAGNOSTIC_DELIVERY_DEBOUNCE_MS])
+    expect(attachments).toEqual([])
   })
 })
