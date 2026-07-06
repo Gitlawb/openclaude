@@ -43,18 +43,11 @@ afterEach(() => {
 })
 
 describe('detectStaleProjectSettingsPaths', () => {
-  test('warns when legacy project settings exist without canonical settings', async () => {
+  test('does not warn when legacy project settings exist without canonical settings', async () => {
     const project = createProject()
     writeJson(join(project, '.claude', 'settings.json'))
 
-    const warning = await detectStaleProjectSettingsPaths(project)
-
-    expect(warning).toEqual({
-      issue:
-        'Legacy project settings file .claude/settings.json found, but OpenClaude reads .openclaude/settings.json',
-      fix:
-        'Move or copy .claude/settings.json to .openclaude/settings.json if you intended OpenClaude to use those project settings.',
-    })
+    await expect(detectStaleProjectSettingsPaths(project)).resolves.toBeNull()
   })
 
   test('does not warn when the matching canonical project settings file exists', async () => {
@@ -79,27 +72,19 @@ describe('detectStaleProjectSettingsPaths', () => {
     await expect(detectStaleProjectSettingsPaths(project)).resolves.toBeNull()
   })
 
-  test('warns independently for legacy local settings', async () => {
+  test('does not warn independently for legacy local settings', async () => {
     const project = createProject()
     writeJson(join(project, '.claude', 'settings.local.json'))
 
-    const warning = await detectStaleProjectSettingsPaths(project)
-
-    expect(warning?.issue).toContain('.claude/settings.local.json')
-    expect(warning?.issue).toContain('.openclaude/settings.local.json')
+    await expect(detectStaleProjectSettingsPaths(project)).resolves.toBeNull()
   })
 
-  test('warns about both legacy settings files when both canonical files are absent', async () => {
+  test('does not warn about legacy settings files when canonical files are absent', async () => {
     const project = createProject()
     writeJson(join(project, '.claude', 'settings.json'))
     writeJson(join(project, '.claude', 'settings.local.json'))
 
-    const warning = await detectStaleProjectSettingsPaths(project)
-
-    expect(warning?.issue).toContain('.claude/settings.json')
-    expect(warning?.issue).toContain('.claude/settings.local.json')
-    expect(warning?.issue).toContain('.openclaude/settings.json')
-    expect(warning?.issue).toContain('.openclaude/settings.local.json')
+    await expect(detectStaleProjectSettingsPaths(project)).resolves.toBeNull()
   })
 
   test('uses the settings resolver project root by default', async () => {
@@ -107,9 +92,6 @@ describe('detectStaleProjectSettingsPaths', () => {
     writeJson(join(project, '.claude', 'settings.json'))
     setOriginalCwd(project)
 
-    const warning = await detectStaleProjectSettingsPaths()
-
-    expect(warning?.issue).toContain('.claude/settings.json')
-    expect(warning?.issue).toContain('.openclaude/settings.json')
+    await expect(detectStaleProjectSettingsPaths()).resolves.toBeNull()
   })
 })

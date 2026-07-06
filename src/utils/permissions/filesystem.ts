@@ -10,7 +10,6 @@ import {
   CLAUDE_FOLDER_PERMISSION_PATTERN,
   FILE_EDIT_TOOL_NAME,
   GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
-  LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
 } from 'src/tools/FileEditTool/constants.js'
 import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
@@ -70,7 +69,6 @@ export const DANGEROUS_FILES = [
   '.ripgreprc',
   '.mcp.json',
   '.openclaude.json',
-  '.claude.json',
 ] as const
 
 /**
@@ -81,7 +79,6 @@ export const DANGEROUS_DIRECTORIES = [
   '.git',
   '.vscode',
   '.idea',
-  '.claude',
   '.openclaude',
 ] as const
 
@@ -99,13 +96,12 @@ export function normalizeCaseForComparison(path: string): string {
 }
 
 /**
- * If filePath is inside a .claude/skills/{name}/ directory (project) or
- * .openclaude/skills/{name}/ directory (global), plus the legacy global
- * .claude/skills path, return the skill name and a session-allow pattern
+ * If filePath is inside a .openclaude/skills/{name}/ directory (project) or
+ * .openclaude/skills/{name}/ directory (global), return the skill name and a session-allow pattern
  * scoped to just that skill.
  * Used to offer a narrower "allow edits to this skill only" option in the
  * permission dialog and SDK suggestions, so iterating on one skill doesn't
- * require granting session access to all of .claude/ (settings.json, hooks/, etc.).
+ * require granting session access to all of .openclaude/ (settings.json, hooks/, etc.).
  */
 export function getClaudeSkillScope(
   filePath: string,
@@ -115,16 +111,12 @@ export function getClaudeSkillScope(
 
   const bases = [
     {
-      dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
-      prefix: '/.claude/skills/',
+      dir: expandPath(join(getOriginalCwd(), '.openclaude', 'skills')),
+      prefix: '/.openclaude/skills/',
     },
     {
       dir: expandPath(join(homedir(), '.openclaude', 'skills')),
       prefix: '~/.openclaude/skills/',
-    },
-    {
-      dir: expandPath(join(homedir(), '.claude', 'skills')),
-      prefix: '~/.claude/skills/',
     },
   ]
 
@@ -222,11 +214,9 @@ export function isClaudeSettingsPath(filePath: string): boolean {
   // Use platform separator so endsWith checks work on both Unix (/) and Windows (\)
   if (
     normalizedPath.endsWith(`${sep}.openclaude${sep}settings.json`) ||
-    normalizedPath.endsWith(`${sep}.openclaude${sep}settings.local.json`) ||
-    normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
-    normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
+    normalizedPath.endsWith(`${sep}.openclaude${sep}settings.local.json`)
   ) {
-    // Include .claude/settings.json even for other projects
+    // Include .openclaude/settings.json even for other projects
     return true
   }
   // Check for current project's settings files (including managed settings and CLI args)
@@ -242,23 +232,17 @@ function isClaudeConfigFilePath(filePath: string): boolean {
     return true
   }
 
-  // Check if file is within .claude/commands or .claude/agents directories
+  // Check if file is within .openclaude/commands or .openclaude/agents directories
   // using proper path segment validation (not string matching with includes())
   // pathInWorkingPath now handles case-insensitive comparison to prevent bypasses
-  const commandsDir = join(getOriginalCwd(), '.claude', 'commands')
-  const agentsDir = join(getOriginalCwd(), '.claude', 'agents')
-  const skillsDir = join(getOriginalCwd(), '.claude', 'skills')
-  const openCommandsDir = join(getOriginalCwd(), '.openclaude', 'commands')
-  const openAgentsDir = join(getOriginalCwd(), '.openclaude', 'agents')
-  const openSkillsDir = join(getOriginalCwd(), '.openclaude', 'skills')
+  const commandsDir = join(getOriginalCwd(), '.openclaude', 'commands')
+  const agentsDir = join(getOriginalCwd(), '.openclaude', 'agents')
+  const skillsDir = join(getOriginalCwd(), '.openclaude', 'skills')
 
   return (
     pathInWorkingPath(filePath, commandsDir) ||
     pathInWorkingPath(filePath, agentsDir) ||
-    pathInWorkingPath(filePath, skillsDir) ||
-    pathInWorkingPath(filePath, openCommandsDir) ||
-    pathInWorkingPath(filePath, openAgentsDir) ||
-    pathInWorkingPath(filePath, openSkillsDir)
+    pathInWorkingPath(filePath, skillsDir)
   )
 }
 
@@ -536,17 +520,17 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
         continue
       }
 
-      // Special case: .claude/worktrees/ is a structural path (where Claude stores
-      // git worktrees), not a user-created dangerous directory. Skip the .claude
-      // segment when it's followed by 'worktrees'. Any nested .claude directories
+      // Special case: .openclaude/worktrees/ is a structural path (where OpenClaude stores
+      // git worktrees), not a user-created dangerous directory. Skip the .openclaude
+      // segment when it's followed by 'worktrees'. Any nested .openclaude directories
       // within the worktree (not followed by 'worktrees') are still blocked.
-      if (dir === '.claude') {
+      if (dir === '.openclaude') {
         const nextSegment = pathSegments[i + 1]
         if (
           nextSegment &&
           normalizeCaseForComparison(nextSegment) === 'worktrees'
         ) {
-          break // Skip this .claude, continue checking other segments
+          break // Skip this .openclaude, continue checking other segments
         }
       }
 
@@ -1356,22 +1340,19 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   )
   if (claudeFolderAllowRule) {
     // Check if this rule is scoped under a Claude config folder.
-    // Accepts broad project/global patterns ('/.claude/**',
-    // '~/.openclaude/**', and legacy '~/.claude/**') plus narrowed skill
+    // Accepts broad project/global patterns ('/.openclaude/**',
+    // '~/.openclaude/**') plus narrowed skill
     // patterns like '~/.openclaude/skills/my-skill/**' so users can grant
     // session access to a single skill without also exposing settings.json
     // or hooks/. The rule already matched the path via matchingRuleForInput;
     // this is an additional scope check. Reject '..' to prevent a rule like
-    // '/.claude/../**' from leaking this bypass outside the config folder.
+    // '/.openclaude/../**' from leaking this bypass outside the config folder.
     const ruleContent = claudeFolderAllowRule.ruleValue.ruleContent
     if (
       ruleContent &&
       (ruleContent.startsWith(CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2)) ||
         ruleContent.startsWith(
           GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
-        ) ||
-        ruleContent.startsWith(
-          LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
         )) &&
       !ruleContent.includes('..') &&
       ruleContent.endsWith('/**')
@@ -1679,16 +1660,16 @@ export function checkEditableInternalPath(
     }
   }
 
-  // .claude/launch.json — desktop preview config (dev server command + port).
+  // .openclaude/launch.json — desktop preview config (dev server command + port).
   // The desktop's preview_start MCP tool instructs Claude to create/update
   // this file as part of the preview workflow. Without this carve-out the
-  // .claude/ DANGEROUS_DIRECTORIES check prompts for it, which in SDK mode
+  // .openclaude/ DANGEROUS_DIRECTORIES check prompts for it, which in SDK mode
   // cascades: user clicks "Always allow" → setMode:acceptEdits suggestion
   // applied → silent downgrade from auto mode. Matches the project-level
-  // .claude/ only (not ~/.claude/) since launch.json is per-project.
+  // .openclaude/ only (not ~/.openclaude/) since launch.json is per-project.
   if (
     normalizeCaseForComparison(normalizedPath) ===
-    normalizeCaseForComparison(join(getOriginalCwd(), '.claude', 'launch.json'))
+    normalizeCaseForComparison(join(getOriginalCwd(), '.openclaude', 'launch.json'))
   ) {
     return {
       behavior: 'allow',

@@ -1697,21 +1697,7 @@ export async function cleanupNpmInstallations(): Promise<{
   const warnings: string[] = []
   let removed = 0
 
-  // Always attempt to remove @anthropic-ai/claude-code
-  const codePackageResult = await attemptNpmUninstall(
-    '@anthropic-ai/claude-code',
-  )
-  if (codePackageResult.success) {
-    removed++
-    if (codePackageResult.warning) {
-      warnings.push(codePackageResult.warning)
-    }
-  } else if (codePackageResult.error) {
-    errors.push(codePackageResult.error)
-  }
-
-  // Also attempt to remove MACRO.PACKAGE_URL if it's defined and different
-  if (MACRO.PACKAGE_URL && MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code') {
+  if (MACRO.PACKAGE_URL) {
     const macroPackageResult = await attemptNpmUninstall(MACRO.PACKAGE_URL)
     if (macroPackageResult.success) {
       removed++
@@ -1723,10 +1709,7 @@ export async function cleanupNpmInstallations(): Promise<{
     }
   }
 
-  // Preserve compatibility with pre-migration installs under ~/.claude/local.
-  const localInstallDirs = Array.from(
-    new Set([join(getClaudeConfigHomeDir(), 'local'), join(homedir(), '.claude', 'local')]),
-  )
+  const localInstallDirs = [join(getClaudeConfigHomeDir(), 'local')]
 
   for (const localInstallDir of localInstallDirs) {
     try {

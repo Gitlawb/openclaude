@@ -65,11 +65,5 @@ describe('convertToSandboxRuntimeConfig', () => {
     expect(config.filesystem.denyWrite).toContain(
       resolve(activeCwd, '.openclaude', 'settings.local.json'),
     )
-    expect(config.filesystem.denyWrite).toContain(
-      resolve(activeCwd, '.claude', 'settings.json'),
-    )
-    expect(config.filesystem.denyWrite).toContain(
-      resolve(activeCwd, '.claude', 'settings.local.json'),
-    )
   })
 })

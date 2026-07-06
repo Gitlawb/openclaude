@@ -148,8 +148,8 @@ export function resolveSandboxFilesystemPath(
 
 function getCurrentCwdSettingsDenyWritePaths(cwd: string): string[] {
   return [
-    resolve(cwd, '.claude', 'settings.json'),
-    resolve(cwd, '.claude', 'settings.local.json'),
+    resolve(cwd, '.openclaude', 'settings.json'),
+    resolve(cwd, '.openclaude', 'settings.local.json'),
     resolve(cwd, getRelativeSettingsFilePathForSource('projectSettings')),
     resolve(cwd, getRelativeSettingsFilePathForSource('localSettings')),
   ]
@@ -253,14 +253,14 @@ export function convertToSandboxRuntimeConfig(
     denyWrite.push(...getCurrentCwdSettingsDenyWritePaths(cwd))
   }
 
-  // Block writes to .claude/skills in both original and current working directories.
-  // The sandbox-runtime's getDangerousDirectories() protects .claude/commands and
-  // .claude/agents but not .claude/skills. Skills have the same privilege level
+  // Block writes to .openclaude/skills in both original and current working directories.
+  // The sandbox-runtime's getDangerousDirectories() protects .openclaude/commands and
+  // .openclaude/agents but not .openclaude/skills. Skills have the same privilege level
   // (auto-discovered, auto-loaded, full Claude capabilities) so they need the
   // same OS-level sandbox protection.
-  denyWrite.push(resolve(originalCwd, '.claude', 'skills'))
+  denyWrite.push(resolve(originalCwd, '.openclaude', 'skills'))
   if (cwd !== originalCwd) {
-    denyWrite.push(resolve(cwd, '.claude', 'skills'))
+    denyWrite.push(resolve(cwd, '.openclaude', 'skills'))
   }
 
   // SECURITY: Git's is_git_directory() treats cwd as a bare repo if it has

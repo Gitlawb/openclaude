@@ -762,7 +762,7 @@ test.serial('removes only the targeted project skill directory', async () => {
   }
 })
 
-test.serial('removes legacy project skills from .claude directories', async () => {
+test.serial('does not remove legacy project skills from .claude directories', async () => {
   await acquireSharedMutationLock('skillsRemoveHandler')
   const originalFs = getFsImplementation()
   try {
@@ -792,13 +792,13 @@ test.serial('removes legacy project skills from .claude directories', async () =
       try {
         process.exitCode = 0
         await skillsRemoveHandler(targetName, { projectDir: cwd })
-        assert.equal(process.exitCode, 0)
+        assert.equal(process.exitCode, 1)
       } finally {
         restoreSettingState(originalSettingsState)
         clearCommandsCache()
       }
 
-      assert.equal(existsSync(target), false)
+      assert.equal(existsSync(target), true)
     })
   } finally {
     setFsImplementation(originalFs)

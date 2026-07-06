@@ -1197,7 +1197,7 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .enum(['user', 'project', 'local'])
         .optional()
         .describe(
-          "Scope for auto-loading agent memory files. 'user' - ~/.claude/agent-memory/<agentType>/, 'project' - .claude/agent-memory/<agentType>/, 'local' - .claude/agent-memory-local/<agentType>/",
+          "Scope for auto-loading agent memory files. 'user' - ~/.openclaude/agent-memory/<agentType>/, 'project' - .openclaude/agent-memory/<agentType>/, 'local' - .openclaude/agent-memory-local/<agentType>/",
         ),
       effort: z
         .union([z.enum(['low', 'medium', 'high', 'xhigh', 'max']), z.number().int()])

@@ -162,9 +162,9 @@ Based on the areas detected in Phase 1, you may need to create multiple verifier
 
 ## Phase 4: Generate Verifier Skill
 
-**All verifier skills are created in the project root's \`.claude/skills/\` directory.** This ensures they are automatically loaded when Claude runs in the project.
+**All verifier skills are created in the project root's \`.openclaude/skills/\` directory.** This ensures they are automatically loaded when Claude runs in the project.
 
-Write the skill file to \`.claude/skills/<verifier-name>/SKILL.md\`.
+Write the skill file to \`.openclaude/skills/<verifier-name>/SKILL.md\`.
 
 ### Skill Template Structure
 
@@ -248,7 +248,7 @@ allowed-tools:
 ## Phase 5: Confirm Creation
 
 After writing the skill file(s), inform the user:
-1. Where each skill was created (always in \`.claude/skills/\`)
+1. Where each skill was created (always in \`.openclaude/skills/\`)
 2. How the Verify agent will discover them — the folder name must contain "verifier" (case-insensitive) for automatic discovery
 3. That they can edit the skills to customize them
 4. That they can run /init-verifiers again to add more verifiers for other areas

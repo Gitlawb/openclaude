@@ -46,7 +46,7 @@ function writeSkill(
 ): void {
   const skillDir = join(
     rootDir,
-    options?.configDirName ?? '.claude',
+    options?.configDirName ?? '.openclaude',
     'skills',
     ...skillPath.split('/'),
   )
@@ -102,7 +102,7 @@ function setRealFilesystemForTest(): ReturnType<typeof getFsImplementation> {
 function setConfigDirEnv(configDir: string): void {
   setClaudeConfigHomeDirForTesting(undefined)
   process.env.OPENCLAUDE_CONFIG_DIR = configDir
-  process.env.CLAUDE_CONFIG_DIR = configDir
+  delete process.env.CLAUDE_CONFIG_DIR
 }
 
 function restoreConfigDirEnv(original: {
@@ -147,7 +147,7 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
     clearSkillAndConfigCaches()
 
     const skills = await getSkillDirCommands(cwd)
-    const fixtureSkillsRoot = join(configDir, '.claude', 'skills')
+    const fixtureSkillsRoot = join(configDir, '.openclaude', 'skills')
     const promptSkills = skills.filter(
       (
         skill,
@@ -167,7 +167,7 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
 
     const nestedSkill = promptSkills.find(skill => skill.name === 'git:commit')
     assert.ok(nestedSkill)
-    assert.equal(nestedSkill.skillRoot, join(configDir, '.claude', 'skills', 'git', 'commit'))
+    assert.equal(nestedSkill.skillRoot, join(configDir, '.openclaude', 'skills', 'git', 'commit'))
 
     const deepSkill = promptSkills.find(
       skill => skill.name === 'frontend:react:form',
@@ -175,7 +175,7 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
     assert.ok(deepSkill)
     assert.equal(
       deepSkill.skillRoot,
-      join(configDir, '.claude', 'skills', 'frontend', 'react', 'form'),
+      join(configDir, '.openclaude', 'skills', 'frontend', 'react', 'form'),
     )
   } finally {
     try {
@@ -190,7 +190,7 @@ test.serial('loads flat and nested skills with colon namespaces', async () => {
   }
 })
 
-test.serial('prefers .openclaude project skills over legacy .claude skills with the same name', async () => {
+test.serial('ignores legacy .claude project skills when .openclaude skills exist', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
@@ -221,7 +221,7 @@ test.serial('prefers .openclaude project skills over legacy .claude skills with 
       skill => skill.type === 'prompt' && skill.name === 'shared',
     )
 
-    assert.equal(sharedSkills.length, 2)
+    assert.equal(sharedSkills.length, 1)
     assert.equal(sharedSkills[0]?.type, 'prompt')
     assert.equal(sharedSkills[0]?.description, 'native project skill')
     assert.match(sharedSkills[0]?.skillRoot ?? '', /\.openclaude/)
@@ -362,7 +362,6 @@ test.serial('dynamic discovery checks .openclaude skill directories', async () =
     })
 
     assert.deepEqual(getProjectSkillsPaths(featureDir), [
-      join(featureDir, '.claude', 'skills'),
       join(featureDir, '.openclaude', 'skills'),
     ])
   } finally {

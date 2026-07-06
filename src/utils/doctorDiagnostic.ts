@@ -241,10 +241,7 @@ async function detectMultipleInstallations(): Promise<
   }
 
   // Check for global npm installation
-  const packagesToCheck = ['@anthropic-ai/claude-code']
-  if (MACRO.PACKAGE_URL && MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code') {
-    packagesToCheck.push(MACRO.PACKAGE_URL)
-  }
+  const packagesToCheck = MACRO.PACKAGE_URL ? [MACRO.PACKAGE_URL] : []
   const npmResult = await execFileNoThrow('npm', [
     '-g',
     'config',
@@ -357,36 +354,8 @@ async function pathExists(path: string): Promise<boolean> {
 export async function detectStaleProjectSettingsPaths(
   cwd: string = getSettingsRootPathForSource('projectSettings'),
 ): Promise<{ issue: string; fix: string } | null> {
-  const pairs = [
-    {
-      legacy: '.claude/settings.json',
-      canonical: getRelativeSettingsFilePathForSource('projectSettings'),
-    },
-    {
-      legacy: '.claude/settings.local.json',
-      canonical: getRelativeSettingsFilePathForSource('localSettings'),
-    },
-  ]
-
-  const stale: Array<{ legacy: string; canonical: string }> = []
-  for (const pair of pairs) {
-    const legacyExists = await pathExists(join(cwd, pair.legacy))
-    if (!legacyExists) continue
-    const canonicalExists = await pathExists(join(cwd, pair.canonical))
-    if (!canonicalExists) {
-      stale.push(pair)
-    }
-  }
-
-  if (stale.length === 0) return null
-
-  const legacyPaths = stale.map(pair => pair.legacy).join(', ')
-  const canonicalPaths = stale.map(pair => pair.canonical).join(', ')
-
-  return {
-    issue: `Legacy project settings file${stale.length === 1 ? '' : 's'} ${legacyPaths} found, but OpenClaude reads ${canonicalPaths}`,
-    fix: `Move or copy ${legacyPaths} to ${canonicalPaths} if you intended OpenClaude to use those project settings.`,
-  }
+  void cwd
+  return null
 }
 
 async function detectConfigurationIssues(
@@ -616,13 +585,9 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
 
     for (const install of npmInstalls) {
       if (install.type === 'npm-global') {
-        let uninstallCmd = 'npm -g uninstall @anthropic-ai/claude-code'
-        if (
-          MACRO.PACKAGE_URL &&
-          MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code'
-        ) {
-          uninstallCmd += ` && npm -g uninstall ${MACRO.PACKAGE_URL}`
-        }
+        const uninstallCmd = MACRO.PACKAGE_URL
+          ? `npm -g uninstall ${MACRO.PACKAGE_URL}`
+          : 'npm -g uninstall openclaude'
         warnings.push({
           issue: `Leftover npm global installation at ${install.path}`,
           fix: `Run: ${uninstallCmd}`,

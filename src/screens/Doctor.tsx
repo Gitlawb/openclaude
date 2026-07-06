@@ -166,7 +166,7 @@ export function Doctor(t0: Props) {
     );
     (async () => {
       const userAgentsDir = join(getClaudeConfigHomeDir(), "agents");
-      const projectAgentsDir = join(getOriginalCwd(), ".claude", "agents");
+      const projectAgentsDir = join(getOriginalCwd(), ".openclaude", "agents");
       const {
         activeAgents,
         allAgents,

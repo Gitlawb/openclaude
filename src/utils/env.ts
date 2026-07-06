@@ -7,7 +7,6 @@ import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import {
   getClaudeConfigHomeDir,
   isEnvTruthy,
-  migrateLegacyClaudeConfigHome,
   resolveConfigDirEnv,
 } from './envUtils.js'
 import { findExecutable } from './findExecutable.js'
@@ -25,17 +24,10 @@ export function resolveGlobalClaudeFile(options: {
 }): string {
   const oauthSuffix = options.oauthSuffix ?? ''
   const configDir = options.configDirEnv || options.homeDir || homedir()
-  const hasExplicitConfigDir = Boolean(options.configDirEnv)
   const newFilename = `.openclaude${oauthSuffix}.json`
-  const legacyFilename = `.claude${oauthSuffix}.json`
 
-  if (
-    (hasExplicitConfigDir || options.migrationSucceeded === false) &&
-    !options.existsSync(join(configDir, newFilename)) &&
-    options.existsSync(join(configDir, legacyFilename))
-  ) {
-    return join(configDir, legacyFilename)
-  }
+  void options.migrationSucceeded
+  void options.existsSync
   return join(configDir, newFilename)
 }
 
@@ -53,24 +45,13 @@ export const getGlobalClaudeFile = memoize((): string => {
   const oauthSuffix = fileSuffixForOauthConfig()
   const configDirEnv = resolveConfigDirEnv({
     openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
-    legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
   })
   const configDir = configDirEnv || homedir()
-  const hasExplicitConfigDir = Boolean(configDirEnv)
-  let migrationSucceeded = true
 
-  if (!hasExplicitConfigDir) {
-    migrationSucceeded = migrateLegacyClaudeConfigHome({ homeDir: configDir })
-  }
-
-  // Default installs hard-cut to .openclaude.json after the migration above.
-  // Explicit config-dir users keep the legacy filename fallback because
-  // either env var is an opt-out for automatic migration.
   return resolveGlobalClaudeFile({
     configDirEnv,
     homeDir: configDir,
     oauthSuffix,
-    migrationSucceeded,
     existsSync: path => getFsImplementation().existsSync(path),
   })
 })

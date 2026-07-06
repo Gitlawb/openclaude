@@ -121,7 +121,7 @@ describe("Secure Storage Platform Implementations", () => {
   };
 
   describe("Config-Dir Isolation", () => {
-    test("service name changes with CLAUDE_CONFIG_DIR", () => {
+    test("service name ignores CLAUDE_CONFIG_DIR", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
@@ -129,7 +129,7 @@ describe("Secure Storage Platform Implementations", () => {
       process.env.CLAUDE_CONFIG_DIR = "/tmp/other-config";
       const otherName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
-      expect(otherName).not.toBe(defaultName);
+      expect(otherName).toBe(defaultName);
       expect(otherName).toContain("Claude Code");
       expect(otherName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
@@ -148,7 +148,7 @@ describe("Secure Storage Platform Implementations", () => {
       expect(preferredName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 
-    test("Linux storage uses scoped service name", () => {
+    test("Linux storage ignores CLAUDE_CONFIG_DIR scoped service name", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/linux-scoped";
@@ -171,7 +171,7 @@ describe("Secure Storage Platform Implementations", () => {
       expect(args).toContain(expectedName);
     });
 
-    test("Windows storage uses scoped resource name", () => {
+    test("Windows storage ignores CLAUDE_CONFIG_DIR scoped resource name", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/win-scoped";

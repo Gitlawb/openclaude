@@ -59,7 +59,7 @@ import { getSessionsSinceLastShown } from './tipHistory.js'
 import type { Tip, TipContext } from './types.js'
 
 export function getCustomCommandsTipContent(): string {
-  return `Create skills at .claude/skills/<name>/SKILL.md in your project or ${getUserSkillExampleDisplayPath()} for skills that work in any project`
+  return `Create skills at .openclaude/skills/<name>/SKILL.md in your project or ${getUserSkillExampleDisplayPath()} for skills that work in any project`
 }
 
 let _isOfficialMarketplaceInstalledCache: boolean | undefined

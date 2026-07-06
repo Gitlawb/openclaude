@@ -2055,7 +2055,7 @@ export function getMemoryPath(memoryType: MemoryType): string {
 }
 
 export function getManagedClaudeRulesDir(): string {
-  return join(getManagedFilePath(), '.claude', 'rules')
+  return join(getManagedFilePath(), '.openclaude', 'rules')
 }
 
 export function getUserClaudeRulesDir(): string {

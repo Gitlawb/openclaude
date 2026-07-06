@@ -24,7 +24,7 @@ type ShellInfo = {
 function detectShell(): ShellInfo | null {
   const shell = process.env.SHELL || ''
   const home = homedir()
-  const claudeDir = join(home, '.claude')
+  const claudeDir = join(home, '.openclaude')
 
   if (shell.endsWith('/zsh') || shell.endsWith('/zsh.exe')) {
     const cacheFile = join(claudeDir, 'completion.zsh')

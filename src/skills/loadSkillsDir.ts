@@ -82,7 +82,7 @@ export function getSkillsPath(
 ): string {
   switch (source) {
     case 'policySettings':
-      return join(getManagedFilePath(), '.claude', dir)
+      return join(getManagedFilePath(), '.openclaude', dir)
     case 'userSettings':
       return join(getClaudeConfigHomeDir(), dir)
     case 'projectSettings':
@@ -774,7 +774,7 @@ async function loadSkillsFromCommandsDir(
 export const getSkillDirCommands = memoize(
   async (cwd: string): Promise<Command[]> => {
     const userSkillsDir = join(getClaudeConfigHomeDir(), 'skills')
-    const managedSkillsDir = join(getManagedFilePath(), '.claude', 'skills')
+    const managedSkillsDir = join(getManagedFilePath(), '.openclaude', 'skills')
     const projectSkillsDirs = getProjectDirsUpToHome(
       'skills',
       cwd,

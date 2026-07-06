@@ -33,6 +33,7 @@ const realExecFileNoThrowModule = { ...realExecFileNoThrow }
 let simulateNpmUninstallFailure = false
 let simulateNpmUninstallEnotempty = false
 let fakeNpmPrefix: string | undefined
+const npmUninstallPackages: string[] = []
 
 mock.module('./execFileNoThrow.js', () => ({
   ...realExecFileNoThrowModule,
@@ -51,6 +52,7 @@ mock.module('./execFileNoThrow.js', () => ({
       }
 
       if (simulateNpmUninstallEnotempty && commandArgs[0] === 'uninstall') {
+        npmUninstallPackages.push(String(commandArgs.at(-1)))
         return Promise.resolve({
           stdout: '',
           stderr: 'npm error code ENOTEMPTY',
@@ -59,6 +61,7 @@ mock.module('./execFileNoThrow.js', () => ({
       }
 
       if (simulateNpmUninstallFailure && commandArgs[0] === 'uninstall') {
+        npmUninstallPackages.push(String(commandArgs.at(-1)))
         return Promise.resolve({
           stdout: '',
           stderr: 'npm ERR! code E404',
@@ -86,6 +89,7 @@ afterEach(() => {
     simulateNpmUninstallFailure = false
     simulateNpmUninstallEnotempty = false
     fakeNpmPrefix = undefined
+    npmUninstallPackages.length = 0
     mock.restore()
     mock.module('../utils/env.js', () => realEnv)
     mock.module('./envUtils.js', () => realEnvUtils)
@@ -248,12 +252,13 @@ test('install command repairs launcher after npm cleanup before final check', as
   ])
 })
 
-test('cleanupNpmInstallations removes both openclaude and legacy claude local install dirs', async () => {
+test('cleanupNpmInstallations removes only openclaude local install dir', async () => {
   const removedPaths: string[] = []
   ;(globalThis as Record<string, unknown>).MACRO = {
     PACKAGE_URL: '@gitlawb/openclaude',
   }
-  process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+  process.env.OPENCLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+  delete process.env.CLAUDE_CONFIG_DIR
 
   mock.module('fs/promises', () => ({
     ...fsPromises,
@@ -273,7 +278,9 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   await cleanupNpmInstallations()
 
   expect(removedPaths).toContain(join(homedir(), '.openclaude', 'local'))
-  expect(removedPaths).toContain(join(homedir(), '.claude', 'local'))
+  expect(removedPaths).not.toContain(join(homedir(), '.claude', 'local'))
+  expect(npmUninstallPackages).toContain('@gitlawb/openclaude')
+  expect(npmUninstallPackages).not.toContain('@anthropic-ai/claude-code')
 })
 
 test('cleanupNpmInstallations manual fallback removes openclaude npm shim', async () => {
@@ -287,7 +294,8 @@ test('cleanupNpmInstallations manual fallback removes openclaude npm shim', asyn
   }
   process.env.HOME = testHome
   process.env.USERPROFILE = testHome
-  process.env.CLAUDE_CONFIG_DIR = join(testHome, '.openclaude')
+  process.env.OPENCLAUDE_CONFIG_DIR = join(testHome, '.openclaude')
+  delete process.env.CLAUDE_CONFIG_DIR
   fakeNpmPrefix = npmPrefix
   simulateNpmUninstallEnotempty = true
 
