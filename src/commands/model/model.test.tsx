@@ -1244,6 +1244,81 @@ test('/model applies auto provider surface for single-model descriptor profiles'
   }
 })
 
+test('/model discovery override still surfaces inactive-profile switch options (#1119)', async () => {
+  // Regression for #1164 [P2]: descriptor/legacy discovery contexts pass an
+  // optionsOverride built from the active profile's route models only. Because
+  // the picker uses `optionsOverride ?? getModelOptions()`, the unified switcher
+  // for other configured profiles must be re-appended to the override, or it
+  // disappears entirely for provider-profile discovery paths.
+  const activeProfile = {
+    id: 'openrouter-profile',
+    name: 'OpenRouter',
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openai/gpt-oss-120b:free',
+    apiKey: 'sk-openrouter',
+  }
+  const inactiveProfile = {
+    id: 'kimi-profile',
+    name: 'Kimi',
+    provider: 'openai',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    model: 'kimi-k2',
+    apiKey: 'sk-kimi',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  process.env.OPENAI_API_KEY = activeProfile.apiKey
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = activeProfile.model
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mockDescriptorDiscovery({
+    cachedModels: [{ id: 'profile-model', apiName: activeProfile.model }],
+  })
+  mockProviderProfiles({
+    getActiveProviderProfile: () => activeProfile,
+    getProviderProfiles: () => [activeProfile, inactiveProfile],
+    getProfileModelOptions: (profile: { model: string; name: string }) => [
+      { value: profile.model, label: profile.model, description: profile.name },
+    ],
+  })
+
+  const rendered = await renderModelCommandWithCapturedPicker(
+    'descriptor-picker-inactive-switch-options',
+  )
+  try {
+    const override = rendered.getCapturedProps()
+      .optionsOverride as ModelOption[]
+    const switchOptions = override.filter(
+      opt => opt.switchToProfileId !== undefined,
+    )
+    expect(switchOptions.map(opt => opt.switchToProfileId)).toContain(
+      'kimi-profile',
+    )
+    expect(
+      switchOptions.some(
+        opt => opt.value === encodeSwitchProfileValue('kimi-profile', 'kimi-k2'),
+      ),
+    ).toBe(true)
+    // The active profile's own route model is still present as a normal option.
+    expect(
+      override.some(opt => opt.value === activeProfile.model),
+    ).toBe(true)
+  } finally {
+    rendered.instance.unmount()
+    rendered.stdout.end()
+  }
+})
+
 test('/model applies auto provider surface for single-model static descriptor profiles', async () => {
   const activeProfile = {
     id: 'opengateway-profile',

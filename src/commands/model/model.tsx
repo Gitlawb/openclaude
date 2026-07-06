@@ -53,6 +53,7 @@ import {
 } from '../../utils/model/check1mAccess.js'
 import {
   getDefaultOptionForUser,
+  getInactiveProviderProfileOptions,
   parseSwitchProfileValue,
   type ModelOption,
 } from '../../utils/model/modelOptions.js'
@@ -318,6 +319,46 @@ function getLegacyOpenAIOptionsOverride(options: {
       profileModelSurface: options.profileModelSurface,
     },
   )
+}
+
+// The picker renders `optionsOverride ?? getModelOptions()`. getModelOptions()
+// appends inactive-profile switch entries (issue #1119) when a provider profile
+// env is applied, but the discovery/refresh override lists are built from
+// mergeActiveProfileModelOptions, which only merges the ACTIVE profile's route
+// models. Without re-appending here, the unified `/model` switcher disappears
+// for descriptor-backed and legacy OpenAI-compatible discovery contexts
+// (OpenRouter/Kimi/MiniMax, refreshed local profiles). Mirror getModelOptions()
+// so any override list carries the same inactive-profile switch options.
+function withInactiveProfileSwitchOptions(
+  options: ModelOption[],
+): ModelOption[] {
+  if (process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED !== '1') {
+    return options
+  }
+  const activeProfile = getActiveProviderProfile()
+  const switchOptions = getInactiveProviderProfileOptions(activeProfile?.id)
+  if (switchOptions.length === 0) {
+    return options
+  }
+  const present = new Set(
+    options.flatMap(option =>
+      typeof option.value === 'string' ? [option.value] : [],
+    ),
+  )
+  const additions = switchOptions.filter(option => {
+    if (typeof option.value !== 'string' || present.has(option.value)) {
+      return false
+    }
+    // Apply the org allowlist to the decoded target model, mirroring
+    // getModelOptions()'s allowlist pass, so a restricted switch target is not
+    // surfaced. handleSelect re-checks this before activating regardless.
+    const target =
+      option.switchToProfileId !== undefined
+        ? parseSwitchProfileValue(option.value)?.model ?? option.value
+        : option.value
+    return isModelAllowed(target)
+  })
+  return additions.length > 0 ? [...options, ...additions] : options
 }
 
 function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
@@ -958,7 +999,11 @@ function ModelPickerWrapper({
         isFastModeSupportedByModel(mainLoopModel) &&
         isFastModeAvailable()
       }
-      optionsOverride={optionsOverride}
+      optionsOverride={
+        optionsOverride
+          ? withInactiveProfileSwitchOptions(optionsOverride)
+          : undefined
+      }
       discoveryState={discoveryState}
       onRefresh={
         discoveryContext?.canRefresh
