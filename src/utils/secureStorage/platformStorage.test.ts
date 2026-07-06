@@ -2,6 +2,7 @@ import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAl
 import * as realExeca from "execa";
 import { homedir } from "os";
 import { join } from "path";
+import { setClaudeConfigHomeDirForTesting } from "../envUtils.js";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
 import {
   acquireSharedMutationLock,
@@ -94,12 +95,14 @@ describe("Secure Storage Platform Implementations", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    setClaudeConfigHomeDirForTesting(undefined);
     mockExecaSync.mockClear();
     // Default mock behavior
     mockExecaSync.mockImplementation(() => execaResult());
   });
 
   afterEach(() => {
+    setClaudeConfigHomeDirForTesting(undefined);
     process.env = originalEnv;
   });
 
