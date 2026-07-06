@@ -123,9 +123,12 @@ test('settings modelLimits supports host-qualified keys', async () => {
   expect(getOpenAIContextWindow('qwen3.6-plus')).toBe(1_048_576)
 })
 
-test('host-qualified prefix key wins over a bare exact model key', async () => {
-  // A host-qualified prefix is more specific than a bare exact match, so the
-  // per-endpoint limit must win even when a bare exact key also matches.
+test('a bare exact key beats a host-qualified prefix for a different model', async () => {
+  // An exact match wins over any prefix, including a host-qualified one. Here
+  // the host-qualified `openrouter.ai:qwen3` only prefix-matches, while
+  // `qwen3.6-plus` is an exact match for the requested model, so the exact
+  // bare limit must win. To force a per-endpoint override for this model the
+  // user supplies a host-qualified EXACT key (covered by the test above).
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
   mockSettings = {
     modelLimits: {
@@ -135,7 +138,7 @@ test('host-qualified prefix key wins over a bare exact model key', async () => {
   }
   const { getOpenAIContextWindow } = await importFresh()
 
-  expect(getOpenAIContextWindow('qwen3.6-plus')).toBe(1_048_576)
+  expect(getOpenAIContextWindow('qwen3.6-plus')).toBe(200_000)
 })
 
 test('missing modelLimits returns undefined', async () => {

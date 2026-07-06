@@ -119,19 +119,21 @@ function lookupByModel(
   const hostQualifiedModel =
     baseUrlHost && modelName ? `${baseUrlHost}:${modelName}` : undefined
 
-  // A host-qualified key (`<host>:<model>`) is strictly more specific than a
-  // bare model key, so ANY host-qualified match — exact OR prefix — must
-  // outrank a bare match. Rank both host-qualified forms in the high-priority
-  // `exact` tier ahead of the bare exact match; leave only the bare prefix in
-  // the low-priority `prefix` tier. Otherwise a bare exact (`qwen3.6-plus`)
-  // would beat a host-qualified prefix (`openrouter.ai:qwen3`) and the
-  // advertised per-endpoint disambiguation would fail for versioned families.
+  // Match precedence, high to low: host-qualified exact, bare exact,
+  // host-qualified prefix, bare prefix. Within each match kind a host-qualified
+  // key (`<host>:<model>`) beats the bare key, so the same model name can carry
+  // a different limit per endpoint via a host-qualified EXACT key. An exact
+  // match always beats a prefix — including a host-qualified prefix — so a
+  // precise `gpt-4o` entry is not overridden by an `api.foo.com:gpt-4` prefix
+  // that only matches a different, shorter model name. (Consumers read
+  // `exact ?? prefix`.)
   return {
     exact:
       lookupExactByKey(entries, hostQualifiedModel) ??
-      lookupPrefixByKey(entries, hostQualifiedModel) ??
       lookupExactByKey(entries, modelName),
-    prefix: lookupPrefixByKey(entries, modelName),
+    prefix:
+      lookupPrefixByKey(entries, hostQualifiedModel) ??
+      lookupPrefixByKey(entries, modelName),
   }
 }
 
