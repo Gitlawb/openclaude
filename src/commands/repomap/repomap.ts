@@ -6,6 +6,8 @@ import type { CacheStats, RepoMapResult } from '../../context/repoMap/index.js'
 import { getCwd } from '../../utils/cwd.js'
 import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 
+type ArgPart = string | null
+
 /** Parse CLI-style arguments from the command string. */
 export function parseArgs(args: string): {
   tokens: number
@@ -14,8 +16,8 @@ export function parseArgs(args: string): {
   stats: boolean
 } {
   const parsed = tryParseShellCommand(args)
-  const parts = parsed.success
-    ? parsed.tokens.filter((part): part is string => typeof part === 'string')
+  const parts: ArgPart[] = parsed.success
+    ? parsed.tokens.map(normalizeParsedToken)
     : args.trim().split(/\s+/).filter(Boolean)
   let tokens = 2048
   const focus: string[] = []
@@ -24,14 +26,15 @@ export function parseArgs(args: string): {
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]!
-    if (part === '--tokens' && i + 1 < parts.length) {
-      const n = parseInt(parts[i + 1]!, 10)
+    const next = parts[i + 1]
+    if (part === '--tokens' && typeof next === 'string') {
+      const n = parseInt(next, 10)
       if (!isNaN(n) && n >= 256 && n <= 16384) {
         tokens = n
       }
       i++
-    } else if (part === '--focus' && i + 1 < parts.length) {
-      focus.push(parts[i + 1]!)
+    } else if (part === '--focus' && typeof next === 'string') {
+      focus.push(next)
       i++
     } else if (part === '--invalidate') {
       invalidate = true
@@ -41,6 +44,21 @@ export function parseArgs(args: string): {
   }
 
   return { tokens, focus, invalidate, stats }
+}
+
+function normalizeParsedToken(part: unknown): ArgPart {
+  if (typeof part === 'string') return part
+  if (
+    part &&
+    typeof part === 'object' &&
+    'op' in part &&
+    part.op === 'glob' &&
+    'pattern' in part &&
+    typeof part.pattern === 'string'
+  ) {
+    return part.pattern
+  }
+  return null
 }
 
 export const call: LocalCommandCall = async (args) => {

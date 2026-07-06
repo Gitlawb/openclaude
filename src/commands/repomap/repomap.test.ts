@@ -81,6 +81,18 @@ describe('/repomap argument parsing', () => {
     expect(result.focus).toEqual(['src/my dir'])
   })
 
+  test('parses unquoted --focus glob values without shifting flags', () => {
+    const result = parseArgs('--focus src/*.ts --tokens 4096')
+    expect(result.tokens).toBe(4096)
+    expect(result.focus).toEqual(['src/*.ts'])
+  })
+
+  test('does not treat shell operators as flag values', () => {
+    const result = parseArgs('--focus && --tokens 4096')
+    expect(result.tokens).toBe(4096)
+    expect(result.focus).toEqual([])
+  })
+
   test('parses multiple --focus flags', () => {
     const result = parseArgs('--focus src/tools/ --focus src/context.ts')
     expect(result.focus).toEqual(['src/tools/', 'src/context.ts'])
