@@ -132,6 +132,41 @@ describe('getRepoMapContext', () => {
     }
   })
 
+  test('timeout cancellation is observed by the repo map build hook', async () => {
+    const { runRepoMapBuildWithTimeout } = await import('./context.js')
+    let resolveCancellation: (value: boolean) => void = () => {}
+    const cancellationObserved = new Promise<boolean>(resolve => {
+      resolveCancellation = resolve
+    })
+
+    const result = await runRepoMapBuildWithTimeout({
+      root: '/tmp/repo',
+      maxTokens: 1024,
+      timeoutMs: 1,
+      buildRepoMap: async ({ shouldContinue }) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        try {
+          shouldContinue?.()
+        } catch (err) {
+          resolveCancellation(true)
+          throw err
+        }
+        resolveCancellation(false)
+        return {
+          map: 'late.ts:\n  export function late(): void {}',
+          cacheHit: false,
+          buildTimeMs: 10,
+          fileCount: 1,
+          totalFileCount: 1,
+          tokenCount: 10,
+        }
+      },
+    })
+
+    expect(result).toEqual({ result: null, timedOut: true })
+    await expect(cancellationObserved).resolves.toBe(true)
+  })
+
   test('getSystemContext does not include repoMap key when flag is off', async () => {
     const { getRepoMapContext, getSystemContext } = await import('./context.js')
     const previousRepoMap = process.env.REPO_MAP

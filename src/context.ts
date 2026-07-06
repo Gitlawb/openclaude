@@ -17,10 +17,61 @@ import { getBranch, getDefaultBranch, getIsGit, gitExe } from './utils/git.js'
 import { shouldIncludeGitInstructions } from './utils/gitSettings.js'
 import { logError } from './utils/log.js'
 import { getCwd } from './utils/cwd.js'
+import type { RepoMapResult } from './context/repoMap/index.js'
 
 const MAX_STATUS_CHARS = 2000
 const REPO_MAP_CONTEXT_TIMEOUT_MS = 5000
 const REPO_MAP_TIMEOUT = Symbol('repo_map_timeout')
+const REPO_MAP_CANCELLED = Symbol('repo_map_cancelled')
+
+type RepoMapBuildFn = (options: {
+  root: string
+  maxTokens: number
+  shouldContinue?: () => void
+}) => Promise<RepoMapResult>
+
+export async function runRepoMapBuildWithTimeout({
+  buildRepoMap,
+  root,
+  maxTokens,
+  timeoutMs,
+}: {
+  buildRepoMap: RepoMapBuildFn
+  root: string
+  maxTokens: number
+  timeoutMs: number
+}): Promise<{ result: RepoMapResult | null; timedOut: boolean }> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  const result = await Promise.race([
+    buildRepoMap({
+      root,
+      maxTokens,
+      shouldContinue: () => {
+        if (timedOut) throw REPO_MAP_CANCELLED
+      },
+    }).catch(err => {
+      if (err === REPO_MAP_CANCELLED) return REPO_MAP_TIMEOUT
+      throw err
+    }),
+    new Promise<typeof REPO_MAP_TIMEOUT>(resolve => {
+      timeout = setTimeout(
+        () => {
+          timedOut = true
+          resolve(REPO_MAP_TIMEOUT)
+        },
+        timeoutMs,
+      )
+    }),
+  ]).finally(() => {
+    if (timeout) clearTimeout(timeout)
+  }) as RepoMapResult | typeof REPO_MAP_TIMEOUT
+
+  if (result === REPO_MAP_TIMEOUT) {
+    return { result: null, timedOut: true }
+  }
+  return { result, timedOut: false }
+}
 
 // System prompt injection for cache breaking (internal-only, ephemeral debugging state)
 let systemPromptInjection: string | null = null
@@ -127,19 +178,13 @@ export const getRepoMapContext = memoize(
       const startTime = Date.now()
       logForDiagnosticsNoPII('info', 'repo_map_started')
       const { buildRepoMap } = await import('./context/repoMap/index.js')
-      let timeout: ReturnType<typeof setTimeout> | undefined
-      const result = await Promise.race([
-        buildRepoMap({ root: getCwd(), maxTokens: 1024 }),
-        new Promise<typeof REPO_MAP_TIMEOUT>(resolve => {
-          timeout = setTimeout(
-            () => resolve(REPO_MAP_TIMEOUT),
-            REPO_MAP_CONTEXT_TIMEOUT_MS,
-          )
-        }),
-      ]).finally(() => {
-        if (timeout) clearTimeout(timeout)
+      const { result, timedOut } = await runRepoMapBuildWithTimeout({
+        buildRepoMap,
+        root: getCwd(),
+        maxTokens: 1024,
+        timeoutMs: REPO_MAP_CONTEXT_TIMEOUT_MS,
       })
-      if (result === REPO_MAP_TIMEOUT) {
+      if (timedOut) {
         logForDiagnosticsNoPII('warn', 'repo_map_timeout', {
           duration_ms: Date.now() - startTime,
         })
@@ -147,6 +192,7 @@ export const getRepoMapContext = memoize(
         getSystemContext.cache.clear?.()
         return null
       }
+      if (result === null) return null
       if (!result.map || result.map.length === 0) {
         return null
       }
