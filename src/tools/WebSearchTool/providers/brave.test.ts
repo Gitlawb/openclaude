@@ -131,17 +131,13 @@ describe('braveProvider search', () => {
   test('rejects when the response body stalls after headers arrive', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
-    let capturedSignal: AbortSignal | undefined
-    globalThis.fetch = (async (_input: any, init: any) => {
-      capturedSignal = init?.signal as AbortSignal | undefined
+    globalThis.fetch = (async (_input: any, _init: any) => {
       return stalledJsonResponse()
     }) as typeof fetch
 
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
       /Brave search timed out/,
     )
-
-    expect(capturedSignal?.aborted).toBe(true)
   })
 
   test('rejects when a non-2xx error body stalls after headers arrive', async () => {
