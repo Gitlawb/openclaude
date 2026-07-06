@@ -63,7 +63,7 @@ function gitLsFiles(root: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      ['ls-files', '--cached', '--others', '--exclude-standard'],
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
       { cwd: root, env: gitChildEnv(), maxBuffer: 10 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {
@@ -71,8 +71,8 @@ function gitLsFiles(root: string): Promise<string[]> {
           return
         }
         const files = stdout
-          .split('\n')
-          .map(f => f.trim())
+          .split('\0')
+          .map(normalizeRepoPath)
           .filter(f => f.length > 0)
         resolve(files)
       },

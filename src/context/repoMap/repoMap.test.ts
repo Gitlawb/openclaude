@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { execFileSync } from 'child_process'
 import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, win32 } from 'path'
@@ -583,6 +584,42 @@ describe('gitFiles', () => {
       else process.env.GIT_DIR = previousGitDir
       if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE
       else process.env.GIT_WORK_TREE = previousGitWorkTree
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('preserves leading whitespace in git-tracked file paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-git-paths-'))
+    const env = { ...process.env }
+    delete env.GIT_DIR
+    delete env.GIT_WORK_TREE
+    delete env.GIT_INDEX_FILE
+
+    try {
+      writeFileSync(
+        join(tempDir, ' leading.ts'),
+        'export function LeadingSpaceFile(): string { return "ok" }\n',
+      )
+      writeFileSync(
+        join(tempDir, 'normal.ts'),
+        'export function NormalFile(): string { return "ok" }\n',
+      )
+
+      execFileSync('git', ['init'], { cwd: tempDir, env, stdio: 'ignore' })
+      execFileSync('git', ['add', '.'], { cwd: tempDir, env, stdio: 'ignore' })
+
+      const files = await getRepoFiles(tempDir)
+      expect(files).toContain(' leading.ts')
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+      })
+
+      expect(result.map).toContain(' leading.ts:')
+      expect(result.map).toContain('LeadingSpaceFile')
+    } finally {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }
