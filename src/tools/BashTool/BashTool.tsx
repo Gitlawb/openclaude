@@ -43,11 +43,12 @@ import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, get
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
+import { analyzeBashCommand, parseLegacyShellCommandForAnalysis, type BashCommandAnalysis } from './bashCommandAnalysis.js';
 import { interpretCommandResult } from './commandSemantics.js';
 import { getEffectiveTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
 import { checkReadOnlyConstraints } from './readOnlyValidation.js';
 import { parseSedEditCommand } from './sedEditParser.js';
-import { shouldUseSandbox } from './shouldUseSandbox.js';
+import { shouldUseSandbox, shouldUseSandboxForPresentation } from './shouldUseSandbox.js';
 import { BASH_TOOL_NAME } from './toolName.js';
 import { BackgroundHint, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
 import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, selectFailureOutput, stdErrAppendShellResetMessage, stripEmptyLines } from './utils.js';
@@ -540,8 +541,9 @@ export const BashTool = buildTool({
     return this.isReadOnly?.(input) ?? false;
   },
   isReadOnly(input) {
-    const compoundCommandHasCd = commandHasAnyCd(input.command);
-    const result = checkReadOnlyConstraints(input, compoundCommandHasCd);
+    const legacyParse = parseLegacyShellCommandForAnalysis(input.command);
+    const compoundCommandHasCd = commandHasAnyCd(input.command, legacyParse);
+    const result = checkReadOnlyConstraints(input, compoundCommandHasCd, legacyParse);
     return result.behavior === 'allow';
   },
   toAutoClassifierInput(input) {
@@ -600,11 +602,11 @@ export const BashTool = buildTool({
         });
       }
     }
-    // Env var FIRST: shouldUseSandbox → splitCommand_DEPRECATED → shell-quote's
+    // Env var FIRST: sandbox presentation decision can parse via shell-quote's
     // `new RegExp` per call. userFacingName runs per-render for every bash
     // message in history; with ~50 msgs + one slow-to-tokenize command, this
     // exceeds the shimmer tick → transition abort → infinite retry (#21605).
-    return isEnvTruthy(process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR) && shouldUseSandbox(input) ? 'SandboxedBash' : 'Bash';
+    return isEnvTruthy(process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR) && shouldUseSandboxForPresentation(input) ? 'SandboxedBash' : 'Bash';
   },
   getToolUseSummary(input) {
     if (!input?.command) {
@@ -752,9 +754,11 @@ export const BashTool = buildTool({
     const isMainThread = !toolUseContext.agentId;
     const preventCwdChanges = !isMainThread;
     try {
+      const commandAnalysis = await analyzeBashCommand(input.command);
       // Use the new async generator version of runShellCommand
       const commandGenerator = runShellCommand({
         input,
+        commandAnalysis,
         abortController,
         // Use the always-shared task channel so async agents' background
         // bash tasks are actually registered (and killable on agent exit).
@@ -993,6 +997,7 @@ export const BashTool = buildTool({
 } satisfies ToolDef<InputSchema, Out, BashProgress>);
 async function* runShellCommand({
   input,
+  commandAnalysis,
   abortController,
   setAppState,
   setToolJSX,
@@ -1002,6 +1007,7 @@ async function* runShellCommand({
   agentId
 }: {
   input: BashToolInput;
+  commandAnalysis: BashCommandAnalysis;
   abortController: AbortController;
   setAppState: (f: (prev: AppState) => AppState) => void;
   setToolJSX?: SetToolJSXFn;
@@ -1061,7 +1067,7 @@ async function* runShellCommand({
       }
     },
     preventCwdChanges,
-    shouldUseSandbox: shouldUseSandbox(input),
+    shouldUseSandbox: shouldUseSandbox(input, commandAnalysis),
     shouldAutoBackground
   });
 

@@ -70,6 +70,10 @@ import { count } from '../array.js'
 import { logForDebugging } from '../debug.js'
 import { cloneFileStateCache } from '../fileStateCache.js'
 import {
+  getMaxActiveMessagesHardCap,
+  shouldCompactActiveMessageHistory,
+} from '../maxActiveMessages.js'
+import {
   SUBAGENT_REJECT_MESSAGE,
   SUBAGENT_REJECT_MESSAGE_WITH_REASON_PREFIX,
 } from '../messages.js'
@@ -1100,12 +1104,20 @@ export async function runInProcessTeammate(
       // Check if compaction is needed before building context
       let contextMessages = allMessages
       const tokenCount = tokenCountWithEstimation(allMessages)
+      const activeMessageHardCap = getMaxActiveMessagesHardCap()
+      const tokenThreshold = getAutoCompactThreshold(
+        toolUseContext.options.mainLoopModel,
+      )
       if (
-        tokenCount >
-        getAutoCompactThreshold(toolUseContext.options.mainLoopModel)
+        shouldCompactActiveMessageHistory({
+          messageCount: allMessages.length,
+          tokenCount,
+          tokenThreshold,
+          activeMessageLimit: activeMessageHardCap,
+        })
       ) {
         logForDebugging(
-          `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens)`,
+          `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens, ${allMessages.length} messages)`,
         )
         // Create an isolated copy of toolUseContext so that compaction
         // does not clear the main session's readFileState cache or
@@ -1246,6 +1258,22 @@ export async function runInProcessTeammate(
               break
             }
 
+            if (
+              message.type === 'system' &&
+              'subtype' in message &&
+              message.subtype === 'compact_boundary'
+            ) {
+              allMessages.length = 0
+              resetMicrocompactState()
+              if (teammateReplacementState) {
+                teammateReplacementState = createContentReplacementState()
+              }
+              updateTaskState(
+                taskId,
+                task => ({ ...task, messages: [] }),
+                setAppState,
+              )
+            }
             iterationMessages.push(message)
             allMessages.push(message)
 

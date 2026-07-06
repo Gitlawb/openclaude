@@ -202,10 +202,34 @@ export function getClaudeConfigHomeDirOverrideForTesting(): string | undefined {
   return claudeConfigHomeDirOverride
 }
 
-// Memoized: 150+ callers, many on hot paths. Keyed off both override env
-// vars so tests that change either get a fresh value without explicit
-// cache.clear.
-export const getClaudeConfigHomeDir = memoize(
+// Memoized for the default home-dir path: 150+ callers, many on hot paths.
+// Explicit env overrides and test overrides bypass this cache so runtime
+// overrides cannot be masked by a previously memoized default path.
+const getDefaultClaudeConfigHomeDir = memoize(
+  (): string => {
+    const homeDir = homedir()
+    const migrationSucceeded = migrateLegacyClaudeConfigHome({
+      homeDir,
+    })
+    const openClaudeDir = join(homeDir, '.openclaude')
+    const legacyClaudeDir = join(homeDir, '.claude')
+
+    if (
+      !migrationSucceeded &&
+      !pathIsDirectory(openClaudeDir) &&
+      pathExists(legacyClaudeDir)
+    ) {
+      return legacyClaudeDir.normalize('NFC')
+    }
+
+    return resolveClaudeConfigHomeDir({
+      homeDir,
+    })
+  },
+  () => homedir(),
+)
+
+export const getClaudeConfigHomeDir = Object.assign(
   (): string => {
     if (claudeConfigHomeDirOverride) {
       return claudeConfigHomeDirOverride
@@ -219,30 +243,13 @@ export const getClaudeConfigHomeDir = memoize(
         console.warn(`[openclaude] ${message}`)
       },
     })
-    const homeDir = homedir()
-    const migrationSucceeded = migrateLegacyClaudeConfigHome({
-      configDirEnv,
-      homeDir,
-    })
-    const openClaudeDir = join(homeDir, '.openclaude')
-    const legacyClaudeDir = join(homeDir, '.claude')
-
-    if (
-      !configDirEnv &&
-      !migrationSucceeded &&
-      !pathIsDirectory(openClaudeDir) &&
-      pathExists(legacyClaudeDir)
-    ) {
-      return legacyClaudeDir.normalize('NFC')
+    if (configDirEnv) {
+      return resolveClaudeConfigHomeDir({ configDirEnv })
     }
 
-    return resolveClaudeConfigHomeDir({
-      configDirEnv,
-      homeDir,
-    })
+    return getDefaultClaudeConfigHomeDir()
   },
-  () =>
-    `${claudeConfigHomeDirOverride ?? ''}\0${process.env.OPENCLAUDE_CONFIG_DIR ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
+  { cache: getDefaultClaudeConfigHomeDir.cache },
 )
 
 export function getTeamsDir(): string {

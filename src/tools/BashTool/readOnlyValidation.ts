@@ -21,6 +21,7 @@ import {
   validateFlags,
 } from '../../utils/shell/readOnlyCommandValidation.js'
 import type { BashTool } from './BashTool.js'
+import type { LegacyShellParseAnalysis } from './bashCommandAnalysis.js'
 import { isNormalizedGitCommand } from './bashPermissions.js'
 import { bashCommandIsSafe_DEPRECATED } from './bashSecurity.js'
 import {
@@ -1817,12 +1818,16 @@ function commandWritesToGitInternalPaths(command: string): boolean {
 export function checkReadOnlyConstraints(
   input: z.infer<typeof BashTool.inputSchema>,
   compoundCommandHasCd: boolean,
+  legacyParse?: LegacyShellParseAnalysis,
 ): PermissionResult {
   const { command } = input
 
   // Detect if the command is not parseable and return early
-  const result = tryParseShellCommand(command, env => `$${env}`)
-  if (!result.success) {
+  const isParseable =
+    legacyParse === undefined || legacyParse.kind === 'not-run'
+      ? tryParseShellCommand(command, env => `$${env}`).success
+      : legacyParse.kind === 'ok'
+  if (!isParseable) {
     return {
       behavior: 'passthrough',
       message: 'Command cannot be parsed, requires further permission checks',

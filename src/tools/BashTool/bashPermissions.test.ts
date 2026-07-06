@@ -59,9 +59,9 @@ afterEach(() => {
   }
 })
 
-function makeToolUseContext() {
-  const toolPermissionContext = getEmptyToolPermissionContext()
-
+function makeToolUseContext(
+  toolPermissionContext = getEmptyToolPermissionContext(),
+) {
   return {
     abortController: new AbortController(),
     options: {
@@ -74,6 +74,87 @@ function makeToolUseContext() {
     },
   } as never
 }
+
+let legacyParserEnvToggleQueue = Promise.resolve()
+
+async function withLegacyParserDisabled<T>(fn: () => Promise<T>): Promise<T> {
+  const waitForTurn = legacyParserEnvToggleQueue
+  let releaseQueue!: () => void
+  legacyParserEnvToggleQueue = new Promise<void>(resolve => {
+    releaseQueue = resolve
+  })
+  await waitForTurn
+
+  const originalInjectionFlag =
+    process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
+  process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK = '1'
+  try {
+    return await fn()
+  } finally {
+    if (originalInjectionFlag === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK =
+        originalInjectionFlag
+    }
+    releaseQueue()
+  }
+}
+
+test('legacy shell parser limitations fail closed to ask', async () => {
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission(
+      { command: 'echo ${value + 1}' },
+      makeToolUseContext(),
+    ),
+  )
+
+  expect(result.behavior).toBe('ask')
+  expect(result.decisionReason).toMatchObject({
+    type: 'other',
+    reason: expect.stringContaining('cannot be parsed'),
+  })
+})
+
+test('explicit deny rules win over legacy shell parser limitations', async () => {
+  const toolPermissionContext = {
+    ...getEmptyToolPermissionContext(),
+    alwaysDenyRules: {
+      session: ['Bash(echo:*)'],
+    },
+  }
+
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission(
+      { command: 'echo ${value + 1}' },
+      makeToolUseContext(toolPermissionContext),
+    ),
+  )
+
+  expect(result.behavior).toBe('deny')
+  expect(result.decisionReason).toMatchObject({
+    type: 'rule',
+    rule: {
+      ruleBehavior: 'deny',
+      ruleValue: {
+        toolName: 'Bash',
+        ruleContent: 'echo:*',
+      },
+    },
+  })
+})
+
+test('legacy parser fallback preserves env vars for path validation', async () => {
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission({ command: 'cat $HOME/file' }, makeToolUseContext()),
+  )
+
+  expect(result.behavior).toBe('ask')
+  expect(result.decisionReason).toMatchObject({
+    type: 'other',
+    reason: 'Shell expansion syntax in paths requires manual approval',
+  })
+})
 
 test('sandbox auto-allow still enforces Bash path constraints', async () => {
   ;(globalThis as unknown as { MACRO: { VERSION: string } }).MACRO = {

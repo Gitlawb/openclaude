@@ -3006,6 +3006,25 @@ async function getLSPDiagnosticAttachments(
       return []
     }
 
+    // checkForLSPDiagnostics normally enforces this invariant. Keep a final
+    // attachment-boundary guard so future registry changes cannot send empty
+    // diagnostics attachments to the model.
+    const finalDiagnosticCount = diagnosticSets.reduce(
+      (count, set) =>
+        count +
+        set.files.reduce(
+          (fileCount, file) => fileCount + file.diagnostics.length,
+          0,
+        ),
+      0,
+    )
+    if (finalDiagnosticCount === 0) {
+      logForDebugging(
+        `LSP Diagnostics: No diagnostic attachments to return after filtering empty diagnostic payloads`,
+      )
+      return []
+    }
+
     logForDebugging(
       `LSP Diagnostics: Found ${diagnosticSets.length} pending diagnostic set(s)`,
     )

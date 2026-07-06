@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { APIUserAbortError } from '@anthropic-ai/sdk'
 import { shouldCreateUserInterruptionMessage } from '../../utils/abortReasons.js'
-import { getClaudeStreamingAbortLogMessage } from './claude.js'
+import {
+  getClaudeExpectedSideTaskApiAbortLogMessage,
+  getClaudeStreamingAbortLogMessage,
+} from './claude.js'
+import { CannotRetryError } from './withRetry.js'
 
 describe('Claude stream abort classification wiring', () => {
   test('formats timeout abort logs as timeout aborts, not user aborts', () => {
@@ -39,6 +44,28 @@ describe('Claude stream abort classification wiring', () => {
     expect(shouldCreateUserInterruptionMessage('streaming_fallback')).toBe(
       false,
     )
+    expect(
+      getClaudeStreamingAbortLogMessage(
+        { reason: 'agent-summary-superseded' },
+        new Error('Request was aborted.'),
+      ),
+    ).toBe(
+      'Streaming aborted because agent summary was superseded: Request was aborted.',
+    )
+    expect(
+      getClaudeStreamingAbortLogMessage(
+        { reason: 'memory-extraction-superseded' },
+        new Error('Request was aborted.'),
+      ),
+    ).toBe(
+      'Streaming aborted because memory extraction was superseded: Request was aborted.',
+    )
+    expect(shouldCreateUserInterruptionMessage('agent-summary-superseded')).toBe(
+      false,
+    )
+    expect(
+      shouldCreateUserInterruptionMessage('memory-extraction-superseded'),
+    ).toBe(false)
   })
 
   test('keeps actual user aborts user-facing for stream logs and advisor gating', () => {
@@ -54,5 +81,38 @@ describe('Claude stream abort classification wiring', () => {
     expect(shouldCreateUserInterruptionMessage(defaultAbort.signal.reason)).toBe(
       true,
     )
+  })
+
+  test('labels expected side-task retry aborts without reclassifying user aborts', () => {
+    const expectedAbort = new AbortController()
+    expectedAbort.abort('agent-summary-superseded')
+    const retryAbort = new CannotRetryError(new APIUserAbortError(), {
+      model: 'test-model',
+      thinkingConfig: { type: 'disabled' },
+    })
+
+    expect(
+      getClaudeExpectedSideTaskApiAbortLogMessage(
+        expectedAbort.signal,
+        retryAbort,
+      ),
+    ).toBe(
+      'Expected side-task API abort (agent-summary-superseded): Request was aborted.',
+    )
+
+    const userAbort = new AbortController()
+    userAbort.abort()
+    expect(
+      getClaudeExpectedSideTaskApiAbortLogMessage(
+        userAbort.signal,
+        new APIUserAbortError(),
+      ),
+    ).toBeNull()
+    expect(
+      getClaudeExpectedSideTaskApiAbortLogMessage(
+        expectedAbort.signal,
+        new Error('boom'),
+      ),
+    ).toBeNull()
   })
 })

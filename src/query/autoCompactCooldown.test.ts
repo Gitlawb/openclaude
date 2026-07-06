@@ -8,6 +8,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { Message } from '../types/message.js'
+import { createCompactBoundaryMessage } from '../utils/messages.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import type { MaxMessagesCompactionThreshold } from '../utils/config.js'
 import type { QueryDeps } from './deps.js'
@@ -39,6 +40,8 @@ const SAVED_ENV = {
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
   OPENCLAUDE_MAX_ACTIVE_MESSAGES: process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+  OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP:
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP,
 }
 
 let savedGlobalConfig:
@@ -71,6 +74,7 @@ beforeEach(async () => {
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
   delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
 })
 
 afterEach(() => {
@@ -114,6 +118,27 @@ function userMessage(content: string): Message {
 function overAutoCompactThresholdMessage(): Message {
   const threshold = getAutoCompactThreshold('claude-sonnet-4')
   return userMessage('x'.repeat((threshold + 1_000) * 4))
+}
+
+function manySmallMessages(count: number): Message[] {
+  return Array.from({ length: count }, (_, index) => userMessage(`small-${index}`))
+}
+
+function compactedResult() {
+  return {
+    wasCompacted: true,
+    consecutiveFailures: 0,
+    compactionResult: {
+      boundaryMarker: createCompactBoundaryMessage('auto', 10_000),
+      summaryMessages: [userMessage('compacted summary')],
+      messagesToKeep: [],
+      attachments: [],
+      hookResults: [],
+      preCompactTokenCount: 10_000,
+      postCompactTokenCount: 500,
+      truePostCompactTokenCount: 500,
+    },
+  }
 }
 
 function toolUseContext() {
@@ -237,6 +262,51 @@ async function runSuccessfulQuery(
   )
 }
 
+async function runMessageCountHardCapQuery(messages: Message[]) {
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(
+      async (
+        _messages: AutocompactArgs[0],
+        _toolUseContext: AutocompactArgs[1],
+        _params: AutocompactArgs[2],
+        _querySource: AutocompactArgs[3],
+        tracking: AutocompactArgs[4],
+      ) => {
+        seenTracking.push(tracking)
+        return tracking?.forceReason === 'message-count'
+          ? compactedResult()
+          : { wasCompacted: false }
+      },
+    ) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const result = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  return { ...result, callModel, seenTracking }
+}
+
 test('explicit off skips automatic microcompact during query flow', async () => {
   saveGlobalConfig(current => ({
     ...current,
@@ -287,6 +357,184 @@ test('numeric message-count threshold keeps automatic microcompact behavior', as
 
   expect(terminal.reason).toBe('max_turns')
   expect(microcompact).toHaveBeenCalledTimes(1)
+})
+
+test('default active-message hard cap forces compaction', async () => {
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
+test('long-session smoke keeps repeated over-cap turns bounded before provider calls', async () => {
+  const seenProviderMessageCounts: number[] = []
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const callModel = mock(async function* (params: { messages: Message[] }) {
+    seenProviderMessageCounts.push(params.messages.length)
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(
+      async (
+        _messages: AutocompactArgs[0],
+        _toolUseContext: AutocompactArgs[1],
+        _params: AutocompactArgs[2],
+        _querySource: AutocompactArgs[3],
+        tracking: AutocompactArgs[4],
+      ) => {
+        seenTracking.push(tracking)
+        return tracking?.forceReason === 'message-count'
+          ? compactedResult()
+          : { wasCompacted: false }
+      },
+    ) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+  const { query } = await loadQuery()
+  let persistedTracking: AutoCompactTrackingState | undefined
+
+  for (let turn = 0; turn < 4; turn++) {
+    const result = await drain(
+      query({
+        messages: manySmallMessages(1001 + turn),
+        systemPrompt: asSystemPrompt([]),
+        userContext: {},
+        systemContext: {},
+        canUseTool,
+        toolUseContext: toolUseContext(),
+        querySource: 'repl_main_thread',
+        maxTurns: 1,
+        deps,
+        autoCompactTracking: persistedTracking,
+        onAutoCompactTrackingChange: tracking => {
+          persistedTracking = tracking
+        },
+      }),
+    )
+    expect(result.terminal.reason).toBe('max_turns')
+  }
+
+  expect(callModel).toHaveBeenCalledTimes(4)
+  expect(seenTracking).toHaveLength(4)
+  expect(
+    seenTracking.every(tracking => tracking?.forceReason === 'message-count'),
+  ).toBe(true)
+  expect(seenProviderMessageCounts.every(count => count <= 1000)).toBe(true)
+})
+
+test('invalid active-message hard cap override keeps default safety cap', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '100O'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
+test('explicit zero active-message hard cap override disables safety cap', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(1001))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBeUndefined()
+})
+
+test('active-message hard cap blocks when forced compaction fails', async () => {
+  const messages = manySmallMessages(1001)
+  const callModel = mock(() => {
+    throw new Error('model should not be called while over the hard cap')
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+    })) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      deps,
+    }),
+  )
+
+  expect(callModel).not.toHaveBeenCalled()
+  expect(terminal.reason).toBe('blocking_limit')
+  const apiError = yielded.find(
+    (message): message is Message =>
+      (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+  )
+  expect(apiError).toBeDefined()
+  const text = apiError!.message.content[0].text
+  expect(text).toContain('active-message safety limit')
+  expect(text).toContain('stopped before sending another oversized request')
+})
+
+test('auto-compact failure emits a visible warning before retrying later', async () => {
+  const messages = [overAutoCompactThresholdMessage()]
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+      consecutiveFailures: 1,
+      lastFailureAtMs: Date.now(),
+    })) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(terminal.reason).toBe('max_turns')
+  const warning = yielded.find(
+    message =>
+      message.type === 'system' &&
+      message.subtype === 'informational' &&
+      message.level === 'warning',
+  )
+  expect(warning?.content).toContain('Automatic compaction failed (1/3)')
+  expect(warning?.content).toContain('retry compaction')
 })
 
 test('explicit compact query source still runs microcompact when threshold is off', async () => {
@@ -355,6 +603,61 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
   expect(apiError).toBeDefined()
   const text = apiError!.message.content[0].text
   expect(text).toContain('automatic compaction is cooling down')
+  expect(text).toContain('Retry after')
+  const warning = yielded.find(
+    message =>
+      message.type === 'system' &&
+      message.subtype === 'informational' &&
+      message.level === 'warning',
+  )
+  expect(warning?.content).toContain('Automatic compaction is paused')
+  expect(warning?.content).toContain('retry after')
+})
+
+test('active auto-compact cooldown blocks message-count overflow before model call', async () => {
+  const messages = manySmallMessages(1001)
+  const nextRetryAtMs = Date.now() + 60_000
+  const callModel = mock(() => {
+    throw new Error('model should not be called while autocompact cools down')
+  })
+  const deps: QueryDeps = {
+    callModel: callModel as QueryDeps['callModel'],
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })) as QueryDeps['microcompact'],
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs,
+      circuitBreakerActive: true,
+      circuitBreakerTripped: false,
+    })) as QueryDeps['autocompact'],
+    uuid: () => 'test-uuid',
+  }
+
+  const { query } = await loadQuery()
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      deps,
+    }),
+  )
+
+  expect(callModel).not.toHaveBeenCalled()
+  expect(terminal.reason).toBe('blocking_limit')
+  const apiError = yielded.find(
+    (message): message is Message =>
+      (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+  )
+  expect(apiError).toBeDefined()
+  const text = apiError!.message.content[0].text
+  expect(text).toContain('auto-compact safety threshold')
   expect(text).toContain('Retry after')
 })
 

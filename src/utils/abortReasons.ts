@@ -5,6 +5,8 @@ export type AbortReason =
   | 'interrupt'
   | 'background'
   | 'side-task-cancelled'
+  | 'agent-summary-superseded'
+  | 'memory-extraction-superseded'
   | 'tool-timeout'
   | 'parent-ended'
   | 'unknown-abort'
@@ -16,6 +18,8 @@ const KNOWN_ABORT_REASONS = new Set<string>([
   'interrupt',
   'background',
   'side-task-cancelled',
+  'agent-summary-superseded',
+  'memory-extraction-superseded',
   'tool-timeout',
   'parent-ended',
   'unknown-abort',
@@ -59,6 +63,17 @@ export function isQueryLevelAbort(reason: AbortReason): boolean {
   return reason !== 'tool-timeout'
 }
 
+export function isExpectedSideTaskAbortReason(reason: unknown): boolean {
+  switch (normalizeAbortReason(reason)) {
+    case 'side-task-cancelled':
+    case 'agent-summary-superseded':
+    case 'memory-extraction-superseded':
+      return true
+    default:
+      return false
+  }
+}
+
 export function getShellAbortMessage(reason: AbortReason): string {
   switch (reason) {
     case 'query-timeout':
@@ -69,6 +84,10 @@ export function getShellAbortMessage(reason: AbortReason): string {
       return 'Command was interrupted because the enclosing query was backgrounded.'
     case 'side-task-cancelled':
       return 'Command was interrupted because a side task was cancelled.'
+    case 'agent-summary-superseded':
+      return 'Command was interrupted because an agent summary was superseded.'
+    case 'memory-extraction-superseded':
+      return 'Command was interrupted because memory extraction was superseded.'
     case 'tool-timeout':
       return 'Command timed out before completion.'
     case 'user-abort':
@@ -99,6 +118,10 @@ export function getStreamingAbortMessage(
       return `Streaming aborted for backgrounding: ${errorText}`
     case 'side-task-cancelled':
       return `Streaming aborted because side task was cancelled: ${errorText}`
+    case 'agent-summary-superseded':
+      return `Streaming aborted because agent summary was superseded: ${errorText}`
+    case 'memory-extraction-superseded':
+      return `Streaming aborted because memory extraction was superseded: ${errorText}`
     case 'tool-timeout':
       return `Streaming aborted because tool timed out: ${errorText}`
     case 'parent-ended':
@@ -122,6 +145,9 @@ export function getQueryAbortSystemMessage(reason: unknown): string | null {
       return 'Query was backgrounded before completion.'
     case 'side-task-cancelled':
       return 'Query stopped because a side task was cancelled.'
+    case 'agent-summary-superseded':
+    case 'memory-extraction-superseded':
+      return null
     case 'parent-ended':
       return 'Query stopped because the parent query ended.'
     default:
@@ -143,6 +169,10 @@ export function getMissingToolResultAbortMessage(reason: unknown): string {
       return 'Tool use was interrupted because the query was backgrounded.'
     case 'side-task-cancelled':
       return 'Tool use was interrupted because a side task was cancelled.'
+    case 'agent-summary-superseded':
+      return 'Tool use was interrupted because an agent summary was superseded.'
+    case 'memory-extraction-superseded':
+      return 'Tool use was interrupted because memory extraction was superseded.'
     case 'tool-timeout':
       return 'Tool use timed out before completion.'
     case 'parent-ended':

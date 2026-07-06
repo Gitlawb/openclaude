@@ -55,6 +55,11 @@ export type PromptCommand = {
   hooks?: HooksSettings
   // Base directory for skill resources (used to set CLAUDE_PLUGIN_ROOT environment variable for skill hooks)
   skillRoot?: string
+  // Source markdown file for disk-backed skills. Used by CLI inspection
+  // commands so showing a skill never has to invoke it.
+  skillFilePath?: string
+  // Trust metadata loaded from installed skill.json files, when present.
+  skillTrust?: string
   // Execution context: 'inline' (default) or 'fork' (run as sub-agent)
   // 'inline' = skill content expands into the current conversation
   // 'fork' = skill runs in a sub-agent with separate context and token budget

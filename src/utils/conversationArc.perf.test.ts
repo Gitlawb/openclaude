@@ -6,7 +6,7 @@ import {
   initializeArc, 
   updateArcPhase, 
   getArcSummary,
-  resetArc 
+  resetArc,
 } from './conversationArc.js'
 import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
 import { getGlobalGraph, clearMemoryOnly, resetGlobalGraph } from './knowledgeGraph.js'

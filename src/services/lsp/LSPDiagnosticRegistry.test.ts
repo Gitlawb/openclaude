@@ -51,6 +51,12 @@ function checkWithDebounce(now: number) {
   return registry.checkForLSPDiagnostics({ now, respectDebounce: true })
 }
 
+function deliveryLogs(): string[] {
+  return debugMessages.filter(message =>
+    message.startsWith('LSP Diagnostics: Delivering '),
+  )
+}
+
 describe('LSPDiagnosticRegistry storm control', () => {
   beforeEach(() => {
     registry.resetAllLSPDiagnosticState()
@@ -339,6 +345,20 @@ describe('LSPDiagnosticRegistry storm control', () => {
     })
 
     expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns no diagnostic set for raw empty diagnostic files', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [{ uri: '/repo/cleared.ts', diagnostics: [] }],
+    })
+
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).toEqual([])
   })
 
   test('clock injection does not enable debounce unless requested', () => {
@@ -461,6 +481,8 @@ describe('LSPDiagnosticRegistry storm control', () => {
     // Intentionally clear by file:// URI while diagnostics use a plain path;
     // both forms must normalize to the same delivered-diagnostic key.
     registry.clearDeliveredDiagnosticsForFile('file:///repo/a.ts')
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+
     registry.registerPendingLSPDiagnostic({
       serverName: 'typescript',
       files: [file],
@@ -580,6 +602,39 @@ describe('LSPDiagnosticRegistry storm control', () => {
     expect(secondFiles.map(file => file.uri)).toEqual([
       'lsp://diagnostic-storm/typescript',
     ])
+    expect(diagnosticCount(secondFiles)).toBe(1)
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns compact storm summaries when volume limiting leaves only reserved summaries', () => {
+    for (let index = 0; index < 30; index++) {
+      registry.registerPendingLSPDiagnostic({
+        serverName: `server-${index}`,
+        files: [
+          diagnosticFile(
+            `/repo/storm-${index}.ts`,
+            Array.from(
+              { length: 201 },
+              (_, diagnosticIndex) =>
+                `storm ${index} diagnostic ${diagnosticIndex}`,
+            ),
+          ),
+        ],
+      })
+    }
+
+    const files = registry.checkForLSPDiagnostics()[0]?.files ?? []
+
+    expect(files).toHaveLength(30)
+    expect(files.every(file => file.uri.startsWith('lsp://diagnostic-storm/')))
+      .toBe(true)
+    expect(diagnosticCount(files)).toBe(30)
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 30 file(s) with 0 diagnostic(s) from 30 server(s)',
+    )
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {

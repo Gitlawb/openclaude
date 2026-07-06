@@ -13,6 +13,8 @@ const SYNTHETIC_ABORT_TOOL_RESULT_PREFIXES = [
   getMissingToolResultAbortMessage('hard-max-query-timeout'),
   getMissingToolResultAbortMessage('background'),
   getMissingToolResultAbortMessage('side-task-cancelled'),
+  getMissingToolResultAbortMessage('agent-summary-superseded'),
+  getMissingToolResultAbortMessage('memory-extraction-superseded'),
   getMissingToolResultAbortMessage('parent-ended'),
   getMissingToolResultAbortMessage('unknown-abort'),
 ].map(message => message.toLowerCase())

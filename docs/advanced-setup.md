@@ -542,9 +542,14 @@ For `dev:atomic-chat`, make sure Atomic Chat is running with a model loaded befo
 
 ## Message-Count Compaction Threshold
 
-By default, OpenClaude compacts conversations based on token usage. A secondary
-message-count-based trigger (`OPENCLAUDE_MAX_ACTIVE_MESSAGES`) exists for
-diagnostics but is disabled by default.
+By default, OpenClaude compacts conversations based on token usage and also
+applies a safety hard cap of 1000 active messages. The hard cap catches long
+sessions that accumulate many small messages with negligible token cost.
+
+This hard cap is a safety net: it can still trigger compaction even when
+`DISABLE_COMPACT`, `DISABLE_AUTO_COMPACT`, or a disabled auto-compact setting
+would otherwise prevent it. Set `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`
+only when you need to suppress that safety cap for diagnostics.
 
 If you frequently resume long sessions that accumulate hundreds of small
 tool-result messages with negligible token cost, you can opt in to message-count
@@ -555,10 +560,26 @@ compaction via the in-app `/config` command:
 ```
 
 Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
-or `1000`). Setting it to `off` (default) disables the message-count trigger.
+or `1000`). Setting it to `off` (default) leaves only the built-in hard cap.
 
 This setting is intended for power users debugging specific edge cases. Most
 users should leave it at `off`.
 
 The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
-honored when the setting is `off`.
+honored when the setting is `off`. `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`
+can override the safety cap; set it to `0` only for diagnostics.
+
+### Long-session memory guard validation
+
+For changes that touch auto-compact, provider request conversion, transcript
+retention, or in-process teammates, run the focused long-session guard checks:
+
+```bash
+bun test --feature=UNATTENDED_RETRY src/query/autoCompactCooldown.test.ts src/utils/maxActiveMessages.test.ts src/services/api/openaiShim.test.ts
+```
+
+These tests cover repeated over-cap turns, auto-compact cooldown blocking,
+teammate active-message compaction, malformed hard-cap overrides, and
+pruned-history tool-call/tool-result pairing. They are not a substitute for a
+multi-hour manual soak, but they pin the bounded-history and conversion
+invariants that previously let long sessions grow until Node/V8 OOM.

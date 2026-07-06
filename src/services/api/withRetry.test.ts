@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
-import { APIError } from '@anthropic-ai/sdk'
+import { APIError, APIUserAbortError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import * as debugNs from '../../utils/debug.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
@@ -17,6 +18,7 @@ function makeError(headers: Record<string, string>): APIError {
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+const originalDebugModule = { ...debugNs }
 let originalProvidersModule: ProvidersModule | undefined
 
 const envKeys = [
@@ -52,6 +54,7 @@ afterEach(() => {
     if (originalProvidersModule) {
       mock.module('src/utils/model/providers.js', () => originalProvidersModule!)
     }
+    mock.module('src/utils/debug.js', () => originalDebugModule)
   } finally {
     releaseSharedMutationLock()
   }
@@ -73,12 +76,21 @@ async function importFreshWithRetryModule(
     | 'gemini'
     | 'codex'
     | 'foundry' = 'firstParty',
+  options?: {
+    logForDebugging?: ReturnType<typeof mock>
+  },
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
   mock.module('src/utils/sleep.js', () => ({
     sleep: async () => undefined,
   }))
+  if (options?.logForDebugging) {
+    mock.module('src/utils/debug.js', () => ({
+      ...originalDebugModule,
+      logForDebugging: options.logForDebugging!,
+    }))
+  }
   mock.module('src/utils/model/providers.js', () => ({
     ...originalProvidersModule!,
     getAPIProvider: () => provider,
@@ -174,6 +186,107 @@ describe('retry configuration', () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
     const { getRetryDelay } = await importFreshWithRetryModule()
     expect(getRetryDelay(1, '3')).toBe(3000)
+  })
+})
+
+describe('abort retry classification', () => {
+  test('does not retry or error-log expected side task aborts', async () => {
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { CannotRetryError, withRetry } = await importFreshWithRetryModule(
+      'firstParty',
+      { logForDebugging: debugLog },
+    )
+    const controller = new AbortController()
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            controller.abort('agent-summary-superseded')
+            throw new APIUserAbortError()
+          },
+          {
+            maxRetries: 2,
+            model: 'test-model',
+            thinkingConfig: { type: 'disabled' },
+            signal: controller.signal,
+            querySource: 'agent_summary',
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(false)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).includes('Expected side-task API abort') &&
+          String(message).includes('agent-summary-superseded') &&
+          (options as { level?: string } | undefined)?.level !== 'error'
+        )
+      }),
+    ).toBe(true)
+  })
+
+  test('still logs and retries real retryable API errors', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { withRetry } = await importFreshWithRetryModule('firstParty', {
+      logForDebugging: debugLog,
+    })
+    const retryableError = APIError.generate(
+      500,
+      undefined,
+      'internal server error',
+      new Headers(),
+    )
+    let attempts = 0
+
+    const result = await drainAsyncGenerator(
+      withRetry(
+        async () => ({} as Anthropic),
+        async () => {
+          attempts++
+          if (attempts === 1) {
+            throw retryableError
+          }
+          return { ok: true }
+        },
+        {
+          maxRetries: 2,
+          model: 'test-model',
+          thinkingConfig: { type: 'disabled' },
+          querySource: 'repl_main_thread',
+        },
+      ),
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(attempts).toBe(2)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt 1/3)') &&
+          String(message).includes('500 internal server error') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(true)
   })
 })
 

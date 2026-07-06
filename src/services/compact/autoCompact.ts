@@ -68,7 +68,7 @@ export type AutoCompactTrackingState = {
   // threaded through query() callers rather than serialized into transcripts.
   nextRetryAtMs?: number
   lastFailureAtMs?: number
-  // When set, bypasses shouldAutoCompact() token threshold check.
+  // When set, bypasses shouldAutoCompact() token threshold and user-disable checks.
   // Used by memory pressure and message count guards to force compaction
   // even when token usage is below the normal autocompact threshold.
   forceReason?: 'memory-pressure' | 'message-count'
@@ -268,10 +268,9 @@ export async function shouldAutoCompact(
   // pre-snip context, so tokenCountWithEstimation can't see the savings.
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
-  // When true, skip the token-threshold check but still run all guards
-  // (recursion, disabled, reactive-only, context-collapse). Used by
-  // forceReason to bypass only the token gate, not the safety guards.
-  skipTokenCheck = false,
+  // When set, skip user-disable and token-threshold checks but still run
+  // recursion/context-collapse guards. Used by runtime safety signals.
+  forceReason?: AutoCompactTrackingState['forceReason'],
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -289,7 +288,7 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (!isAutoCompactEnabled()) {
+  if (!forceReason && !isAutoCompactEnabled()) {
     return false
   }
 
@@ -300,7 +299,10 @@ export async function shouldAutoCompact(
   // trySessionMemoryCompaction in the query loop — the /compact call site
   // still tries session memory first. Revisit if reactive-only graduates.
   if (feature('REACTIVE_COMPACT')) {
-    if (getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_raccoon', false)) {
+    if (
+      !forceReason &&
+      getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_raccoon', false)
+    ) {
       return false
     }
   }
@@ -335,8 +337,10 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (skipTokenCheck) {
-    logForDebugging('autocompact: skipping token threshold check (forced)')
+  if (forceReason) {
+    logForDebugging(
+      `autocompact: skipping token threshold check (forced by ${forceReason})`,
+    )
     return true
   }
 
@@ -372,25 +376,25 @@ export async function autoCompactIfNeeded(
   circuitBreakerActive?: boolean
   circuitBreakerTripped?: boolean
 }> {
-  if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
-    return { wasCompacted: false }
-  }
-
   const model = toolUseContext.options.mainLoopModel
   // Force compaction if a pressure/count signal set forceReason.
-  // Consume the flag so it only forces one compaction cycle.
-  // Pass skipTokenCheck to shouldAutoCompact so safety guards
-  // (disabled, reactive-only, context-collapse, recursion) still apply.
+  // Intentionally consume the caller-owned flag in place so the same tracking
+  // object cannot force multiple compaction cycles in one query loop pass.
+  // Forced safety compaction bypasses user-disable gates while preserving
+  // recursion/context-collapse guards.
   const forcedBy = tracking?.forceReason
   if (tracking?.forceReason) {
     tracking.forceReason = undefined
+  }
+  if (!forcedBy && isEnvTruthy(process.env.DISABLE_COMPACT)) {
+    return { wasCompacted: false }
   }
   const shouldCompact = await shouldAutoCompact(
     messages,
     model,
     querySource,
     snipTokensFreed,
-    !!forcedBy,
+    forcedBy,
   )
 
   if (!shouldCompact) {
