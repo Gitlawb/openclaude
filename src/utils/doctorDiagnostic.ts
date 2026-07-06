@@ -237,7 +237,7 @@ async function detectMultipleInstallations(): Promise<
   }
 
   // Check for global npm installation
-  const packagesToCheck = MACRO.PACKAGE_URL ? [MACRO.PACKAGE_URL] : []
+  const packagesToCheck = [MACRO.PACKAGE_URL || '@gitlawb/openclaude']
   const npmResult = await execFileNoThrow('npm', [
     '-g',
     'config',

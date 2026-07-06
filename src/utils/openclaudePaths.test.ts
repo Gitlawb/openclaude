@@ -351,7 +351,6 @@ describe('OpenClaude paths', () => {
     expect(
       getCandidateLocalInstallDirs({
         configHomeDir: join(homedir(), '.openclaude'),
-        homeDir: homedir(),
       }),
     ).toEqual([
       join(homedir(), '.openclaude', 'local'),

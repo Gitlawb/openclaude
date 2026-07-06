@@ -148,7 +148,7 @@ describe("Secure Storage Platform Implementations", () => {
       const otherName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       expect(otherName).toBe(defaultName);
-      expect(otherName).toContain("Claude Code");
+      expect(otherName).toContain("OpenClaude");
       expect(otherName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 
@@ -162,7 +162,7 @@ describe("Secure Storage Platform Implementations", () => {
       const preferredName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       expect(preferredName).not.toBe(defaultName);
-      expect(preferredName).toContain("Claude Code");
+      expect(preferredName).toContain("OpenClaude");
       expect(preferredName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 

@@ -22,9 +22,7 @@ function getLocalInstallDir(): string {
 
 export function getCandidateLocalInstallDirs(options?: {
   configHomeDir?: string
-  homeDir?: string
 }): string[] {
-  void options?.homeDir
   const configHomeDir = options?.configHomeDir ?? getClaudeConfigHomeDir()
   return [join(configHomeDir, 'local')]
 }
