@@ -35,9 +35,6 @@
 (class_declaration
   name: (type_identifier) @name.definition.class) @definition.class
 
-(interface_declaration
-  name: (type_identifier) @name.definition.class) @definition.class
-
 (type_alias_declaration
   name: (type_identifier) @name.definition.type) @definition.type
 

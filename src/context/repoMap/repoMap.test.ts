@@ -43,6 +43,7 @@ describe('symbol extraction', () => {
     expect(defNames).toContain('DataStore')
     expect(defNames).toContain('createStore')
     expect(defNames).toContain('StoreConfig')
+    expect(defs.filter(d => d.name === 'StoreConfig')).toHaveLength(1)
 
     // All defs should have kind='def'
     for (const d of defs) {

@@ -4,7 +4,7 @@ The repo map feature gives the AI model structural awareness of your codebase at
 
 ## How it works
 
-1. **File enumeration** — Lists all tracked files via `git ls-files` (falls back to a manual directory walk when not in a git repo)
+1. **File enumeration** — Lists tracked files plus untracked, unignored files via `git ls-files --cached --others --exclude-standard` (falls back to a manual directory walk when not in a git repo)
 2. **Symbol extraction** — Parses each supported source file with tree-sitter to extract function, class, type, and interface definitions, plus cross-file references
 3. **Reference graph** — Builds a directed graph where an edge from file A to file B means A references a symbol defined in B. Edges are weighted by reference count multiplied by the IDF (inverse document frequency) of the symbol name — common names like `get`, `set`, `value` contribute less
 4. **PageRank** — Ranks files by structural importance using PageRank. Files imported by many others rank highest
@@ -64,4 +64,4 @@ The model can also call the `RepoMap` tool on demand during a session. This is u
 - **Cold build time** — First build on large repos (2000+ files) can take 20-30 seconds due to WASM-based parsing. Subsequent builds use the disk cache and complete in under 100ms.
 - **Language coverage** — Only TypeScript, JavaScript, and Python are supported. Files in other languages are skipped.
 - **TypeScript references** — The TypeScript tree-sitter query captures type annotations and `new` expressions as references, but not plain function calls. This means the ranking slightly favors type-heavy hub files.
-- **Git dependency** — File enumeration uses `git ls-files` by default. Non-git repos fall back to a directory walk with hardcoded exclusions.
+- **Git dependency** — File enumeration uses `git ls-files --cached --others --exclude-standard` by default, so untracked files that are not ignored can appear in the map. Non-git repos fall back to a directory walk with hardcoded exclusions.
