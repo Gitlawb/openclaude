@@ -113,7 +113,6 @@ test('resolveGlobalClaudeFile: ignores legacy file even when new file is missing
   expect(
     resolveGlobalClaudeFile({
       homeDir: tempDir,
-      migrationSucceeded: false,
     }),
   ).toBe(join(tempDir, '.openclaude.json'))
 })

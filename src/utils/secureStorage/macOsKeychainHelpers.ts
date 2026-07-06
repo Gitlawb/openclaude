@@ -16,6 +16,7 @@
 
 import { createHash } from 'crypto'
 import { homedir, userInfo } from 'os'
+import { resolve } from 'path'
 import { getOauthConfig } from 'src/constants/oauth.js'
 import {
   getClaudeConfigHomeDir,
@@ -38,13 +39,15 @@ export function getSecureStorageServiceName(
 ): string {
   const configDir = getClaudeConfigHomeDir()
   const defaultConfigDir = resolveClaudeConfigHomeDir({ homeDir: homedir() })
-  const isDefaultDir = configDir === defaultConfigDir
+  const normalizedConfigDir = resolve(configDir).normalize('NFC')
+  const normalizedDefaultConfigDir = resolve(defaultConfigDir).normalize('NFC')
+  const isDefaultDir = normalizedConfigDir === normalizedDefaultConfigDir
 
   // Use a hash of the config dir path to create a unique but stable suffix
   // Only add suffix for non-default directories to maintain backwards compatibility
   const dirHash = isDefaultDir
     ? ''
-    : `-${createHash('sha256').update(configDir).digest('hex').substring(0, 8)}`
+    : `-${createHash('sha256').update(normalizedConfigDir).digest('hex').substring(0, 8)}`
   return `Claude Code${getOauthConfig().OAUTH_FILE_SUFFIX}${serviceSuffix}${dirHash}`
 }
 

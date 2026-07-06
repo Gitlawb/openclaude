@@ -161,6 +161,17 @@ describe("Secure Storage Platform Implementations", () => {
       expect(explicitDefaultName).toBe(defaultName);
     });
 
+    test("service name stays default when OPENCLAUDE_CONFIG_DIR has a trailing separator", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      process.env.OPENCLAUDE_CONFIG_DIR = `${join(homedir(), ".openclaude")}/`;
+      const explicitDefaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      expect(explicitDefaultName).toBe(defaultName);
+    });
+
     test("Linux storage ignores CLAUDE_CONFIG_DIR scoped service name", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;

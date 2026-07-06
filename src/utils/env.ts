@@ -19,13 +19,11 @@ export function resolveGlobalClaudeFile(options: {
   configDirEnv?: string
   homeDir?: string
   oauthSuffix?: string
-  migrationSucceeded?: boolean
 }): string {
   const oauthSuffix = options.oauthSuffix ?? ''
   const configDir = options.configDirEnv || options.homeDir || homedir()
   const newFilename = `.openclaude${oauthSuffix}.json`
 
-  void options.migrationSucceeded
   return join(configDir, newFilename)
 }
 
