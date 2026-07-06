@@ -53,12 +53,33 @@ describe('shouldBypassProxy — NO_PROXY matching', () => {
     expect(shouldBypassProxy('https://x127.0.0.1/x', '127.0.0.1')).toBe(false)
   })
 
-  test('port-specific entries still require a matching port', () => {
+  test('port-specific entries require a matching port and cover subdomains', () => {
     expect(
       shouldBypassProxy('https://example.com:8080/x', 'example.com:8080'),
     ).toBe(true)
     expect(
       shouldBypassProxy('https://example.com:9090/x', 'example.com:8080'),
+    ).toBe(false)
+    // Once the port matches, the same exact-or-subdomain host predicate applies
+    // (aligning with undici), so a subdomain on the right port bypasses too.
+    expect(
+      shouldBypassProxy('https://api.example.com:8080/x', 'example.com:8080'),
+    ).toBe(true)
+    // Right host, wrong port must not bypass.
+    expect(
+      shouldBypassProxy('https://api.example.com:9090/x', 'example.com:8080'),
+    ).toBe(false)
+  })
+
+  test('leading-wildcard entries are normalized like undici (`*.example.com`)', () => {
+    expect(
+      shouldBypassProxy('https://api.example.com/x', '*.example.com'),
+    ).toBe(true)
+    expect(shouldBypassProxy('https://example.com/x', '*.example.com')).toBe(
+      true,
+    )
+    expect(
+      shouldBypassProxy('https://notexample.com/x', '*.example.com'),
     ).toBe(false)
   })
 })
