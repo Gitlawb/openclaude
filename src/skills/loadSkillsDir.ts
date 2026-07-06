@@ -148,6 +148,24 @@ type SkillWithPath = {
   filePath: string
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+async function readSkillJsonMetadata(
+  skillDirPath: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const raw = await getFsImplementation().readFile(join(skillDirPath, 'skill.json'), {
+      encoding: 'utf-8',
+    })
+    const parsed = JSON.parse(raw) as unknown
+    return isPlainObject(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 /**
  * Parse and validate hooks from frontmatter.
  * Returns undefined if hooks are not defined or invalid.
@@ -310,6 +328,7 @@ export function createSkillCommand({
   paths,
   effort,
   shell,
+  skillTrust,
 }: {
   skillName: string
   displayName: string | undefined
@@ -334,6 +353,7 @@ export function createSkillCommand({
   paths: string[] | undefined
   effort: EffortValue | undefined
   shell: FrontmatterShell | undefined
+  skillTrust: string | undefined
 }): Command {
   return {
     type: 'prompt',
@@ -363,6 +383,7 @@ export function createSkillCommand({
     hooks,
     skillRoot: baseDir,
     skillFilePath,
+    skillTrust,
     async getPromptForCommand(args, toolUseContext) {
       let finalContent = baseDir
         ? `Base directory for this skill: ${baseDir}\n\n${markdownContent}`
@@ -555,6 +576,7 @@ export async function loadSkillsFromSkillsDir(
           content,
           skillFilePath,
         )
+        const skillJsonMetadata = await readSkillJsonMetadata(skillDirPath)
 
         const skillName = getSkillCommandName(skillFilePath, basePath)
         const parsed = parseSkillFrontmatterFields(
@@ -574,6 +596,10 @@ export async function loadSkillsFromSkillsDir(
             skillFilePath,
             loadedFrom: 'skills',
             paths,
+            skillTrust:
+              typeof skillJsonMetadata.trust === 'string'
+                ? skillJsonMetadata.trust
+                : undefined,
           }),
           filePath: skillFilePath,
         }
@@ -716,6 +742,7 @@ async function loadSkillsFromCommandsDir(
             skillFilePath: filePath,
             loadedFrom: 'commands_DEPRECATED',
             paths: undefined,
+            skillTrust: undefined,
           }),
           filePath,
         })

@@ -116,3 +116,15 @@ test('skills list honors --add-dir before provider startup validation', async ()
   expect(stdout).toContain('addon')
   expect(stderr).not.toContain('OPENAI_API_KEY is required')
 }, 15_000)
+
+test('--print keeps skills as a prompt instead of the management subcommand', async () => {
+  const { exitCode, stderr, stdout } = await runSkillsList([
+    '--print',
+    'skills',
+    'list',
+  ])
+
+  expect(exitCode).toBe(1)
+  expect(stdout).not.toContain('Skills: 0 enabled')
+  expect(stderr).toContain('OPENAI_API_KEY')
+}, 15_000)

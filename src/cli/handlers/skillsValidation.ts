@@ -35,10 +35,11 @@ const UNSAFE_TEXT_PATTERNS: Array<[RegExp, string]> = [
     'embedded credential-like value',
   ],
   [
-    /\b(?:send|paste|provide|enter)\b.{0,40}\b(?:api[_-]?key|token|secret|password)\b/i,
+    /(?:^|[.!?\n]\s*)(?:please\s+)?(?:send|paste|provide|enter)\s+(?:your\s+)?(?:api[_-]?key|token|secret|password)\b/i,
     'credential collection instruction',
   ],
 ]
+const MAX_SKILL_TEXT_FILE_BYTES = 1024 * 1024
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -55,8 +56,12 @@ function metadataValue(
 async function readOptionalSkillJson(
   skillDir: string,
 ): Promise<Record<string, unknown>> {
+  const skillJsonPath = join(skillDir, 'skill.json')
   try {
-    const raw = await readFile(join(skillDir, 'skill.json'), 'utf8')
+    if ((await stat(skillJsonPath)).size > MAX_SKILL_TEXT_FILE_BYTES) {
+      return {}
+    }
+    const raw = await readFile(skillJsonPath, 'utf8')
     const parsed = JSON.parse(raw) as unknown
     return isPlainObject(parsed) ? parsed : {}
   } catch {
@@ -138,11 +143,16 @@ export async function validateSkillPath(
 
   let skillMarkdown = ''
   let frontmatter: Record<string, unknown> = {}
-  try {
-    skillMarkdown = await readFile(skillFilePath, 'utf8')
-    frontmatter = parseFrontmatter(skillMarkdown, skillFilePath).frontmatter
-  } catch {
-    errors.push('SKILL.md could not be read as UTF-8 markdown.')
+  const skillFileStats = await stat(skillFilePath)
+  if (skillFileStats.size > MAX_SKILL_TEXT_FILE_BYTES) {
+    errors.push(`SKILL.md is too large. Skill text files must be at most ${MAX_SKILL_TEXT_FILE_BYTES} bytes.`)
+  } else {
+    try {
+      skillMarkdown = await readFile(skillFilePath, 'utf8')
+      frontmatter = parseFrontmatter(skillMarkdown, skillFilePath).frontmatter
+    } catch {
+      errors.push('SKILL.md could not be read as UTF-8 markdown.')
+    }
   }
 
   const jsonMetadata = await readOptionalSkillJson(skillDir)
@@ -187,6 +197,10 @@ export async function validateSkillPath(
     }
 
     if (fileStats.isFile() && /\.(?:md|json|txt|ya?ml|sh|js|ts)$/i.test(file)) {
+      if (fileStats.size > MAX_SKILL_TEXT_FILE_BYTES) {
+        errors.push(`${file} is too large. Skill text files must be at most ${MAX_SKILL_TEXT_FILE_BYTES} bytes.`)
+        continue
+      }
       const text = await readFile(fullPath, 'utf8')
       for (const [pattern, label] of UNSAFE_TEXT_PATTERNS) {
         if (pattern.test(text)) {

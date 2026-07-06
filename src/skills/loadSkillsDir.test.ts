@@ -238,6 +238,54 @@ test.serial('prefers .openclaude project skills over legacy .claude skills with 
   }
 })
 
+test.serial('loads persisted registry trust metadata from skill.json', async () => {
+  await acquireSharedMutationLock('loadSkillsDir.test.ts')
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
+  const cwd = join(configDir, 'workspace')
+  const originalConfigDir = {
+    openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+    claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
+    configHomeOverride: getClaudeConfigHomeDirOverrideForTesting(),
+  }
+  const originalSettingsState = enableUserAndProjectSettingSources()
+  const originalFs = setRealFilesystemForTest()
+
+  try {
+    mkdirSync(cwd, { recursive: true })
+    const skillDir = join(cwd, '.openclaude', 'skills', 'registry-skill')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\ndescription: Registry skill\n---\n# Registry Skill\n`,
+      'utf8',
+    )
+    writeFileSync(
+      join(skillDir, 'skill.json'),
+      JSON.stringify({ trust: 'official' }),
+      'utf8',
+    )
+
+    setConfigDirEnv(configDir)
+    clearSkillAndConfigCaches()
+
+    const registrySkill = (await getSkillDirCommands(cwd)).find(skill =>
+      isPromptSkillNamed(skill, 'registry-skill'),
+    )
+
+    assert.equal(registrySkill?.skillTrust, 'official')
+  } finally {
+    try {
+      restoreConfigDirEnv(originalConfigDir)
+      setFsImplementation(originalFs)
+      restoreSettingState(originalSettingsState)
+      clearSkillAndConfigCaches()
+      rmSync(configDir, { recursive: true, force: true })
+    } finally {
+      releaseSharedMutationLock()
+    }
+  }
+})
+
 test.serial('project skills are ordered before user skills with the same name', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))

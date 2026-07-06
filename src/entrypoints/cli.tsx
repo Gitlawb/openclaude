@@ -177,6 +177,12 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
     }
     if (SKILLS_LEADING_OPTIONAL_VALUE_FLAGS.has(arg)) {
       if (
+        (arg === '--print' || arg === '-p') &&
+        args[index + 1] === 'skills'
+      ) {
+        return undefined
+      }
+      if (
         args[index + 1] &&
         args[index + 1] !== 'skills' &&
         !args[index + 1]!.startsWith('-')

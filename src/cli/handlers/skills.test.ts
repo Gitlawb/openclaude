@@ -33,6 +33,7 @@ import { skillsRemoveHandler } from './skills.ts'
 import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
+  trustLabel,
 } from './skillsListFormat.ts'
 import { getSkillRemoveNotFoundMessage } from './skillsRemoveMessage.ts'
 import { validateSkillPath } from './skillsValidation.ts'
@@ -99,6 +100,7 @@ function skill(
   name: string,
   description: string | undefined,
   source: SkillCommand['source'] = 'bundled',
+  skillTrust?: string,
 ): SkillCommand {
   return {
     type: 'prompt',
@@ -108,6 +110,7 @@ function skill(
     progressMessage: 'running',
     contentLength: description?.length ?? 0,
     source,
+    skillTrust,
     loadedFrom: source === 'bundled' ? 'bundled' : 'skills',
     userInvocable: true,
     async getPromptForCommand() {
@@ -304,6 +307,21 @@ test('formats skills list json as machine-readable metadata', () => {
   )
 })
 
+test('formats persisted registry trust metadata for installed skills', () => {
+  const installed = skill(
+    'official-skill',
+    'Installed from the registry.',
+    'projectSettings',
+    'official',
+  )
+  const parsed = JSON.parse(formatSkillsListJson([installed])) as {
+    skills: Array<{ trust: string }>
+  }
+
+  assert.equal(trustLabel(installed), 'official')
+  assert.equal(parsed.skills[0]?.trust, 'official')
+})
+
 test('formats all-bundled skills as empty json', () => {
   const parsed = JSON.parse(
     formatSkillsListJson([
@@ -375,6 +393,37 @@ test.serial('validates existing minimal local skill metadata format', async () =
     writeFileSync(join(skillDir, 'SKILL.md'), MINIMAL_EXISTING_FORMAT_SKILL, 'utf8')
 
     assert.deepEqual(await validateSkillPath(skillDir), [])
+  })
+})
+
+test.serial('allows benign security guidance about credentials', async () => {
+  await withTempDir(async tempDir => {
+    const skillDir = join(tempDir, 'security-guidance')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\ndescription: Security guidance.\n---\n# Security Guidance\n\nDo not paste your token into chat.\n`,
+      'utf8',
+    )
+
+    assert.deepEqual(await validateSkillPath(skillDir), [])
+  })
+})
+
+test.serial('rejects oversized local text files without reading them fully', async () => {
+  await withTempDir(async tempDir => {
+    const skillDir = join(tempDir, 'oversized-skill')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      MINIMAL_EXISTING_FORMAT_SKILL,
+      'utf8',
+    )
+    writeFileSync(join(skillDir, 'notes.txt'), 'a'.repeat(1024 * 1024 + 1), 'utf8')
+
+    assert.deepEqual(await validateSkillPath(skillDir), [
+      'notes.txt is too large. Skill text files must be at most 1048576 bytes.',
+    ])
   })
 })
 

@@ -16,6 +16,7 @@ export function trustLabel(skill: SkillListCommand): string {
   if (skill.source === 'plugin') return 'plugin'
   if (skill.source === 'mcp') return 'mcp'
   if (skill.source === 'policySettings') return 'managed'
+  if (skill.skillTrust) return skill.skillTrust
   return 'local'
 }
 
