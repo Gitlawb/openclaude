@@ -57,6 +57,12 @@ function deliveryLogs(): string[] {
   )
 }
 
+function expectNoZeroDiagnosticDeliveryLog(): void {
+  expect(
+    deliveryLogs().some(message => message.includes(' with 0 diagnostic(s) ')),
+  ).toBe(false)
+}
+
 describe('LSPDiagnosticRegistry storm control', () => {
   beforeEach(() => {
     registry.resetAllLSPDiagnosticState()
@@ -345,9 +351,7 @@ describe('LSPDiagnosticRegistry storm control', () => {
     })
 
     expect(registry.checkForLSPDiagnostics()).toEqual([])
-    expect(deliveryLogs()).not.toContain(
-      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
-    )
+    expectNoZeroDiagnosticDeliveryLog()
   })
 
   test('returns no diagnostic set for raw empty diagnostic files', () => {
@@ -603,9 +607,7 @@ describe('LSPDiagnosticRegistry storm control', () => {
       'lsp://diagnostic-storm/typescript',
     ])
     expect(diagnosticCount(secondFiles)).toBe(1)
-    expect(deliveryLogs()).not.toContain(
-      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
-    )
+    expectNoZeroDiagnosticDeliveryLog()
   })
 
   test('returns compact storm summaries when volume limiting leaves only reserved summaries', () => {
@@ -632,9 +634,7 @@ describe('LSPDiagnosticRegistry storm control', () => {
       .toBe(true)
     expect(diagnosticCount(files)).toBe(30)
     expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
-    expect(deliveryLogs()).not.toContain(
-      'LSP Diagnostics: Delivering 30 file(s) with 0 diagnostic(s) from 30 server(s)',
-    )
+    expectNoZeroDiagnosticDeliveryLog()
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {
