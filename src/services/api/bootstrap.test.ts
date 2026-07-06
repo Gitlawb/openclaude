@@ -220,6 +220,8 @@ test('AIMLAPI discovery omits credentials on the public /models route', async ()
       'X-AIMLAPI-Partner-ID': 'Gitlawb',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
       'X-AIMLAPI-Integration-Version': publicBuildVersion,
+      'HTTP-Referer': 'OpenClaude',
+      'X-Title': 'OpenClaude',
     })
   } finally {
     for (const key of envKeys) {

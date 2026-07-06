@@ -46,5 +46,5 @@ export OPENAI_MODEL="gpt-4o"
 ## Notes
 
 - Model discovery uses the public, unauthenticated `GET /models` endpoint and surfaces only chat-completions models; image, audio, embeddings, and other modalities are intentionally not routed through the coding workflow.
-- Requests carry `X-AIMLAPI-Integration-*` attribution headers (owner/repo/version) that AI/ML API uses to attribute integration traffic.
+- Requests carry `X-AIMLAPI-Integration-*` attribution headers (owner/repo/version) plus the `HTTP-Referer: OpenClaude` and `X-Title: OpenClaude` headers that AI/ML API uses to attribute integration traffic.
 - Usage (`/usage`) reporting is not supported for this provider.

@@ -77,6 +77,10 @@ export default defineGateway({
         'X-AIMLAPI-Partner-ID': 'Gitlawb',
         'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
         'X-AIMLAPI-Integration-Version': publicBuildVersion,
+        // Attribution headers AI/ML API records for api.aimlapi.com requests
+        // (issue #835). `HTTP-Referer`/`X-Title` identify the referring app.
+        'HTTP-Referer': 'OpenClaude',
+        'X-Title': 'OpenClaude',
       },
       supportsAuthHeaders: false,
     },
