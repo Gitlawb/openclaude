@@ -114,7 +114,6 @@ test('resolveGlobalClaudeFile: ignores legacy file even when new file is missing
     resolveGlobalClaudeFile({
       homeDir: tempDir,
       migrationSucceeded: false,
-      existsSync: path => path === join(tempDir, '.claude.json'),
     }),
   ).toBe(join(tempDir, '.openclaude.json'))
 })

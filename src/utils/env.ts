@@ -20,14 +20,12 @@ export function resolveGlobalClaudeFile(options: {
   homeDir?: string
   oauthSuffix?: string
   migrationSucceeded?: boolean
-  existsSync: (path: string) => boolean
 }): string {
   const oauthSuffix = options.oauthSuffix ?? ''
   const configDir = options.configDirEnv || options.homeDir || homedir()
   const newFilename = `.openclaude${oauthSuffix}.json`
 
   void options.migrationSucceeded
-  void options.existsSync
   return join(configDir, newFilename)
 }
 
@@ -52,7 +50,6 @@ export const getGlobalClaudeFile = memoize((): string => {
     configDirEnv,
     homeDir: configDir,
     oauthSuffix,
-    existsSync: path => getFsImplementation().existsSync(path),
   })
 })
 

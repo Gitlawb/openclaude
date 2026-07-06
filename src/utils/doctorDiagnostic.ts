@@ -35,10 +35,6 @@ import { getPlatform } from './platform.js'
 import { getRipgrepStatus } from './ripgrep.js'
 import { SandboxManager } from './sandbox/sandbox-adapter.js'
 import { getManagedFilePath } from './settings/managedPath.js'
-import {
-  getRelativeSettingsFilePathForSource,
-  getSettingsRootPathForSource,
-} from './settings/settings.js'
 import { CUSTOMIZATION_SURFACES } from './settings/types.js'
 import {
   findClaudeAlias,
@@ -352,7 +348,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 export async function detectStaleProjectSettingsPaths(
-  cwd: string = getSettingsRootPathForSource('projectSettings'),
+  cwd?: string,
 ): Promise<{ issue: string; fix: string } | null> {
   void cwd
   return null

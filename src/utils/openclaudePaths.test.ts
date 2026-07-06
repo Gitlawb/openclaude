@@ -208,7 +208,7 @@ describe('OpenClaude paths', () => {
     process.env.CLAUDE_CONFIG_DIR = '/tmp/legacy-only'
     const { getClaudeConfigHomeDir } = await importFreshEnvUtils()
 
-    expect(getClaudeConfigHomeDir()).not.toBe('/tmp/legacy-only')
+    expect(getClaudeConfigHomeDir()).toBe(join(homedir(), '.openclaude'))
   })
 
   test('empty OPENCLAUDE_CONFIG_DIR does not fall through to CLAUDE_CONFIG_DIR', async () => {
@@ -217,7 +217,7 @@ describe('OpenClaude paths', () => {
     process.env.CLAUDE_CONFIG_DIR = '/tmp/legacy-fallback'
     const { getClaudeConfigHomeDir } = await importFreshEnvUtils()
 
-    expect(getClaudeConfigHomeDir()).not.toBe('/tmp/legacy-fallback')
+    expect(getClaudeConfigHomeDir()).toBe(join(homedir(), '.openclaude'))
   })
 
   test('resolveConfigDirEnv ignores CLAUDE_CONFIG_DIR without warning', async () => {
