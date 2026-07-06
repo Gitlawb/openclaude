@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const bingProvider: SearchProvider = {
   name: 'bing',
@@ -21,16 +22,15 @@ export const bingProvider: SearchProvider = {
     url.searchParams.set('q', input.query)
     url.searchParams.set('count', '15')
 
-    const res = await fetch(url.toString(), {
-      headers: { 'Ocp-Apim-Subscription-Key': process.env.BING_API_KEY! },
+    const data = await fetchJsonWithWebSearchTimeout(
+      url.toString(),
+      {
+        headers: { 'Ocp-Apim-Subscription-Key': process.env.BING_API_KEY! },
+      },
       signal,
-    })
+      { providerName: 'Bing' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Bing search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const hits = (data.webPages?.value ?? []).map((r: any) => ({
       title: r.name ?? '',
       url: r.url ?? '',

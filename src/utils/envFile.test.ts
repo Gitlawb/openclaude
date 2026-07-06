@@ -15,6 +15,7 @@ import {
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
   'AZURE_OPENAI_API_VERSION',
+  'CLAUDE_CODE_USE_OPENAI',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
   'OPENAI_API_KEYS',
@@ -38,6 +39,7 @@ const TEST_ENV_KEYS = [
   'WEB_QUERY_PARAM',
   'WEB_SEARCH_API',
   'WEB_SEARCH_PROVIDER',
+  'WEB_SEARCH_TIMEOUT_SEC',
   'WEB_URL_TEMPLATE',
 ]
 
@@ -298,6 +300,7 @@ describe('loadEnvFile', () => {
       'WEB_AUTH_SCHEME=',
       'WEB_HEADERS=Accept: application/json; X-Tenant: acme',
       'WEB_JSON_PATH=response.payload.results',
+      'WEB_SEARCH_TIMEOUT_SEC=30',
       'WEB_CUSTOM_TIMEOUT_SEC=15',
       'WEB_CUSTOM_MAX_BODY_KB=300',
       'WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true',
@@ -323,6 +326,7 @@ describe('loadEnvFile', () => {
       WEB_AUTH_SCHEME: '',
       WEB_HEADERS: 'Accept: application/json; X-Tenant: acme',
       WEB_JSON_PATH: 'response.payload.results',
+      WEB_SEARCH_TIMEOUT_SEC: '30',
       WEB_CUSTOM_TIMEOUT_SEC: '15',
       WEB_CUSTOM_MAX_BODY_KB: '300',
       WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS: 'true',
@@ -332,6 +336,7 @@ describe('loadEnvFile', () => {
       CODEX_HOME: '/tmp/codex',
     })
     expect(process.env.WEB_SEARCH_API).toBe('https://search.example.com/search')
+    expect(process.env.WEB_SEARCH_TIMEOUT_SEC).toBe('30')
     expect(process.env.CODEX_AUTH_JSON_PATH).toBe('/tmp/codex-auth.json')
   })
 

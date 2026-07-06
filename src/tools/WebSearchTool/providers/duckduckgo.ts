@@ -1,5 +1,6 @@
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, type ProviderOutput } from './types.js'
+import { withWebSearchTimeout } from './timeout.js'
 
 // DuckDuckGo's HTML scraper aggressively blocks datacenter / repeat IPs with
 // an "anomaly in the request" response. When that happens we surface an
@@ -24,6 +25,7 @@ function isAnomalyError(message: string): boolean {
 function isRetryableDDGError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   const msg = err.message.toLowerCase()
+  if (msg.includes('duckduckgo search timed out after')) return false
   return (
     msg.includes('anomaly') ||
     msg.includes('too quickly') ||
@@ -35,8 +37,32 @@ function isRetryableDDGError(err: unknown): boolean {
   )
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms))
+function toAbortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason
+  return new DOMException('Aborted', 'AbortError')
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(toAbortError(signal.reason))
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      cleanup()
+      reject(toAbortError(signal?.reason))
+    }
+    const cleanup = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 export const duckduckgoProvider: SearchProvider = {
@@ -62,8 +88,16 @@ export const duckduckgoProvider: SearchProvider = {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
       try {
-        // TODO: duck-duck-scrape doesn't accept AbortSignal — can't cancel in-flight searches
-        const response = await search(input.query, { safeSearch: SafeSearchType.STRICT })
+        const response = await withWebSearchTimeout(
+          combinedSignal =>
+            search(
+              input.query,
+              { safeSearch: SafeSearchType.STRICT },
+              { signal: combinedSignal } as Parameters<typeof search>[2],
+            ),
+          signal,
+          { providerName: 'DuckDuckGo' },
+        )
 
         const hits = applyDomainFilters(
           response.results.map(r => ({
@@ -91,7 +125,7 @@ export const duckduckgoProvider: SearchProvider = {
         // Exponential backoff with jitter: 1s, 2s, 4s +/- 20%
         const baseDelay = INITIAL_BACKOFF_MS * Math.pow(2, attempt)
         const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
-        await sleep(baseDelay + jitter)
+        await sleep(baseDelay + jitter, signal)
       }
     }
 
