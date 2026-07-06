@@ -335,3 +335,4 @@ test('shows cross-profile switch options when allowProfileSwitch is set', async 
     stdout.end()
   }
 })
+

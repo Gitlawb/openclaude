@@ -104,6 +104,23 @@ export function encodeSwitchProfileValue(profileId: string, model: string): stri
   return `${SWITCH_PROFILE_VALUE_PREFIX}${profileId}:${model}`
 }
 
+/**
+ * Resolve the cross-profile switch marker (`switchToProfileId`) for a selected
+ * picker value from the PRESENTED options list — the authority for whether the
+ * selection is a genuine profile switch (#1119/#1164). Only a single option
+ * with that value is authoritative: if two options share the value (a literal
+ * custom model id colliding with an encoded switch value), the Select cannot
+ * tell them apart, so the selection is ambiguous and resolves to `undefined`
+ * rather than letting the literal borrow another option's marker.
+ */
+export function resolveSelectedSwitchProfileId(
+  options: ReadonlyArray<Pick<ModelOption, 'value' | 'switchToProfileId'>>,
+  selectedValue: ModelSetting,
+): string | undefined {
+  const matches = options.filter(option => option.value === selectedValue)
+  return matches.length === 1 ? matches[0]!.switchToProfileId : undefined
+}
+
 function getScopedAdditionalModelOptions(): ModelOption[] {
   const config = getGlobalConfig()
   const activeScope = getAdditionalModelOptionsCacheScope()

@@ -11,7 +11,7 @@ import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getModelOptions, type ModelOption, parseSwitchProfileValue } from '../utils/model/modelOptions.js';
+import { getModelOptions, type ModelOption, parseSwitchProfileValue, resolveSelectedSwitchProfileId } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -327,12 +327,16 @@ export function ModelPicker(t0) {
         onSelect(null, selectedEffort);
         return;
       }
-      // Thread the selected option's cross-profile marker (issue #1119) so the
+      // Thread the presented option's cross-profile marker (issue #1119) so the
       // /model command activates a provider only for a genuine switch option,
       // never for a literal custom id that merely starts with the prefix.
-      // selectOptions is already captured in this memo's deps, and its entries
-      // spread the source ModelOption's `switchToProfileId`.
-      const selectedSwitchProfileId = selectOptions.find(o => o.value === selectedValue)?.switchToProfileId;
+      // selectOptions is the actual presented list (already captured in this
+      // memo's deps) and its entries spread the source ModelOption's
+      // `switchToProfileId`. If two options share the selected value (a literal
+      // custom id colliding with an encoded switch value), the selection is
+      // ambiguous — the Select cannot tell them apart — so treat it as NOT a
+      // switch rather than letting the literal borrow another option's marker.
+      const selectedSwitchProfileId = resolveSelectedSwitchProfileId(selectOptions, selectedValue);
       onSelect(selectedValue, selectedEffort, selectedSwitchProfileId);
     };
     $[35] = effort;
@@ -482,17 +486,18 @@ function _temp2(s_0) {
 function _temp(s) {
   return isFastModeEnabled() ? s.fastMode : false;
 }
-// A picker value is a genuine cross-profile switch only when a synthesized
-// option with that exact value carries the `switchToProfileId` marker. A
-// literal custom model id that merely starts with `__switch_profile__:` is a
-// plain option with no marker and must NOT be decoded — otherwise the display
-// resolver would strip a real model id down to its `:`-tail. getModelOptions()
-// is the authority for the switch options (they only appear in the base list,
-// never in a discovery override, and discovered ids never carry the prefix).
+// A picker value is a genuine cross-profile switch only when the option with
+// that exact value carries the `switchToProfileId` marker. A literal custom
+// model id that merely starts with `__switch_profile__:` is a plain option with
+// no marker and must NOT be decoded — otherwise the display resolver would
+// strip a real model id down to its `:`-tail. getModelOptions() is the
+// authority for the switch options (they only appear in the base list, never in
+// a discovery override, and discovered ids never carry the prefix). If two
+// options share the value (a literal id colliding with an encoded switch
+// value), the match is ambiguous, so require exactly one option and treat that
+// lone option's marker as authoritative.
 function isGenuineSwitchProfileValue(value: string): boolean {
-  return getModelOptions().some(
-    opt => opt.value === value && opt.switchToProfileId !== undefined,
-  );
+  return resolveSelectedSwitchProfileId(getModelOptions(), value) !== undefined;
 }
 function resolveOptionModel(value?: string): string | undefined {
   if (!value) return undefined;
