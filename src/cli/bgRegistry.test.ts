@@ -769,6 +769,20 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
     expect(alive).toBe(true)
   })
 
+  it('does not treat interspersed stored tokens as alive (#1770)', () => {
+    // The stored tokens all appear on the live command line but only as an
+    // ordered subsequence with unrelated tokens ("attacker", "extra") wedged
+    // between them, i.e. a different process at a reused PID. Requiring a
+    // contiguous whole-token run rejects this token-insertion collision; a
+    // subsequence match would wrongly report it alive and risk killing the
+    // wrong process.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node attacker openclaude extra 1642 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
   it('reports a dead process regardless of command line', () => {
     const alive = isBackgroundSessionProcessAlive(session, {
       isProcessAlive: () => false,

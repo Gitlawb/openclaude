@@ -514,27 +514,32 @@ function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   //
   // A stored arg can itself contain whitespace — a prompt like "refactor auth"
   // is a single argv entry but `ps` renders it as separate words — so expand
-  // each arg into its own tokens and match the flattened sequence as an ordered
-  // subsequence of whole command tokens.
+  // each arg into its own tokens and require the flattened sequence to appear as
+  // one CONTIGUOUS run of whole command tokens. An ordered-subsequence match
+  // (skipping unrelated tokens between matches) would let a reused PID whose
+  // command line merely interleaves the stored tokens pass — e.g. stored
+  // ["node", "openclaude", "1642"] satisfied by "node attacker openclaude extra
+  // 1642 --serve" — reopening the same wrong-process `kill` risk for token
+  // insertion collisions. The real launch invocation appears as an unbroken run
+  // (only the interpreter path or trailing flags differ), so leading/trailing
+  // tokens are fine but interspersed ones are not.
   const tokens = commandLine.split(/\s+/).filter(token => token.length > 0)
   const argTokens = args.flatMap(arg =>
     arg.split(/\s+/).filter(token => token.length > 0),
   )
   if (argTokens.length === 0) return false
-  let tokenIndex = 0
-  for (const argToken of argTokens) {
-    let matched = false
-    while (tokenIndex < tokens.length) {
-      const token = tokens[tokenIndex]
-      tokenIndex += 1
-      if (token === argToken) {
-        matched = true
+  if (argTokens.length > tokens.length) return false
+  for (let start = 0; start <= tokens.length - argTokens.length; start += 1) {
+    let matched = true
+    for (let offset = 0; offset < argTokens.length; offset += 1) {
+      if (tokens[start + offset] !== argTokens[offset]) {
+        matched = false
         break
       }
     }
-    if (!matched) return false
+    if (matched) return true
   }
-  return true
+  return false
 }
 
 function commandLineMatchesBackgroundSession(
