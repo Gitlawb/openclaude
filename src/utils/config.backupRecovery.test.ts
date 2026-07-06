@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type * as ConfigModule from './config.js'
 import {
   NodeFsOperations,
@@ -183,6 +183,76 @@ describe('recoverConfigFromBackup', () => {
       keptDefault: true,
     })
   })
+
+  test('recovers the global config from a legacy .claude.json backup when every .openclaude backup is corrupt (#1807)', async () => {
+    // The exact #1807 scenario: repeated corrupt writes poisoned every
+    // `.openclaude.json.backup.*` snapshot, and the only clean source left is a
+    // pre-rename `.claude.json.backup.*` file in the same backup dir. Recovery
+    // for the global config must fall back to the legacy basename, newest-valid
+    // first, instead of stopping at the poisoned current-basename snapshots.
+    const { recoverConfigFromBackup } = await freshConfig()
+    // Newest overall is a corrupt .openclaude backup; the healthy snapshot is an
+    // older legacy .claude backup. Timestamp ordering must interleave the two
+    // basenames so the corrupt-newer one is tried (and skipped) before the
+    // healthy-older legacy one is used.
+    const CORRUPT_CURRENT = '.openclaude.json.backup.20260630130000'
+    const HEALTHY_LEGACY = '.claude.json.backup.20260630120000'
+    installFs({
+      readdirStringSync: (dir: string) =>
+        dir.endsWith('backups') ? [HEALTHY_LEGACY, CORRUPT_CURRENT] : [],
+      readFileSync: (path: string) => {
+        const p = String(path)
+        if (p.endsWith(CORRUPT_CURRENT)) {
+          return '{ not valid json ,,,'
+        }
+        if (p.endsWith(HEALTHY_LEGACY)) {
+          return '{"theme":"solarized","customField":9}'
+        }
+        throw enoent()
+      },
+      statSync: () => {
+        throw enoent()
+      },
+    })
+
+    const recovered = recoverConfigFromBackup(FILE, () => ({
+      theme: 'light',
+      customField: 0,
+      keptDefault: true,
+    }))
+
+    expect(recovered).toEqual({
+      theme: 'solarized',
+      customField: 9,
+      keptDefault: true,
+    })
+  })
+
+  test('does not borrow legacy .claude.json backups for a non-global config file', async () => {
+    // The legacy-basename fallback is scoped to the global config. A different
+    // config file (e.g. a project config) must not accidentally recover from an
+    // unrelated `.claude.json` backup.
+    const { recoverConfigFromBackup } = await freshConfig()
+    const OTHER_FILE = '/virtual/project/.some-other-config.json'
+    const HEALTHY_LEGACY = '.claude.json.backup.20260630120000'
+    installFs({
+      readdirStringSync: (dir: string) =>
+        dir.endsWith('backups') ? [HEALTHY_LEGACY] : [],
+      readFileSync: (path: string) => {
+        if (String(path).endsWith(HEALTHY_LEGACY)) {
+          return '{"theme":"solarized"}'
+        }
+        throw enoent()
+      },
+      statSync: () => {
+        throw enoent()
+      },
+    })
+
+    expect(
+      recoverConfigFromBackup(OTHER_FILE, () => ({ theme: 'light' })),
+    ).toBeUndefined()
+  })
 })
 
 describe('getConfig recovery (production path)', () => {
@@ -259,6 +329,47 @@ describe('getConfig recovery (production path)', () => {
       theme: 'solarized',
       keptDefault: true,
     })
+  })
+})
+
+describe('enableConfigs startup validation (#1807)', () => {
+  afterEach(() => {
+    setOriginalFsImplementation()
+  })
+
+  test('does not crash on a corrupt global config when no usable backup exists', async () => {
+    // The #1807 startup lock-out: enableConfigs validated the global config with
+    // the throwing mode, so a present-but-corrupt config with no recoverable
+    // backup rethrew ConfigParseError straight through enableConfigs -> main and
+    // terminated the process on every launch. Startup must instead fall through
+    // to the corrupt-file/default handling (preserve the corrupt file, start
+    // from defaults) and return normally.
+    const realEnv = (await import('./env.js')) as Record<string, unknown>
+    mock.module('./env.js', () => ({
+      ...realEnv,
+      getGlobalClaudeFile: () => FILE,
+    }))
+    installFs({
+      // No backups anywhere, and no already-saved corrupted copies.
+      readdirStringSync: () => [],
+      readFileSync: (path: string) => {
+        if (String(path) === FILE) {
+          return '{ corrupt live config ,,,'
+        }
+        throw enoent()
+      },
+      statSync: () => {
+        throw enoent()
+      },
+      // The preserve-corrupt path may create the backup dir / copy the corrupt
+      // file aside; keep those as no-ops so the virtual fs is never touched.
+      mkdirSync: () => undefined,
+      copyFileSync: () => undefined,
+    })
+
+    const { enableConfigs } = await freshConfig()
+
+    expect(() => enableConfigs()).not.toThrow()
   })
 })
 

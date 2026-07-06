@@ -1619,17 +1619,22 @@ export function enableConfigs(): void {
   // Any reads to configuration before this flag is set show an console warning
   // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
-  // We only check the global config because currently all the configs share a file
-  getConfig(
-    getGlobalClaudeFile(),
-    createDefaultGlobalConfig,
-    true /* throw on invalid */,
-  )
+  // We only check the global config because currently all the configs share a
+  // file. This warms the recovery path (recover from a healthy backup, or
+  // preserve the corrupt file and start from defaults) without throwing, so a
+  // corrupt global config self-heals instead of crashing startup (#1807).
+  getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig)
 
   logForDiagnosticsNoPII('info', 'enable_configs_completed', {
     duration_ms: Date.now() - startTime,
   })
 }
+
+// Basename of the current global config, plus the pre-rename legacy basename
+// its backups may still be filed under (#1807). Compared by basename so backup
+// recovery works against an injected virtual path in tests.
+const GLOBAL_CONFIG_BASENAME = '.openclaude.json'
+const LEGACY_GLOBAL_CONFIG_BASENAME = '.claude.json'
 
 /**
  * Returns the directory where config backup files are stored.
@@ -1654,16 +1659,36 @@ function getConfigBackupDir(): string {
  */
 function listBackupsNewestFirst(file: string): string[] {
   const fs = getFsImplementation()
-  const fileBase = basename(file)
+  // The global config was renamed `.claude.json` -> `.openclaude.json`. #1807's
+  // reported scenario is that repeated corrupt writes poisoned every
+  // `.openclaude.json.backup.*` snapshot and the only clean sources left were
+  // the pre-rename `.claude.json.backup.*` files sitting in the same backup
+  // dir. Recover the global config from that legacy basename too, otherwise the
+  // recovery still fails for exactly the case the issue calls out.
+  const fileBases = [basename(file)]
+  if (basename(file) === GLOBAL_CONFIG_BASENAME) {
+    fileBases.push(LEGACY_GLOBAL_CONFIG_BASENAME)
+  }
+  const isTimestampedBackupOf = (name: string): boolean =>
+    fileBases.some(base => name.startsWith(`${base}.backup.`))
+  // Order by the numeric timestamp after `.backup.` so the current and legacy
+  // basenames interleave by recency instead of grouping by filename (a plain
+  // lexicographic sort would put every `.claude.json.*` before every
+  // `.openclaude.json.*` regardless of when each was written).
+  const backupTimestamp = (name: string): number => {
+    const suffix = name.split('.backup.').pop()
+    const parsed = suffix ? Number(suffix) : NaN
+    return Number.isFinite(parsed) ? parsed : -1
+  }
   const paths: string[] = []
 
   const collect = (dir: string): void => {
     try {
       const backups = fs
         .readdirStringSync(dir)
-        .filter(f => f.startsWith(`${fileBase}.backup.`))
-        .sort() // Timestamps sort lexicographically
-      for (const name of backups.reverse()) {
+        .filter(isTimestampedBackupOf)
+        .sort((a, b) => backupTimestamp(b) - backupTimestamp(a))
+      for (const name of backups) {
         paths.push(join(dir, name))
       }
     } catch {
@@ -1676,13 +1701,15 @@ function listBackupsNewestFirst(file: string): string[] {
   collect(getConfigBackupDir())
   collect(dirname(file))
 
-  // Legacy backup file (no timestamp), tried last.
-  const legacyBackup = `${file}.backup`
-  try {
-    fs.statSync(legacyBackup)
-    paths.push(legacyBackup)
-  } catch {
-    // Legacy backup doesn't exist.
+  // Legacy timestampless backups (`<basename>.backup`), tried last.
+  for (const base of fileBases) {
+    const legacyBackup = join(dirname(file), `${base}.backup`)
+    try {
+      fs.statSync(legacyBackup)
+      paths.push(legacyBackup)
+    } catch {
+      // Legacy backup doesn't exist.
+    }
   }
 
   return paths
@@ -1767,7 +1794,6 @@ export function recoverConfigFromBackup<A>(
 function getConfig<A>(
   file: string,
   createDefault: () => A,
-  throwOnInvalid?: boolean,
 ): A {
   // Log a warning if config is accessed before it's allowed
   if (!configReadingAllowed && process.env.NODE_ENV !== 'test') {
@@ -1808,11 +1834,11 @@ function getConfig<A>(
       return createDefault()
     }
 
-    // A present-but-corrupt config previously reset to defaults (or threw when
-    // throwOnInvalid), discarding the user's settings even though healthy
-    // backups exist in ~/.claude/backups. Recover the most recent backup that
-    // still parses before doing anything destructive, so a one-off bad write
-    // no longer wipes config or crashes startup (#1807).
+    // A present-but-corrupt config previously reset to defaults (or crashed the
+    // startup validation path), discarding the user's settings even though
+    // healthy backups exist in ~/.claude/backups. Recover the most recent
+    // backup that still parses before doing anything destructive, so a one-off
+    // bad write no longer wipes config or crashes startup (#1807).
     if (error instanceof ConfigParseError) {
       const recovered = recoverConfigFromBackup<A>(file, createDefault)
       if (recovered) {
@@ -1824,10 +1850,11 @@ function getConfig<A>(
       }
     }
 
-    // Re-throw ConfigParseError if throwOnInvalid is true
-    if (error instanceof ConfigParseError && throwOnInvalid) {
-      throw error
-    }
+    // A present-but-corrupt config used to re-throw here for the startup
+    // validation path (enableConfigs), locking users out on every launch when
+    // recovery found no usable backup. #1807 requires self-healing instead:
+    // once recovery is exhausted, fall through to preserve the corrupt file
+    // aside and start from defaults rather than crashing.
 
     // Log config parse errors so users know what happened
     if (error instanceof ConfigParseError) {
