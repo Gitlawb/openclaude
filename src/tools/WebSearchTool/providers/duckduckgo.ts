@@ -1,6 +1,10 @@
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, type ProviderOutput } from './types.js'
-import { withWebSearchTimeout } from './timeout.js'
+import {
+  isWebSearchTimeoutError,
+  toAbortError,
+  withWebSearchTimeout,
+} from './timeout.js'
 
 // DuckDuckGo's HTML scraper aggressively blocks datacenter / repeat IPs with
 // an "anomaly in the request" response. When that happens we surface an
@@ -24,8 +28,8 @@ function isAnomalyError(message: string): boolean {
 
 function isRetryableDDGError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
+  if (isWebSearchTimeoutError(err)) return false
   const msg = err.message.toLowerCase()
-  if (msg.includes('duckduckgo search timed out after')) return false
   return (
     msg.includes('anomaly') ||
     msg.includes('too quickly') ||
@@ -35,11 +39,6 @@ function isRetryableDDGError(err: unknown): boolean {
     msg.includes('etimedout') ||
     msg.includes('econnaborted')
   )
-}
-
-function toAbortError(reason?: unknown): Error {
-  if (reason instanceof Error) return reason
-  return new DOMException('Aborted', 'AbortError')
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {

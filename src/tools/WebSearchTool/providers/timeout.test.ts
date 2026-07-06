@@ -57,6 +57,20 @@ describe('withWebSearchTimeout', () => {
     ).rejects.toThrow(/TestSearch search timed out/)
   })
 
+  test('timeout errors carry a stable marker', async () => {
+    await expect(
+      withWebSearchTimeout(
+        () => new Promise(() => undefined),
+        undefined,
+        { providerName: 'TestSearch', timeoutMs: 5 },
+      ),
+    ).rejects.toMatchObject({
+      name: 'WebSearchTimeoutError',
+      code: 'WEB_SEARCH_TIMEOUT',
+      timeoutMs: 5,
+    })
+  })
+
   test('keeps caller aborts as AbortError and does not start work', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -118,6 +132,40 @@ describe('withWebSearchTimeout', () => {
           { providerName: 'TestSearch', timeoutMs: 100 },
         ),
       ).resolves.toBe('ok')
+    } finally {
+      controller.signal.addEventListener = addEventListener
+      controller.signal.removeEventListener = removeEventListener
+    }
+
+    expect(abortListenersAdded).toBeGreaterThan(0)
+    expect(abortListenersRemoved).toBe(abortListenersAdded)
+  })
+
+  test('removes caller abort listeners after timed-out operations', async () => {
+    const controller = new AbortController()
+    const addEventListener = controller.signal.addEventListener.bind(controller.signal)
+    const removeEventListener = controller.signal.removeEventListener.bind(controller.signal)
+    let abortListenersAdded = 0
+    let abortListenersRemoved = 0
+
+    controller.signal.addEventListener = ((type, listener, options) => {
+      if (type === 'abort') abortListenersAdded++
+      return addEventListener(type, listener, options)
+    }) as typeof controller.signal.addEventListener
+
+    controller.signal.removeEventListener = ((type, listener, options) => {
+      if (type === 'abort') abortListenersRemoved++
+      return removeEventListener(type, listener, options)
+    }) as typeof controller.signal.removeEventListener
+
+    try {
+      await expect(
+        withWebSearchTimeout(
+          () => new Promise(() => undefined),
+          controller.signal,
+          { providerName: 'TestSearch', timeoutMs: 5 },
+        ),
+      ).rejects.toMatchObject({ code: 'WEB_SEARCH_TIMEOUT' })
     } finally {
       controller.signal.addEventListener = addEventListener
       controller.signal.removeEventListener = removeEventListener

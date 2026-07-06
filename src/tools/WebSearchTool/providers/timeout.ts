@@ -2,6 +2,7 @@ import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js
 
 export const DEFAULT_WEB_SEARCH_TIMEOUT_SECONDS = 15
 const MAX_WEB_SEARCH_TIMEOUT_SECONDS = 300
+const WEB_SEARCH_TIMEOUT_CODE = 'WEB_SEARCH_TIMEOUT'
 
 interface WebSearchTimeoutOptions {
   providerName?: string
@@ -34,7 +35,30 @@ export function getWebSearchTimeoutMs(
   return seconds * 1000
 }
 
-function toAbortError(reason: unknown): Error {
+export class WebSearchTimeoutError extends Error {
+  readonly code = WEB_SEARCH_TIMEOUT_CODE
+  readonly timeoutMs: number
+
+  constructor(providerName: string, timeoutMs: number) {
+    super(
+      `${providerName} search timed out after ${formatTimeoutSeconds(timeoutMs)}s`,
+    )
+    this.name = 'WebSearchTimeoutError'
+    this.timeoutMs = timeoutMs
+  }
+}
+
+export function isWebSearchTimeoutError(
+  err: unknown,
+): err is WebSearchTimeoutError {
+  return (
+    err instanceof WebSearchTimeoutError ||
+    (err instanceof Error &&
+      (err as { code?: unknown }).code === WEB_SEARCH_TIMEOUT_CODE)
+  )
+}
+
+export function toAbortError(reason?: unknown): Error {
   if (reason instanceof Error) return reason
   return new DOMException('Aborted', 'AbortError')
 }
@@ -96,9 +120,7 @@ export async function withWebSearchTimeout<T>(
       throw toAbortError(signal.reason ?? err)
     }
     if (combined.aborted) {
-      throw new Error(
-        `${providerName} search timed out after ${formatTimeoutSeconds(timeoutMs)}s`,
-      )
+      throw new WebSearchTimeoutError(providerName, timeoutMs)
     }
     throw err
   } finally {
