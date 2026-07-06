@@ -149,24 +149,40 @@ function extractWrappedCommand(
   const segments = splitCommand_DEPRECATED(command)
   const lastCommand = segments[segments.length - 1] || command
   const tokens = lastCommand.trim().split(/\s+/)
-  const wrapperIndex = tokens.indexOf(wrapper)
+  // Match the wrapper by its normalized name so a resolved or quoted path
+  // (`/usr/bin/uvx`, `"npx"`) still counts as the wrapper.
+  const wrapperIndex = tokens.findIndex(
+    token => extractBaseCommand(token) === wrapper,
+  )
   if (wrapperIndex === -1) {
     return undefined
   }
   for (let i = wrapperIndex + 1; i < tokens.length; i++) {
     const token = tokens[i]
     if (token && !token.startsWith('-')) {
-      return token
+      // Normalize the wrapped tool too: `npx ./node_modules/.bin/eslint` must
+      // resolve to `eslint` so its lint semantics apply.
+      return extractBaseCommand(token)
     }
   }
   return undefined
 }
 
 /**
- * Extract just the command name (first word) from a single command string.
+ * Extract just the command name from a single command string, normalized so a
+ * path-prefixed or quoted invocation still maps to a known command. Mirrors the
+ * PowerShell implementation (minus the Windows-only `.exe`/case handling):
+ * `./node_modules/.bin/eslint` → `eslint`, `"ruff"` → `ruff`,
+ * `/usr/bin/uvx` → `uvx`. Otherwise these fall through to the default
+ * exit-code semantics and a linter's exit 1 is mis-reported as an error.
  */
 function extractBaseCommand(command: string): string {
-  return command.trim().split(/\s+/)[0] || ''
+  const firstToken = command.trim().split(/\s+/)[0] || ''
+  // Strip surrounding quotes: "ruff" / 'eslint' → ruff / eslint.
+  const unquoted = firstToken.replace(/^["']|["']$/g, '')
+  // Strip any path prefix (POSIX separator): ./node_modules/.bin/eslint →
+  // eslint, /usr/bin/uvx → uvx.
+  return unquoted.split('/').pop() || unquoted
 }
 
 /**

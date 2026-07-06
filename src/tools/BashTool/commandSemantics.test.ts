@@ -213,5 +213,50 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('npx', 1, '', '')
       expect(result.isError).toBe(true)
     })
+
+    test('path-prefixed eslint inherits lint semantics: exit 1 not error', () => {
+      const result = interpretCommandResult(
+        './node_modules/.bin/eslint .',
+        1,
+        '',
+        '',
+      )
+      expect(result.isError).toBe(false)
+    })
+
+    test('quoted linter inherits lint semantics: exit 1 not error', () => {
+      const result = interpretCommandResult('"ruff" check .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('path-prefixed uvx wrapper unwraps to ruff: exit 1 not error', () => {
+      const result = interpretCommandResult(
+        '/usr/bin/uvx ruff check --fix',
+        1,
+        '',
+        '',
+      )
+      expect(result.isError).toBe(false)
+    })
+
+    test('npx wrapping a path-prefixed eslint unwraps: exit 1 not error', () => {
+      const result = interpretCommandResult(
+        'npx ./node_modules/.bin/eslint .',
+        1,
+        '',
+        '',
+      )
+      expect(result.isError).toBe(false)
+    })
+
+    test('path-prefixed linter still surfaces a real error: exit 2 = error', () => {
+      const result = interpretCommandResult(
+        './node_modules/.bin/eslint .',
+        2,
+        '',
+        'Invalid config',
+      )
+      expect(result.isError).toBe(true)
+    })
   })
 })
