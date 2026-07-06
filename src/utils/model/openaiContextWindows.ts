@@ -119,13 +119,19 @@ function lookupByModel(
   const hostQualifiedModel =
     baseUrlHost && modelName ? `${baseUrlHost}:${modelName}` : undefined
 
+  // A host-qualified key (`<host>:<model>`) is strictly more specific than a
+  // bare model key, so ANY host-qualified match — exact OR prefix — must
+  // outrank a bare match. Rank both host-qualified forms in the high-priority
+  // `exact` tier ahead of the bare exact match; leave only the bare prefix in
+  // the low-priority `prefix` tier. Otherwise a bare exact (`qwen3.6-plus`)
+  // would beat a host-qualified prefix (`openrouter.ai:qwen3`) and the
+  // advertised per-endpoint disambiguation would fail for versioned families.
   return {
     exact:
       lookupExactByKey(entries, hostQualifiedModel) ??
-      lookupExactByKey(entries, modelName),
-    prefix:
       lookupPrefixByKey(entries, hostQualifiedModel) ??
-      lookupPrefixByKey(entries, modelName),
+      lookupExactByKey(entries, modelName),
+    prefix: lookupPrefixByKey(entries, modelName),
   }
 }
 
