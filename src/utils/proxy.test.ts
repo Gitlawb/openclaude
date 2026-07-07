@@ -51,6 +51,13 @@ describe('shouldBypassProxy — NO_PROXY matching', () => {
     expect(shouldBypassProxy('https://127.0.0.1/x', '127.0.0.1')).toBe(true)
     // A host that merely ends with the IP text is not a subdomain of it.
     expect(shouldBypassProxy('https://x127.0.0.1/x', '127.0.0.1')).toBe(false)
+    // A host whose final label is all-numeric (e.g. `10.1.2.3.4`) is not a valid
+    // WHATWG URL — `new URL()` attempts an IPv4 parse and throws — so it can
+    // never reach the bare-domain suffix arm. The would-be dotted-IP subdomain
+    // of `1.2.3.4` therefore does not bypass, on the reject-on-parse-failure path.
+    expect(shouldBypassProxy('https://10.1.2.3.4/x', '1.2.3.4')).toBe(false)
+    // Bracketed IPv6 literals match exactly, not by suffix.
+    expect(shouldBypassProxy('https://[::1]/x', '[::1]')).toBe(true)
   })
 
   test('port-specific entries require a matching port and cover subdomains', () => {
