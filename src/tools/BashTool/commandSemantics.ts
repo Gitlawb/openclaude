@@ -94,6 +94,7 @@ const WRAPPER_VALUE_FLAGS = new Set([
 ])
 
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '-S', '-P'])
+const ENV_SPLIT_STRING_FLAGS = new Set(['-S', '--split-string'])
 
 /**
  * Command-specific semantics
@@ -284,6 +285,64 @@ function skipEnvUtility(tokens: string[], startIndex: number): number {
   return i
 }
 
+function getEnvSplitStringPayload(
+  tokens: string[],
+  flagIndex: number,
+): string | undefined {
+  const flag = tokens[flagIndex]
+  if (flag === undefined) {
+    return undefined
+  }
+  const inlineValue = flag.match(/^--split-string=(.*)$/)?.[1]
+  if (inlineValue !== undefined) {
+    return inlineValue
+  }
+  const first = tokens[flagIndex + 1]
+  if (first === undefined) {
+    return undefined
+  }
+  const quote = first[0]
+  if (quote !== '"' && quote !== "'") {
+    return first
+  }
+  const collected = [first]
+  for (let i = flagIndex + 2; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token === undefined) {
+      break
+    }
+    collected.push(token)
+    if (token.endsWith(quote)) {
+      break
+    }
+  }
+  return collected.join(' ').replace(/^["']|["']$/g, '')
+}
+
+function extractEnvSplitStringBaseCommand(
+  tokens: string[],
+  startIndex: number,
+): string | undefined {
+  for (let i = startIndex + 1; i < tokens.length; i++) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    const token = extractBaseCommand(rawToken)
+    const flagName = token.split('=')[0] ?? token
+    if (ENV_SPLIT_STRING_FLAGS.has(flagName)) {
+      const payload = getEnvSplitStringPayload(tokens, i)
+      return payload !== undefined
+        ? extractRunnableBaseCommand(payload.trim().split(/\s+/))
+        : undefined
+    }
+    if (token === '--') {
+      break
+    }
+  }
+  return undefined
+}
+
 function extractRunnableBaseCommand(tokens: string[]): string {
   let i = 0
   while (i < tokens.length) {
@@ -297,6 +356,10 @@ function extractRunnableBaseCommand(tokens: string[]): string {
     }
     const token = extractBaseCommand(rawToken)
     if (token === 'env') {
+      const splitStringBase = extractEnvSplitStringBaseCommand(tokens, i)
+      if (splitStringBase !== undefined) {
+        return splitStringBase
+      }
       i = skipEnvUtility(tokens, i)
       continue
     }
@@ -381,9 +444,6 @@ function looksLikeSetupOrPipelineFailure(
   result: { isError: boolean },
 ): boolean {
   if (exitCode === 0 || result.isError) {
-    return false
-  }
-  if (stdout.trim().length > 0) {
     return false
   }
   const previousCommands = getNonFinalCommandNames(command)

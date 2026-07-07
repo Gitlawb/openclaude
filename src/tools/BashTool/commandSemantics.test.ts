@@ -280,6 +280,10 @@ describe('interpretCommandResult', () => {
         ['env RUFF_CACHE_DIR=/tmp/cache ruff check .', 1],
         ['env CI=1 uvx ruff check .', 1],
         ['env -- RUFF_CACHE_DIR=/tmp/cache ruff check .', 1],
+        ['env -S "ruff check ."', 1],
+        ['env -S "eslint ."', 1],
+        ['env -S "pytest -q"', 1],
+        ['env --split-string="ruff check ."', 1],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
@@ -314,8 +318,13 @@ describe('interpretCommandResult', () => {
           'pushd missing && pytest',
           'bash: line 1: pushd: missing: No such file or directory',
         ],
+        [
+          'echo setup && cd missing && ruff check .',
+          'bash: line 1: cd: missing: No such file or directory',
+        ],
       ] as const) {
-        const result = interpretCommandResult(command, 1, '', stderr)
+        const stdout = command.startsWith('echo setup') ? 'setup\n' : ''
+        const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
       }
     })
@@ -336,8 +345,13 @@ describe('interpretCommandResult', () => {
           'env missingcmd | ruff check .',
           'env: missingcmd: No such file or directory',
         ],
+        [
+          'echo setup && cat missing | pytest',
+          'cat: missing: No such file or directory',
+        ],
       ] as const) {
-        const result = interpretCommandResult(command, 1, '', stderr)
+        const stdout = command.startsWith('echo setup') ? 'setup\n' : ''
+        const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
       }
     })

@@ -410,9 +410,6 @@ function looksLikeSetupOrPipelineFailure(
   if (exitCode === 0 || result.isError) {
     return false
   }
-  if (stdout.trim().length > 0) {
-    return false
-  }
   const previousCommands = getNonFinalCommandNames(command)
   if (previousCommands.length === 0) {
     return false

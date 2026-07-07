@@ -174,13 +174,18 @@ describe('interpretCommandResult (PowerShell)', () => {
     })
 
     test('failed setup before && does not inherit linter semantics', () => {
-      const result = interpretCommandResult(
-        'Set-Location missing && ruff check .',
-        1,
-        '',
-        'Set-Location: Cannot find path missing because it does not exist.',
-      )
-      expect(result.isError).toBe(true)
+      for (const [command, stdout] of [
+        ['Set-Location missing && ruff check .', ''],
+        ['Write-Output setup; Set-Location missing && ruff check .', 'setup\n'],
+      ] as const) {
+        const result = interpretCommandResult(
+          command,
+          1,
+          stdout,
+          'Set-Location: Cannot find path missing because it does not exist.',
+        )
+        expect(result.isError).toBe(true)
+      }
     })
 
     test('successful setup before && lets linter diagnostics through', () => {
@@ -220,8 +225,13 @@ describe('interpretCommandResult (PowerShell)', () => {
           'badcmd | pytest',
           'badcmd: The term badcmd is not recognized as a name of a cmdlet',
         ],
+        [
+          'Write-Output setup; Get-Content missing | ruff check .',
+          'Get-Content: Cannot find path missing because it does not exist.',
+        ],
       ] as const) {
-        const result = interpretCommandResult(command, 1, '', stderr)
+        const stdout = command.startsWith('Write-Output setup') ? 'setup\n' : ''
+        const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
       }
     })
