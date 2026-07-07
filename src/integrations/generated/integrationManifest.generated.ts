@@ -9,6 +9,24 @@ import type { ProviderPresetManifestEntry } from '../descriptors.js'
 
 export const PROVIDER_PRESET_MANIFEST = [
   {
+    "preset": "aimlapi",
+    "routeKind": "gateway",
+    "routeId": "aimlapi",
+    "vendorId": "openai",
+    "gatewayId": "aimlapi",
+    "description": "1,000+ models OpenAI compatible endpoint",
+    "apiKeyEnvVars": [
+      "AIMLAPI_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ],
+    "badge": {
+      "text": "Recommended",
+      "color": "success"
+    }
+  },
+  {
     "preset": "gitlawb-opengateway",
     "routeKind": "gateway",
     "routeId": "gitlawb-opengateway",
@@ -28,11 +46,7 @@ export const PROVIDER_PRESET_MANIFEST = [
       "OPENAI_MODEL"
     ],
     "fallbackBaseUrl": "https://opengateway.gitlawb.com/v1",
-    "fallbackModel": "mimo-v2.5-pro",
-    "badge": {
-      "text": "Recommended",
-      "color": "success"
-    }
+    "fallbackModel": "mimo-v2.5-pro"
   },
   {
     "preset": "anthropic",
@@ -48,20 +62,6 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "ANTHROPIC_MODEL"
-    ]
-  },
-  {
-    "preset": "aimlapi",
-    "routeKind": "gateway",
-    "routeId": "aimlapi",
-    "vendorId": "openai",
-    "gatewayId": "aimlapi",
-    "description": "AI/ML API OpenAI-compatible endpoint",
-    "apiKeyEnvVars": [
-      "AIMLAPI_API_KEY"
-    ],
-    "modelEnvVars": [
-      "OPENAI_MODEL"
     ]
   },
   {
@@ -466,9 +466,9 @@ export const PROVIDER_PRESET_MANIFEST = [
 ] as const satisfies readonly ProviderPresetManifestEntry[]
 export type ProviderPreset = (typeof PROVIDER_PRESET_MANIFEST)[number]['preset']
 export const ORDERED_PROVIDER_PRESETS = [
+  "aimlapi",
   "gitlawb-opengateway",
   "anthropic",
-  "aimlapi",
   "dashscope-cn",
   "dashscope-intl",
   "atlas-cloud",

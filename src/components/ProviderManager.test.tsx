@@ -108,16 +108,17 @@ async function waitForCondition(
 }
 
 // Provider list is sorted from generated preset metadata by description, with
-// Gitlawb Opengateway pinned first, Codex OAuth injected after DeepSeek, and
-// Custom always pinned last. Keep the target-by-label indirection here so
+// AI/ML API pinned first, Gitlawb Opengateway second, Codex OAuth injected
+// after DeepSeek, and Custom always pinned last. Keep the target-by-label
+// indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
 //
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
+  'AI/ML API',
   'Gitlawb Opengateway',
   'Anthropic',
-  'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
   'Atlas Cloud',
@@ -324,6 +325,7 @@ function mockProviderManagerDependencies(
     codexAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
+    provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -436,6 +438,14 @@ function mockProviderManagerDependencies(
   mock.module('../utils/settings/settings.js', () => ({
     ...actualSettingsModule,
     updateSettingsForSource: () => ({ error: null }),
+  }))
+
+  mock.module('../integrations/aimlapi/index.js', () => ({
+    provisionAimlapiKey:
+      options?.provisionAimlapiKey ??
+      (async () => {
+        throw new Error('Unexpected AI/ML API top-up in test')
+      }),
   }))
 
   mock.module('./useCodexOAuthFlow.js', () => ({
@@ -877,8 +887,17 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
     expect(modelOutput).not.toContain('Base URL')
 
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
+    const choiceOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Step 2 of 2: API key'),
+    )
+    expect(choiceOutput).toContain('Top up and get API key')
+    expect(choiceOutput).toContain('Enter existing API key')
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter the API key for AI/ML API'),
     )
 
     mounted.stdin.write('aimlapi-test-key')
@@ -893,6 +912,111 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
         baseUrl: 'https://api.aimlapi.com/v1',
         model: 'gpt-4o',
         apiKey: 'aimlapi-test-key',
+        apiFormat: 'chat_completions',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager can top up AI/ML API and save the issued key', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+  const provisionAimlapiKey = mock(async (options: any) => {
+    options.onStatus?.('creating-session')
+    options.onStatus?.('opening-checkout', 'https://app.aimlapi.com/checkout/test')
+    options.onStatus?.('waiting-payment')
+    options.onStatus?.('provisioning-key')
+    return {
+      apiKey: 'aimlapi-issued-key',
+      apiKeyId: 'key_test',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'AI/ML API')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Top up and get API key'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your AI/ML API account email'),
+    )
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your AI/ML API password'),
+    )
+    mounted.stdin.write('secret-password')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose a top-up amount in USD') &&
+      frame.includes('25'),
+    )
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Payment method') &&
+      frame.includes('Card') &&
+      frame.includes('Crypto'),
+    )
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(provisionAimlapiKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'user@example.com',
+        password: 'secret-password',
+        amountUsd: '25',
+        method: 'crypto',
+        model: 'gpt-4o',
+        onStatus: expect.any(Function),
+      }),
+    )
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        name: 'AI/ML API',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-issued-key',
         apiFormat: 'chat_completions',
       }),
       expect.objectContaining({ makeActive: true }),

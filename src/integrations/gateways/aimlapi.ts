@@ -87,7 +87,8 @@ export default defineGateway({
   },
   preset: {
     id: 'aimlapi',
-    description: 'AI/ML API OpenAI-compatible endpoint',
+    description: '1,000+ models OpenAI compatible endpoint',
+    badge: { text: 'Recommended', color: 'success' },
     apiKeyEnvVars: ['AIMLAPI_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
     vendorId: 'openai',
