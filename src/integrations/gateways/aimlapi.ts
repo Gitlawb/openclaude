@@ -74,7 +74,7 @@ export default defineGateway({
     kind: 'openai-compatible',
     openaiShim: {
       headers: {
-        'X-AIMLAPI-Partner-ID': 'Gitlawb',
+        'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
         'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
         'X-AIMLAPI-Integration-Version': publicBuildVersion,
         // Attribution headers AI/ML API records for api.aimlapi.com requests
