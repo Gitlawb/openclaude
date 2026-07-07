@@ -335,14 +335,41 @@ function heuristicallyExtractBaseCommand(command: string): string {
   return extractRunnableBaseCommand(lastCommand.trim().split(/\s+/))
 }
 
-function looksLikeShortCircuitedSetupFailure(
+function usesKnownWrapper(command: string): boolean {
+  const baseCommand = heuristicallyExtractBaseCommand(command)
+  if (!WRAPPER_COMMANDS.has(baseCommand)) {
+    return false
+  }
+  const wrapped = extractWrappedCommand(command, baseCommand)
+  return wrapped !== undefined && COMMAND_SEMANTICS.has(wrapped)
+}
+
+function looksLikeWrapperFailure(
   command: string,
   exitCode: number,
   stdout: string,
   stderr: string,
   result: { isError: boolean },
 ): boolean {
-  if (exitCode === 0 || result.isError || !command.includes('&&')) {
+  if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
+    return false
+  }
+  if (stdout.trim().length > 0 || stderr.trim().length === 0) {
+    return false
+  }
+  return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
+    stderr,
+  )
+}
+
+function looksLikeSetupOrPipelineFailure(
+  command: string,
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+  result: { isError: boolean },
+): boolean {
+  if (exitCode === 0 || result.isError || !/&&|\|/.test(command)) {
     return false
   }
   if (stdout.trim().length > 0) {
@@ -367,8 +394,11 @@ export function interpretCommandResult(
 } {
   const semantic = getCommandSemantic(command)
   const result = semantic(exitCode, stdout, stderr)
+  if (looksLikeWrapperFailure(command, exitCode, stdout, stderr, result)) {
+    return DEFAULT_SEMANTIC(exitCode, stdout, stderr)
+  }
   if (
-    looksLikeShortCircuitedSetupFailure(command, exitCode, stdout, stderr, result)
+    looksLikeSetupOrPipelineFailure(command, exitCode, stdout, stderr, result)
   ) {
     return DEFAULT_SEMANTIC(exitCode, stdout, stderr)
   }

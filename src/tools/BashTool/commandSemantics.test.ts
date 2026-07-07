@@ -314,9 +314,37 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(true)
     })
 
+    test('failed pipeline input does not inherit linter or test-runner semantics', () => {
+      for (const command of [
+        'cat missing | pytest',
+        'cat missing | ruff check .',
+        'cat missing | eslint --stdin',
+      ]) {
+        const result = interpretCommandResult(
+          command,
+          1,
+          '',
+          'cat: missing: No such file or directory',
+        )
+        expect(result.isError).toBe(true)
+      }
+    })
+
     test('successful setup before && still lets linter diagnostics through', () => {
       const result = interpretCommandResult('cd src && ruff check .', 1, 'F401', '')
       expect(result.isError).toBe(false)
+    })
+
+    test('package-runner failures do not inherit wrapped-tool semantics', () => {
+      const cases = [
+        ['npx eslint .', 'npm ERR! code EAI_AGAIN'],
+        ['uvx ruff check .', 'error: Failed to download ruff'],
+        ['pipx run black --check .', 'Fatal error from pip prevented installation'],
+      ] as const
+      for (const [command, stderr] of cases) {
+        const result = interpretCommandResult(command, 1, '', stderr)
+        expect(result.isError).toBe(true)
+      }
     })
 
     test('path-prefixed eslint inherits lint semantics: exit 1 not error', () => {

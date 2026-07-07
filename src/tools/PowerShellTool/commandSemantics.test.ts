@@ -203,6 +203,18 @@ describe('interpretCommandResult (PowerShell)', () => {
       expect(result.isError).toBe(true)
     })
 
+    test('package-runner failures do not inherit wrapped-tool semantics', () => {
+      const cases = [
+        ['npx eslint .', 'npm ERR! code EAI_AGAIN'],
+        ['uvx ruff check .', 'error: Failed to download ruff'],
+        ['pipx run black --check .', 'Fatal error from pip prevented installation'],
+      ] as const
+      for (const [command, stderr] of cases) {
+        const result = interpretCommandResult(command, 1, '', stderr)
+        expect(result.isError).toBe(true)
+      }
+    })
+
     // #1846 review: Windows npm-installed tools/wrappers are invoked via `.cmd`
     // shims. These must normalize the same way `.exe` does, or the exit-1 lint
     // fix regresses on the PowerShell path (they fell back to default and
