@@ -133,6 +133,13 @@ export default defineGateway({
         modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
         notes: 'Free',
       },
+      {
+        id: 'opengateway-tencent-hy3',
+        apiName: 'tencent/hy3',
+        label: 'Tencent HY3 Free (via Opengateway)',
+        modelDescriptorId: 'tencent/hy3',
+        notes: 'Free',
+      },
     ],
   },
   usage: { supported: false },

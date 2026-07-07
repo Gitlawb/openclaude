@@ -1280,6 +1280,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'qwen/qwen3.7-max',
       'z-ai/glm-5.2',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'tencent/hy3',
     ])
   } finally {
     rendered.instance.unmount()
