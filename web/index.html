@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaude</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Projects</h2>
+      <button class="new-chat-btn" onclick="openProjectSelector()">+ New Chat</button>
+    </div>
+    <div class="project-list" id="projectList">
+      <!-- Projects will be loaded here -->
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="main-content">
+    <div class="header">
+      <h1>OpenClaude</h1>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <label class="auto-approve-toggle" title="Auto-approve all tool calls">
+          <input type="checkbox" id="autoApproveToggle" onchange="toggleAutoApprove(this.checked)">
+          <span>Auto Approve</span>
+        </label>
+        <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">🌙</button>
+        <button class="settings-btn" onclick="openSettings()">Settings</button>
+        <div class="status">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Connecting...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project Selector Modal -->
+    <div class="modal-overlay" id="projectModal">
+      <div class="modal">
+        <h2>Select Project Folder</h2>
+        <p class="modal-description">Choose an existing project or enter a new folder path</p>
+
+        <!-- Recent Projects -->
+        <div class="recent-projects" id="recentProjects">
+          <label>Recent Projects</label>
+          <div class="project-options" id="projectOptions">
+            <!-- Project options will be loaded here -->
+          </div>
+        </div>
+
+        <!-- Custom Path -->
+        <div class="form-group">
+          <label for="customPath">Or enter a custom path</label>
+          <div class="path-input-row">
+            <input type="text" id="customPath" placeholder="/path/to/your/project" autocomplete="off">
+            <button class="btn-browse" onclick="browseFolder()">Browse</button>
+          </div>
+          <div class="hint">Enter the absolute path to your project directory</div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeProjectSelector()">Cancel</button>
+          <button class="btn-save" onclick="createNewChat()">Start Chat</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+      <div class="modal">
+        <h2>Provider Settings</h2>
+        <div class="config-status" id="configStatus"></div>
+        <div class="form-group">
+          <label for="providerSelect">Provider</label>
+          <select id="providerSelect" autocomplete="off">
+            <option value="openai">OpenAI Compatible</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
+          <div class="hint">Select your API provider type</div>
+        </div>
+        <div class="form-group">
+          <label for="baseUrlInput">Base URL</label>
+          <input type="text" id="baseUrlInput" placeholder="https://api.openai.com/v1" autocomplete="off">
+          <div class="hint">API endpoint URL (e.g., http://localhost:11434/v1 for Ollama)</div>
+        </div>
+        <div class="form-group">
+          <label for="apiKeyInput">API Key</label>
+          <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="new-password">
+          <div class="hint">Leave empty to keep existing key (not required for Ollama)</div>
+        </div>
+        <div class="form-group">
+          <label for="modelInput">Model</label>
+          <input type="text" id="modelInput" placeholder="gpt-4o" autocomplete="off">
+          <div class="hint">Model name (e.g., llama3.2 for Ollama)</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+          <button class="btn-save" onclick="saveSettings()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-container" id="chatContainer">
+      <div class="message assistant">Welcome to OpenClaude! I can help you with coding tasks, file operations, and more. What would you like to work on?</div>
+    </div>
+
+    <div class="input-area">
+      <textarea
+        id="messageInput"
+        placeholder="Type your message... (Shift+Enter for new line)"
+        rows="1"
+      ></textarea>
+      <button class="send-btn" id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
