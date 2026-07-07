@@ -87,6 +87,30 @@ describe('firecrawl client', () => {
     })
   })
 
+  test('allows proxy api urls containing the cloud hostname in the path without an api key', async () => {
+    delete process.env.FIRECRAWL_API_KEY
+    process.env.FIRECRAWL_API_URL = 'https://proxy.example.com/api.firecrawl.dev'
+
+    globalThis.fetch = asMockFetch(mock(async (input, init) => {
+      expect(String(input)).toBe('https://proxy.example.com/api.firecrawl.dev/v2/search')
+      expect((init?.headers as Record<string, string>).Authorization).toBeUndefined()
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [{ url: 'https://example.com/proxy' }],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }))
+
+    await expect(firecrawlSearch('openclaude', { maxRetries: 1 })).resolves.toEqual({
+      web: [{ url: 'https://example.com/proxy' }],
+    })
+  })
+
   test('cloud api requires an api key', async () => {
     delete process.env.FIRECRAWL_API_KEY
     delete process.env.FIRECRAWL_API_URL

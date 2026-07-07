@@ -43,6 +43,7 @@ import {
   type ProviderMode,
 } from '../src/tools/WebSearchTool/providers/index.js'
 import { getWebSearchTimeoutMs } from '../src/tools/WebSearchTool/providers/timeout.js'
+import { isFirecrawlCloudApiUrl } from '../src/tools/firecrawl/client.js'
 import { getAPIProvider } from '../src/utils/model/providers.js'
 import { getMainLoopModel } from '../src/utils/model/model.js'
 
@@ -323,19 +324,6 @@ function appendConfiguredWebSearchApiProviderDetail(result: CheckResult): CheckR
   return {
     ...result,
     detail: result.detail ? `${result.detail} ${providerDetail}` : providerDetail,
-  }
-}
-
-function isFirecrawlCloudApiUrl(apiUrl: string | undefined): boolean {
-  const normalized = (apiUrl ?? 'https://api.firecrawl.dev').trim()
-  try {
-    return new URL(normalized).hostname === 'api.firecrawl.dev'
-  } catch {
-    const withoutTrailingSlash = normalized.replace(/\/+$/, '')
-    return (
-      withoutTrailingSlash === 'https://api.firecrawl.dev' ||
-      withoutTrailingSlash === 'api.firecrawl.dev'
-    )
   }
 }
 
