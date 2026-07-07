@@ -977,6 +977,17 @@ export function resolveAppliedEffort(
   return resolved
 }
 
+function isEffectiveUltracodeDisplay(
+  model: string,
+  effort: EffortValue | undefined,
+  context?: ReasoningControlContext,
+): boolean {
+  return (
+    effort === 'ultracode' &&
+    getAvailableEffortLevels(model, context).includes('ultracode')
+  )
+}
+
 /**
  * Resolve the effort level to show the user. Wraps resolveAppliedEffort
  * with the 'high' fallback (what the API uses when no effort param is sent).
@@ -985,6 +996,7 @@ export function resolveAppliedEffort(
 export function getDisplayedEffortLevel(
   model: string,
   appStateEffort: EffortValue | undefined,
+  context?: ReasoningControlContext,
 ): EffortLevel {
   // `ultracode` is a meta-mode (the standing multi-agent permission), not just
   // an API effort alias, so surface it as the current level rather than the
@@ -996,10 +1008,10 @@ export function getDisplayedEffortLevel(
   const envOverride = getEffortEnvOverride()
   const effectiveEffort =
     envOverride === null ? undefined : (envOverride ?? appStateEffort)
-  if (effectiveEffort === 'ultracode') {
+  if (isEffectiveUltracodeDisplay(model, effectiveEffort, context)) {
     return 'ultracode'
   }
-  const resolved = resolveAppliedEffort(model, appStateEffort) ?? 'high'
+  const resolved = resolveAppliedEffort(model, appStateEffort, context) ?? 'high'
   return convertEffortValueToLevel(resolved)
 }
 
@@ -1012,6 +1024,7 @@ export function getDisplayedEffortLevel(
 export function getEffortSuffix(
   model: string,
   effortValue: EffortValue | undefined,
+  context?: ReasoningControlContext,
 ): string {
   if (effortValue === undefined) return ''
   // Surface the ultracode meta-mode here too (Logo/Spinner), consistent with
@@ -1021,10 +1034,10 @@ export function getEffortSuffix(
   const envOverride = getEffortEnvOverride()
   const effectiveEffort =
     envOverride === null ? undefined : (envOverride ?? effortValue)
-  if (effectiveEffort === 'ultracode') {
+  if (isEffectiveUltracodeDisplay(model, effectiveEffort, context)) {
     return ' with ultracode effort'
   }
-  const resolved = resolveAppliedEffort(model, effortValue)
+  const resolved = resolveAppliedEffort(model, effortValue, context)
   if (resolved === undefined) return ''
   return ` with ${convertEffortValueToLevel(resolved)} effort`
 }
