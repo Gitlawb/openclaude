@@ -117,8 +117,8 @@ describe('latestUserMessageHasNonTextContent', () => {
   })
 
   test('skips meta and tool-result carriers', () => {
-    const msgs = [imageMsg(), toolResultMsg(), userMsg('nudge', true), userMsg('plain')]
-    expect(latestUserMessageHasNonTextContent(msgs)).toBe(false)
+    const msgs = [userMsg('plain'), imageMsg(), toolResultMsg(), userMsg('nudge', true)]
+    expect(latestUserMessageHasNonTextContent(msgs)).toBe(true)
   })
 })
 
