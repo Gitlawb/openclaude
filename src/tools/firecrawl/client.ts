@@ -48,10 +48,7 @@ export function isFirecrawlCloudApiUrl(apiUrl: string | undefined): boolean {
     return new URL(normalized).hostname === 'api.firecrawl.dev'
   } catch {
     const withoutTrailingSlash = normalized.replace(/\/+$/, '')
-    return (
-      withoutTrailingSlash === DEFAULT_FIRECRAWL_API_URL ||
-      withoutTrailingSlash === 'api.firecrawl.dev'
-    )
+    return withoutTrailingSlash.toLowerCase() === 'api.firecrawl.dev'
   }
 }
 

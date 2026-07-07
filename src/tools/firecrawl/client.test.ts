@@ -120,6 +120,24 @@ describe('firecrawl client', () => {
     )
   })
 
+  test('bare cloud api host requires an api key case-insensitively', async () => {
+    for (const apiUrl of ['API.FIRECRAWL.DEV', 'API.FIRECRAWL.DEV/']) {
+      delete process.env.FIRECRAWL_API_KEY
+      process.env.FIRECRAWL_API_URL = apiUrl
+
+      globalThis.fetch = asMockFetch(mock(async () => {
+        return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }))
+
+      await expect(firecrawlSearch('openclaude')).rejects.toThrow(
+        'Firecrawl API key is required for the cloud API.',
+      )
+    }
+  })
+
   test('retries transient 502 responses before succeeding', async () => {
     process.env.FIRECRAWL_API_KEY = 'fc-test-key'
     delete process.env.FIRECRAWL_API_URL
