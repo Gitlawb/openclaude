@@ -17,6 +17,7 @@ import {
   getTLSFetchOptions,
   type TLSConfig,
 } from './mtls.js'
+import { importOptionalRuntimeModule } from './optionalRuntimeModule.js'
 
 // Disable fetch keep-alive after a stale-pool ECONNRESET so retries open a
 // fresh TCP connection instead of reusing the dead pooled socket. Sticky for
@@ -401,8 +402,14 @@ export async function getAWSClientProxyConfig(): Promise<object> {
   }
 
   const [{ NodeHttpHandler }, { defaultProvider }] = await Promise.all([
-    import('@smithy/node-http-handler'),
-    import('@aws-sdk/credential-provider-node'),
+    importOptionalRuntimeModule<typeof import('@smithy/node-http-handler')>(
+      '@smithy/node-http-handler',
+      'AWS proxy support',
+    ),
+    importOptionalRuntimeModule<typeof import('@aws-sdk/credential-provider-node')>(
+      '@aws-sdk/credential-provider-node',
+      'AWS proxy support',
+    ),
   ])
 
   const agent = createHttpsProxyAgent(proxyUrl)

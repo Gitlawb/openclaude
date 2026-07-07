@@ -3,7 +3,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { memoizeWithTTLAsync } from './memoize.js'
-import { importOptionalRuntimeModule } from './optionalRuntimeModule.js'
+import {
+  importOptionalRuntimeModule,
+  isOptionalRuntimeModuleUnavailableError,
+} from './optionalRuntimeModule.js'
 
 const GEMINI_ADC_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 const GEMINI_ADC_CACHE_TTL_MS = 5 * 60 * 1000
@@ -177,7 +180,10 @@ async function resolveGeminiAdcCredentialUncached(
       credential: accessToken,
       ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
     }
-  } catch {
+  } catch (error) {
+    if (isOptionalRuntimeModuleUnavailableError(error)) {
+      throw error
+    }
     return { kind: 'none' }
   }
 }

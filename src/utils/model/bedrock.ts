@@ -51,6 +51,31 @@ export function findFirstMatch(
   return profiles.find(p => p.includes(substring)) ?? null
 }
 
+async function getBedrockNoAuthConfig() {
+  const [{ NodeHttpHandler }, { NoAuthSigner }] = await Promise.all([
+    importOptionalRuntimeModule<typeof import('@smithy/node-http-handler')>(
+      '@smithy/node-http-handler',
+      'AWS Bedrock no-auth support',
+    ),
+    importOptionalRuntimeModule<typeof import('@smithy/core')>(
+      '@smithy/core',
+      'AWS Bedrock no-auth support',
+    ),
+  ])
+
+  return {
+    requestHandler: new NodeHttpHandler(),
+    httpAuthSchemes: [
+      {
+        schemeId: 'smithy.api#noAuth',
+        identityProvider: () => async () => ({}),
+        signer: new NoAuthSigner(),
+      },
+    ],
+    httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
+  }
+}
+
 async function createBedrockClient() {
   const { BedrockClient } = await importOptionalRuntimeModule<
     typeof import('@aws-sdk/client-bedrock')
@@ -69,19 +94,7 @@ async function createBedrockClient() {
       endpoint: process.env.ANTHROPIC_BEDROCK_BASE_URL,
     }),
     ...(await getAWSClientProxyConfig()),
-    ...(skipAuth && {
-      requestHandler: new (
-        await import('@smithy/node-http-handler')
-      ).NodeHttpHandler(),
-      httpAuthSchemes: [
-        {
-          schemeId: 'smithy.api#noAuth',
-          identityProvider: () => async () => ({}),
-          signer: new (await import('@smithy/core')).NoAuthSigner(),
-        },
-      ],
-      httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
-    }),
+    ...(skipAuth ? await getBedrockNoAuthConfig() : {}),
   }
 
   if (!skipAuth && !process.env.AWS_BEARER_TOKEN_BEDROCK) {
@@ -112,21 +125,7 @@ export async function createBedrockRuntimeClient() {
       endpoint: process.env.ANTHROPIC_BEDROCK_BASE_URL,
     }),
     ...(await getAWSClientProxyConfig()),
-    ...(skipAuth && {
-      // BedrockRuntimeClient defaults to HTTP/2 without fallback
-      // proxy servers may not support this, so we explicitly force HTTP/1.1
-      requestHandler: new (
-        await import('@smithy/node-http-handler')
-      ).NodeHttpHandler(),
-      httpAuthSchemes: [
-        {
-          schemeId: 'smithy.api#noAuth',
-          identityProvider: () => async () => ({}),
-          signer: new (await import('@smithy/core')).NoAuthSigner(),
-        },
-      ],
-      httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
-    }),
+    ...(skipAuth ? await getBedrockNoAuthConfig() : {}),
   }
 
   if (!skipAuth && !process.env.AWS_BEARER_TOKEN_BEDROCK) {

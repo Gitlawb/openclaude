@@ -17,6 +17,25 @@ const runtimeImport = new Function(
   'return import(specifier)',
 ) as (specifier: string) => Promise<any>
 
+export class OptionalRuntimeModuleUnavailableError extends Error {
+  constructor(
+    readonly feature: string,
+    readonly specifier: string,
+  ) {
+    super(
+      `${feature} requires the "${specifier}" package, which is not installed. ` +
+        `Install it with \`npm install ${specifier}\` (add \`-g\` if you installed the CLI globally) to enable it.`,
+    )
+    this.name = 'OptionalRuntimeModuleUnavailableError'
+  }
+}
+
+export function isOptionalRuntimeModuleUnavailableError(
+  error: unknown,
+): error is OptionalRuntimeModuleUnavailableError {
+  return error instanceof OptionalRuntimeModuleUnavailableError
+}
+
 /** Raw runtime import — rejects with the underlying error if the module is missing. */
 export function importRuntimeModule(specifier: string): Promise<any> {
   return runtimeImport(specifier)
@@ -65,10 +84,7 @@ export async function importOptionalRuntimeModule<T = unknown>(
       // Context-neutral install hint: this helper backs both the globally
       // installed CLI and the project-local ./sdk consumers, so don't prescribe
       // `-g` (which is wrong for a local SDK install).
-      throw new Error(
-        `${feature} requires the "${specifier}" package, which is not installed. ` +
-          `Install it with \`npm install ${specifier}\` (add \`-g\` if you installed the CLI globally) to enable it.`,
-      )
+      throw new OptionalRuntimeModuleUnavailableError(feature, specifier)
     }
     throw e
   }

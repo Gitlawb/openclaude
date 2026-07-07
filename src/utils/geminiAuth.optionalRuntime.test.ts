@@ -3,6 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { OptionalRuntimeModuleUnavailableError } from './optionalRuntimeModule.js'
 
 const originalEnv = { ...process.env }
 
@@ -27,10 +28,7 @@ afterEach(() => {
 
 test('Gemini ADC reports missing google-auth-library through the optional runtime helper', async () => {
   const importOptionalRuntimeModule = mock(async (specifier: string, feature: string) => {
-    throw new Error(
-      `${feature} requires the "${specifier}" package, which is not installed. ` +
-        `Install it with \`npm install ${specifier}\` (add \`-g\` if you installed the CLI globally) to enable it.`,
-    )
+    throw new OptionalRuntimeModuleUnavailableError(feature, specifier)
   })
 
   const { resolveGeminiCredential } = await import(
@@ -39,9 +37,25 @@ test('Gemini ADC reports missing google-auth-library through the optional runtim
 
   await expect(
     resolveGeminiCredential(process.env, { importOptionalRuntimeModule }),
-  ).resolves.toEqual({ kind: 'none' })
+  ).rejects.toThrow(/Gemini Application Default Credentials requires the "google-auth-library" package/)
   expect(importOptionalRuntimeModule).toHaveBeenCalledWith(
     'google-auth-library',
     'Gemini Application Default Credentials',
   )
+})
+
+test('Gemini ADC still degrades to none for credential lookup failures', async () => {
+  const { resolveGeminiCredential } = await import(
+    `./geminiAuth.ts?credential-failure=${Date.now()}-${Math.random()}`
+  )
+
+  await expect(
+    resolveGeminiCredential(process.env, {
+      createGoogleAuth: async () => ({
+        getClient: async () => {
+          throw new Error('ADC token unavailable')
+        },
+      }),
+    }),
+  ).resolves.toEqual({ kind: 'none' })
 })

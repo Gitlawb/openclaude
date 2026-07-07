@@ -19,7 +19,10 @@ export const COMMON_EXTERNALS: string[] = [
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
   '@aws-sdk/client-sts',
+  '@aws-sdk/credential-provider-node',
   '@aws-sdk/credential-providers',
+  '@smithy/core',
+  '@smithy/node-http-handler',
   '@azure/identity',
   'google-auth-library',
   // @vscode/ripgrep ships a platform-specific binary alongside its
@@ -55,7 +58,10 @@ export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
   '@aws-sdk/client-sts',
+  '@aws-sdk/credential-provider-node',
   '@aws-sdk/credential-providers',
+  '@smithy/core',
+  '@smithy/node-http-handler',
   '@azure/identity',
   // Anthropic Bedrock client — loaded via the runtime importer in
   // services/api/client.ts. Not bundled (it statically imports @aws-sdk) and

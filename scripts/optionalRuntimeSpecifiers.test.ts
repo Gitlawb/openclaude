@@ -31,12 +31,12 @@ function walk(dir: string): string[] {
 }
 
 // Capture the first string argument of every importOptionalRuntimeModule(...)
-// call, including the client module's test-injectable wrapper. Allow an
+// call, including test-injectable wrappers. Allow an
 // optional generic type argument before the parens —
 // `importOptionalRuntimeModule<typeof import('x')>('x', ...)` — and let it span
 // lines (the in-between matchers are character classes, which match newlines).
 const CALL_RE =
-  /importOptionalRuntimeModule(?:ForClient)?(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/g
+  /(?:importOptionalRuntimeModule(?:ForClient)?|optionalRuntimeImporter)(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/g
 
 function collectSpecifiers(): { specifier: string; file: string }[] {
   const found: { specifier: string; file: string }[] = []
@@ -60,7 +60,10 @@ const EXPECTED_SPECIFIERS = [
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
   '@aws-sdk/client-sts',
+  '@aws-sdk/credential-provider-node',
   '@aws-sdk/credential-providers',
+  '@smithy/core',
+  '@smithy/node-http-handler',
   '@azure/identity',
   'google-auth-library',
 ].sort()
