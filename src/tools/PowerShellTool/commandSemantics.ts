@@ -58,17 +58,21 @@ const DIAGNOSTIC_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
 })
 
 /**
- * `tsc` exits 2 for reported type errors, while exit 1 means bad usage/config.
+ * `tsc` can report type diagnostics with either exit 1 or 2 depending on mode
+ * (for example, build mode uses DiagnosticsPresent_OutputsSkipped = 1).
  */
-const TSC_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
-  isError: exitCode !== 0 && exitCode !== 2,
-  message:
-    exitCode === 2
+const TSC_SEMANTIC: CommandSemantic = (exitCode, stdout, stderr) => {
+  const hasTypeScriptDiagnostics =
+    exitCode === 2 || (exitCode === 1 && /error TS\d+/i.test(stdout + stderr))
+  return {
+    isError: exitCode !== 0 && !hasTypeScriptDiagnostics,
+    message: hasTypeScriptDiagnostics
       ? 'type errors reported'
       : exitCode !== 0
         ? `Command failed with exit code ${exitCode}`
         : undefined,
-})
+  }
+}
 
 /**
  * `pylint` uses a bitfield: bits 0-4 are diagnostics, bit 5 is usage error.

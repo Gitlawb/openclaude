@@ -81,7 +81,10 @@ describe('interpretCommandResult (PowerShell)', () => {
       }
     })
 
-    test('tsc exit code 2 = type errors reported, exit 1 = real invocation error', () => {
+    test('tsc diagnostic exits report type errors while usage failures stay errors', () => {
+      expect(
+        interpretCommandResult('tsc --build', 1, 'error TS2322', '').isError,
+      ).toBe(false)
       expect(
         interpretCommandResult('tsc --noEmit', 2, 'error TS2322', '').isError,
       ).toBe(false)
