@@ -166,17 +166,18 @@ export const JETBRAINS_IDES = [
 
 // Detect terminal type with fallbacks for all platforms
 function detectTerminal(): string | null {
+  const askpassMain = process.env.VSCODE_GIT_ASKPASS_MAIN?.toLowerCase()
   if (process.env.CURSOR_TRACE_ID) return 'cursor'
   // Cursor and Windsurf under WSL have TERM_PROGRAM=vscode
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('cursor')) {
+  if (askpassMain?.includes('cursor')) {
     return 'cursor'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('windsurf')) {
+  if (askpassMain?.includes('windsurf')) {
     return 'windsurf'
   }
   if (
-    process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('antigravity') ||
-    process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('agy') ||
+    askpassMain?.includes('antigravity') ||
+    askpassMain?.includes('agy') ||
     process.env.TERM_PROGRAM === 'agy'
   ) {
     return 'agy'

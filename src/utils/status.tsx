@@ -43,7 +43,7 @@ const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
   foundry: 'Microsoft Foundry',
   openai: 'OpenAI-compatible',
   codex: 'Codex',
-  gemini: 'Google Gemini',
+  gemini: 'Google AI / Gemini',
   github: 'GitHub Models',
   'nvidia-nim': 'NVIDIA NIM',
   minimax: 'MiniMax',

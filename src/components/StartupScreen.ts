@@ -85,7 +85,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   if (useGemini) {
     const model = modelOverride || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
     const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
-    return { name: 'Google Gemini', model, baseUrl, isLocal: false }
+    return { name: 'Google AI / Gemini', model, baseUrl, isLocal: false }
   }
 
   if (useMistral) {

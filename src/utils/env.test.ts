@@ -182,3 +182,52 @@ test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains antigravity'
     }
   }
 })
+
+test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains mixed-case Antigravity app path', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    delete process.env.TERM_PROGRAM
+    process.env.VSCODE_GIT_ASKPASS_MAIN =
+      '/Applications/Antigravity.app/Contents/Resources/app/extensions/git/dist/askpass-main.js'
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: agy is classified as a VS Code-like IDE terminal', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    process.env.TERM_PROGRAM = 'agy'
+    delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    const { env } = await importFreshEnvModule()
+    const { isVSCodeIde, toIDEDisplayName } =
+      await import(`./ide.js?ts=${Date.now()}-${Math.random()}`)
+    expect(env.terminal).toBe('agy')
+    expect(toIDEDisplayName(env.terminal)).toBe('Antigravity')
+    expect(isVSCodeIde(env.terminal)).toBe(true)
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
