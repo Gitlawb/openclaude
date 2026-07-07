@@ -42,10 +42,17 @@ function formatPersistError(error: Error): string {
   return `Failed to update smart routing settings: ${error.message}`
 }
 
+function readCurrentSmartRouting(settings: SettingsJson): SmartRoutingSettings {
+  if (settings.smartRouting !== undefined) return { ...settings.smartRouting }
+  const normalized = readSmartRouting(settings)
+  if (!normalized.enabled) return {}
+  return { ...normalized }
+}
+
 const call: LocalCommandCall = async (args, context) => {
   const arg = args.trim()
   const settings = context.getAppState().settings as unknown as SettingsJson
-  const current: SmartRoutingSettings = { ...(settings?.smartRouting ?? {}) }
+  const current = readCurrentSmartRouting(settings)
   const agentModelKeys = Object.keys(settings?.agentModels ?? {})
 
   const persist = (next: SmartRoutingSettings): Error | null => {

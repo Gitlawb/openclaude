@@ -272,6 +272,19 @@ function textOfContent(content: unknown): string {
   return ''
 }
 
+/** Whether the most recent real user turn includes image/document or other non-text content. */
+export function latestUserMessageHasNonTextContent(messages: readonly TurnCountMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (!isRealUserMessage(m)) continue
+    const content = m.message?.content
+    return Array.isArray(content) && content.some(
+      block => !(typeof block === 'object' && block !== null && (block as { type?: string }).type === 'text'),
+    )
+  }
+  return false
+}
+
 /** Text of the most recent real user message (for `RoutingInput.userText`). */
 export function extractLatestUserText(messages: readonly TurnCountMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {

@@ -83,6 +83,23 @@ describe('/smartroute command', () => {
     expect(writeSpy).not.toHaveBeenCalled()
   })
 
+  test('on accepts env-backed roles and persists the normalized settings block', async () => {
+    process.env.OPENCLAUDE_SMART_ROUTING = '1'
+    process.env.OPENCLAUDE_SMART_ROUTING_SIMPLE = 'mini'
+    process.env.OPENCLAUDE_SMART_ROUTING_STRONG = 'main'
+    const ctx = makeContext()
+    const res = expectText(await call('on', ctx))
+    expect(res.value).toContain('Smart routing enabled')
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
+      smartRouting: { enabled: true, simpleModel: 'mini', strongModel: 'main' },
+    })
+    expect(ctx._state().settings.smartRouting).toEqual({
+      enabled: true,
+      simpleModel: 'mini',
+      strongModel: 'main',
+    })
+  })
+
   test('setting simple/strong to a valid key persists', async () => {
     const ctx = makeContext()
     await call('simple mini', ctx)
@@ -104,6 +121,17 @@ describe('/smartroute command', () => {
     const ctx = makeContext()
     await call('strong main', ctx)
     expect(writeSpy).toHaveBeenCalledWith('userSettings', { smartRouting: { strongModel: 'main' } })
+  })
+
+  test('setting one role preserves env-backed defaults instead of shadowing them with a partial block', async () => {
+    process.env.OPENCLAUDE_SMART_ROUTING = '1'
+    process.env.OPENCLAUDE_SMART_ROUTING_SIMPLE = 'mini'
+    process.env.OPENCLAUDE_SMART_ROUTING_STRONG = 'main'
+    const ctx = makeContext()
+    await call('simple main', ctx)
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
+      smartRouting: { enabled: true, simpleModel: 'main', strongModel: 'main' },
+    })
   })
 
   test('simple/strong with no value argument is rejected', async () => {

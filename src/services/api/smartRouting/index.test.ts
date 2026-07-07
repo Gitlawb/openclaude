@@ -9,6 +9,7 @@ import {
   getRoutingTally,
   isRetryableRoutedModelError,
   isSmartRoutingDisabledForSession,
+  latestUserMessageHasNonTextContent,
   recordRoutingDecision,
   recordRoutingEscalation,
   resetRoutingTally,
@@ -61,6 +62,13 @@ const toolResultMsg = () => ({
   type: 'user',
   message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] },
 })
+const imageMsg = () => ({
+  type: 'user',
+  message: {
+    role: 'user',
+    content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }],
+  },
+})
 const assistantMsg = () => ({ type: 'assistant', message: { role: 'assistant', content: 'hi' } })
 
 describe('deriveUserTurnNumber', () => {
@@ -94,6 +102,23 @@ describe('extractLatestUserText', () => {
   test('joins text blocks of array content', () => {
     const msgs = [{ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] } }]
     expect(extractLatestUserText(msgs)).toBe('a\nb')
+  })
+})
+
+describe('latestUserMessageHasNonTextContent', () => {
+  test('detects image/document-style blocks on the latest real user turn', () => {
+    expect(latestUserMessageHasNonTextContent([userMsg('old'), imageMsg()])).toBe(true)
+    expect(
+      latestUserMessageHasNonTextContent([
+        imageMsg(),
+        { type: 'user', message: { content: [{ type: 'text', text: 'plain follow-up' }] } },
+      ]),
+    ).toBe(false)
+  })
+
+  test('skips meta and tool-result carriers', () => {
+    const msgs = [imageMsg(), toolResultMsg(), userMsg('nudge', true), userMsg('plain')]
+    expect(latestUserMessageHasNonTextContent(msgs)).toBe(false)
   })
 })
 
@@ -138,6 +163,16 @@ describe('decideTurnModel', () => {
       settings: enabledSettings(),
       parentModel: PARENT,
       input: { userText: 'refactor the auth module please', turnNumber: 4 },
+    })
+    expect(d).toMatchObject({ routed: true, complexity: 'strong', model: 'gpt-5' })
+  })
+
+  test('non-text user content routes strong even when the text extractor is empty', () => {
+    mockGlobalAllowlist(undefined)
+    const d = decideTurnModel({
+      settings: enabledSettings(),
+      parentModel: PARENT,
+      input: { userText: '', hasNonTextContent: true, turnNumber: 4 },
     })
     expect(d).toMatchObject({ routed: true, complexity: 'strong', model: 'gpt-5' })
   })

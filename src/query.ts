@@ -143,6 +143,7 @@ import {
   deriveUserTurnNumber,
   extractLatestUserText,
   isRetryableRoutedModelError,
+  latestUserMessageHasNonTextContent,
   recordRoutingDecision,
   recordRoutingEscalation,
   shouldDropPinForProviderSwap,
@@ -1013,6 +1014,7 @@ async function* queryLoop(
         permissionMode,
         input: {
           userText: extractLatestUserText(messagesForQuery),
+          hasNonTextContent: latestUserMessageHasNonTextContent(messagesForQuery),
           turnNumber: deriveUserTurnNumber(messagesForQuery),
         },
         sessionId: getSessionId(),

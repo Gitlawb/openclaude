@@ -38,6 +38,8 @@ export type RoutingDecision = {
 export type RoutingInput = {
   /** The user's message text for this turn. */
   userText: string
+  /** True when the latest user turn includes image/document or other non-text blocks. */
+  hasNonTextContent?: boolean
   /**
    * Optional: how many tool-use blocks the assistant has emitted in the
    * recent conversation. High values correlate with "continue this work"
@@ -145,6 +147,14 @@ export function routeModel(
 
   const text = input.userText ?? ''
   const trimmed = text.trim()
+
+  if (input.hasNonTextContent) {
+    return {
+      model: config.strongModel,
+      complexity: 'strong',
+      reason: 'contains non-text content',
+    }
+  }
 
   if (!trimmed) {
     // Empty input (e.g. resuming a tool-use chain) — cheap by default.
