@@ -20,6 +20,15 @@ function stalledJsonResponse(status = 200): Response {
   })
 }
 
+function expectSignalAbort(signal: AbortSignal | undefined): Promise<void> {
+  expect(signal).toBeInstanceOf(AbortSignal)
+  if (signal?.aborted) return Promise.resolve()
+
+  return new Promise(resolve => {
+    signal?.addEventListener('abort', () => resolve(), { once: true })
+  })
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
 })
@@ -115,28 +124,16 @@ describe('braveProvider search', () => {
   test('rejects when the provider-level timeout elapses', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
-    let abortObserved = false
+    let signalAborted: Promise<void> | undefined
     globalThis.fetch = (async (_input: any, init: any) => {
-      const signal = init?.signal as AbortSignal | undefined
-      expect(signal).toBeInstanceOf(AbortSignal)
-
-      return new Promise<Response>((_resolve, reject) => {
-        signal?.addEventListener(
-          'abort',
-          () => {
-            abortObserved = true
-            reject(signal.reason)
-          },
-          { once: true },
-        )
-      })
+      signalAborted = expectSignalAbort(init?.signal as AbortSignal | undefined)
+      return new Promise<Response>(() => undefined)
     }) as typeof fetch
 
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
       /Brave search timed out/,
     )
-
-    expect(abortObserved).toBe(true)
+    await expect(signalAborted).resolves.toBeUndefined()
   })
 
   test('rejects when the response body stalls after headers arrive', async () => {
@@ -154,14 +151,16 @@ describe('braveProvider search', () => {
   test('rejects when a non-2xx error body stalls after headers arrive', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
+    let signalAborted: Promise<void> | undefined
     globalThis.fetch = (async (_input: any, init: any) => {
-      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      signalAborted = expectSignalAbort(init?.signal as AbortSignal | undefined)
       return stalledJsonResponse(500)
     }) as typeof fetch
 
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
       /Brave search timed out/,
     )
+    await expect(signalAborted).resolves.toBeUndefined()
   })
 
   test('returns empty hits when web.results is missing', async () => {
