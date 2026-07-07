@@ -110,7 +110,7 @@ async function waitForCondition(
 }
 
 // Provider list is sorted from generated preset metadata by description, with
-// AI/ML API pinned first, Gitlawb Opengateway second, Codex OAuth injected
+// Gitlawb Opengateway pinned first, Anthropic second, Codex OAuth injected
 // after DeepSeek, and Custom always pinned last. Keep the target-by-label
 // indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
@@ -118,9 +118,9 @@ async function waitForCondition(
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
-  'AI/ML API',
   'Gitlawb Opengateway',
   'Anthropic',
+  'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
   'Atlas Cloud',

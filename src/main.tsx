@@ -4016,7 +4016,6 @@ async function run(): Promise<CommanderCommand> {
   aimlapi.command('topup')
     .description("Log in, open AI/ML API top-up, then set the issued key as OpenClaude's provider")
     .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
-    .option('--password <password>', 'AI/ML API account password (prefer the AIMLAPI_PASSWORD env var)')
     .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
     .addOption(new Option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)').choices(['card', 'crypto']).default('card'))
     .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
@@ -4024,7 +4023,6 @@ async function run(): Promise<CommanderCommand> {
     .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
     .action(async (opts: {
       email?: string;
-      password?: string;
       amount?: string;
       method?: string;
       model?: string;
@@ -4034,7 +4032,6 @@ async function run(): Promise<CommanderCommand> {
       const { aimlapiTopup } = await import('./cli/handlers/aimlapi.js');
       await aimlapiTopup({
         email: opts.email,
-        password: opts.password,
         amountUsd: opts.amount,
         method: opts.method === 'crypto' ? 'crypto' : 'card',
         model: opts.model,

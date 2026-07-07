@@ -184,6 +184,7 @@ export class AimlapiClient {
     }
 
     let response: Response
+    let text: string
     try {
       response = await fetch(url, {
         method: options.method,
@@ -191,12 +192,12 @@ export class AimlapiClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       })
+      text = await response.text()
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       throw new AimlapiApiError(`Network request to ${url} failed: ${reason}`, 0, '')
     }
 
-    const text = await response.text()
     if (!response.ok) {
       throw new AimlapiApiError(
         `${options.method} ${url} -> ${response.status}`,
