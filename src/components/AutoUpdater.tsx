@@ -5,7 +5,7 @@ import { useInterval } from 'usehooks-ts';
 import { useUpdateNotification } from '../hooks/useUpdateNotification.js';
 import { Box, Text } from '../ink.js';
 import { type AutoUpdaterResult, getLatestVersion, getMaxVersion, type InstallStatus, installGlobalPackage, shouldSkipVersion } from '../utils/autoUpdater.js';
-import { getAutoUpdaterNpmMethod } from '../utils/autoUpdaterRouting.js';
+import { getAutoUpdaterNpmMethod, shouldRemoveInstalledSymlinkForNpmUpdate } from '../utils/autoUpdaterRouting.js';
 import { getGlobalConfig, isAutoUpdaterDisabled } from '../utils/config.js';
 import { logForDebugging } from '../utils/debug.js';
 import { getCurrentInstallationType } from '../utils/doctorDiagnostic.js';
@@ -87,7 +87,12 @@ export function AutoUpdater({
       // Remove native installer symlink since we're using JS-based updates
       // But only if user hasn't migrated to native installation
       const config = getGlobalConfig();
-      if (config.installMethod !== 'native') {
+      if (
+        shouldRemoveInstalledSymlinkForNpmUpdate(
+          config.installMethod,
+          hasNativeDistribution(),
+        )
+      ) {
         await removeInstalledSymlink();
       }
 

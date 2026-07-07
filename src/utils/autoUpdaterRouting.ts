@@ -27,3 +27,10 @@ export function shouldUseNativeAutoUpdater(
 ): boolean {
   return installationType === 'native' && nativeDistributionAvailable
 }
+
+export function shouldRemoveInstalledSymlinkForNpmUpdate(
+  configInstallMethod: InstallMethod | undefined,
+  nativeDistributionAvailable: boolean,
+): boolean {
+  return configInstallMethod !== 'native' || !nativeDistributionAvailable
+}

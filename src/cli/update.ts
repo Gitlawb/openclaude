@@ -26,8 +26,12 @@ import {
 import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
+import { shouldRemoveInstalledSymlinkForNpmUpdate } from 'src/utils/autoUpdaterRouting.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
-import { isThirdPartyBuildBlocked, planUpdate } from 'src/utils/updateStrategy.js'
+import {
+  isThirdPartyBuildBlocked,
+  planUpdate,
+} from 'src/utils/updateStrategy.js'
 
 export function getGlobalUpdateFailureHint(
   nativeDistributionAvailable: boolean = hasNativeDistribution(),
@@ -296,7 +300,12 @@ export async function update() {
   // Fallback to existing JS/npm-based update logic
   // Remove native installer symlink since we're not using native installation
   // But only if user hasn't migrated to native installation
-  if (config.installMethod !== 'native') {
+  if (
+    shouldRemoveInstalledSymlinkForNpmUpdate(
+      config.installMethod,
+      hasNativeDistribution(),
+    )
+  ) {
     await removeInstalledSymlink()
   }
 

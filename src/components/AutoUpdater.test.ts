@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   getAutoUpdaterNpmMethod,
+  shouldRemoveInstalledSymlinkForNpmUpdate,
   shouldUseNativeAutoUpdater,
 } from '../utils/autoUpdaterRouting.js'
 
@@ -27,5 +28,21 @@ describe('shouldUseNativeAutoUpdater', () => {
     expect(shouldUseNativeAutoUpdater('native', false)).toBe(false)
     expect(shouldUseNativeAutoUpdater('npm-global', true)).toBe(false)
     expect(shouldUseNativeAutoUpdater('development', true)).toBe(false)
+  })
+})
+
+describe('shouldRemoveInstalledSymlinkForNpmUpdate', () => {
+  test('removes stale native launchers for npm-only builds even with native config', () => {
+    expect(shouldRemoveInstalledSymlinkForNpmUpdate('native', false)).toBe(true)
+  })
+
+  test('preserves native launchers for native-capable builds', () => {
+    expect(shouldRemoveInstalledSymlinkForNpmUpdate('native', true)).toBe(false)
+  })
+
+  test('keeps existing npm-update cleanup for non-native config states', () => {
+    expect(shouldRemoveInstalledSymlinkForNpmUpdate('global', false)).toBe(true)
+    expect(shouldRemoveInstalledSymlinkForNpmUpdate('local', true)).toBe(true)
+    expect(shouldRemoveInstalledSymlinkForNpmUpdate(undefined, true)).toBe(true)
   })
 })
