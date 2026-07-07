@@ -1430,7 +1430,14 @@ async function* queryLoop(
               const msgToolUseBlocks = message.message.content.filter(
                 content => content.type === 'tool_use',
               ) as ToolUseBlock[]
-              if (msgToolUseBlocks.length > 0) {
+              // Treat '[Tool results received]' placeholder as a synonym for tool_use
+              // to ensure execution continues when using self-hosted llama-server
+              const hasToolResultsMarker = message.message.content.some(
+                content =>
+                  content.type === 'text' &&
+                  content.text === '[Tool results received]',
+              )
+              if (msgToolUseBlocks.length > 0 || hasToolResultsMarker) {
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true
               }
