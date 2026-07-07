@@ -29,6 +29,14 @@ import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 import { isThirdPartyBuildBlocked, planUpdate } from 'src/utils/updateStrategy.js'
 
+export function getGlobalUpdateFailureHint(
+  nativeDistributionAvailable: boolean = hasNativeDistribution(),
+): string {
+  return nativeDistributionAvailable
+    ? 'Or consider using native installation with: openclaude install\n'
+    : `Or update manually with:\n  npm install -g ${MACRO.PACKAGE_URL}@latest\n`
+}
+
 export async function update() {
   // Block updates for third-party providers using upstream Anthropic builds.
   // The update mechanism downloads from the first-party distribution bucket,
@@ -418,9 +426,7 @@ export async function update() {
         )
       } else {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
-        process.stderr.write(
-          'Or consider using native installation with: openclaude install\n',
-        )
+        process.stderr.write(getGlobalUpdateFailureHint())
       }
       await gracefulShutdown(1)
       break
@@ -432,9 +438,7 @@ export async function update() {
           `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
-        process.stderr.write(
-          'Or consider using native installation with: openclaude install\n',
-        )
+        process.stderr.write(getGlobalUpdateFailureHint())
       }
       await gracefulShutdown(1)
       break
