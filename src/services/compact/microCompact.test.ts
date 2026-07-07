@@ -175,3 +175,76 @@ describe('microCompact MCP tool compaction', () => {
     })
   })
 })
+
+describe('estimateMessageTokens coverage', () => {
+  test('counts tokens from string content user messages', async () => {
+    const { estimateMessageTokens } = await import('./microCompact.js')
+
+    // Real user messages from the session can have string content (plain user prompt)
+    const messages: Message[] = [
+      createUserMessage({
+        content:
+          'Hello world this is a long user prompt that needs compression because it is over the threshold',
+      }),
+      createAssistantMessage({
+        content: [
+          {
+            type: 'text',
+            text: 'Hi there! I am happy to help you with your request today',
+            citations: [],
+          },
+        ],
+      }),
+    ]
+
+    const total = estimateMessageTokens(messages)
+    // The string-content user message should be counted alongside normal blocks.
+    expect(total).toBeGreaterThan(0)
+  })
+
+  test('counts tokens across all block types including tool_result and tool_use', async () => {
+    const { estimateMessageTokens } = await import('./microCompact.js')
+
+    const msg = createUserMessage({
+      content: [
+        { type: 'tool_result' as const, tool_use_id: 't1', content: 'A'.repeat(5000) },
+      ],
+    })
+    const msgWithText = createUserMessage({
+      content: [
+        { type: 'text' as const, text: 'User query here' },
+      ],
+    })
+    const asstTool = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use' as const,
+          id: 't1',
+          name: 'Bash',
+          input: { command: 'ls -la' },
+        },
+      ],
+    })
+    const msgWithResultAndText = createUserMessage({
+      content: [
+        { type: 'tool_result' as const, tool_use_id: 't1', content: 'file output data' },
+        { type: 'text' as const, text: 'based on that output I think the answer is yes' },
+      ],
+    })
+
+    const messages: Message[] = [msg, msgWithText, asstTool, msgWithResultAndText]
+
+    const total = estimateMessageTokens(messages)
+
+    // Must be significantly > 0 (all blocks counted)
+    expect(total).toBeGreaterThan(100)
+
+    // Must be larger than the old reducer's estimate (only string+text blocks)
+    // Old reducer would only see text blocks: 'User query here' + 'based on that output...'
+    // It would miss 5000-chars tool_result, tool_use name+input
+    const oldReducerEstimate = Math.ceil(
+      (13 + 46) * (4 / 3), // 'User query here' (13) + 'based on that...' (~46)
+    )
+    expect(total).toBeGreaterThan(oldReducerEstimate * 2)
+  })
+})
