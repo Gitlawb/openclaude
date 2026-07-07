@@ -115,17 +115,28 @@ describe('braveProvider search', () => {
   test('rejects when the provider-level timeout elapses', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
-    let capturedSignal: AbortSignal | undefined
+    let abortObserved = false
     globalThis.fetch = (async (_input: any, init: any) => {
-      capturedSignal = init?.signal as AbortSignal | undefined
-      return new Promise<Response>(() => undefined)
+      const signal = init?.signal as AbortSignal | undefined
+      expect(signal).toBeInstanceOf(AbortSignal)
+
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => {
+            abortObserved = true
+            reject(signal.reason)
+          },
+          { once: true },
+        )
+      })
     }) as typeof fetch
 
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
       /Brave search timed out/,
     )
 
-    expect(capturedSignal?.aborted).toBe(true)
+    expect(abortObserved).toBe(true)
   })
 
   test('rejects when the response body stalls after headers arrive', async () => {
