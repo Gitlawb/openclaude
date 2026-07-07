@@ -140,9 +140,11 @@ const PACKAGE_SCRIPT_VALUE_FLAGS = new Set([
   '-w',
   '--filter',
   '-F',
+  '-f',
   '--cwd',
   '--dir',
   '-C',
+  '-c',
 ])
 
 function skipPackageManagerPrefixes(

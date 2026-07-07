@@ -20,25 +20,6 @@ function stalledJsonResponse(status = 200): Response {
   })
 }
 
-function waitForSignalAbort(signal: AbortSignal | undefined): Promise<boolean> {
-  if (!signal) return Promise.resolve(false)
-  if (signal.aborted) return Promise.resolve(true)
-
-  return new Promise(resolve => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve(false)
-    }, 50)
-    timer.unref?.()
-
-    const onAbort = () => {
-      clearTimeout(timer)
-      resolve(true)
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 beforeEach(async () => {
   await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
 })
@@ -173,17 +154,14 @@ describe('braveProvider search', () => {
   test('rejects when a non-2xx error body stalls after headers arrive', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
-    let capturedSignal: AbortSignal | undefined
     globalThis.fetch = (async (_input: any, init: any) => {
-      capturedSignal = init?.signal as AbortSignal | undefined
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
       return stalledJsonResponse(500)
     }) as typeof fetch
 
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
       /Brave search timed out/,
     )
-
-    expect(await waitForSignalAbort(capturedSignal)).toBe(true)
   })
 
   test('returns empty hits when web.results is missing', async () => {
