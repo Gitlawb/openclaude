@@ -137,6 +137,21 @@ function readFileInRangeFast(
   // Strip BOM.
   const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
 
+  // Empty file: no lines at all. Without this short-circuit the final-fragment
+  // block below pushes one phantom empty line and reports totalLines: 1, which
+  // makes the FileReadTool empty-file branch (keyed on totalLines === 0) show
+  // the wrong "shorter than the provided offset" warning for a 0-byte file.
+  if (text.length === 0) {
+    return {
+      content: '',
+      lineCount: 0,
+      totalLines: 0,
+      totalBytes: 0,
+      readBytes: 0,
+      mtimeMs,
+    }
+  }
+
   // Split lines, strip \r, select range.
   const selectedLines: string[] = []
   let lineIndex = 0
