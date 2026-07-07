@@ -157,23 +157,7 @@ function getCurrentCwdSettingsDenyWritePaths(cwd: string): string[] {
 }
 
 function getLegacyClaudeConfigDenyWritePaths(cwd: string): string[] {
-  return [
-    resolve(cwd, '.claude', 'settings.json'),
-    resolve(cwd, '.claude', 'settings.local.json'),
-    resolve(cwd, '.claude', 'commands'),
-    resolve(cwd, '.claude', 'agents'),
-    resolve(cwd, '.claude', 'skills'),
-  ]
-}
-
-function getClaudeConfigRootDenyWritePaths(configDir: string): string[] {
-  return [
-    resolve(configDir, 'settings.json'),
-    resolve(configDir, 'settings.local.json'),
-    resolve(configDir, 'commands'),
-    resolve(configDir, 'agents'),
-    resolve(configDir, 'skills'),
-  ]
+  return [resolve(cwd, '.claude')]
 }
 
 /**
@@ -273,9 +257,7 @@ export function convertToSandboxRuntimeConfig(
   denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(originalCwd))
   denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(homedir()))
   if (process.env.CLAUDE_CONFIG_DIR) {
-    denyWrite.push(
-      ...getClaudeConfigRootDenyWritePaths(process.env.CLAUDE_CONFIG_DIR),
-    )
+    denyWrite.push(resolve(process.env.CLAUDE_CONFIG_DIR))
   }
   if (cwd !== originalCwd) {
     denyWrite.push(...getCurrentCwdSettingsDenyWritePaths(cwd))

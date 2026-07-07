@@ -155,6 +155,20 @@ name.
 points to `openclaude logs <id> -f`; full terminal reattach is not implemented
 for local background sessions yet.
 
+### OpenClaude config cutover
+
+OpenClaude stores its own config under `~/.openclaude` and `~/.openclaude.json`
+by default. It does not read `~/.claude`, project `.claude/` directories, or
+`CLAUDE_CONFIG_DIR`; new users can start with an empty OpenClaude config and do
+not need Claude Code installed.
+
+If you previously used OpenClaude with `.claude` paths, migrate intentionally:
+copy only the settings, commands, agents, skills, scheduled tasks, or other files
+you personally created for OpenClaude into the matching `.openclaude` location.
+Do not blanket-copy `.claude`, and do not copy Claude Code credentials or auth
+files. For provider authentication, prefer running OpenClaude's provider setup
+again or exporting provider-specific environment variables.
+
 ### Fastest OpenAI setup
 
 macOS / Linux:

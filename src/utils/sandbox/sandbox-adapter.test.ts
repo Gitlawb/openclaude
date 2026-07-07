@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join, resolve } from 'path'
+import { join, resolve, sep } from 'path'
 import {
   getCwdState,
   getOriginalCwd,
@@ -72,19 +72,7 @@ describe('convertToSandboxRuntimeConfig', () => {
 
     for (const cwd of [getOriginalCwd(), activeCwd]) {
       expect(config.filesystem.denyWrite).toContain(
-        resolve(cwd, '.claude', 'settings.json'),
-      )
-      expect(config.filesystem.denyWrite).toContain(
-        resolve(cwd, '.claude', 'settings.local.json'),
-      )
-      expect(config.filesystem.denyWrite).toContain(
-        resolve(cwd, '.claude', 'commands'),
-      )
-      expect(config.filesystem.denyWrite).toContain(
-        resolve(cwd, '.claude', 'agents'),
-      )
-      expect(config.filesystem.denyWrite).toContain(
-        resolve(cwd, '.claude', 'skills'),
+        resolve(cwd, '.claude'),
       )
     }
   })
@@ -93,14 +81,27 @@ describe('convertToSandboxRuntimeConfig', () => {
     const config = convertToSandboxRuntimeConfig({} as SettingsJson)
     const configDir = process.env.CLAUDE_CONFIG_DIR!
 
-    expect(config.filesystem.denyWrite).toContain(
-      resolve(configDir, 'settings.json'),
-    )
-    expect(config.filesystem.denyWrite).toContain(
-      resolve(configDir, 'settings.local.json'),
-    )
-    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'commands'))
-    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'agents'))
-    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'skills'))
+    expect(config.filesystem.denyWrite).toContain(resolve(configDir))
+  })
+
+  test('root deny covers non-settings legacy Claude state', () => {
+    const config = convertToSandboxRuntimeConfig({} as SettingsJson)
+
+    const representativeLegacyPaths = [
+      resolve(getOriginalCwd(), '.claude', 'CLAUDE.md'),
+      resolve(activeCwd, '.claude', 'credentials.json'),
+      resolve(process.env.CLAUDE_CONFIG_DIR!, 'plugins', 'plugin.json'),
+      resolve(process.env.CLAUDE_CONFIG_DIR!, 'scheduled-tasks', 'task.json'),
+    ]
+
+    for (const legacyPath of representativeLegacyPaths) {
+      expect(
+        config.filesystem.denyWrite.some(
+          deniedRoot =>
+            legacyPath === deniedRoot ||
+            legacyPath.startsWith(`${deniedRoot}${sep}`),
+        ),
+      ).toBe(true)
+    }
   })
 })
