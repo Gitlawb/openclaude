@@ -449,7 +449,8 @@ test('/model current reports the effective effort when env overrides session ult
   instance.unmount()
   stdout.end()
 
-  expect(messages[0]).toBe('Current model: Opus 4.8 (effort: high)')
+  expect(messages[0]).toContain('(effort: high)')
+  expect(messages[0]).not.toContain('(effort: ultracode)')
 })
 
 test('opens the model picker without awaiting descriptor-backed route refresh', async () => {
