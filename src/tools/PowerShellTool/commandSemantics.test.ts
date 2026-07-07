@@ -211,13 +211,19 @@ describe('interpretCommandResult (PowerShell)', () => {
     })
 
     test('failed pipeline input does not inherit linter semantics', () => {
-      const result = interpretCommandResult(
-        'Get-Content missing | ruff check .',
-        1,
-        '',
-        'Get-Content: Cannot find path missing because it does not exist.',
-      )
-      expect(result.isError).toBe(true)
+      for (const [command, stderr] of [
+        [
+          'Get-Content missing | ruff check .',
+          'Get-Content: Cannot find path missing because it does not exist.',
+        ],
+        [
+          'badcmd | pytest',
+          'badcmd: The term badcmd is not recognized as a name of a cmdlet',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, '', stderr)
+        expect(result.isError).toBe(true)
+      }
     })
 
     test('package-runner failures do not inherit wrapped-tool semantics', () => {

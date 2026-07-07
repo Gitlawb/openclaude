@@ -305,27 +305,39 @@ describe('interpretCommandResult', () => {
     })
 
     test('failed setup before && does not inherit linter semantics', () => {
-      const result = interpretCommandResult(
-        'cd missing && ruff check .',
-        1,
-        '',
-        'cd: missing: No such file or directory',
-      )
-      expect(result.isError).toBe(true)
+      for (const [command, stderr] of [
+        [
+          'cd missing && ruff check .',
+          'bash: line 1: cd: missing: No such file or directory',
+        ],
+        [
+          'pushd missing && pytest',
+          'bash: line 1: pushd: missing: No such file or directory',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, '', stderr)
+        expect(result.isError).toBe(true)
+      }
     })
 
     test('failed pipeline input does not inherit linter or test-runner semantics', () => {
-      for (const command of [
-        'cat missing | pytest',
-        'cat missing | ruff check .',
-        'cat missing | eslint --stdin',
-      ]) {
-        const result = interpretCommandResult(
-          command,
-          1,
-          '',
+      for (const [command, stderr] of [
+        ['cat missing | pytest', 'cat: missing: No such file or directory'],
+        ['cat missing | ruff check .', 'cat: missing: No such file or directory'],
+        [
+          'cat missing | eslint --stdin',
           'cat: missing: No such file or directory',
-        )
+        ],
+        [
+          'missingcmd | pytest',
+          'bash: line 1: missingcmd: command not found',
+        ],
+        [
+          'env missingcmd | ruff check .',
+          'env: missingcmd: No such file or directory',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, '', stderr)
         expect(result.isError).toBe(true)
       }
     })

@@ -392,10 +392,17 @@ function looksLikeSetupOrPipelineFailure(
   }
   return previousCommands.some(commandName => {
     const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return new RegExp(
-      `(^|\\n)\\s*${escaped}:.*(no such file|not found|permission denied|does not exist)`,
+    const failureText =
+      '(no such file|not found|command not found|permission denied|does not exist)'
+    const commandPrefixedFailure = new RegExp(
+      `(^|\\n)\\s*(?:[\\w.-]+:\\s*(?:line\\s+\\d+:\\s*)?)?${escaped}:.*${failureText}`,
       'i',
-    ).test(stderr)
+    )
+    const envFailure = new RegExp(
+      `(^|\\n)\\s*env:.*${escaped}.*${failureText}`,
+      'i',
+    )
+    return commandPrefixedFailure.test(stderr) || envFailure.test(stderr)
   })
 }
 

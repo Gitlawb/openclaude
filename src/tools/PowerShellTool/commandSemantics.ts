@@ -418,16 +418,9 @@ function looksLikeSetupOrPipelineFailure(
     return false
   }
   return previousCommands.some(commandName => {
-    if (
-      !['set-location', 'push-location', 'pop-location', 'get-content'].includes(
-        commandName,
-      )
-    ) {
-      return false
-    }
     const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return new RegExp(
-      `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|not found|permission denied)`,
+      `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|not found|permission denied|not recognized)`,
       'i',
     ).test(stderr)
   })
