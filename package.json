@@ -1,6 +1,6 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -163,10 +163,18 @@
     "react-reconciler": "^0.33.0"
   },
   "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": { "optional": true },
-    "@modelcontextprotocol/sdk": { "optional": true },
-    "react": { "optional": true },
-    "react-reconciler": { "optional": true }
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-reconciler": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22.0.0"

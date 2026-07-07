@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.23.0](https://github.com/Gitlawb/openclaude/compare/v0.22.0...v0.23.0) (2026-07-07)
+
+
+### Features
+
+* add repo map codebase intelligence ([#1867](https://github.com/Gitlawb/openclaude/issues/1867)) ([fb40d49](https://github.com/Gitlawb/openclaude/commit/fb40d49e681c4b30e9a6f5eacbec269a35c01aff))
+* **provider:** add AI/ML API provider ([#863](https://github.com/Gitlawb/openclaude/issues/863)) ([8369f20](https://github.com/Gitlawb/openclaude/commit/8369f2018ecda0f96f6cab10b24268b8f44dce73))
+* **skills:** add local skill CLI support ([#1162](https://github.com/Gitlawb/openclaude/issues/1162)) ([214ee3d](https://github.com/Gitlawb/openclaude/commit/214ee3dd2e407947531509b55348a81d287ebd66))
+* **skills:** add PDF generation skill with native TypeScript implementation ([#1718](https://github.com/Gitlawb/openclaude/issues/1718)) ([e9a3c30](https://github.com/Gitlawb/openclaude/commit/e9a3c308fc576ce690c37b75267f62c0ca56cf2c))
+* smart auto-routing (per-turn simple-vs-strong model selection) ([#1734](https://github.com/Gitlawb/openclaude/issues/1734)) ([e2bbb02](https://github.com/Gitlawb/openclaude/commit/e2bbb0295a16cdeb6d24c9d6ff1ead727caba036))
+
+
+### Bug Fixes
+
+* await main() in cli entrypoint to prevent premature exit in Node 24.x ([#1697](https://github.com/Gitlawb/openclaude/issues/1697)) ([f292b05](https://github.com/Gitlawb/openclaude/commit/f292b057b59729b7aa5e06cfa2aea28a45a578c0))
+* **compact:** count string message content ([#847](https://github.com/Gitlawb/openclaude/issues/847)) ([766d3f8](https://github.com/Gitlawb/openclaude/commit/766d3f8794cefb9e357499807f2af8ebc696978a))
+* **deps:** ship a zero-warning, minimal install ([#1784](https://github.com/Gitlawb/openclaude/issues/1784)) ([2edec9a](https://github.com/Gitlawb/openclaude/commit/2edec9a1407b6afd1d12260fca20c59c771269f6))
+* **diff:** guard diff language detection against prototype-chain filenames ([#1433](https://github.com/Gitlawb/openclaude/issues/1433)) ([7d86174](https://github.com/Gitlawb/openclaude/commit/7d861743caf95a18a9524b4a2b5c51f06fea6cde))
+* guard convertToLogOption against empty transcript ([#1723](https://github.com/Gitlawb/openclaude/issues/1723)) ([4a60c0f](https://github.com/Gitlawb/openclaude/commit/4a60c0f30f7f81c19a4538cbc55d0030b470126e))
+* **hicap:** add missing hicap-claude-opus-4.7 catalog entry ([#1797](https://github.com/Gitlawb/openclaude/issues/1797)) ([885bd81](https://github.com/Gitlawb/openclaude/commit/885bd81045d4370fef028d129e0930159cbefcf8))
+* isolate OpenClaude config from Claude Code ([#1875](https://github.com/Gitlawb/openclaude/issues/1875)) ([1bd273d](https://github.com/Gitlawb/openclaude/commit/1bd273d4d3e551a64000b268a79bee7cb6946d8a))
+* **lsp:** coalesce diagnostic bursts ([#1861](https://github.com/Gitlawb/openclaude/issues/1861)) ([11f4661](https://github.com/Gitlawb/openclaude/commit/11f4661ea99f559da5203570b0f47b49a4b26072))
+* **opencode-go:** surface clear error on subscription quota exhaustion ([#1749](https://github.com/Gitlawb/openclaude/issues/1749)) ([b8c8b24](https://github.com/Gitlawb/openclaude/commit/b8c8b2417bb329d8757d38c236868f2a23f0f535))
+* resolve zai-compatible config for all GLM remote models ([#1752](https://github.com/Gitlawb/openclaude/issues/1752)) ([4be017b](https://github.com/Gitlawb/openclaude/commit/4be017bd4dca1fc757e1664292c12a7057e8b05b))
+
 ## [0.22.0](https://github.com/Gitlawb/openclaude/compare/v0.21.0...v0.22.0) (2026-07-06)
 
 
