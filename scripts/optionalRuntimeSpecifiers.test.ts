@@ -31,11 +31,12 @@ function walk(dir: string): string[] {
 }
 
 // Capture the first string argument of every importOptionalRuntimeModule(...)
-// call. Allow an optional generic type argument before the parens —
+// call, including the client module's test-injectable wrapper. Allow an
+// optional generic type argument before the parens —
 // `importOptionalRuntimeModule<typeof import('x')>('x', ...)` — and let it span
 // lines (the in-between matchers are character classes, which match newlines).
 const CALL_RE =
-  /importOptionalRuntimeModule(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/g
+  /importOptionalRuntimeModule(?:ForClient)?(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/g
 
 function collectSpecifiers(): { specifier: string; file: string }[] {
   const found: { specifier: string; file: string }[] = []

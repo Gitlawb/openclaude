@@ -43,6 +43,7 @@ export type GeminiResolvedCredential =
 
 type ResolveGeminiCredentialDeps = {
   createGoogleAuth?: () => Promise<GoogleAuthLike>
+  importOptionalRuntimeModule?: typeof importOptionalRuntimeModule
 }
 
 function sanitizeCredential(value: string | undefined | null): string | undefined {
@@ -133,8 +134,11 @@ function normalizeAccessToken(
   return sanitizeCredential(value?.token)
 }
 
-async function createDefaultGoogleAuth(): Promise<GoogleAuthLike> {
-  const { GoogleAuth } = await importOptionalRuntimeModule<
+async function createDefaultGoogleAuth(
+  optionalRuntimeImporter: typeof importOptionalRuntimeModule =
+    importOptionalRuntimeModule,
+): Promise<GoogleAuthLike> {
+  const { GoogleAuth } = await optionalRuntimeImporter<
     typeof import('google-auth-library')
   >('google-auth-library', 'Gemini Application Default Credentials')
   return new GoogleAuth({
@@ -151,7 +155,10 @@ async function resolveGeminiAdcCredentialUncached(
   }
 
   try {
-    const auth = await (deps.createGoogleAuth ?? createDefaultGoogleAuth)()
+    const createGoogleAuth =
+      deps.createGoogleAuth ??
+      (() => createDefaultGoogleAuth(deps.importOptionalRuntimeModule))
+    const auth = await createGoogleAuth()
     const client = await auth.getClient()
     const accessToken = normalizeAccessToken(await client.getAccessToken())
     if (!accessToken) {
@@ -230,7 +237,7 @@ export async function resolveGeminiCredential(
     return { kind: 'none' }
   }
 
-  if (deps.createGoogleAuth) {
+  if (deps.createGoogleAuth || deps.importOptionalRuntimeModule) {
     return resolveGeminiAdcCredentialUncached(env, deps)
   }
 

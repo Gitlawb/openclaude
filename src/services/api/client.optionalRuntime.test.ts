@@ -17,12 +17,11 @@ function friendlyMissing(specifier: string, feature: string): Error {
 }
 
 async function importFreshClient(importOptionalRuntimeModule: OptionalImport) {
-  mock.module('../../utils/optionalRuntimeModule.js', () => ({
-    ...optionalRuntimeModule,
-    importOptionalRuntimeModule,
-  }))
-
-  return import(`./client.js?optional-runtime=${Date.now()}-${Math.random()}`)
+  const client = await import(
+    `./client.js?optional-runtime=${Date.now()}-${Math.random()}`
+  )
+  client._setOptionalRuntimeModuleImporterForTesting(importOptionalRuntimeModule)
+  return client
 }
 
 beforeEach(async () => {
@@ -49,7 +48,6 @@ afterEach(() => {
     process.env = { ...originalEnv }
     delete (globalThis as Record<string, unknown>).MACRO
     mock.restore()
-    mock.module('../../utils/optionalRuntimeModule.js', () => optionalRuntimeModule)
   } finally {
     releaseSharedMutationLock()
   }

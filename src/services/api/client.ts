@@ -55,6 +55,17 @@ import {
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
+type OptionalRuntimeImporter = typeof importOptionalRuntimeModule
+
+let importOptionalRuntimeModuleForClient: OptionalRuntimeImporter =
+  importOptionalRuntimeModule
+
+export function _setOptionalRuntimeModuleImporterForTesting(
+  importer?: OptionalRuntimeImporter,
+): void {
+  importOptionalRuntimeModuleForClient = importer ?? importOptionalRuntimeModule
+}
+
 /**
  * Environment variables for different client types:
  *
@@ -528,7 +539,7 @@ export async function getAnthropicClient({
     // that AWS import into the CLI bundle and require it at startup for every
     // user. Keeping it lazy means only Bedrock users install the SDK (which
     // pulls @aws-sdk transitively).
-    const { AnthropicBedrock } = await importOptionalRuntimeModule<
+    const { AnthropicBedrock } = await importOptionalRuntimeModuleForClient<
       typeof import('@anthropic-ai/bedrock-sdk')
     >('@anthropic-ai/bedrock-sdk', 'AWS Bedrock')
     // Use region override for small fast model if specified
@@ -574,7 +585,7 @@ export async function getAnthropicClient({
     ) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
-    const { AnthropicFoundry } = await importOptionalRuntimeModule<
+    const { AnthropicFoundry } = await importOptionalRuntimeModuleForClient<
       typeof import('@anthropic-ai/foundry-sdk')
     >('@anthropic-ai/foundry-sdk', 'Azure Foundry')
     // Determine Azure AD token provider based on configuration
@@ -589,10 +600,10 @@ export async function getAnthropicClient({
         const {
           DefaultAzureCredential: AzureCredential,
           getBearerTokenProvider,
-        } = await importOptionalRuntimeModule<typeof import('@azure/identity')>(
-          '@azure/identity',
-          'Azure Foundry authentication',
-        )
+        } =
+          await importOptionalRuntimeModuleForClient<
+            typeof import('@azure/identity')
+          >('@azure/identity', 'Azure Foundry authentication')
         azureADTokenProvider = getBearerTokenProvider(
           new AzureCredential(),
           'https://cognitiveservices.azure.com/.default',
@@ -662,7 +673,7 @@ export async function getAnthropicClient({
         }),
       }
     } else {
-      const { GoogleAuth } = await importOptionalRuntimeModule<
+      const { GoogleAuth } = await importOptionalRuntimeModuleForClient<
         typeof import('google-auth-library')
       >('google-auth-library', 'Vertex AI (GCP) authentication')
       // The real GoogleAuth (async getClient) is wider than the minimal shape

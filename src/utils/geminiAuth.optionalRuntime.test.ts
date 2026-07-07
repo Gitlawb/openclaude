@@ -3,7 +3,6 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import * as optionalRuntimeModule from './optionalRuntimeModule.js'
 
 const originalEnv = { ...process.env }
 
@@ -21,7 +20,6 @@ afterEach(() => {
   try {
     process.env = { ...originalEnv }
     mock.restore()
-    mock.module('./optionalRuntimeModule.js', () => optionalRuntimeModule)
   } finally {
     releaseSharedMutationLock()
   }
@@ -35,18 +33,13 @@ test('Gemini ADC reports missing google-auth-library through the optional runtim
     )
   })
 
-  mock.module('./optionalRuntimeModule.js', () => ({
-    ...optionalRuntimeModule,
-    importOptionalRuntimeModule,
-  }))
-
   const { resolveGeminiCredential } = await import(
     `./geminiAuth.ts?optional-runtime=${Date.now()}-${Math.random()}`
   )
 
-  await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
-    kind: 'none',
-  })
+  await expect(
+    resolveGeminiCredential(process.env, { importOptionalRuntimeModule }),
+  ).resolves.toEqual({ kind: 'none' })
   expect(importOptionalRuntimeModule).toHaveBeenCalledWith(
     'google-auth-library',
     'Gemini Application Default Credentials',
