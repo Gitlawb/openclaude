@@ -362,6 +362,30 @@ describe('interpretCommandResult', () => {
       }
     })
 
+    test('BashTool merged-output setup failures do not inherit linter or test-runner semantics', () => {
+      for (const [command, stdout] of [
+        [
+          'echo setup && cd missing && ruff check .',
+          'setup\nbash: line 1: cd: missing: No such file or directory\n',
+        ],
+        [
+          'echo setup && cat missing | pytest',
+          'setup\ncat: missing: No such file or directory\n',
+        ],
+        [
+          'missingcmd | pytest',
+          'bash: line 1: missingcmd: command not found\n',
+        ],
+        [
+          'env missingcmd | ruff check .',
+          'env: missingcmd: No such file or directory\n',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, stdout, '')
+        expect(result.isError).toBe(true)
+      }
+    })
+
     test('successful setup before && still lets linter diagnostics through', () => {
       const result = interpretCommandResult('cd src && ruff check .', 1, 'F401', '')
       expect(result.isError).toBe(false)
@@ -388,8 +412,11 @@ describe('interpretCommandResult', () => {
       const cases = [
         ['npx eslint .', '', 'npm ERR! code EAI_AGAIN'],
         ['npx eslint .', 'Installing eslint...', 'npm ERR! code EAI_AGAIN'],
+        ['npx eslint .', 'Installing eslint...\nnpm ERR! code EAI_AGAIN', ''],
         ['uvx ruff check .', 'Resolving packages...', 'error: Failed to download ruff'],
+        ['uvx ruff check .', 'Resolving packages...\nerror: Failed to download ruff', ''],
         ['pipx run black --check .', '', 'Fatal error from pip prevented installation'],
+        ['pipx run black --check .', 'Fatal error from pip prevented installation', ''],
       ] as const
       for (const [command, stdout, stderr] of cases) {
         const result = interpretCommandResult(command, 1, stdout, stderr)

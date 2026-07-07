@@ -438,12 +438,20 @@ function looksLikeWrapperFailure(
   if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
     return false
   }
-  if (stderr.trim().length === 0) {
+  const failureOutput = combineFailureOutput(stdout, stderr)
+  if (failureOutput.length === 0) {
     return false
   }
   return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
-    stderr,
+    failureOutput,
   )
+}
+
+function combineFailureOutput(stdout: string, stderr: string): string {
+  return [stderr, stdout]
+    .map(output => output.trim())
+    .filter(Boolean)
+    .join('\n')
 }
 
 function getNonFinalCommandNames(command: string): string[] {
@@ -471,6 +479,7 @@ function looksLikeSetupOrPipelineFailure(
   if (previousCommands.length === 0) {
     return false
   }
+  const failureOutput = combineFailureOutput(stdout, stderr)
   return previousCommands.some(commandName => {
     const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const failureText =
@@ -483,7 +492,10 @@ function looksLikeSetupOrPipelineFailure(
       `(^|\\n)\\s*env:.*${escaped}.*${failureText}`,
       'i',
     )
-    return commandPrefixedFailure.test(stderr) || envFailure.test(stderr)
+    return (
+      commandPrefixedFailure.test(failureOutput) ||
+      envFailure.test(failureOutput)
+    )
   })
 }
 
