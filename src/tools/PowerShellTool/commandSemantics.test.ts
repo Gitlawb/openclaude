@@ -152,15 +152,23 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('common package scripts inherit diagnostic semantics for known script aliases', () => {
       const cases = [
         ['npm run lint', 1],
+        ['npm run --silent lint', 1],
+        ['npm run -s lint', 1],
         ['npm run-script lint', 1],
         ['npm test', 1],
         ['yarn lint', 1],
+        ['yarn run lint', 1],
         ['yarn test', 1],
+        ['yarn run test', 1],
         ['pnpm lint', 1],
+        ['pnpm run lint', 1],
         ['pnpm test', 1],
+        ['pnpm run test', 1],
         ['npm run typecheck', 2],
         ['pnpm typecheck', 2],
+        ['pnpm run typecheck', 2],
         ['yarn typecheck', 2],
+        ['yarn run typecheck', 2],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
@@ -257,6 +265,20 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('bare ampersand-separated linter command keeps diagnostics semantics', () => {
       const result = interpretCommandResult('Set-Location src & ruff check .', 1, 'F401', '')
       expect(result.isError).toBe(false)
+    })
+
+    test('call-operator invocations keep diagnostic semantics', () => {
+      const cases = [
+        ['& ruff check .', 1],
+        ['& ".\\node_modules\\.bin\\eslint.cmd" .', 1],
+        ['& ".\\venv\\Scripts\\pytest"', 1],
+        ['& npm test', 1],
+        ['. ".\\node_modules\\.bin\\eslint.cmd" .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
     })
 
     test('diagnostics after successful setup can mention missing files', () => {

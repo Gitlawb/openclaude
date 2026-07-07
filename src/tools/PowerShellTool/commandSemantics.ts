@@ -134,6 +134,14 @@ const PACKAGE_SCRIPT_COMMANDS = new Map([
   ['type-check', 'tsc'],
 ])
 
+const PACKAGE_SCRIPT_RUN_COMMANDS = new Set(['run', 'run-script'])
+const PACKAGE_SCRIPT_VALUE_FLAGS = new Set([
+  '--workspace',
+  '-w',
+  '--filter',
+  '-F',
+])
+
 /**
  * Command-specific semantics for external executables.
  * Keys are lowercase command names WITHOUT .exe suffix.
@@ -198,6 +206,46 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['tsc', TSC_SEMANTIC],
   ['pylint', PYLINT_SEMANTIC],
 ])
+
+function resolvePackageScriptCommand(
+  normalized: string[],
+  startIndex: number,
+  allowDirectAlias: boolean,
+): string | undefined {
+  let i = startIndex
+  const first = normalized[i]
+  if (first === undefined) {
+    return undefined
+  }
+  if (first === 'test') {
+    return PACKAGE_SCRIPT_COMMANDS.get('test')
+  }
+  if (PACKAGE_SCRIPT_RUN_COMMANDS.has(first)) {
+    i += 1
+  } else if (!allowDirectAlias) {
+    return undefined
+  }
+
+  for (; i < normalized.length; i++) {
+    const token = normalized[i]
+    if (!token) {
+      continue
+    }
+    if (token === '--') {
+      continue
+    }
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0] ?? token
+      i += PACKAGE_SCRIPT_VALUE_FLAGS.has(flagName) && !token.includes('=') ? 1 : 0
+      continue
+    }
+    return (
+      PACKAGE_SCRIPT_COMMANDS.get(token) ??
+      (COMMAND_SEMANTICS.has(token) ? token : undefined)
+    )
+  }
+  return undefined
+}
 
 /**
  * Extract the command name from a single pipeline segment.
@@ -376,6 +424,10 @@ function extractRunnableBaseCommand(tokens: string[]): string {
       continue
     }
     const token = extractBaseCommand(rawToken)
+    if (token === '&' || token === '.') {
+      i += 1
+      continue
+    }
     if (token === 'env') {
       const splitStringBase = extractEnvSplitStringBaseCommand(tokens, i)
       if (splitStringBase !== undefined) {
@@ -439,15 +491,12 @@ function extractWrappedCommand(
     }
     i += 1
   } else if (wrapper === 'npm') {
-    if (normalized[i] === 'test') {
-      return PACKAGE_SCRIPT_COMMANDS.get('test')
+    const scriptCommand = resolvePackageScriptCommand(normalized, i, false)
+    if (scriptCommand !== undefined) {
+      return scriptCommand
     }
-    if (normalized[i] === 'run' || normalized[i] === 'run-script') {
-      i += 1
-      const scriptName = normalized[i]
-      return scriptName !== undefined
-        ? PACKAGE_SCRIPT_COMMANDS.get(scriptName)
-        : undefined
+    if (PACKAGE_SCRIPT_RUN_COMMANDS.has(normalized[i] ?? '')) {
+      return undefined
     }
     if (normalized[i] === 'exec' || normalized[i] === 'x') {
       i += 1
@@ -456,13 +505,12 @@ function extractWrappedCommand(
     }
   } else if (wrapper === 'pnpm' || wrapper === 'yarn') {
     if (normalized[i] !== 'exec') {
-      const scriptName = normalized[i]
-      const scriptCommand =
-        scriptName !== undefined
-          ? PACKAGE_SCRIPT_COMMANDS.get(scriptName)
-          : undefined
+      const scriptCommand = resolvePackageScriptCommand(normalized, i, true)
       if (scriptCommand !== undefined) {
         return scriptCommand
+      }
+      if (PACKAGE_SCRIPT_RUN_COMMANDS.has(normalized[i] ?? '')) {
+        return undefined
       }
     } else {
       i += 1
