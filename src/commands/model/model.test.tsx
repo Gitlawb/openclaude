@@ -453,6 +453,48 @@ test('/model current reports the effective effort when env overrides session ult
   expect(messages[0]).not.toContain('(effort: ultracode)')
 })
 
+test('/model current resolves effort against the active session model', async () => {
+  const { call } = await importFreshModelModule('current-session-model-effort')
+  const { AppStateProvider, getDefaultAppState } = await import('../../state/AppState.js')
+  const { render } = await import('../../ink.js')
+  const messages: string[] = []
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+
+  delete process.env.CLAUDE_CODE_EFFORT_LEVEL
+  const element = await call(
+    result => {
+      if (result) messages.push(result)
+    },
+    {} as never,
+    'current',
+  )
+
+  const instance = await render(
+    <AppStateProvider
+      initialState={{
+        ...getDefaultAppState(),
+        mainLoopModel: 'claude-opus-4-8',
+        mainLoopModelForSession: 'claude-sonnet-4-6',
+        effortValue: 'ultracode',
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  await waitForCondition(() => messages.length > 0)
+  instance.unmount()
+  stdout.end()
+
+  expect(messages[0]).toContain('Current model:')
+  expect(messages[0]).toContain('session override from plan mode')
+  expect(messages[0]).toContain('Base model:')
+  expect(messages[0]).toContain('(effort: high)')
+  expect(messages[0]).not.toContain('(effort: xhigh)')
+})
+
 test('opens the model picker without awaiting descriptor-backed route refresh', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'

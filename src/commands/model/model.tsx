@@ -984,8 +984,10 @@ function ShowModelAndClose({
   )
   const effortValue = useAppState((s: AppState) => s.effortValue)
   const displayModel = renderModelLabel(mainLoopModel)
+  const activeModel =
+    mainLoopModelForSession ?? mainLoopModel ?? getDefaultMainLoopModelSetting()
   const effectiveEffort = resolveAppliedEffort(
-    mainLoopModel ?? getDefaultMainLoopModelSetting(),
+    activeModel,
     effortValue,
   )
   const effortEnvOverride = getEffortEnvOverride()
