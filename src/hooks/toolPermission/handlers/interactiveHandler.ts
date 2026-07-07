@@ -67,7 +67,21 @@ function handleInteractivePermission(
     channelCallbacks,
   } = params
 
-  const { resolve: resolveOnce, isResolved, claim } = createResolveOnce(resolve)
+  // Reaching this handler means we are about to show a dialog and block on the
+  // user's decision. Suspend the query watchdog for exactly that window so
+  // human think-time is not counted toward the idle/hard-max timeout. Scoped
+  // here (not around the whole permission resolution) so non-human async work
+  // — e.g. the classifier in hasPermissionsToUseTool — stays watched and a
+  // genuinely stuck check can still fire the watchdog. Resume fires on the
+  // single terminal resolution (allow/reject/abort/hook/classifier/bridge/
+  // channel), so it runs exactly once.
+  const resumeWatchdog = ctx.toolUseContext.queryActivity?.beginUserInteraction?.()
+  const { resolve: resolveOnce, isResolved, claim } = createResolveOnce(
+    (decision: PermissionDecision) => {
+      resumeWatchdog?.()
+      resolve(decision)
+    },
+  )
   let userInteracted = false
   let checkmarkTransitionTimer: ReturnType<typeof setTimeout> | undefined
   // Hoisted so onDismissCheckmark (Esc during checkmark window) can also

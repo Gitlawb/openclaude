@@ -215,6 +215,7 @@ export class QueryGuard {
     this._clearTimeout()
     this._activeLeases.clear()
     this._suspendCount = 0
+    this._suspendedAt = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
@@ -236,6 +237,7 @@ export class QueryGuard {
     this._clearTimeout()
     this._activeLeases.clear()
     this._suspendCount = 0
+    this._suspendedAt = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
