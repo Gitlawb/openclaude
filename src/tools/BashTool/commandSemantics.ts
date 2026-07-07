@@ -26,22 +26,72 @@ const DEFAULT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
 })
 
 /**
- * Linters / formatters: 0 = clean, 1 = violations/diffs found (reported in the
- * output, not a crash), 2+ = a real error (invalid config, bad arguments).
- * Treating exit 1 as an error makes the model retry a command that already did
- * its job, so surface it as a non-error result instead.
+ * Linters, formatters, and test runners commonly use exit 1 to mean "I ran and
+ * found diagnostics/failing tests", not "the command crashed".
  */
-const LINT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
+const DIAGNOSTIC_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
   isError: exitCode >= 2,
-  message: exitCode === 1 ? 'Lint violations found' : undefined,
+  message:
+    exitCode === 1
+      ? 'violations or test failures reported'
+      : exitCode >= 2
+        ? `Command failed with exit code ${exitCode}`
+        : undefined,
 })
 
 /**
- * Wrapper runners that execute another tool (e.g. `uvx ruff check`,
- * `npx eslint .`). The wrapped tool determines the exit code, so we inherit
- * its semantics when it is one we recognize.
+ * `tsc` exits 2 for reported type errors, while exit 1 means bad usage/config.
  */
-const WRAPPER_COMMANDS = new Set(['uvx', 'npx'])
+const TSC_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
+  isError: exitCode !== 0 && exitCode !== 2,
+  message:
+    exitCode === 2
+      ? 'type errors reported'
+      : exitCode !== 0
+        ? `Command failed with exit code ${exitCode}`
+        : undefined,
+})
+
+/**
+ * `pylint` uses a bitfield: bits 0-4 are diagnostics, bit 5 is usage error.
+ */
+const PYLINT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
+  isError: (exitCode & 32) !== 0,
+  message:
+    (exitCode & 32) !== 0
+      ? `Command failed with exit code ${exitCode}`
+      : exitCode !== 0
+        ? 'lint diagnostics reported'
+        : undefined,
+})
+
+/**
+ * Wrapper runners that execute another tool. The wrapped tool determines the
+ * exit code, so inherit its semantics when the wrapped command is recognized.
+ */
+const WRAPPER_COMMANDS = new Set([
+  'uvx',
+  'npx',
+  'bunx',
+  'pipx',
+  'python',
+  'python3',
+  'py',
+  'pnpm',
+  'yarn',
+  'bun',
+])
+
+const WRAPPER_VALUE_FLAGS = new Set([
+  '-p',
+  '--package',
+  '--from',
+  '--with',
+  '--spec',
+  '--python',
+  '--env-file',
+  '--cache-dir',
+])
 
 /**
  * Command-specific semantics
@@ -102,11 +152,20 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
     }),
   ],
 
-  // ruff / eslint: 0=clean, 1=lint violations found (reported, not a crash),
-  // 2+=real error (invalid config/args). Also applied to `uvx ruff` / `npx
-  // eslint` via the wrapper unwrap in getCommandSemantic.
-  ['ruff', LINT_SEMANTIC],
-  ['eslint', LINT_SEMANTIC],
+  // Common linters, formatters, and test runners from #1436.
+  ['ruff', DIAGNOSTIC_SEMANTIC],
+  ['eslint', DIAGNOSTIC_SEMANTIC],
+  ['flake8', DIAGNOSTIC_SEMANTIC],
+  ['biome', DIAGNOSTIC_SEMANTIC],
+  ['mypy', DIAGNOSTIC_SEMANTIC],
+  ['pyright', DIAGNOSTIC_SEMANTIC],
+  ['prettier', DIAGNOSTIC_SEMANTIC],
+  ['black', DIAGNOSTIC_SEMANTIC],
+  ['pytest', DIAGNOSTIC_SEMANTIC],
+  ['jest', DIAGNOSTIC_SEMANTIC],
+  ['vitest', DIAGNOSTIC_SEMANTIC],
+  ['tsc', TSC_SEMANTIC],
+  ['pylint', PYLINT_SEMANTIC],
 
   // wc, head, tail, cat, etc.: these typically only fail on real errors
   // so we use default semantics
@@ -122,8 +181,8 @@ function getCommandSemantic(command: string): CommandSemantic {
   if (semantic !== undefined) {
     return semantic
   }
-  // uvx/npx run another tool; inherit that tool's semantics when we can
-  // confidently identify a known one (e.g. `uvx ruff check`, `npx -y eslint .`).
+  // Runner commands inherit the wrapped tool's semantics when we can identify a
+  // known command (e.g. `python -m pytest`, `pipx run ruff`, `bunx vitest`).
   if (WRAPPER_COMMANDS.has(baseCommand)) {
     const wrapped = extractWrappedCommand(command, baseCommand)
     const wrappedSemantic =
@@ -136,11 +195,9 @@ function getCommandSemantic(command: string): CommandSemantic {
 }
 
 /**
- * For a wrapper invocation (`uvx <tool> ...`, `npx <tool> ...`) return the name
- * of the wrapped tool — the first non-flag token after the wrapper — so its
- * exit-code semantics can be applied. Returns undefined when no such token
- * exists; an unrecognized wrapped name (e.g. a `--from` package) simply falls
- * back to the default semantic.
+ * For a runner invocation return the wrapped tool name so its exit-code
+ * semantics can be applied. Returns undefined for non-runner forms such as
+ * `python script.py`, so they fall back to the default semantic.
  */
 function extractWrappedCommand(
   command: string,
@@ -149,21 +206,49 @@ function extractWrappedCommand(
   const segments = splitCommand_DEPRECATED(command)
   const lastCommand = segments[segments.length - 1] || command
   const tokens = lastCommand.trim().split(/\s+/)
+  const normalized = tokens.map(extractBaseCommand)
   // Match the wrapper by its normalized name so a resolved or quoted path
   // (`/usr/bin/uvx`, `"npx"`) still counts as the wrapper.
-  const wrapperIndex = tokens.findIndex(
-    token => extractBaseCommand(token) === wrapper,
-  )
+  const wrapperIndex = normalized.findIndex(token => token === wrapper)
   if (wrapperIndex === -1) {
     return undefined
   }
-  for (let i = wrapperIndex + 1; i < tokens.length; i++) {
-    const token = tokens[i]
-    if (token && !token.startsWith('-')) {
-      // Normalize the wrapped tool too: `npx ./node_modules/.bin/eslint` must
-      // resolve to `eslint` so its lint semantics apply.
-      return extractBaseCommand(token)
+
+  let i = wrapperIndex + 1
+  if (wrapper === 'python' || wrapper === 'python3' || wrapper === 'py') {
+    if (normalized[i] !== '-m') {
+      return undefined
     }
+    i += 1
+  } else if (wrapper === 'pnpm' || wrapper === 'yarn') {
+    if (normalized[i] !== 'exec') {
+      return undefined
+    }
+    i += 1
+  } else if (wrapper === 'bun') {
+    if (normalized[i] !== 'exec' && normalized[i] !== 'x') {
+      return undefined
+    }
+    i += 1
+  } else if (wrapper === 'pipx') {
+    if (normalized[i] !== 'run') {
+      return undefined
+    }
+    i += 1
+  }
+
+  for (; i < tokens.length; i++) {
+    const rawToken = tokens[i]
+    const token = normalized[i]
+    if (!rawToken || !token) {
+      continue
+    }
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0] ?? token
+      i += WRAPPER_VALUE_FLAGS.has(flagName) && !token.includes('=') ? 1 : 0
+      continue
+    }
+    return token
   }
   return undefined
 }
@@ -198,6 +283,24 @@ function heuristicallyExtractBaseCommand(command: string): string {
   return extractBaseCommand(lastCommand)
 }
 
+function looksLikeShortCircuitedSetupFailure(
+  command: string,
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+  result: { isError: boolean },
+): boolean {
+  if (exitCode === 0 || result.isError || !command.includes('&&')) {
+    return false
+  }
+  if (stdout.trim().length > 0) {
+    return false
+  }
+  return /(^|\n)\s*(cd|pushd|popd):|no such file|not found|permission denied/i.test(
+    stderr,
+  )
+}
+
 /**
  * Interpret command result based on semantic rules
  */
@@ -212,6 +315,11 @@ export function interpretCommandResult(
 } {
   const semantic = getCommandSemantic(command)
   const result = semantic(exitCode, stdout, stderr)
+  if (
+    looksLikeShortCircuitedSetupFailure(command, exitCode, stdout, stderr, result)
+  ) {
+    return DEFAULT_SEMANTIC(exitCode, stdout, stderr)
+  }
 
   return {
     isError: result.isError,

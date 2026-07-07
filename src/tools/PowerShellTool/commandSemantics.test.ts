@@ -31,7 +31,7 @@ describe('interpretCommandResult (PowerShell)', () => {
   })
 
   // The reported bug (#1436) was observed on Windows with `uvx ruff check --fix`.
-  describe('linters (ruff / eslint) and uvx / npx wrappers', () => {
+  describe('linters, test-runners, and package runners', () => {
     test('ruff exit code 1 = violations found (not error)', () => {
       const result = interpretCommandResult('ruff check --fix', 1, 'F401\n', '')
       expect(result.isError).toBe(false)
@@ -41,6 +41,7 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('ruff exit code 2 = real error', () => {
       const result = interpretCommandResult('ruff check .', 2, '', 'invalid config')
       expect(result.isError).toBe(true)
+      expect(result.message).toContain('exit code 2')
     })
 
     test('ruff.exe strips suffix and inherits lint semantics', () => {
@@ -56,6 +57,46 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('eslint exit code 2 = fatal config error', () => {
       const result = interpretCommandResult('eslint src/', 2, '', 'Cannot read config')
       expect(result.isError).toBe(true)
+      expect(result.message).toContain('exit code 2')
+    })
+
+    test('additional linters and formatters report exit 1 as diagnostics', () => {
+      for (const command of [
+        'flake8 .',
+        'biome check .',
+        'mypy .',
+        'pyright',
+        'prettier --check .',
+        'black --check .',
+      ]) {
+        const result = interpretCommandResult(command, 1, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
+    test('test runners report exit 1 as test failures', () => {
+      for (const command of ['pytest', 'jest', 'vitest run']) {
+        const result = interpretCommandResult(command, 1, '1 failed', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
+    test('tsc exit code 2 = type errors reported, exit 1 = real invocation error', () => {
+      expect(
+        interpretCommandResult('tsc --noEmit', 2, 'error TS2322', '').isError,
+      ).toBe(false)
+      expect(
+        interpretCommandResult('tsc --bogus', 1, '', 'unknown option').isError,
+      ).toBe(true)
+    })
+
+    test('pylint diagnostic bits are reported, usage-error bit is an error', () => {
+      expect(
+        interpretCommandResult('pylint app.py', 30, 'E/W/R/C', '').isError,
+      ).toBe(false)
+      expect(
+        interpretCommandResult('pylint --bogus', 32, '', 'usage error').isError,
+      ).toBe(true)
     })
 
     test('uvx ruff check inherits ruff semantics: exit 1 not error', () => {
@@ -73,6 +114,35 @@ describe('interpretCommandResult (PowerShell)', () => {
       expect(result.isError).toBe(false)
     })
 
+    test('value-taking wrapper flags skip their values before resolving the tool', () => {
+      const cases = [
+        ['npx -p typescript tsc --noEmit', 2],
+        ['uvx --from ruff ruff check .', 1],
+        ['pipx run --spec ruff ruff check .', 1],
+        ['uvx --python 3.12 ruff check .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
+    test('python -m, bunx, pipx run, and package-manager exec resolve the wrapped tool', () => {
+      const cases = [
+        ['python -m ruff check .', 1],
+        ['python3 -m pytest', 1],
+        ['bunx vitest run', 1],
+        ['pipx run black --check .', 1],
+        ['pnpm exec tsc --noEmit', 2],
+        ['yarn exec eslint .', 1],
+        ['bun x biome check .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
     test('uvx wrapping an unrecognized tool falls back to default: exit 1 = error', () => {
       const result = interpretCommandResult('uvx somecli run', 1, '', '')
       expect(result.isError).toBe(true)
@@ -80,6 +150,33 @@ describe('interpretCommandResult (PowerShell)', () => {
 
     test('bare npx with no recognized tool uses default semantics', () => {
       const result = interpretCommandResult('npx', 1, '', '')
+      expect(result.isError).toBe(true)
+    })
+
+    test('non-runner forms still use default semantics', () => {
+      for (const command of ['python script.py', 'pipx list', 'bun run build']) {
+        const result = interpretCommandResult(command, 1, '', 'failed')
+        expect(result.isError).toBe(true)
+      }
+    })
+
+    test('failed setup before && does not inherit linter semantics', () => {
+      const result = interpretCommandResult(
+        'Set-Location missing && ruff check .',
+        1,
+        '',
+        'Cannot find path missing because it does not exist.',
+      )
+      expect(result.isError).toBe(true)
+    })
+
+    test('failed pipeline input does not inherit linter semantics', () => {
+      const result = interpretCommandResult(
+        'Get-Content missing | ruff check .',
+        1,
+        '',
+        'Cannot find path missing because it does not exist.',
+      )
       expect(result.isError).toBe(true)
     })
 
