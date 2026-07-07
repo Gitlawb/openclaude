@@ -66,4 +66,26 @@ describe('convertToSandboxRuntimeConfig', () => {
       resolve(activeCwd, '.openclaude', 'settings.local.json'),
     )
   })
+
+  test('denies legacy Claude config surfaces in original and changed cwd', () => {
+    const config = convertToSandboxRuntimeConfig({} as SettingsJson)
+
+    for (const cwd of [getOriginalCwd(), activeCwd]) {
+      expect(config.filesystem.denyWrite).toContain(
+        resolve(cwd, '.claude', 'settings.json'),
+      )
+      expect(config.filesystem.denyWrite).toContain(
+        resolve(cwd, '.claude', 'settings.local.json'),
+      )
+      expect(config.filesystem.denyWrite).toContain(
+        resolve(cwd, '.claude', 'commands'),
+      )
+      expect(config.filesystem.denyWrite).toContain(
+        resolve(cwd, '.claude', 'agents'),
+      )
+      expect(config.filesystem.denyWrite).toContain(
+        resolve(cwd, '.claude', 'skills'),
+      )
+    }
+  })
 })

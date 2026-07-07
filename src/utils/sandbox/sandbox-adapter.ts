@@ -23,6 +23,7 @@ import {
 import { rmSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { memoize } from 'lodash-es'
+import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import {
   getAdditionalDirectoriesForClaudeMd,
@@ -155,6 +156,16 @@ function getCurrentCwdSettingsDenyWritePaths(cwd: string): string[] {
   ]
 }
 
+function getLegacyClaudeConfigDenyWritePaths(cwd: string): string[] {
+  return [
+    resolve(cwd, '.claude', 'settings.json'),
+    resolve(cwd, '.claude', 'settings.local.json'),
+    resolve(cwd, '.claude', 'commands'),
+    resolve(cwd, '.claude', 'agents'),
+    resolve(cwd, '.claude', 'skills'),
+  ]
+}
+
 /**
  * Check if only managed sandbox domains should be used.
  * This is true when policySettings has sandbox.network.allowManagedDomainsOnly: true
@@ -249,8 +260,11 @@ export function convertToSandboxRuntimeConfig(
   // This handles the case where the user has cd'd to a different directory
   const cwd = getCwdState()
   const originalCwd = getOriginalCwd()
+  denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(originalCwd))
+  denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(homedir()))
   if (cwd !== originalCwd) {
     denyWrite.push(...getCurrentCwdSettingsDenyWritePaths(cwd))
+    denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(cwd))
   }
 
   // Block writes to .openclaude/skills in both original and current working directories.

@@ -81,6 +81,7 @@ export const DANGEROUS_DIRECTORIES = [
   '.vscode',
   '.idea',
   '.openclaude',
+  '.claude',
 ] as const
 
 /**
@@ -215,9 +216,13 @@ export function isClaudeSettingsPath(filePath: string): boolean {
   // Use platform separator so endsWith checks work on both Unix (/) and Windows (\)
   if (
     normalizedPath.endsWith(`${sep}.openclaude${sep}settings.json`) ||
-    normalizedPath.endsWith(`${sep}.openclaude${sep}settings.local.json`)
+    normalizedPath.endsWith(`${sep}.openclaude${sep}settings.local.json`) ||
+    normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
+    normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
   ) {
-    // Include .openclaude/settings.json even for other projects
+    // Include .openclaude and legacy .claude settings even for other projects.
+    // This is write-safety classification only; config loading does not read
+    // or migrate from .claude.
     return true
   }
   // Check for current project's settings files (including managed settings and CLI args)

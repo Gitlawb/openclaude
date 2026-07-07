@@ -10,6 +10,7 @@ import { isInGlobalClaudeFolder } from '../components/permissions/FilePermission
 import { getDisplayPath } from './file.ts'
 import { getDefaultPermissionModeOptions } from './permissions/defaultPermissionModeOptions.ts'
 import {
+  checkPathSafetyForAutoEdit,
   getClaudeSkillScope,
   isClaudeSettingsPath,
 } from './permissions/filesystem.ts'
@@ -55,6 +56,28 @@ describe('OpenClaude settings path surfaces', () => {
         join(process.cwd(), '.openclaude', 'settings.local.json'),
       ),
     ).toBe(true)
+  })
+
+  test('legacy .claude paths remain protected from auto-editing', () => {
+    expect(
+      isClaudeSettingsPath(join(process.cwd(), '.claude', 'settings.json')),
+    ).toBe(true)
+    expect(
+      isClaudeSettingsPath(
+        join(process.cwd(), '.claude', 'settings.local.json'),
+      ),
+    ).toBe(true)
+
+    expect(
+      checkPathSafetyForAutoEdit(
+        join(process.cwd(), '.claude', 'settings.json'),
+      ),
+    ).toMatchObject({ safe: false })
+    expect(
+      checkPathSafetyForAutoEdit(
+        join(process.cwd(), '.claude', 'commands', 'foo.md'),
+      ),
+    ).toMatchObject({ safe: false })
   })
 
   test('permission save destinations point user settings to configured OPENCLAUDE_CONFIG_DIR', async () => {
