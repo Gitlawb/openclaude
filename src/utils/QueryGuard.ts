@@ -121,6 +121,8 @@ export class QueryGuard {
   private _timeoutHandler: QueryTimeoutHandler | null = null
   private _queryStartedAt = 0
   private _lastActivityAt = 0
+  private _suspendCount = 0
+  private _suspendedAt = 0
   private _leaseCounter = 0
   private _activeLeases = new Map<string, LeaseRecord>()
   private _context: QueryLifecycleContext | null = null
@@ -180,6 +182,8 @@ export class QueryGuard {
     this._status = 'running'
     ++this._generation
     this._activeLeases.clear()
+    this._suspendCount = 0
+    this._suspendedAt = 0
     this._lastContext = null
     this._queryStartedAt = Date.now()
     this._lastActivityAt = this._queryStartedAt
@@ -210,6 +214,7 @@ export class QueryGuard {
     if (this._status !== 'running') return false
     this._clearTimeout()
     this._activeLeases.clear()
+    this._suspendCount = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
@@ -230,6 +235,7 @@ export class QueryGuard {
     if (this._status === 'idle') return
     this._clearTimeout()
     this._activeLeases.clear()
+    this._suspendCount = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
@@ -317,6 +323,66 @@ export class QueryGuard {
     const lease = this._activeLeases.get(leaseId)
     if (!lease || lease.generation !== generation) return
     this._activeLeases.delete(leaseId)
+    this._scheduleTimeout()
+  }
+
+  /**
+   * Suspend the watchdog while the query is legitimately blocked on a human
+   * decision (permission prompt, AskUserQuestion, plan-mode selection). Human
+   * think-time is not "stuck work" and must not count toward the idle timeout
+   * or the hard-maximum budget, otherwise a slow user choice aborts the whole
+   * query. Reference-counted so concurrent or nested interactions are safe.
+   *
+   * Pass the generation when suspending from an async callback so a stale
+   * interaction cannot pause a newer query. Returns a resume function; call it
+   * exactly once (a good fit for a `finally` block). Repeated or stale-
+   * generation resume calls are ignored.
+   */
+  beginUserInteraction(generation = this._generation): () => void {
+    if (this._status !== 'running' || generation !== this._generation) {
+      return () => {}
+    }
+    if (this._suspendCount === 0) {
+      this._suspendedAt = Date.now()
+      // Freeze the watchdog: no timer may fire while awaiting the human.
+      this._clearTimeout()
+    }
+    this._suspendCount++
+
+    let resumed = false
+    return () => {
+      if (resumed) return
+      resumed = true
+      // A superseded query already reset the counter; ignore stale resumes.
+      if (generation !== this._generation) return
+      if (this._suspendCount === 0) return
+      this._suspendCount--
+      if (this._suspendCount === 0) {
+        this._resumeAfterInteraction()
+      }
+    }
+  }
+
+  /**
+   * Restart the watchdog after the last concurrent human interaction ends.
+   * The paused duration is added back to the hard-max deadline and every lease
+   * that predates the pause, so human think-time is fully excluded from each
+   * budget; the idle window restarts fresh because the wait was intentional.
+   */
+  private _resumeAfterInteraction(): void {
+    if (this._status !== 'running') return
+    const now = Date.now()
+    const suspendedMs = Math.max(0, now - this._suspendedAt)
+    this._suspendedAt = 0
+    this._queryStartedAt += suspendedMs
+    for (const lease of this._activeLeases.values()) {
+      // Leases acquired during the pause already start after _suspendedAt, so
+      // only shift ones that were live when the interaction began.
+      if (lease.startedAt <= now - suspendedMs) {
+        lease.deadlineAt += suspendedMs
+      }
+    }
+    this._lastActivityAt = now
     this._scheduleTimeout()
   }
 
@@ -430,6 +496,8 @@ export class QueryGuard {
   private _scheduleTimeout(): void {
     this._clearTimeout()
     if (this._status !== 'running') return
+    // Watchdog is frozen while blocked on a human decision.
+    if (this._suspendCount > 0) return
 
     const now = Date.now()
     const reason = this._getTimeoutReason(now)

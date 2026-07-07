@@ -1143,15 +1143,27 @@ export async function checkPermissionsAndCallTool(
   const permissionMode = toolUseContext.getAppState().toolPermissionContext.mode
   const permissionStart = Date.now()
 
-  const resolved = await resolveHookPermissionDecision(
-    hookPermissionResult,
-    tool,
-    processedInput,
-    toolUseContext,
-    canUseTool,
-    assistantMessage,
-    toolUseID,
-  )
+  // Suspend the query watchdog for the whole permission resolution. An
+  // interactive 'ask' dialog blocks here on the user's decision (permission
+  // prompt, AskUserQuestion, plan-mode selection); that human think-time must
+  // not count toward the idle or hard-max timeout, or a slow choice aborts the
+  // query. Non-interactive resolutions return near-instantly, so the pause is
+  // a no-op for them.
+  const resumeWatchdog = toolUseContext.queryActivity?.beginUserInteraction?.()
+  let resolved: Awaited<ReturnType<typeof resolveHookPermissionDecision>>
+  try {
+    resolved = await resolveHookPermissionDecision(
+      hookPermissionResult,
+      tool,
+      processedInput,
+      toolUseContext,
+      canUseTool,
+      assistantMessage,
+      toolUseID,
+    )
+  } finally {
+    resumeWatchdog?.()
+  }
   const permissionDecision = resolved.decision
   processedInput = resolved.input
   trackLifecycleToolUse(processedInput)
