@@ -581,9 +581,8 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
 
     for (const install of npmInstalls) {
       if (install.type === 'npm-global') {
-        const uninstallCmd = MACRO.PACKAGE_URL
-          ? `npm -g uninstall ${MACRO.PACKAGE_URL}`
-          : 'npm -g uninstall openclaude'
+        const uninstallPackageName = MACRO.PACKAGE_URL || '@gitlawb/openclaude'
+        const uninstallCmd = `npm -g uninstall ${uninstallPackageName}`
         warnings.push({
           issue: `Leftover npm global installation at ${install.path}`,
           fix: `Run: ${uninstallCmd}`,
