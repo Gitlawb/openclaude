@@ -16,13 +16,21 @@ import * as actualSettings from '../../utils/settings/settings.js'
 import * as actualThinking from '../../utils/thinking.js'
 import * as actualGrowthbook from '../../services/analytics/growthbook.js'
 
+const originalEffortEnv = process.env.CLAUDE_CODE_EFFORT_LEVEL
+
 beforeEach(async () => {
   await acquireSharedMutationLock('commands/effort/effort.test.tsx')
+  delete process.env.CLAUDE_CODE_EFFORT_LEVEL
 })
 
 afterEach(() => {
   try {
     mock.restore()
+    if (originalEffortEnv === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = originalEffortEnv
+    }
   } finally {
     releaseSharedMutationLock()
   }
@@ -173,5 +181,56 @@ test('/effort ultracode applies the ultracode session effort when available', as
 
   expect(messages).toHaveLength(1)
   expect(messages[0]).toMatch(/^Set effort level to ultracode/)
+  expect(finalEffortValue).toBe('ultracode')
+})
+
+test('/effort picker reports env override when selecting ultracode', async () => {
+  mock.module('../../components/EffortPicker.js', () => ({
+    EffortPicker: ({ onSelect }: { onSelect: (effort: string) => void }) => {
+      React.useEffect(() => {
+        onSelect('ultracode')
+      }, [onSelect])
+      return null
+    },
+  }))
+
+  const { call } = await importFreshEffortCommandModule()
+  const messages: (string | undefined)[] = []
+  const onDone = (result?: string) => {
+    messages.push(result)
+  }
+
+  process.env.CLAUDE_CODE_EFFORT_LEVEL = 'high'
+  const element = await call(onDone, {}, '')
+  const { stdout, stdin } = createTestStreams()
+
+  let finalEffortValue: string | number | undefined
+  const instance = await render(
+    <AppStateProvider
+      initialState={{
+        ...getDefaultAppState(),
+        mainLoopModelForSession: 'claude-opus-4-8',
+      }}
+      onChangeAppState={({ newState }) => {
+        finalEffortValue = newState.effortValue
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  await Bun.sleep(10)
+  instance.unmount()
+  stdin.end()
+  stdout.end()
+
+  expect(messages).toEqual([
+    'Not applied: CLAUDE_CODE_EFFORT_LEVEL=high overrides effort this session, and ultracode is session-only (nothing saved)',
+  ])
   expect(finalEffortValue).toBe('ultracode')
 })

@@ -38,7 +38,11 @@ import type { ProviderProfile } from '../../utils/config.js'
 import type { AppState } from '../../state/AppState.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
 import type { LocalJSXCommandCall } from '../../types/command.js'
-import type { EffortLevel } from '../../utils/effort.js'
+import {
+  type EffortLevel,
+  getEffortEnvOverride,
+  resolveAppliedEffort,
+} from '../../utils/effort.js'
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js'
 import {
   clearFastModeCooldown,
@@ -980,8 +984,17 @@ function ShowModelAndClose({
   )
   const effortValue = useAppState((s: AppState) => s.effortValue)
   const displayModel = renderModelLabel(mainLoopModel)
+  const effectiveEffort = resolveAppliedEffort(
+    mainLoopModel ?? getDefaultMainLoopModelSetting(),
+    effortValue,
+  )
+  const effortEnvOverride = getEffortEnvOverride()
   const effortInfo =
-    effortValue !== undefined ? ` (effort: ${effortValue})` : ''
+    effectiveEffort !== undefined
+      ? ` (effort: ${effectiveEffort})`
+      : effortEnvOverride === null
+        ? ' (effort: auto)'
+        : ''
 
   if (mainLoopModelForSession) {
     onDone(
