@@ -113,7 +113,41 @@ const PACKAGE_SCRIPT_VALUE_FLAGS = new Set([
   '-w',
   '--filter',
   '-F',
+  '--cwd',
+  '--dir',
+  '-C',
 ])
+
+function skipPackageManagerPrefixes(
+  normalized: string[],
+  startIndex: number,
+): number {
+  let i = startIndex
+  while (i < normalized.length) {
+    const token = normalized[i]
+    if (!token) {
+      i += 1
+      continue
+    }
+    if (token === '--') {
+      i += 1
+      continue
+    }
+    if (token === 'workspace') {
+      i += 2
+      continue
+    }
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0] ?? token
+      i += PACKAGE_SCRIPT_VALUE_FLAGS.has(flagName) && !token.includes('=')
+        ? 2
+        : 1
+      continue
+    }
+    break
+  }
+  return i
+}
 
 /**
  * Command-specific semantics
@@ -198,7 +232,7 @@ function resolvePackageScriptCommand(
   startIndex: number,
   allowDirectAlias: boolean,
 ): string | undefined {
-  let i = startIndex
+  let i = skipPackageManagerPrefixes(normalized, startIndex)
   const first = normalized[i]
   if (first === undefined) {
     return undefined
@@ -283,6 +317,7 @@ function extractWrappedCommand(
     }
     i += 1
   } else if (wrapper === 'npm') {
+    i = skipPackageManagerPrefixes(normalized, i)
     const scriptCommand = resolvePackageScriptCommand(normalized, i, false)
     if (scriptCommand !== undefined) {
       return scriptCommand
@@ -296,6 +331,7 @@ function extractWrappedCommand(
       return undefined
     }
   } else if (wrapper === 'pnpm' || wrapper === 'yarn') {
+    i = skipPackageManagerPrefixes(normalized, i)
     if (normalized[i] !== 'exec') {
       const scriptCommand = resolvePackageScriptCommand(normalized, i, true)
       if (scriptCommand !== undefined) {
@@ -327,7 +363,11 @@ function extractWrappedCommand(
     }
     if (token.startsWith('-')) {
       const flagName = token.split('=')[0] ?? token
-      i += WRAPPER_VALUE_FLAGS.has(flagName) && !token.includes('=') ? 1 : 0
+      const takesValue =
+        WRAPPER_VALUE_FLAGS.has(flagName) ||
+        ((wrapper === 'npm' || wrapper === 'pnpm' || wrapper === 'yarn') &&
+          PACKAGE_SCRIPT_VALUE_FLAGS.has(flagName))
+      i += takesValue && !token.includes('=') ? 1 : 0
       continue
     }
     return token
@@ -398,7 +438,8 @@ function getEnvSplitStringPayload(
   if (flag === undefined) {
     return undefined
   }
-  const inlineValue = flag.match(/^--split-string=(.*)$/)?.[1]
+  const inlineValue =
+    flag.match(/^--split-string=(.*)$/)?.[1] ?? flag.match(/^-S=(.*)$/)?.[1]
   if (inlineValue !== undefined) {
     return collectQuotedTokenPayload(inlineValue, tokens, flagIndex + 1)
   }
@@ -557,7 +598,7 @@ function looksLikeWrapperFailure(
   if (failureOutput.length === 0) {
     return false
   }
-  return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
+  return /(^|\n)\s*(npm (ERR!|error)|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
     failureOutput,
   )
 }
