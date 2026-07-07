@@ -55,17 +55,6 @@ import {
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
-// Minimal shape of @azure/identity used by the Foundry auth path. Declared as a
-// named alias (not an inline generic) so its `=>`/Promise<...> tokens don't
-// confuse the importOptionalRuntimeModule call-site scan in scripts/.
-type AzureIdentityModule = {
-  DefaultAzureCredential: new () => unknown
-  getBearerTokenProvider: (
-    credential: unknown,
-    scope: string,
-  ) => () => Promise<string>
-}
-
 /**
  * Environment variables for different client types:
  *
@@ -597,13 +586,10 @@ export async function getAnthropicClient({
         azureADTokenProvider = () => Promise.resolve('')
       } else {
         // Use real Azure AD authentication with DefaultAzureCredential
-        // @azure/identity is optional and not a direct devDependency (it comes
-        // transitively via @anthropic-ai/foundry-sdk), so `typeof import(...)`
-        // cannot resolve here — use the minimal shape declared above.
         const {
           DefaultAzureCredential: AzureCredential,
           getBearerTokenProvider,
-        } = await importOptionalRuntimeModule<AzureIdentityModule>(
+        } = await importOptionalRuntimeModule<typeof import('@azure/identity')>(
           '@azure/identity',
           'Azure Foundry authentication',
         )

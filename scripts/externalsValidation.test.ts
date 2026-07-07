@@ -223,7 +223,7 @@ describe('validateOptionalRuntimeExternals', () => {
       sdk,
       INDIRECTION_ONLY,
       pkg,
-      ['@azure/identity'], // transitive exemptions
+      ['@example/transitive-optional'], // unrelated transitive exemption
     )
     expect(r.ok).toBe(false)
     expect(r.errors.join(' ')).toMatch(/missing from devDependencies.*sharp/)
@@ -237,14 +237,15 @@ describe('validateOptionalRuntimeExternals', () => {
         '@anthropic-ai/bedrock-sdk': '*',
       },
     }
-    // @azure/identity is transitive (not a direct devDep) and must NOT fail.
+    // Synthetic transitive optionals are exempt when another optional package
+    // guarantees them in source installs.
     const r = validateOptionalRuntimeExternals(
-      [...OPTIONAL, '@azure/identity'],
-      [...cli, '@azure/identity'],
-      [...sdk, '@azure/identity'],
+      [...OPTIONAL, '@example/transitive-optional'],
+      [...cli, '@example/transitive-optional'],
+      [...sdk, '@example/transitive-optional'],
       INDIRECTION_ONLY,
       pkg,
-      ['@azure/identity'],
+      ['@example/transitive-optional'],
     )
     expect(r.ok).toBe(true)
   })

@@ -49,9 +49,11 @@ export function isValidAwsStsOutput(obj: unknown): obj is AwsStsOutput {
 
 /** Throws if STS caller identity cannot be retrieved. */
 export async function checkStsCallerIdentity(): Promise<void> {
-  const { STSClient, GetCallerIdentityCommand } = await import(
-    '@aws-sdk/client-sts'
-  )
+  const { STSClient, GetCallerIdentityCommand } =
+    await importOptionalRuntimeModule<typeof import('@aws-sdk/client-sts')>(
+      '@aws-sdk/client-sts',
+      'AWS Bedrock',
+    )
   await new STSClient().send(new GetCallerIdentityCommand({}))
 }
 

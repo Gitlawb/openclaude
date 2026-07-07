@@ -58,6 +58,7 @@ const EXPECTED_SPECIFIERS = [
   '@anthropic-ai/foundry-sdk',
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
+  '@aws-sdk/client-sts',
   '@aws-sdk/credential-providers',
   '@azure/identity',
   'google-auth-library',

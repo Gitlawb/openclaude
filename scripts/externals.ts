@@ -92,16 +92,12 @@ export const RUNTIME_INDIRECTION_ONLY_EXTERNALS: string[] = [
 
 // OPTIONAL_RUNTIME_EXTERNALS that are NOT direct devDependencies because they
 // are pulled transitively by another optional package's dependency tree, so
-// source builds/tests still resolve them: the @aws-sdk/* clients come via
-// @anthropic-ai/bedrock-sdk, and @azure/identity via @anthropic-ai/foundry-sdk.
-// Every OTHER optional external must be a direct devDependency (validated) so
-// `bun install` source/dev builds keep working.
+// source builds/tests still resolve them. Every OTHER optional external must be
+// a direct devDependency (validated) so `bun install` source/dev builds keep
+// working.
 export const TRANSITIVE_OPTIONAL_EXTERNALS: string[] = [
-  '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
-  '@aws-sdk/client-sts',
   '@aws-sdk/credential-providers',
-  '@azure/identity',
 ]
 
 // Computed full lists
