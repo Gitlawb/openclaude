@@ -354,12 +354,23 @@ function looksLikeWrapperFailure(
   if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
     return false
   }
-  if (stdout.trim().length > 0 || stderr.trim().length === 0) {
+  if (stderr.trim().length === 0) {
     return false
   }
   return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
     stderr,
   )
+}
+
+function getNonFinalCommandNames(command: string): string[] {
+  const segments = splitCommand_DEPRECATED(command)
+  if (segments.length < 2) {
+    return []
+  }
+  return segments
+    .slice(0, -1)
+    .map(segment => extractRunnableBaseCommand(segment.trim().split(/\s+/)))
+    .filter(Boolean)
 }
 
 function looksLikeSetupOrPipelineFailure(
@@ -369,15 +380,23 @@ function looksLikeSetupOrPipelineFailure(
   stderr: string,
   result: { isError: boolean },
 ): boolean {
-  if (exitCode === 0 || result.isError || !/&&|\|/.test(command)) {
+  if (exitCode === 0 || result.isError) {
     return false
   }
   if (stdout.trim().length > 0) {
     return false
   }
-  return /(^|\n)\s*(cd|pushd|popd):|no such file|not found|permission denied/i.test(
-    stderr,
-  )
+  const previousCommands = getNonFinalCommandNames(command)
+  if (previousCommands.length === 0) {
+    return false
+  }
+  return previousCommands.some(commandName => {
+    const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(
+      `(^|\\n)\\s*${escaped}:.*(no such file|not found|permission denied|does not exist)`,
+      'i',
+    ).test(stderr)
+  })
 }
 
 /**

@@ -199,7 +199,43 @@ function extractBaseCommand(segment: string): string {
 }
 
 function splitStatements(command: string): string[] {
-  return command.split(/&&|\|\||\r?\n|[;|]/).filter(s => s.trim())
+  const statements: string[] = []
+  let current = ''
+  let quote: '"' | "'" | undefined
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]
+    const next = command[i + 1]
+    if ((char === '"' || char === "'") && quote === undefined) {
+      quote = char
+    } else if (char === quote) {
+      quote = undefined
+    }
+    if (quote === undefined) {
+      if ((char === '&' && next === '&') || (char === '|' && next === '|')) {
+        if (current.trim()) {
+          statements.push(current)
+        }
+        current = ''
+        i += 1
+        continue
+      }
+      if (char === ';' || char === '|' || char === '\n') {
+        if (current.trim()) {
+          statements.push(current)
+        }
+        current = ''
+        continue
+      }
+      if (char === '\r') {
+        continue
+      }
+    }
+    current += char
+  }
+  if (current.trim()) {
+    statements.push(current)
+  }
+  return statements
 }
 
 function isEnvAssignment(token: string): boolean {
@@ -345,12 +381,23 @@ function looksLikeWrapperFailure(
   if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
     return false
   }
-  if (stdout.trim().length > 0 || stderr.trim().length === 0) {
+  if (stderr.trim().length === 0) {
     return false
   }
   return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
     stderr,
   )
+}
+
+function getNonFinalCommandNames(command: string): string[] {
+  const segments = splitStatements(command)
+  if (segments.length < 2) {
+    return []
+  }
+  return segments
+    .slice(0, -1)
+    .map(segment => extractRunnableBaseCommand(segment.trim().split(/\s+/)))
+    .filter(Boolean)
 }
 
 function looksLikeSetupOrPipelineFailure(
@@ -360,15 +407,30 @@ function looksLikeSetupOrPipelineFailure(
   stderr: string,
   result: { isError: boolean },
 ): boolean {
-  if (exitCode === 0 || result.isError || !/[|&]{1,2}/.test(command)) {
+  if (exitCode === 0 || result.isError) {
     return false
   }
   if (stdout.trim().length > 0) {
     return false
   }
-  return /cannot find path|no such file|not found|permission denied|set-location|get-content/i.test(
-    stderr,
-  )
+  const previousCommands = getNonFinalCommandNames(command)
+  if (previousCommands.length === 0) {
+    return false
+  }
+  return previousCommands.some(commandName => {
+    if (
+      !['set-location', 'push-location', 'pop-location', 'get-content'].includes(
+        commandName,
+      )
+    ) {
+      return false
+    }
+    const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(
+      `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|not found|permission denied)`,
+      'i',
+    ).test(stderr)
+  })
 }
 
 /**

@@ -335,14 +335,32 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(false)
     })
 
+    test('diagnostics after successful setup can mention missing files', () => {
+      for (const command of [
+        'cd src && pytest',
+        'cd src && ruff check .',
+        'pytest -k "missing|fixture"',
+        'pytest -k "missing&&fixture"',
+      ]) {
+        const result = interpretCommandResult(
+          command,
+          1,
+          '',
+          'FileNotFoundError: No such file or directory: fixture.txt',
+        )
+        expect(result.isError).toBe(false)
+      }
+    })
+
     test('package-runner failures do not inherit wrapped-tool semantics', () => {
       const cases = [
-        ['npx eslint .', 'npm ERR! code EAI_AGAIN'],
-        ['uvx ruff check .', 'error: Failed to download ruff'],
-        ['pipx run black --check .', 'Fatal error from pip prevented installation'],
+        ['npx eslint .', '', 'npm ERR! code EAI_AGAIN'],
+        ['npx eslint .', 'Installing eslint...', 'npm ERR! code EAI_AGAIN'],
+        ['uvx ruff check .', 'Resolving packages...', 'error: Failed to download ruff'],
+        ['pipx run black --check .', '', 'Fatal error from pip prevented installation'],
       ] as const
-      for (const [command, stderr] of cases) {
-        const result = interpretCommandResult(command, 1, '', stderr)
+      for (const [command, stdout, stderr] of cases) {
+        const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
       }
     })

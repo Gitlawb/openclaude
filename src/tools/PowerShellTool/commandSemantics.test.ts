@@ -178,7 +178,7 @@ describe('interpretCommandResult (PowerShell)', () => {
         'Set-Location missing && ruff check .',
         1,
         '',
-        'Cannot find path missing because it does not exist.',
+        'Set-Location: Cannot find path missing because it does not exist.',
       )
       expect(result.isError).toBe(true)
     })
@@ -193,24 +193,42 @@ describe('interpretCommandResult (PowerShell)', () => {
       expect(result.isError).toBe(false)
     })
 
+    test('diagnostics after successful setup can mention missing files', () => {
+      for (const command of [
+        'Set-Location src && pytest',
+        'Set-Location src && ruff check .',
+        'pytest -k "missing|fixture"',
+        'pytest -k "missing&&fixture"',
+      ]) {
+        const result = interpretCommandResult(
+          command,
+          1,
+          '',
+          'FileNotFoundError: File not found: fixture.txt',
+        )
+        expect(result.isError).toBe(false)
+      }
+    })
+
     test('failed pipeline input does not inherit linter semantics', () => {
       const result = interpretCommandResult(
         'Get-Content missing | ruff check .',
         1,
         '',
-        'Cannot find path missing because it does not exist.',
+        'Get-Content: Cannot find path missing because it does not exist.',
       )
       expect(result.isError).toBe(true)
     })
 
     test('package-runner failures do not inherit wrapped-tool semantics', () => {
       const cases = [
-        ['npx eslint .', 'npm ERR! code EAI_AGAIN'],
-        ['uvx ruff check .', 'error: Failed to download ruff'],
-        ['pipx run black --check .', 'Fatal error from pip prevented installation'],
+        ['npx eslint .', '', 'npm ERR! code EAI_AGAIN'],
+        ['npx eslint .', 'Installing eslint...', 'npm ERR! code EAI_AGAIN'],
+        ['uvx ruff check .', 'Resolving packages...', 'error: Failed to download ruff'],
+        ['pipx run black --check .', '', 'Fatal error from pip prevented installation'],
       ] as const
-      for (const [command, stderr] of cases) {
-        const result = interpretCommandResult(command, 1, '', stderr)
+      for (const [command, stdout, stderr] of cases) {
+        const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
       }
     })
