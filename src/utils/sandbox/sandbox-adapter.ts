@@ -166,6 +166,16 @@ function getLegacyClaudeConfigDenyWritePaths(cwd: string): string[] {
   ]
 }
 
+function getClaudeConfigRootDenyWritePaths(configDir: string): string[] {
+  return [
+    resolve(configDir, 'settings.json'),
+    resolve(configDir, 'settings.local.json'),
+    resolve(configDir, 'commands'),
+    resolve(configDir, 'agents'),
+    resolve(configDir, 'skills'),
+  ]
+}
+
 /**
  * Check if only managed sandbox domains should be used.
  * This is true when policySettings has sandbox.network.allowManagedDomainsOnly: true
@@ -262,6 +272,11 @@ export function convertToSandboxRuntimeConfig(
   const originalCwd = getOriginalCwd()
   denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(originalCwd))
   denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(homedir()))
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    denyWrite.push(
+      ...getClaudeConfigRootDenyWritePaths(process.env.CLAUDE_CONFIG_DIR),
+    )
+  }
   if (cwd !== originalCwd) {
     denyWrite.push(...getCurrentCwdSettingsDenyWritePaths(cwd))
     denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(cwd))

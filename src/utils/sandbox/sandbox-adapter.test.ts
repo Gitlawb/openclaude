@@ -88,4 +88,19 @@ describe('convertToSandboxRuntimeConfig', () => {
       )
     }
   })
+
+  test('denies legacy Claude config surfaces from CLAUDE_CONFIG_DIR', () => {
+    const config = convertToSandboxRuntimeConfig({} as SettingsJson)
+    const configDir = process.env.CLAUDE_CONFIG_DIR!
+
+    expect(config.filesystem.denyWrite).toContain(
+      resolve(configDir, 'settings.json'),
+    )
+    expect(config.filesystem.denyWrite).toContain(
+      resolve(configDir, 'settings.local.json'),
+    )
+    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'commands'))
+    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'agents'))
+    expect(config.filesystem.denyWrite).toContain(resolve(configDir, 'skills'))
+  })
 })
