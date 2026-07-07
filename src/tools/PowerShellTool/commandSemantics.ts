@@ -111,7 +111,17 @@ const WRAPPER_VALUE_FLAGS = new Set([
   '--cache-dir',
 ])
 
-const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '-S', '-P'])
+const ENV_VALUE_FLAGS = new Set([
+  '-u',
+  '--unset',
+  '-c',
+  '-C',
+  '-s',
+  '-S',
+  '-p',
+  '-P',
+])
+const ENV_SPLIT_STRING_FLAGS = new Set(['-s', '-S', '--split-string'])
 
 /**
  * Command-specific semantics for external executables.
@@ -267,6 +277,77 @@ function skipEnvUtility(tokens: string[], startIndex: number): number {
   return i
 }
 
+function collectQuotedTokenPayload(
+  first: string,
+  tokens: string[],
+  nextIndex: number,
+): string {
+  const quote = first[0]
+  if (quote !== '"' && quote !== "'") {
+    return first
+  }
+  const collected = [first]
+  if (first.length > 1 && first.endsWith(quote)) {
+    return collected.join(' ').replace(/^["']|["']$/g, '')
+  }
+  for (let i = nextIndex; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token === undefined) {
+      break
+    }
+    collected.push(token)
+    if (token.endsWith(quote)) {
+      break
+    }
+  }
+  return collected.join(' ').replace(/^["']|["']$/g, '')
+}
+
+function getEnvSplitStringPayload(
+  tokens: string[],
+  flagIndex: number,
+): string | undefined {
+  const flag = tokens[flagIndex]
+  if (flag === undefined) {
+    return undefined
+  }
+  const inlineValue = flag.match(/^--split-string=(.*)$/)?.[1]
+  if (inlineValue !== undefined) {
+    return collectQuotedTokenPayload(inlineValue, tokens, flagIndex + 1)
+  }
+  const first = tokens[flagIndex + 1]
+  if (first === undefined) {
+    return undefined
+  }
+  return collectQuotedTokenPayload(first, tokens, flagIndex + 2)
+}
+
+function extractEnvSplitStringBaseCommand(
+  tokens: string[],
+  startIndex: number,
+): string | undefined {
+  for (let i = startIndex + 1; i < tokens.length; i++) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    const token = extractBaseCommand(rawToken)
+    const flagName = rawToken.startsWith('--split-string=')
+      ? '--split-string'
+      : token.split('=')[0] ?? token
+    if (ENV_SPLIT_STRING_FLAGS.has(flagName)) {
+      const payload = getEnvSplitStringPayload(tokens, i)
+      return payload !== undefined
+        ? extractSemanticBaseCommand(payload)
+        : undefined
+    }
+    if (token === '--') {
+      break
+    }
+  }
+  return undefined
+}
+
 function extractRunnableBaseCommand(tokens: string[]): string {
   let i = 0
   while (i < tokens.length) {
@@ -280,12 +361,24 @@ function extractRunnableBaseCommand(tokens: string[]): string {
     }
     const token = extractBaseCommand(rawToken)
     if (token === 'env') {
+      const splitStringBase = extractEnvSplitStringBaseCommand(tokens, i)
+      if (splitStringBase !== undefined) {
+        return splitStringBase
+      }
       i = skipEnvUtility(tokens, i)
       continue
     }
     return token
   }
   return tokens[0] !== undefined ? extractBaseCommand(tokens[0]) : ''
+}
+
+function extractSemanticBaseCommand(command: string): string {
+  const baseCommand = extractRunnableBaseCommand(command.trim().split(/\s+/))
+  if (WRAPPER_COMMANDS.has(baseCommand)) {
+    return extractWrappedCommand(command, baseCommand) ?? baseCommand
+  }
+  return baseCommand
 }
 
 /**
@@ -381,12 +474,20 @@ function looksLikeWrapperFailure(
   if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
     return false
   }
-  if (stderr.trim().length === 0) {
+  const failureOutput = combineFailureOutput(stdout, stderr)
+  if (failureOutput.length === 0) {
     return false
   }
   return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
-    stderr,
+    failureOutput,
   )
+}
+
+function combineFailureOutput(stdout: string, stderr: string): string {
+  return [stderr, stdout]
+    .map(output => output.trim())
+    .filter(Boolean)
+    .join('\n')
 }
 
 function getNonFinalCommandNames(command: string): string[] {
@@ -414,12 +515,13 @@ function looksLikeSetupOrPipelineFailure(
   if (previousCommands.length === 0) {
     return false
   }
+  const failureOutput = combineFailureOutput(stdout, stderr)
   return previousCommands.some(commandName => {
     const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return new RegExp(
       `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|not found|permission denied|not recognized)`,
       'i',
-    ).test(stderr)
+    ).test(failureOutput)
   })
 }
 

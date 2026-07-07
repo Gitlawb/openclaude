@@ -149,6 +149,16 @@ describe('interpretCommandResult (PowerShell)', () => {
         ['env RUFF_CACHE_DIR=C:\\tmp\\ruff ruff check .', 1],
         ['env CI=1 uvx ruff check .', 1],
         ['env -- RUFF_CACHE_DIR=C:\\tmp\\ruff ruff check .', 1],
+        ['env -S "ruff check ."', 1],
+        ['env -S "eslint ."', 1],
+        ['env -S "pytest -q"', 1],
+        ['env --split-string="ruff check ."', 1],
+        ['env --split-string="python -m pytest"', 1],
+        ['env --split-string="uvx ruff check ."', 1],
+        ['env --split-string="npx eslint ."', 1],
+        ['env --split-string="npx -p typescript tsc --noEmit"', 2],
+        ['env --split-string="PYTHONPATH=C:\\repo pytest tests/"', 1],
+        ['env --split-string="RUFF_CACHE_DIR=C:\\tmp\\ruff ruff check ."', 1],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
@@ -184,6 +194,26 @@ describe('interpretCommandResult (PowerShell)', () => {
           stdout,
           'Set-Location: Cannot find path missing because it does not exist.',
         )
+        expect(result.isError).toBe(true)
+      }
+    })
+
+    test('merged-output setup failures do not inherit linter semantics', () => {
+      for (const [command, stdout] of [
+        [
+          'Write-Output setup; Set-Location missing && ruff check .',
+          'setup\nSet-Location: Cannot find path missing because it does not exist.\n',
+        ],
+        [
+          'Write-Output setup; Get-Content missing | ruff check .',
+          'setup\nGet-Content: Cannot find path missing because it does not exist.\n',
+        ],
+        [
+          'badcmd | pytest',
+          'badcmd: The term badcmd is not recognized as a name of a cmdlet\n',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, stdout, '')
         expect(result.isError).toBe(true)
       }
     })
@@ -240,8 +270,11 @@ describe('interpretCommandResult (PowerShell)', () => {
       const cases = [
         ['npx eslint .', '', 'npm ERR! code EAI_AGAIN'],
         ['npx eslint .', 'Installing eslint...', 'npm ERR! code EAI_AGAIN'],
+        ['npx eslint .', 'Installing eslint...\nnpm ERR! code EAI_AGAIN', ''],
         ['uvx ruff check .', 'Resolving packages...', 'error: Failed to download ruff'],
+        ['uvx ruff check .', 'Resolving packages...\nerror: Failed to download ruff', ''],
         ['pipx run black --check .', '', 'Fatal error from pip prevented installation'],
+        ['pipx run black --check .', 'Fatal error from pip prevented installation', ''],
       ] as const
       for (const [command, stdout, stderr] of cases) {
         const result = interpretCommandResult(command, 1, stdout, stderr)
