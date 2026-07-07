@@ -447,13 +447,24 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
-  test('fails Firecrawl cloud URL without an API key in auto mode', () => {
+  test('reports Firecrawl cloud URL without an API key in auto mode with DuckDuckGo fallback', () => {
     useOpenAICompatibleProvider()
     process.env.FIRECRAWL_API_URL = 'https://api.firecrawl.dev'
 
     expectWebSearchBackend(
-      false,
-      'WEB_SEARCH_PROVIDER=auto; FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing. Runtime will try firecrawl before fallback providers; set FIRECRAWL_API_KEY, use a self-hosted FIRECRAWL_API_URL, or unset FIRECRAWL_API_URL.',
+      true,
+      `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search. FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.`,
+    )
+  })
+
+  test('reports Firecrawl cloud URL without an API key in auto mode with a later API fallback', () => {
+    useOpenAICompatibleProvider()
+    process.env.FIRECRAWL_API_URL = 'https://api.firecrawl.dev'
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; configured providers: brave; fallback includes duckduckgo. FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.',
     )
   })
 

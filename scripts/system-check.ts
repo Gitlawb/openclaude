@@ -363,15 +363,22 @@ function buildFirecrawlWebSearchCheck(): CheckResult {
   )
 }
 
-function buildAutoFirecrawlMissingCredentialCheck(): CheckResult | undefined {
+function getAutoFirecrawlMissingCredentialDetail(): string | undefined {
   const firecrawlSelectedByAutoChain = getAvailableProviders()
     .some(provider => provider.name === 'firecrawl')
   if (!firecrawlSelectedByAutoChain || hasFirecrawlRunnableConfig()) return undefined
 
-  return fail(
-    'Web search backend',
-    'WEB_SEARCH_PROVIDER=auto; FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing. Runtime will try firecrawl before fallback providers; set FIRECRAWL_API_KEY, use a self-hosted FIRECRAWL_API_URL, or unset FIRECRAWL_API_URL.',
-  )
+  return 'FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.'
+}
+
+function appendAutoFirecrawlMissingCredentialDetail(result: CheckResult): CheckResult {
+  const firecrawlDetail = getAutoFirecrawlMissingCredentialDetail()
+  if (!firecrawlDetail) return result
+
+  return {
+    ...result,
+    detail: result.detail ? `${result.detail} ${firecrawlDetail}` : firecrawlDetail,
+  }
 }
 
 function isWebSearchApiProviderConfiguredForDoctor(providerName: string): boolean {
@@ -464,26 +471,25 @@ function buildWebSearchEnvChecks(): CheckResult[] {
       return [appendConfiguredWebSearchApiProviderDetail(nativeCheck)]
     }
 
-    const firecrawlMissingCredentialCheck = buildAutoFirecrawlMissingCredentialCheck()
-    if (firecrawlMissingCredentialCheck) {
-      return appendWebSearchTimeoutDetails([firecrawlMissingCredentialCheck])
-    }
-
     const configuredProviders = getConfiguredWebSearchApiProviderNames()
 
     if (configuredProviders.length > 0) {
       return appendWebSearchTimeoutDetails([
-        pass(
-          'Web search backend',
-          `WEB_SEARCH_PROVIDER=auto; configured providers: ${configuredProviders.join(', ')}; fallback includes duckduckgo.`,
+        appendAutoFirecrawlMissingCredentialDetail(
+          pass(
+            'Web search backend',
+            `WEB_SEARCH_PROVIDER=auto; configured providers: ${configuredProviders.join(', ')}; fallback includes duckduckgo.`,
+          ),
         ),
       ])
     }
 
     return appendWebSearchTimeoutDetails([
-      pass(
-        'Web search backend',
-        `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`,
+      appendAutoFirecrawlMissingCredentialDetail(
+        pass(
+          'Web search backend',
+          `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`,
+        ),
       ),
     ])
   }
