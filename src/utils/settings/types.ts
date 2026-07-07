@@ -802,7 +802,7 @@ export const SettingsSchema = lazySchema(() =>
         })
         .optional()
         .describe(
-          'Opt-in smart routing: classify each user turn and route simple turns to a cheaper model. ' +
+          'Opt-in smart routing: classify each user turn and route simple turns to the configured simple model. ' +
             'simpleModel/strongModel are agentModels keys (or bare model ids). ' +
             'Example: { "enabled": true, "simpleModel": "mini", "strongModel": "main" }',
         ),

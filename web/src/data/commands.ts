@@ -92,7 +92,7 @@ export const commands: SlashCommand[] = [
   { name: 'model', description: 'Set the AI model for the session', category: 'models', args: '[model]' },
   { name: 'provider', description: 'Manage API provider profiles', category: 'models' },
   { name: 'effort', description: 'Set effort level for model usage', category: 'models', args: '[low|medium|high|max|auto]' },
-  { name: 'smartroute', description: 'Configure smart auto-routing (experimental): route simple turns to a cheaper model', category: 'models', args: '[on|off|simple <key>|strong <key>]' },
+  { name: 'smartroute', description: 'Configure smart auto-routing (experimental): route simple turns to your configured simple model', category: 'models', args: '[on|off|simple <key>|strong <key>]' },
   { name: 'login', description: 'Sign in with your Anthropic account', category: 'models' },
   { name: 'logout', description: 'Sign out from your Anthropic account', category: 'models' },
   { name: 'onboard-github', description: 'Interactive setup for GitHub Copilot: OAuth device login stored in secure storage', category: 'models' },

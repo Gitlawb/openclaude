@@ -112,7 +112,7 @@ const call: LocalCommandCall = async (args, context) => {
 const smartroute = {
   type: 'local',
   name: 'smartroute',
-  description: 'Configure smart auto-routing (experimental): route simple turns to a cheaper model',
+  description: 'Configure smart auto-routing (experimental): route simple turns to your configured simple model',
   argumentHint: '[on|off|simple <key>|strong <key>]',
   isEnabled: () => true,
   isHidden: false,

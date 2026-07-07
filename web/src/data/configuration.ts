@@ -50,7 +50,7 @@ export const settingOptions: SettingOption[] = [
   { key: 'verbose', description: 'Verbose output by default.' },
   { key: 'allowAutoUpdates', description: 'Enable or disable the auto-updater.' },
   { key: 'hooks', description: 'Shell hooks that run on tool events (PreToolUse, PostToolUse, …).' },
-  { key: 'smartRouting', description: 'Opt-in smart auto-routing: { enabled, simpleModel, strongModel } route simple turns to a cheaper model. Configure with /smartroute.' },
+  { key: 'smartRouting', description: 'Opt-in smart auto-routing: { enabled, simpleModel, strongModel } route simple turns to the configured simple model. Configure with /smartroute.' },
 ]
 
 export interface EnvVar {
