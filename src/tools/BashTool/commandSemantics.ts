@@ -72,6 +72,7 @@ const PYLINT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
 const WRAPPER_COMMANDS = new Set([
   'uvx',
   'npx',
+  'npm',
   'bunx',
   'pipx',
   'python',
@@ -95,6 +96,16 @@ const WRAPPER_VALUE_FLAGS = new Set([
 
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '-S', '-P'])
 const ENV_SPLIT_STRING_FLAGS = new Set(['-S', '--split-string'])
+
+const PACKAGE_SCRIPT_COMMANDS = new Map([
+  ['lint', 'eslint'],
+  ['lint:fix', 'eslint'],
+  ['test', 'jest'],
+  ['test:unit', 'jest'],
+  ['test:watch', 'jest'],
+  ['typecheck', 'tsc'],
+  ['type-check', 'tsc'],
+])
 
 /**
  * Command-specific semantics
@@ -223,11 +234,35 @@ function extractWrappedCommand(
       return undefined
     }
     i += 1
-  } else if (wrapper === 'pnpm' || wrapper === 'yarn') {
-    if (normalized[i] !== 'exec') {
+  } else if (wrapper === 'npm') {
+    if (normalized[i] === 'test') {
+      return PACKAGE_SCRIPT_COMMANDS.get('test')
+    }
+    if (normalized[i] === 'run' || normalized[i] === 'run-script') {
+      i += 1
+      const scriptName = normalized[i]
+      return scriptName !== undefined
+        ? PACKAGE_SCRIPT_COMMANDS.get(scriptName)
+        : undefined
+    }
+    if (normalized[i] === 'exec' || normalized[i] === 'x') {
+      i += 1
+    } else {
       return undefined
     }
-    i += 1
+  } else if (wrapper === 'pnpm' || wrapper === 'yarn') {
+    if (normalized[i] !== 'exec') {
+      const scriptName = normalized[i]
+      const scriptCommand =
+        scriptName !== undefined
+          ? PACKAGE_SCRIPT_COMMANDS.get(scriptName)
+          : undefined
+      if (scriptCommand !== undefined) {
+        return scriptCommand
+      }
+    } else {
+      i += 1
+    }
   } else if (wrapper === 'bun') {
     if (normalized[i] !== 'exec' && normalized[i] !== 'x') {
       return undefined
@@ -428,6 +463,41 @@ function usesKnownWrapper(command: string): boolean {
   return wrapped !== undefined && COMMAND_SEMANTICS.has(wrapped)
 }
 
+function getWrapperFailureCommand(command: string): string {
+  const segments = splitCommand_DEPRECATED(command)
+  const lastCommand = segments[segments.length - 1] || command
+  const tokens = lastCommand.trim().split(/\s+/)
+  const envIndex = tokens.findIndex(token => extractBaseCommand(token) === 'env')
+  if (envIndex === -1) {
+    return command
+  }
+  const payload = getEnvSplitStringPayloadForEnv(tokens, envIndex)
+  return payload ?? command
+}
+
+function getEnvSplitStringPayloadForEnv(
+  tokens: string[],
+  startIndex: number,
+): string | undefined {
+  for (let i = startIndex + 1; i < tokens.length; i++) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    const token = extractBaseCommand(rawToken)
+    const flagName = rawToken.startsWith('--split-string=')
+      ? '--split-string'
+      : token.split('=')[0] ?? token
+    if (ENV_SPLIT_STRING_FLAGS.has(flagName)) {
+      return getEnvSplitStringPayload(tokens, i)
+    }
+    if (token === '--') {
+      break
+    }
+  }
+  return undefined
+}
+
 function looksLikeWrapperFailure(
   command: string,
   exitCode: number,
@@ -435,14 +505,15 @@ function looksLikeWrapperFailure(
   stderr: string,
   result: { isError: boolean },
 ): boolean {
-  if (exitCode === 0 || result.isError || !usesKnownWrapper(command)) {
+  const wrapperCommand = getWrapperFailureCommand(command)
+  if (exitCode === 0 || result.isError || !usesKnownWrapper(wrapperCommand)) {
     return false
   }
   const failureOutput = combineFailureOutput(stdout, stderr)
   if (failureOutput.length === 0) {
     return false
   }
-  return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch|resolve)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
+  return /(^|\n)\s*(npm ERR!|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
     failureOutput,
   )
 }

@@ -120,6 +120,8 @@ describe('interpretCommandResult (PowerShell)', () => {
         ['uvx --from ruff ruff check .', 1],
         ['pipx run --spec ruff ruff check .', 1],
         ['uvx --python 3.12 ruff check .', 1],
+        ['uvx --cache-dir C:\\tmp\\uv-cache ruff check .', 1],
+        ['uvx --env-file .env ruff check .', 1],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
@@ -133,9 +135,32 @@ describe('interpretCommandResult (PowerShell)', () => {
         ['python3 -m pytest', 1],
         ['bunx vitest run', 1],
         ['pipx run black --check .', 1],
+        ['npm exec eslint .', 1],
+        ['npm x eslint .', 1],
         ['pnpm exec tsc --noEmit', 2],
+        ['pnpm eslint .', 1],
         ['yarn exec eslint .', 1],
+        ['yarn eslint .', 1],
         ['bun x biome check .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
+    test('common package scripts inherit diagnostic semantics for known script aliases', () => {
+      const cases = [
+        ['npm run lint', 1],
+        ['npm run-script lint', 1],
+        ['npm test', 1],
+        ['yarn lint', 1],
+        ['yarn test', 1],
+        ['pnpm lint', 1],
+        ['pnpm test', 1],
+        ['npm run typecheck', 2],
+        ['pnpm typecheck', 2],
+        ['yarn typecheck', 2],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
@@ -186,6 +211,7 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('failed setup before && does not inherit linter semantics', () => {
       for (const [command, stdout] of [
         ['Set-Location missing && ruff check .', ''],
+        ['Set-Location missing & ruff check .', ''],
         ['Write-Output setup; Set-Location missing && ruff check .', 'setup\n'],
       ] as const) {
         const result = interpretCommandResult(
@@ -225,6 +251,11 @@ describe('interpretCommandResult (PowerShell)', () => {
 
     test('newline-separated linter command keeps diagnostics semantics', () => {
       const result = interpretCommandResult('Set-Location src\nruff check .', 1, 'F401', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('bare ampersand-separated linter command keeps diagnostics semantics', () => {
+      const result = interpretCommandResult('Set-Location src & ruff check .', 1, 'F401', '')
       expect(result.isError).toBe(false)
     })
 
@@ -271,6 +302,9 @@ describe('interpretCommandResult (PowerShell)', () => {
         ['npx eslint .', '', 'npm ERR! code EAI_AGAIN'],
         ['npx eslint .', 'Installing eslint...', 'npm ERR! code EAI_AGAIN'],
         ['npx eslint .', 'Installing eslint...\nnpm ERR! code EAI_AGAIN', ''],
+        ['npm run lint', 'Running lint...', 'npm ERR! code EAI_AGAIN'],
+        ['env -S "npx eslint ."', 'Installing eslint...\nnpm ERR! code EAI_AGAIN', ''],
+        ['env --split-string="npx eslint ."', 'Installing eslint...\nnpm ERR! code EAI_AGAIN', ''],
         ['uvx ruff check .', 'Resolving packages...', 'error: Failed to download ruff'],
         ['uvx ruff check .', 'Resolving packages...\nerror: Failed to download ruff', ''],
         ['pipx run black --check .', '', 'Fatal error from pip prevented installation'],
@@ -279,6 +313,15 @@ describe('interpretCommandResult (PowerShell)', () => {
       for (const [command, stdout, stderr] of cases) {
         const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
+      }
+    })
+
+    test('wrapped tool diagnostics that mention failed resolution remain diagnostics', () => {
+      const output =
+        'Error: Failed to resolve import "./missing" from "src/example.test.ts". Does the file exist?'
+      for (const command of ['npx vitest run', 'bunx vitest run']) {
+        const result = interpretCommandResult(command, 1, output, '')
+        expect(result.isError).toBe(false)
       }
     })
 
