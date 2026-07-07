@@ -143,6 +143,19 @@ describe('interpretCommandResult (PowerShell)', () => {
       }
     })
 
+    test('environment prefixes keep linter and test-runner semantics with path values', () => {
+      const cases = [
+        ['PYTHONPATH=C:\\repo pytest tests/', 1],
+        ['env RUFF_CACHE_DIR=C:\\tmp\\ruff ruff check .', 1],
+        ['env CI=1 uvx ruff check .', 1],
+        ['env -- RUFF_CACHE_DIR=C:\\tmp\\ruff ruff check .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
     test('uvx wrapping an unrecognized tool falls back to default: exit 1 = error', () => {
       const result = interpretCommandResult('uvx somecli run', 1, '', '')
       expect(result.isError).toBe(true)
@@ -168,6 +181,16 @@ describe('interpretCommandResult (PowerShell)', () => {
         'Cannot find path missing because it does not exist.',
       )
       expect(result.isError).toBe(true)
+    })
+
+    test('successful setup before && lets linter diagnostics through', () => {
+      const result = interpretCommandResult('Set-Location src && ruff check .', 1, 'F401', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('newline-separated linter command keeps diagnostics semantics', () => {
+      const result = interpretCommandResult('Set-Location src\nruff check .', 1, 'F401', '')
+      expect(result.isError).toBe(false)
     })
 
     test('failed pipeline input does not inherit linter semantics', () => {

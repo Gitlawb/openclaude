@@ -93,6 +93,8 @@ const WRAPPER_VALUE_FLAGS = new Set([
   '--cache-dir',
 ])
 
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '-S', '-P'])
+
 /**
  * Command-specific semantics
  */
@@ -253,6 +255,56 @@ function extractWrappedCommand(
   return undefined
 }
 
+function isEnvAssignment(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+}
+
+function skipEnvUtility(tokens: string[], startIndex: number): number {
+  let i = startIndex + 1
+  while (i < tokens.length) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    const token = extractBaseCommand(rawToken)
+    if (token === '--') {
+      return i + 1
+    }
+    if (isEnvAssignment(rawToken)) {
+      i += 1
+      continue
+    }
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0] ?? token
+      i += ENV_VALUE_FLAGS.has(flagName) && !token.includes('=') ? 2 : 1
+      continue
+    }
+    break
+  }
+  return i
+}
+
+function extractRunnableBaseCommand(tokens: string[]): string {
+  let i = 0
+  while (i < tokens.length) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    if (isEnvAssignment(rawToken)) {
+      i += 1
+      continue
+    }
+    const token = extractBaseCommand(rawToken)
+    if (token === 'env') {
+      i = skipEnvUtility(tokens, i)
+      continue
+    }
+    return token
+  }
+  return tokens[0] !== undefined ? extractBaseCommand(tokens[0]) : ''
+}
+
 /**
  * Extract just the command name from a single command string, normalized so a
  * path-prefixed or quoted invocation still maps to a known command. Mirrors the
@@ -280,7 +332,7 @@ function heuristicallyExtractBaseCommand(command: string): string {
   // Take the last command as that's what determines the exit code
   const lastCommand = segments[segments.length - 1] || command
 
-  return extractBaseCommand(lastCommand)
+  return extractRunnableBaseCommand(lastCommand.trim().split(/\s+/))
 }
 
 function looksLikeShortCircuitedSetupFailure(

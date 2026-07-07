@@ -274,6 +274,19 @@ describe('interpretCommandResult', () => {
       }
     })
 
+    test('environment prefixes keep linter and test-runner semantics with path values', () => {
+      const cases = [
+        ['PYTHONPATH=./src pytest tests/', 1],
+        ['env RUFF_CACHE_DIR=/tmp/cache ruff check .', 1],
+        ['env CI=1 uvx ruff check .', 1],
+        ['env -- RUFF_CACHE_DIR=/tmp/cache ruff check .', 1],
+      ] as const
+      for (const [command, exitCode] of cases) {
+        const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
+        expect(result.isError).toBe(false)
+      }
+    })
+
     test('uvx wrapping an unrecognized tool falls back to default: exit 1 = error', () => {
       const result = interpretCommandResult('uvx somecli run', 1, '', '')
       expect(result.isError).toBe(true)

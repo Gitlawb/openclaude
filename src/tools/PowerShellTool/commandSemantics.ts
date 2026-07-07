@@ -111,6 +111,8 @@ const WRAPPER_VALUE_FLAGS = new Set([
   '--cache-dir',
 ])
 
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '-S', '-P'])
+
 /**
  * Command-specific semantics for external executables.
  * Keys are lowercase command names WITHOUT .exe suffix.
@@ -196,6 +198,60 @@ function extractBaseCommand(segment: string): string {
   return basename.toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '')
 }
 
+function splitStatements(command: string): string[] {
+  return command.split(/&&|\|\||\r?\n|[;|]/).filter(s => s.trim())
+}
+
+function isEnvAssignment(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+}
+
+function skipEnvUtility(tokens: string[], startIndex: number): number {
+  let i = startIndex + 1
+  while (i < tokens.length) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    const token = extractBaseCommand(rawToken)
+    if (token === '--') {
+      return i + 1
+    }
+    if (isEnvAssignment(rawToken)) {
+      i += 1
+      continue
+    }
+    if (token.startsWith('-')) {
+      const flagName = token.split('=')[0] ?? token
+      i += ENV_VALUE_FLAGS.has(flagName) && !token.includes('=') ? 2 : 1
+      continue
+    }
+    break
+  }
+  return i
+}
+
+function extractRunnableBaseCommand(tokens: string[]): string {
+  let i = 0
+  while (i < tokens.length) {
+    const rawToken = tokens[i]
+    if (rawToken === undefined) {
+      break
+    }
+    if (isEnvAssignment(rawToken)) {
+      i += 1
+      continue
+    }
+    const token = extractBaseCommand(rawToken)
+    if (token === 'env') {
+      i = skipEnvUtility(tokens, i)
+      continue
+    }
+    return token
+  }
+  return tokens[0] !== undefined ? extractBaseCommand(tokens[0]) : ''
+}
+
 /**
  * Extract the primary command from a PowerShell command line.
  * Takes the LAST pipeline segment since that determines the exit code.
@@ -205,9 +261,9 @@ function extractBaseCommand(segment: string): string {
  * for exit-code interpretation (false negatives just fall back to default).
  */
 function heuristicallyExtractBaseCommand(command: string): string {
-  const segments = command.split(/[;|]/).filter(s => s.trim())
+  const segments = splitStatements(command)
   const last = segments[segments.length - 1] || command
-  return extractBaseCommand(last)
+  return extractRunnableBaseCommand(last.trim().split(/\s+/))
 }
 
 /**
@@ -219,7 +275,7 @@ function extractWrappedCommand(
   command: string,
   wrapper: string,
 ): string | undefined {
-  const segments = command.split(/[;|]/).filter(s => s.trim())
+  const segments = splitStatements(command)
   const last = segments[segments.length - 1] || command
   const tokens = last
     .trim()
