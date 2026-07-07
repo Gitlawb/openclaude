@@ -234,17 +234,8 @@ function compareProviderPresetEntries(
     return 0
   }
 
-  // Pin AI/ML API first: the broad OpenAI-compatible catalog with guided
-  // top-up/key provisioning, surfaced as the recommended setup path.
-  if (leftPreset === 'aimlapi') {
-    return -1
-  }
-  if (rightPreset === 'aimlapi') {
-    return 1
-  }
-
-  // Keep Gitlawb Opengateway near the top so the startup-default provider stays
-  // visible when users need to add an API key.
+  // Pin Gitlawb Opengateway first so the startup-default provider is also
+  // the first guided setup option when users need to add an API key.
   if (leftPreset === 'gitlawb-opengateway') {
     return -1
   }

@@ -36,6 +36,7 @@ import { launchRepl } from './replLauncher.js';
 import { refreshGrowthBookAfterAuthChange } from './services/analytics/growthbook.js';
 import { fetchBootstrapData } from './services/api/bootstrap.js';
 import { refreshStartupDiscoveryForActiveRoute } from './integrations/discoveryService.js';
+import { MAX_AMOUNT_USD_MINOR, MIN_AMOUNT_USD_MINOR } from './integrations/aimlapi/config.js';
 import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { type DownloadResult, downloadSessionFiles, type FilesApiConfig, parseFileSpecs } from './services/api/filesApi.js';
 import { prefetchPassesEligibility } from './services/api/referral.js';
@@ -4016,7 +4017,7 @@ async function run(): Promise<CommanderCommand> {
     .description("Log in, open AI/ML API top-up, then set the issued key as OpenClaude's provider")
     .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
     .option('--password <password>', 'AI/ML API account password (prefer the AIMLAPI_PASSWORD env var)')
-    .option('--amount <usd>', 'Top-up amount in USD (min 20, max 10000)')
+    .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
     .option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)', 'card')
     .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
     .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')

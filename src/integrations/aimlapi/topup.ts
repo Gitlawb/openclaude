@@ -184,7 +184,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
 
   // 2. Partner-checkout session.
   const session = await client.createSession({ partnerId, partnerName })
-  console.log(chalk.dim(`  -> Session ${session.sessionToken}`))
+  console.log(chalk.dim(`  -> Session ${session.id}`))
 
   // 3. Bind + open hosted payment page. The co-branded return URLs make the
   // post-payment browser redirect land on the AI/ML API success / failure
@@ -330,7 +330,8 @@ async function pollUntilPaid(
       session = await client.getSession(sessionToken)
     } catch (error) {
       // Transient poll failures shouldn't abort a payment in progress.
-      if (error instanceof AimlapiApiError && error.status >= 500) {
+      // status 0 is a network-level failure (see client.ts), not a real HTTP response.
+      if (error instanceof AimlapiApiError && (error.status === 0 || error.status >= 500)) {
         await sleep(POLL_INTERVAL_MS)
         continue
       }

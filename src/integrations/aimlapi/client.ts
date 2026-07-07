@@ -52,6 +52,8 @@ export type ExchangeResult = {
 export type PaymentMethod = 'card' | 'crypto'
 export type AuthResult = { token: string; exp: number }
 
+const REQUEST_TIMEOUT_MS = 30_000
+
 export class AimlapiApiError extends Error {
   constructor(
     message: string,
@@ -186,6 +188,7 @@ export class AimlapiClient {
       response = await fetch(url, {
         method: options.method,
         headers,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       })
     } catch (error) {

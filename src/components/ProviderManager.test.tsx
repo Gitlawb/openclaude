@@ -26,6 +26,8 @@ const ORIGINAL_ENV = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
+  AIMLAPI_EMAIL: process.env.AIMLAPI_EMAIL,
+  AIMLAPI_PASSWORD: process.env.AIMLAPI_PASSWORD,
 }
 
 function extractLastFrame(output: string): string {
@@ -922,6 +924,9 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
 })
 
 test('ProviderManager can top up AI/ML API and save the issued key', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_PASSWORD
+
   const addProviderProfile = mock((payload: any) => ({
     id: 'aimlapi_profile',
     ...payload,
