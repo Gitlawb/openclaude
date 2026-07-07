@@ -50,7 +50,7 @@ export const settingOptions: SettingOption[] = [
   { key: 'verbose', description: 'Verbose output by default.' },
   { key: 'allowAutoUpdates', description: 'Enable or disable the auto-updater.' },
   { key: 'hooks', description: 'Shell hooks that run on tool events (PreToolUse, PostToolUse, …).' },
-  { key: 'subscriptionType', description: "Override the active subscription type. Allowed values: free, pro, max, team, enterprise. To prevent project-level spoofing, this override is only respected in global user settings, not in project/local settings. Setting this to 'free' is authoritative and takes precedence over OAuth or fallback authentication." },
+  { key: 'subscriptionType', description: "Override the active subscription type from user settings only. Allowed values: free, pro, max, team, enterprise. To prevent spoofing, this override ignores project, repository, local, flag, and policy settings. Setting this to 'free' is authoritative and takes precedence over OAuth or fallback authentication." },
   { key: 'smartRouting', description: 'Opt-in smart auto-routing: { enabled, simpleModel, strongModel } route simple turns to the configured simple model. Configure with /smartroute.' },
 ]
 

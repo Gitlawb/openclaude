@@ -1,6 +1,15 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import * as originalSettings from './settings/settings.js'
 
+type MockSource =
+  | 'userSettings'
+  | 'projectSettings'
+  | 'repositorySettings'
+  | 'localSettings'
+  | 'flagSettings'
+  | 'policySettings'
+  | 'none'
+
 async function importAuthFresh() {
   return await import(`./auth.js?ts=${Date.now()}-${Math.random()}`)
 }
@@ -18,35 +27,31 @@ afterEach(() => {
 // NOT propagate subscriptionType.
 function mockSettings(
   subscriptionType: string | undefined,
-  source: 'user' | 'project' | 'none' = 'user',
+  source: MockSource = 'userSettings',
 ) {
   mock.module('./settings/settings.js', () => ({
     ...originalSettings,
-    getSettings_DEPRECATED: () =>
-      source === 'project'
-        ? { subscriptionType } // simulates merged view including project
-        : source === 'user'
-          ? { subscriptionType }
-          : {},
+    getSettings_DEPRECATED: () => (source === 'none' ? {} : { subscriptionType }),
     getSettingsForSource: (s: string) => {
       if (source === 'none') return null
-      if (source === 'project') {
-        // projectSettings/repoSettings are untrusted and must be ignored
-        return s === 'projectSettings' || s === 'repositorySettings'
-          ? { subscriptionType }
-          : null
-      }
-      // user settings only:
-      return s === 'userSettings' ? { subscriptionType } : null
+      return s === source ? { subscriptionType } : null
     },
   }))
 }
 
-async function withOAuthFallbackEnv<T>(fn: () => Promise<T>): Promise<T> {
+async function withControlledAuthEnv<T>(
+  fn: () => Promise<T>,
+  options: { oauthToken?: string } = {},
+): Promise<T> {
   const previous = {
     CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+    CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:
+      process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR,
+    ANTHROPIC_UNIX_SOCKET: process.env.ANTHROPIC_UNIX_SOCKET,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+    CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR:
+      process.env.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR,
     CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
     CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
     CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
@@ -55,9 +60,16 @@ async function withOAuthFallbackEnv<T>(fn: () => Promise<T>): Promise<T> {
     CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   }
-  process.env.CLAUDE_CODE_OAUTH_TOKEN = 'test-oauth-token'
+  if (options.oauthToken) {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = options.oauthToken
+  } else {
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN
+  }
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
+  delete process.env.ANTHROPIC_UNIX_SOCKET
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
@@ -78,15 +90,19 @@ async function withOAuthFallbackEnv<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+async function withOAuthFallbackEnv<T>(fn: () => Promise<T>): Promise<T> {
+  return withControlledAuthEnv(fn, { oauthToken: 'test-oauth-token' })
+}
+
 test('isClaudeAISubscriber returns true if subscriptionType is pro in user settings', async () => {
-  mockSettings('pro', 'user')
+  mockSettings('pro', 'userSettings')
   const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
   expect(isClaudeAISubscriber()).toBe(true)
   expect(getSubscriptionType()).toBe('pro')
 })
 
 test('isClaudeAISubscriber returns false if subscriptionType is free in user settings', async () => {
-  mockSettings('free', 'user')
+  mockSettings('free', 'userSettings')
   const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
   expect(isClaudeAISubscriber()).toBe(false)
   expect(getSubscriptionType()).toBe('free')
@@ -106,29 +122,34 @@ test('isClaudeAISubscriber returns true for OAuth fallback without a free overri
 // test sets a fake Claude AI OAuth token that WOULD satisfy the OAuth path,
 // then asserts the free override wins.
 test('isClaudeAISubscriber returns false for free override even when OAuth tokens would qualify', async () => {
-  mockSettings('free', 'user')
+  mockSettings('free', 'userSettings')
   await withOAuthFallbackEnv(async () => {
     const { isClaudeAISubscriber } = await importAuthFresh()
     expect(isClaudeAISubscriber()).toBe(false)
   })
 })
 
-// P1 regression: project settings must NOT be able to spoof subscriber state.
-test('isClaudeAISubscriber ignores subscriptionType from projectSettings', async () => {
-  mockSettings('pro', 'project')
-  const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
-  // With no OAuth path exercised in this test, the untrusted project value
-  // must not be returned. We expect null (no override) rather than 'pro'.
-  expect(getSubscriptionType()).toBe(null)
-  // isClaudeAISubscriber falls through to the OAuth path; without OAuth
-  // tokens set in the test env, it should return false rather than true.
-  expect(isClaudeAISubscriber()).toBe(false)
-})
+for (const source of [
+  'projectSettings',
+  'repositorySettings',
+  'localSettings',
+  'flagSettings',
+  'policySettings',
+] as const) {
+  test(`isClaudeAISubscriber ignores subscriptionType from ${source}`, async () => {
+    mockSettings('pro', source)
+    await withControlledAuthEnv(async () => {
+      const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
+      expect(getSubscriptionType()).toBe(null)
+      expect(isClaudeAISubscriber()).toBe(false)
+    })
+  })
+}
 
 // P2/P3 regression: when subscriptionType is 'free', isClaudeAISubscriber() returns false
 // even if fallback auth conditions (OAuth/environment) are satisfied, and getSubscriptionType() returns 'free'.
 test("when subscriptionType is 'free', isClaudeAISubscriber() returns false even if fallback auth conditions are satisfied, and getSubscriptionType() returns 'free'", async () => {
-  mockSettings('free', 'user')
+  mockSettings('free', 'userSettings')
   await withOAuthFallbackEnv(async () => {
     const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
     expect(isClaudeAISubscriber()).toBe(false)
