@@ -51,6 +51,10 @@ export default defineGateway({
     apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
+    badge: {
+      text: 'Recommended',
+      color: 'success',
+    },
     vendorId: 'openai',
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],

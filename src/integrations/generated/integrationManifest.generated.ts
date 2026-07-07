@@ -46,7 +46,11 @@ export const PROVIDER_PRESET_MANIFEST = [
       "OPENAI_MODEL"
     ],
     "fallbackBaseUrl": "https://opengateway.gitlawb.com/v1",
-    "fallbackModel": "mimo-v2.5-pro"
+    "fallbackModel": "mimo-v2.5-pro",
+    "badge": {
+      "text": "Recommended",
+      "color": "success"
+    }
   },
   {
     "preset": "anthropic",
