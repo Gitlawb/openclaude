@@ -4018,7 +4018,7 @@ async function run(): Promise<CommanderCommand> {
     .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
     .option('--password <password>', 'AI/ML API account password (prefer the AIMLAPI_PASSWORD env var)')
     .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
-    .option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)', 'card')
+    .addOption(new Option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)').choices(['card', 'crypto']).default('card'))
     .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
     .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
     .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
