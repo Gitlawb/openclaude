@@ -181,25 +181,14 @@ describe('estimateMessageTokens coverage', () => {
     const { estimateMessageTokens } = await import('./microCompact.js')
 
     // Real user messages from the session can have string content (plain user prompt)
-    const messages: Message[] = [
-      createUserMessage({
-        content:
-          'Hello world this is a long user prompt that needs compression because it is over the threshold',
-      }),
-      createAssistantMessage({
-        content: [
-          {
-            type: 'text',
-            text: 'Hi there! I am happy to help you with your request today',
-            citations: [],
-          },
-        ],
-      }),
-    ]
+    const content =
+      'Hello world this is a long user prompt that needs compression because it is over the threshold'
+    const messages: Message[] = [createUserMessage({ content })]
 
     const total = estimateMessageTokens(messages)
-    // The string-content user message should be counted alongside normal blocks.
-    expect(total).toBeGreaterThan(0)
+    // The string-content user message should be counted on its own; the old
+    // implementation returned 0 because it skipped non-array content.
+    expect(total).toBe(Math.ceil(Math.round(content.length / 4) * (4 / 3)))
   })
 
   test('counts tokens across all block types including tool_result and tool_use', async () => {
