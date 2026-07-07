@@ -10,6 +10,7 @@
  * so failures are debuggable.
  */
 
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import type { AimlapiEndpoints } from './config.js'
 
 export type PartnerCheckoutSessionStatus =
@@ -183,19 +184,25 @@ export class AimlapiClient {
       headers.Authorization = `Bearer ${options.bearer}`
     }
 
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    })
+
     let response: Response
     let text: string
     try {
       response = await fetch(url, {
         method: options.method,
         headers,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal,
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       })
       text = await response.text()
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       throw new AimlapiApiError(`Network request to ${url} failed: ${reason}`, 0, '')
+    } finally {
+      cleanup()
     }
 
     if (!response.ok) {

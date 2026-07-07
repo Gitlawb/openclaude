@@ -9,7 +9,7 @@ import { createInterface, type Interface } from 'node:readline'
 function assertInteractive(): void {
   if (!process.stdin.isTTY) {
     throw new Error(
-      'No interactive terminal available. Provide credentials via --email/--password or the AIMLAPI_EMAIL/AIMLAPI_PASSWORD env vars.',
+      'No interactive terminal available. Provide credentials via --email (or AIMLAPI_EMAIL) and the AIMLAPI_PASSWORD env var.',
     )
   }
 }
