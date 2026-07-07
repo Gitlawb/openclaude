@@ -20,6 +20,25 @@ function stalledJsonResponse(status = 200): Response {
   })
 }
 
+function waitForSignalAbort(signal: AbortSignal | undefined): Promise<boolean> {
+  if (!signal) return Promise.resolve(false)
+  if (signal.aborted) return Promise.resolve(true)
+
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(false)
+    }, 50)
+    timer.unref?.()
+
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
 })
@@ -164,7 +183,7 @@ describe('braveProvider search', () => {
       /Brave search timed out/,
     )
 
-    expect(capturedSignal?.aborted).toBe(true)
+    expect(await waitForSignalAbort(capturedSignal)).toBe(true)
   })
 
   test('returns empty hits when web.results is missing', async () => {
