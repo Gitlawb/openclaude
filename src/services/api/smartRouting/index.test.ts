@@ -5,6 +5,7 @@ import {
   deriveUserTurnNumber,
   extractLatestUserText,
   formatRoutingSummary,
+  getRoutingSummaryForDisplay,
   getRoutingTally,
   isRetryableRoutedModelError,
   isSmartRoutingDisabledForSession,
@@ -324,5 +325,36 @@ describe('formatRoutingSummary', () => {
     // The not-cheaper branch must carry the same first-party reference hedge.
     expect(out).toContain('first-party reference pricing')
     expect(out).toContain('may bill differently')
+  })
+})
+
+describe('getRoutingSummaryForDisplay', () => {
+  afterEach(() => resetRoutingTally())
+
+  test('uses env-backed smart-routing roles for pricing display', () => {
+    const previous = {
+      OPENCLAUDE_SMART_ROUTING: process.env.OPENCLAUDE_SMART_ROUTING,
+      OPENCLAUDE_SMART_ROUTING_SIMPLE: process.env.OPENCLAUDE_SMART_ROUTING_SIMPLE,
+      OPENCLAUDE_SMART_ROUTING_STRONG: process.env.OPENCLAUDE_SMART_ROUTING_STRONG,
+    }
+    try {
+      process.env.OPENCLAUDE_SMART_ROUTING = '1'
+      process.env.OPENCLAUDE_SMART_ROUTING_SIMPLE = 'mini'
+      process.env.OPENCLAUDE_SMART_ROUTING_STRONG = 'main'
+      recordRoutingDecision('simple')
+      const out = getRoutingSummaryForDisplay(
+        settings({
+          agentModels: { mini: { model: 'claude-haiku-4-5' }, main: { model: 'claude-opus-4-5' } },
+        }),
+      )
+      expect(out).toContain('Smart routing: 1 simple, 0 strong')
+      expect(out).toContain('first-party reference pricing')
+      expect(out).not.toContain('Estimated savings unavailable')
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value == null) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
   })
 })

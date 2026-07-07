@@ -4,6 +4,7 @@ import { isModelAllowed } from '../../../utils/model/modelAllowlist.js'
 import { getCanonicalName } from '../../../utils/model/model.js'
 import { MODEL_COSTS } from '../../../utils/modelCost.js'
 import { routeModel, type RoutingInput } from '../smartModelRouting.js'
+import { readSmartRouting, type NormalizedSmartRouting } from './settings.js'
 import { resolveSmartRoutingConfig } from './resolveConfig.js'
 
 /**
@@ -16,8 +17,17 @@ export function getKnownInputCost(model: string): number | undefined {
   return MODEL_COSTS[getCanonicalName(model)]?.inputTokens
 }
 
-export { readSmartRouting, type NormalizedSmartRouting } from './settings.js'
+export { readSmartRouting, type NormalizedSmartRouting }
 export { resolveSmartRoutingConfig } from './resolveConfig.js'
+
+/** Resolve an agentModels key to its underlying model string, or return bare model ids unchanged. */
+export function resolveSmartRoutingRoleModelString(
+  key: string | undefined,
+  settings: SettingsJson | null,
+): string | undefined {
+  if (!key) return undefined
+  return settings?.agentModels?.[key]?.model ?? key
+}
 
 /**
  * Outcome of a per-turn routing decision.
@@ -202,16 +212,12 @@ export function formatRoutingSummary(
 
 /**
  * Build the `/cost` routing summary from the live tally and the configured
- * roles' first-party pricing. Reads `settings.smartRouting` for the role models.
+ * roles' first-party pricing.
  */
 export function getRoutingSummaryForDisplay(settings: SettingsJson | null): string | null {
-  const sr = settings?.smartRouting
-  const simpleModelId = sr?.simpleModel
-    ? settings?.agentModels?.[sr.simpleModel]?.model ?? sr.simpleModel
-    : undefined
-  const strongModelId = sr?.strongModel
-    ? settings?.agentModels?.[sr.strongModel]?.model ?? sr.strongModel
-    : undefined
+  const sr = readSmartRouting(settings)
+  const simpleModelId = resolveSmartRoutingRoleModelString(sr.simpleModel, settings)
+  const strongModelId = resolveSmartRoutingRoleModelString(sr.strongModel, settings)
   return formatRoutingSummary(getRoutingTally(), {
     simpleInputCost: simpleModelId ? getKnownInputCost(simpleModelId) : undefined,
     strongInputCost: strongModelId ? getKnownInputCost(strongModelId) : undefined,

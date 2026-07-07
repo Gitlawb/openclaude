@@ -17,6 +17,11 @@ const AGENT_MODELS = {
   mini: { model: 'claude-haiku-4-5' },
   main: { model: 'claude-opus-4-5' },
 }
+const SMART_ROUTING_ENV_KEYS = [
+  'OPENCLAUDE_SMART_ROUTING',
+  'OPENCLAUDE_SMART_ROUTING_SIMPLE',
+  'OPENCLAUDE_SMART_ROUTING_STRONG',
+] as const
 
 function makeContext(initial: Partial<SettingsJson> = {}) {
   let state = {
@@ -36,18 +41,39 @@ function makeContext(initial: Partial<SettingsJson> = {}) {
 describe('/smartroute command', () => {
   let writeSpy: ReturnType<typeof spyOn>
   let call: Awaited<ReturnType<typeof command.load>>['call']
+  let savedEnv: Record<(typeof SMART_ROUTING_ENV_KEYS)[number], string | undefined>
 
   beforeEach(async () => {
-    writeSpy = spyOn(settingsModule, 'updateSettingsForSource').mockImplementation(() => undefined as never)
+    savedEnv = Object.fromEntries(SMART_ROUTING_ENV_KEYS.map(key => [key, process.env[key]])) as typeof savedEnv
+    for (const key of SMART_ROUTING_ENV_KEYS) delete process.env[key]
+    writeSpy = spyOn(settingsModule, 'updateSettingsForSource').mockImplementation(() => ({ error: null }))
     call = (await command.load()).call
   })
-  afterEach(() => writeSpy.mockRestore())
+  afterEach(() => {
+    writeSpy.mockRestore()
+    for (const key of SMART_ROUTING_ENV_KEYS) {
+      const value = savedEnv[key]
+      if (value == null) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
 
   test('status with no config shows disabled and available keys', async () => {
     const ctx = makeContext()
     const res = expectText(await call('', ctx))
     expect(res.value).toContain('status: disabled')
     expect(res.value).toContain('mini, main')
+  })
+
+  test('status shows env-backed role values when settings have no smartRouting block', async () => {
+    process.env.OPENCLAUDE_SMART_ROUTING = '1'
+    process.env.OPENCLAUDE_SMART_ROUTING_SIMPLE = 'mini'
+    process.env.OPENCLAUDE_SMART_ROUTING_STRONG = 'main'
+    const ctx = makeContext()
+    const res = expectText(await call('', ctx))
+    expect(res.value).toContain('status: enabled')
+    expect(res.value).toContain('simple: mini')
+    expect(res.value).toContain('strong: main')
   })
 
   test('on without both roles set is rejected', async () => {
@@ -64,6 +90,14 @@ describe('/smartroute command', () => {
     expect((ctx as never as { _state: () => { settings: SettingsJson } })._state().settings.smartRouting).toEqual({
       simpleModel: 'mini',
     })
+  })
+
+  test('setting a role reports persistence errors without mutating app state', async () => {
+    writeSpy.mockImplementation(() => ({ error: new Error('settings are read-only') }))
+    const ctx = makeContext()
+    const res = expectText(await call('simple mini', ctx))
+    expect(res.value).toContain('Failed to update smart routing settings: settings are read-only')
+    expect(ctx._state().settings.smartRouting).toBeUndefined()
   })
 
   test('setting the strong role to a valid key persists', async () => {

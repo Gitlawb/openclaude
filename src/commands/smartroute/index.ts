@@ -7,6 +7,7 @@ import {
   clearSmartRoutingSessionDisable,
   getKnownInputCost,
   isSmartRoutingDisabledForSession,
+  resolveSmartRoutingRoleModelString,
 } from '../../services/api/smartRouting/index.js'
 import { getSessionId } from '../../bootstrap/state.js'
 
@@ -23,24 +24,22 @@ function text(value: string) {
   return { type: 'text' as const, value }
 }
 
-/** Resolve an agentModels key to its underlying model string (for pricing). */
-function roleModelString(key: string | undefined, settings: SettingsJson | null): string | undefined {
-  if (!key) return undefined
-  return settings?.agentModels?.[key]?.model ?? key
-}
-
 /**
  * Warn when both roles have first-party reference pricing and, by that pricing,
  * simple is not actually cheaper. The numbers are first-party list prices, not
  * the active provider's, so the warning is hedged accordingly.
  */
 function cheaperWarning(s: SmartRoutingSettings, settings: SettingsJson | null): string {
-  const simple = getKnownInputCost(roleModelString(s.simpleModel, settings) ?? '')
-  const strong = getKnownInputCost(roleModelString(s.strongModel, settings) ?? '')
+  const simple = getKnownInputCost(resolveSmartRoutingRoleModelString(s.simpleModel, settings) ?? '')
+  const strong = getKnownInputCost(resolveSmartRoutingRoleModelString(s.strongModel, settings) ?? '')
   if (simple != null && strong != null && simple >= strong) {
     return `\nHeads up: by first-party reference pricing the simple model is not cheaper than the strong model (${simple} vs ${strong} per Mtok input); your provider may bill differently. Smart routing may not save money.`
   }
   return ''
+}
+
+function formatPersistError(error: Error): string {
+  return `Failed to update smart routing settings: ${error.message}`
 }
 
 const call: LocalCommandCall = async (args, context) => {
@@ -49,12 +48,14 @@ const call: LocalCommandCall = async (args, context) => {
   const current: SmartRoutingSettings = { ...(settings?.smartRouting ?? {}) }
   const agentModelKeys = Object.keys(settings?.agentModels ?? {})
 
-  const persist = (next: SmartRoutingSettings) => {
+  const persist = (next: SmartRoutingSettings): Error | null => {
+    const { error } = updateSettingsForSource('userSettings', { smartRouting: next })
+    if (error) return error
     context.setAppState(s => ({
       ...s,
       settings: { ...s.settings, smartRouting: next },
     }))
-    updateSettingsForSource('userSettings', { smartRouting: next })
+    return null
   }
 
   // Status (no args).
@@ -66,8 +67,8 @@ const call: LocalCommandCall = async (args, context) => {
       `  status: ${normalized.enabled ? 'enabled' : 'disabled'}${
         disabledForSession ? ' (auto-disabled this session: both models outside the org allowlist)' : ''
       }`,
-      `  simple: ${current.simpleModel ?? '(unset)'}`,
-      `  strong: ${current.strongModel ?? '(unset)'}`,
+      `  simple: ${normalized.simpleModel ?? '(unset)'}`,
+      `  strong: ${normalized.strongModel ?? '(unset)'}`,
     ]
     if (agentModelKeys.length > 0) lines.push(`  available agentModels keys: ${agentModelKeys.join(', ')}`)
     return text(lines.join('\n') + '\n\n' + HELP)
@@ -81,14 +82,16 @@ const call: LocalCommandCall = async (args, context) => {
       return text('Set both roles first: /smartroute simple <key> and /smartroute strong <key>.')
     }
     const next = { ...current, enabled: true }
-    persist(next)
+    const error = persist(next)
+    if (error) return text(formatPersistError(error))
     // Re-enabling clears any session auto-disable.
     clearSmartRoutingSessionDisable(getSessionId())
     return text(`Smart routing enabled (simple=${next.simpleModel}, strong=${next.strongModel}).${cheaperWarning(next, settings)}`)
   }
 
   if (lower === 'off') {
-    persist({ ...current, enabled: false })
+    const error = persist({ ...current, enabled: false })
+    if (error) return text(formatPersistError(error))
     return text('Smart routing disabled.')
   }
 
@@ -102,7 +105,8 @@ const call: LocalCommandCall = async (args, context) => {
     }
     const next: SmartRoutingSettings =
       lower === 'simple' ? { ...current, simpleModel: value } : { ...current, strongModel: value }
-    persist(next)
+    const error = persist(next)
+    if (error) return text(formatPersistError(error))
     return text(`Set ${lower} model to "${value}".${cheaperWarning(next, settings)}`)
   }
 
