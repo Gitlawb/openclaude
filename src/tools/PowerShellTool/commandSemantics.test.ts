@@ -82,5 +82,34 @@ describe('interpretCommandResult (PowerShell)', () => {
       const result = interpretCommandResult('npx', 1, '', '')
       expect(result.isError).toBe(true)
     })
+
+    // #1846 review: Windows npm-installed tools/wrappers are invoked via `.cmd`
+    // shims. These must normalize the same way `.exe` does, or the exit-1 lint
+    // fix regresses on the PowerShell path (they fell back to default and
+    // reported isError: true).
+    test('eslint.cmd shim strips suffix and inherits lint semantics', () => {
+      const result = interpretCommandResult('eslint.cmd src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('ruff.cmd shim strips suffix and inherits lint semantics', () => {
+      const result = interpretCommandResult('ruff.cmd check .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('path-prefixed eslint.cmd shim inherits lint semantics', () => {
+      const result = interpretCommandResult(
+        '.\\node_modules\\.bin\\eslint.cmd .',
+        1,
+        '',
+        '',
+      )
+      expect(result.isError).toBe(false)
+    })
+
+    test('npx.cmd wrapper shim unwraps to eslint semantics: exit 1 not error', () => {
+      const result = interpretCommandResult('npx.cmd eslint .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
   })
 })

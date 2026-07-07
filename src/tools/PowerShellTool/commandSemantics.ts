@@ -119,7 +119,8 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
 
 /**
  * Extract the command name from a single pipeline segment.
- * Strips leading `&` / `.` call operators and `.exe` suffix, lowercases.
+ * Strips leading `&` / `.` call operators and Windows executable/shim suffixes
+ * (`.exe`, `.cmd`, `.bat`, `.ps1`), lowercases.
  */
 function extractBaseCommand(segment: string): string {
   // Strip PowerShell call operators: & "cmd", . "cmd"
@@ -130,8 +131,10 @@ function extractBaseCommand(segment: string): string {
   const unquoted = firstToken.replace(/^["']|["']$/g, '')
   // Strip path: C:\bin\grep.exe → grep.exe, .\rg.exe → rg.exe
   const basename = unquoted.split(/[\\/]/).pop() || unquoted
-  // Strip .exe suffix (Windows is case-insensitive)
-  return basename.toLowerCase().replace(/\.exe$/, '')
+  // Strip common Windows executable/shim suffixes so npm `.cmd` shims and other
+  // PATHEXT variants resolve to the tool name (eslint.cmd -> eslint,
+  // npx.cmd -> npx). Windows is case-insensitive.
+  return basename.toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '')
 }
 
 /**
