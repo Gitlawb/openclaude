@@ -504,6 +504,22 @@ export async function refreshBackgroundSessionStatuses(options?: {
 
 type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
 
+// A spaced path or prompt is a single argv entry, but the raw command line
+// quotes it, so a whitespace split fuses a quote onto the edge tokens. Windows
+// `Get-CimInstance ... CommandLine` returns exactly this form — e.g.
+//   "C:\Program Files\nodejs\node.exe" ...\cli.mjs --from-pr 1642 --print "refactor auth"
+// splits to `"C:\Program`, `Files\nodejs\node.exe"`, ..., `"refactor`, `auth"`.
+// The stored argv holds those same values unquoted, so trim a single leading
+// and/or trailing quote from each token before comparing. POSIX `ps` output is
+// unquoted, making this a no-op there, and it never widens the token-boundary
+// match below (a stripped token still has to equal the stored one). See #1770.
+function tokenizeCommandLine(value: string): string[] {
+  return value
+    .split(/\s+/)
+    .map(token => token.replace(/^["']|["']$/g, ''))
+    .filter(token => token.length > 0)
+}
+
 function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   if (args.length === 0) return false
   // Match the stored args against whole whitespace-delimited tokens, in order,
@@ -523,10 +539,8 @@ function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   // insertion collisions. The real launch invocation appears as an unbroken run
   // (only the interpreter path or trailing flags differ), so leading/trailing
   // tokens are fine but interspersed ones are not.
-  const tokens = commandLine.split(/\s+/).filter(token => token.length > 0)
-  const argTokens = args.flatMap(arg =>
-    arg.split(/\s+/).filter(token => token.length > 0),
-  )
+  const tokens = tokenizeCommandLine(commandLine)
+  const argTokens = args.flatMap(tokenizeCommandLine)
   if (argTokens.length === 0) return false
   if (argTokens.length > tokens.length) return false
   for (let start = 0; start <= tokens.length - argTokens.length; start += 1) {

@@ -769,6 +769,44 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
     expect(alive).toBe(true)
   })
 
+  it('matches a quoted Windows command line with a spaced exe path and prompt (#1770)', () => {
+    // Windows `Get-CimInstance ... CommandLine` returns the raw command line
+    // with quoted paths/prompts, so a whitespace split fuses quotes onto the
+    // edge tokens (`"C:\Program`, `node.exe"`, `"refactor`, `auth"`). The stored
+    // argv holds those values unquoted, so without quote trimming the contiguous
+    // run never matched and a live `--from-pr` resume (whose only identity path
+    // is the stored command) was wrongly marked stale.
+    const windowsSession: BackgroundSession = {
+      ...session,
+      sessionId: 'conversation-absent',
+      command: [
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\repo\\dist\\cli.mjs',
+        '--from-pr',
+        '1642',
+        '--print',
+        'refactor auth',
+      ],
+    }
+    const alive = isBackgroundSessionProcessAlive(windowsSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        '"C:\\Program Files\\nodejs\\node.exe" C:\\repo\\dist\\cli.mjs --from-pr 1642 --print "refactor auth"',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('quote trimming does not reopen the substring collision (#1770)', () => {
+    // Trimming surrounding quotes must not degrade to substring matching: a
+    // quoted live token "16420" still only contains the stored selector "1642",
+    // so it must not satisfy the lookup.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => '"node" openclaude "16420" --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
   it('does not treat interspersed stored tokens as alive (#1770)', () => {
     // The stored tokens all appear on the live command line but only as an
     // ordered subsequence with unrelated tokens ("attacker", "extra") wedged
