@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import { DEFAULT_GLOBAL_CONFIG } from '../../utils/config.js'
-import { resolveFooterStatusLine } from './PromptInputFooter.js'
+import {
+  resolveFooterStatusLine,
+  SHORTCUTS_HINT_STARTUP_GRACE,
+  shouldSuppressShortcutsHint,
+} from './PromptInputFooter.js'
 
 const guardsPass = {
   isPromptMode: true,
@@ -54,4 +58,58 @@ describe('resolveFooterStatusLine', () => {
       expect(resolveFooterStatusLine(customSettings, guards)).toBeNull()
     })
   }
+})
+
+describe('shouldSuppressShortcutsHint', () => {
+  const base = {
+    suppressedByCaller: false,
+    footerStatusLine: null,
+    isSearching: false,
+    numStartups: 100,
+  } as const
+
+  it('shows the hint when no status line renders, regardless of tenure', () => {
+    expect(shouldSuppressShortcutsHint({ ...base })).toBe(false)
+  })
+
+  // Regression: the builtin statusline ships enabled, so suppressing on
+  // "a status line renders" alone hid the hint for every user forever.
+  it('keeps the hint alongside a status line for new users', () => {
+    expect(
+      shouldSuppressShortcutsHint({
+        ...base,
+        footerStatusLine: 'builtin',
+        numStartups: SHORTCUTS_HINT_STARTUP_GRACE,
+      }),
+    ).toBe(false)
+  })
+
+  it('yields to the status line for established users', () => {
+    expect(
+      shouldSuppressShortcutsHint({
+        ...base,
+        footerStatusLine: 'builtin',
+        numStartups: SHORTCUTS_HINT_STARTUP_GRACE + 1,
+      }),
+    ).toBe(true)
+  })
+
+  it('always yields to a custom status line — explicit config wins over the grace period', () => {
+    expect(
+      shouldSuppressShortcutsHint({
+        ...base,
+        footerStatusLine: 'custom',
+        numStartups: 1,
+      }),
+    ).toBe(true)
+  })
+
+  it('always suppresses during ctrl-r search and caller overrides', () => {
+    expect(shouldSuppressShortcutsHint({ ...base, isSearching: true })).toBe(
+      true,
+    )
+    expect(
+      shouldSuppressShortcutsHint({ ...base, suppressedByCaller: true }),
+    ).toBe(true)
+  })
 })

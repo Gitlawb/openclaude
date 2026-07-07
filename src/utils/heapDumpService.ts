@@ -29,6 +29,58 @@ export type HeapDumpResult = {
   error?: string
 }
 
+let manualHeapDumpCount = 0
+
+export function __resetManualHeapDumpCountForTesting(): void {
+  manualHeapDumpCount = 0
+}
+
+export function getEffectiveHeapDumpNumber(
+  trigger: 'manual' | 'auto-1.5GB',
+  dumpNumber = 0,
+): number {
+  if (dumpNumber > 0) {
+    return dumpNumber
+  }
+
+  if (trigger === 'manual') {
+    return ++manualHeapDumpCount
+  }
+
+  return dumpNumber
+}
+
+export function getHeapDumpAnalyticsMetadata(
+  trigger: 'manual' | 'auto-1.5GB',
+  effectiveDumpNumber: number,
+  success: boolean,
+): {
+  triggerManual: boolean
+  triggerAuto15GB: boolean
+  dumpNumber: number
+  success: boolean
+} {
+  return {
+    triggerManual: trigger === 'manual',
+    triggerAuto15GB: trigger === 'auto-1.5GB',
+    dumpNumber: effectiveDumpNumber,
+    success,
+  }
+}
+
+export function getHeapDumpFilePaths(
+  sessionId: string,
+  dumpDir: string,
+  effectiveDumpNumber: number,
+): { heapPath: string; diagPath: string } {
+  const suffix =
+    effectiveDumpNumber > 0 ? `-dump${effectiveDumpNumber}` : ''
+  return {
+    heapPath: join(dumpDir, `${sessionId}${suffix}.heapsnapshot`),
+    diagPath: join(dumpDir, `${sessionId}${suffix}-diagnostics.json`),
+  }
+}
+
 /**
  * Memory diagnostics captured alongside heap dump.
  * Helps identify if leak is in V8 heap (captured in snapshot) or native memory (not captured).
@@ -37,7 +89,7 @@ export type MemoryDiagnostics = {
   timestamp: string
   sessionId: string
   trigger: 'manual' | 'auto-1.5GB'
-  dumpNumber: number // 1st, 2nd, etc. auto dump in this session (0 for manual)
+  dumpNumber: number // 1st, 2nd, etc. dump in this session
   uptimeSeconds: number
   memoryUsage: {
     heapUsed: number
@@ -222,12 +274,17 @@ export async function performHeapDump(
   trigger: 'manual' | 'auto-1.5GB' = 'manual',
   dumpNumber = 0,
 ): Promise<HeapDumpResult> {
+  let effectiveDumpNumber = dumpNumber
   try {
     const sessionId = getSessionId()
+    effectiveDumpNumber = getEffectiveHeapDumpNumber(trigger, dumpNumber)
 
     // Capture diagnostics before any other async I/O —
     // the heap dump itself allocates memory and would skew the numbers.
-    const diagnostics = await captureMemoryDiagnostics(trigger, dumpNumber)
+    const diagnostics = await captureMemoryDiagnostics(
+      trigger,
+      effectiveDumpNumber,
+    )
 
     const toGB = (bytes: number): string =>
       (bytes / 1024 / 1024 / 1024).toFixed(3)
@@ -239,12 +296,11 @@ export async function performHeapDump(
 
     const dumpDir = getDesktopPath()
     await getFsImplementation().mkdir(dumpDir)
-
-    const suffix = dumpNumber > 0 ? `-dump${dumpNumber}` : ''
-    const heapFilename = `${sessionId}${suffix}.heapsnapshot`
-    const diagFilename = `${sessionId}${suffix}-diagnostics.json`
-    const heapPath = join(dumpDir, heapFilename)
-    const diagPath = join(dumpDir, diagFilename)
+    const { heapPath, diagPath } = getHeapDumpFilePaths(
+      sessionId,
+      dumpDir,
+      effectiveDumpNumber,
+    )
 
     // Write diagnostics first (cheap, unlikely to fail)
     await writeFile(diagPath, jsonStringify(diagnostics, null, 2), {
@@ -256,23 +312,19 @@ export async function performHeapDump(
     await writeHeapSnapshot(heapPath)
     logForDebugging(`[HeapDump] Heap dump written to ${heapPath}`)
 
-    logEvent('tengu_heap_dump', {
-      triggerManual: trigger === 'manual',
-      triggerAuto15GB: trigger === 'auto-1.5GB',
-      dumpNumber,
-      success: true,
-    })
+    logEvent(
+      'tengu_heap_dump',
+      getHeapDumpAnalyticsMetadata(trigger, effectiveDumpNumber, true),
+    )
 
     return { success: true, heapPath, diagPath }
   } catch (err) {
     const error = toError(err)
     logError(error)
-    logEvent('tengu_heap_dump', {
-      triggerManual: trigger === 'manual',
-      triggerAuto15GB: trigger === 'auto-1.5GB',
-      dumpNumber,
-      success: false,
-    })
+    logEvent(
+      'tengu_heap_dump',
+      getHeapDumpAnalyticsMetadata(trigger, effectiveDumpNumber, false),
+    )
     return { success: false, error: error.message }
   }
 }

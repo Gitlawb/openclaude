@@ -32,6 +32,46 @@ export function decodeWorkSecret(secret: string): WorkSecret {
 }
 
 /**
+ * Whether a base URL points at the local loopback interface.
+ *
+ * Parses the URL and matches the hostname component exactly. Substring checks
+ * like `url.includes('localhost')` are unsafe here: a remote host such as
+ * `http://evil.localhost.com` or `http://evil.com/localhost` contains the
+ * literal text without being loopback, so a substring guard would wrongly
+ * treat it as local. A malformed URL is treated as non-local (the safe default
+ * for the HTTPS-enforcement callers below).
+ */
+export function isLocalhostBaseUrl(baseUrl: string): boolean {
+  let hostname: string
+  try {
+    hostname = new URL(baseUrl).hostname
+  } catch {
+    return false
+  }
+  return hostname === 'localhost' || hostname === '127.0.0.1'
+}
+
+/**
+ * Whether a base URL would send traffic to a non-localhost host over plaintext
+ * HTTP, which must be rejected to keep credentials off the wire.
+ *
+ * The scheme is read from the parsed URL (`protocol === 'http:'`) rather than a
+ * `startsWith('http://')` test so that mixed-case schemes like `HTTP://` — which
+ * the URL parser normalizes to `http:` and would otherwise carry credentials in
+ * the clear — are still caught. A malformed URL is treated as not-insecure (the
+ * safe default: the callers fall through to their normal handling).
+ */
+export function isInsecureHttpBaseUrl(baseUrl: string): boolean {
+  let protocol: string
+  try {
+    protocol = new URL(baseUrl).protocol
+  } catch {
+    return false
+  }
+  return protocol === 'http:' && !isLocalhostBaseUrl(baseUrl)
+}
+
+/**
  * Build a WebSocket SDK URL from the API base URL and session ID.
  * Strips the HTTP(S) protocol and constructs a ws(s):// ingress URL.
  *
@@ -39,8 +79,7 @@ export function decodeWorkSecret(secret: string): WorkSecret {
  * and /v1/ for production (Envoy rewrites /v1/ → /v2/).
  */
 export function buildSdkUrl(apiBaseUrl: string, sessionId: string): string {
-  const hostname = new URL(apiBaseUrl).hostname
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1'
+  const isLocalhost = isLocalhostBaseUrl(apiBaseUrl)
   const protocol = isLocalhost ? 'ws' : 'wss'
   const version = isLocalhost ? 'v2' : 'v1'
   const host = apiBaseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')

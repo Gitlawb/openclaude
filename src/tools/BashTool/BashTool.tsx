@@ -1,6 +1,8 @@
 import { feature } from 'bun:bundle';
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
-import { copyFile, stat as fsStat, truncate as fsTruncate, link } from 'fs/promises';
+import { copyFile, stat as fsStat, link, unlink } from 'fs/promises';
+import { createReadStream, createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import * as React from 'react';
 import type { CanUseToolFn } from 'src/hooks/useCanUseTool.js';
 import type { AppState } from 'src/state/AppState.js';
@@ -41,11 +43,12 @@ import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, get
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
+import { analyzeBashCommand, parseLegacyShellCommandForAnalysis, type BashCommandAnalysis } from './bashCommandAnalysis.js';
 import { interpretCommandResult } from './commandSemantics.js';
 import { getEffectiveTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
 import { checkReadOnlyConstraints } from './readOnlyValidation.js';
 import { parseSedEditCommand } from './sedEditParser.js';
-import { shouldUseSandbox } from './shouldUseSandbox.js';
+import { shouldUseSandbox, shouldUseSandboxForPresentation } from './shouldUseSandbox.js';
 import { BASH_TOOL_NAME } from './toolName.js';
 import { BackgroundHint, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
 import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, selectFailureOutput, stdErrAppendShellResetMessage, stripEmptyLines } from './utils.js';
@@ -288,6 +291,9 @@ const outputSchema = lazySchema(() => z.object({
   stderr: z.string().describe('The standard error output of the command'),
   rawOutputPath: z.string().optional().describe('Path to raw output file for large MCP tool outputs'),
   interrupted: z.boolean().describe('Whether the command was interrupted'),
+  isAbort: z.boolean().optional().describe('Whether the command was cancelled through the abort path'),
+  abortReason: z.string().optional().describe('Normalized abort reason when the command was cancelled'),
+  abortMessage: z.string().optional().describe('Safe user-facing abort explanation'),
   isImage: z.boolean().optional().describe('Flag to indicate if stdout contains image data'),
   backgroundTaskId: z.string().optional().describe('ID of the background task if command is running in background'),
   backgroundedByUser: z.boolean().optional().describe('True if the user manually backgrounded the command with Ctrl+B'),
@@ -297,7 +303,8 @@ const outputSchema = lazySchema(() => z.object({
   noOutputExpected: z.boolean().optional().describe('Whether the command is expected to produce no output on success'),
   structuredContent: z.array(z.any()).optional().describe('Structured content blocks'),
   persistedOutputPath: z.string().optional().describe('Path to the persisted full output in tool-results dir (set when output is too large for inline)'),
-  persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)')
+  persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)'),
+  persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)')
 }));
 type OutputSchema = ReturnType<typeof outputSchema>;
 export type Out = z.infer<OutputSchema>;
@@ -311,6 +318,98 @@ import type { BashProgress } from '../../types/tools.js';
  * @param command The command to check
  * @returns false for commands that should not be auto-backgrounded (like sleep)
  */
+/**
+ * Maximum bytes we copy from a rolled-output file into the tool-results dir.
+ * Files larger than this are truncated before the link/copy so a runaway
+ * command does not blow up disk usage in the user's home dir.
+ */
+export const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+
+/**
+ * Copy the shell's rolled-output file into the tool-results dir so the model
+ * can read it back via FileRead. Used by both the success path and the
+ * non-zero-exit error path (issue #1359): without this on the error side,
+ * the ShellError carries only the truncated first chunk from `result.stdout`
+ * and the model has no way to recover the failure body, leaving it to ask
+ * the user to re-run with redirection.
+ *
+ * Returns the destination path and size on success; returns `null` if the
+ * roll file is missing or the link/copy itself fails. Callers fall back to
+ * the in-memory stdout preview in that case.
+ */
+export async function persistShellOutputFile(
+  sourcePath: string,
+  taskId: string,
+  maxSize: number = MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+): Promise<{ path: string; size: number; truncated: boolean } | null> {
+  try {
+    const fileStat = await fsStat(sourcePath);
+    const size = fileStat.size;
+    await ensureToolResultsDir();
+    const dest = getToolResultPath(taskId, false);
+    const truncated = size > maxSize;
+    if (truncated) {
+      // Cap the destination, never the shell's rolled-output source: the error
+      // fallback and resizeShellImageOutput still read `sourcePath`, so
+      // truncating it would drop the tail this persistence is meant to recover.
+      // Write only the first `maxSize` bytes into `dest` via a bounded read
+      // range — copying the whole (potentially multi-GB) source and truncating
+      // afterward would balloon session storage and, if the truncate failed,
+      // leave a full-size copy behind. `end` is inclusive, so [0, maxSize-1]
+      // yields exactly maxSize bytes.
+      try {
+        await pipeline(
+          createReadStream(sourcePath, { start: 0, end: maxSize - 1 }),
+          createWriteStream(dest),
+        );
+      } catch (e) {
+        // Remove any partial destination before falling through to the outer
+        // catch, so we never report a half-written capped file.
+        await unlink(dest).catch(() => {});
+        throw e;
+      }
+    } else {
+      try {
+        await link(sourcePath, dest);
+      } catch {
+        await copyFile(sourcePath, dest);
+      }
+    }
+    // `size` is the original (pre-cap) byte count, which the success path
+    // reports as the output total. `truncated` tells the error path that the
+    // saved file is capped at MAX_PERSISTED_SHELL_OUTPUT_SIZE so it does not
+    // describe a partial file as the full output.
+    return { path: dest, size, truncated };
+  } catch {
+    // File may already be gone — caller's stdout preview is sufficient.
+    return null;
+  }
+}
+
+/**
+ * Append a "[…output saved to <path>]" marker to the captured stdout carried
+ * on a ShellError. Pads with a blank line so the marker reads as a distinct
+ * paragraph regardless of whether `stdout` ended with a newline.
+ *
+ * When the rolled output exceeded MAX_PERSISTED_SHELL_OUTPUT_SIZE the saved
+ * file is capped, so the marker says so rather than claiming the full failure
+ * body is on disk — otherwise the model trusts a truncated file and may miss a
+ * compiler/test error that appears past the cap.
+ */
+export function appendPersistedOutputHint(
+  stdout: string,
+  persistedPath: string,
+  persistedSize: number,
+  truncated: boolean,
+): string {
+  const hint = truncated
+    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
+    : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  if (!stdout) return hint;
+  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  return `${trimmed}\n\n${hint}`;
+}
+
 function isAutobackgroundingAllowed(command: string): boolean {
   const parts = splitCommand_DEPRECATED(command);
   if (parts.length === 0) return true;
@@ -442,8 +541,9 @@ export const BashTool = buildTool({
     return this.isReadOnly?.(input) ?? false;
   },
   isReadOnly(input) {
-    const compoundCommandHasCd = commandHasAnyCd(input.command);
-    const result = checkReadOnlyConstraints(input, compoundCommandHasCd);
+    const legacyParse = parseLegacyShellCommandForAnalysis(input.command);
+    const compoundCommandHasCd = commandHasAnyCd(input.command, legacyParse);
+    const result = checkReadOnlyConstraints(input, compoundCommandHasCd, legacyParse);
     return result.behavior === 'allow';
   },
   toAutoClassifierInput(input) {
@@ -502,11 +602,11 @@ export const BashTool = buildTool({
         });
       }
     }
-    // Env var FIRST: shouldUseSandbox → splitCommand_DEPRECATED → shell-quote's
+    // Env var FIRST: sandbox presentation decision can parse via shell-quote's
     // `new RegExp` per call. userFacingName runs per-render for every bash
     // message in history; with ~50 msgs + one slow-to-tokenize command, this
     // exceeds the shimmer tick → transition abort → infinite retry (#21605).
-    return isEnvTruthy(process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR) && shouldUseSandbox(input) ? 'SandboxedBash' : 'Bash';
+    return isEnvTruthy(process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR) && shouldUseSandboxForPresentation(input) ? 'SandboxedBash' : 'Bash';
   },
   getToolUseSummary(input) {
     if (!input?.command) {
@@ -567,9 +667,11 @@ export const BashTool = buildTool({
     backgroundTaskId,
     backgroundedByUser,
     assistantAutoBackgrounded,
+    abortMessage,
     structuredContent,
     persistedOutputPath,
-    persistedOutputSize
+    persistedOutputSize,
+    persistedOutputTruncated
   }, toolUseID): ToolResultBlockParam {
     // Handle structured content
     if (structuredContent && structuredContent.length > 0) {
@@ -604,13 +706,14 @@ export const BashTool = buildTool({
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
         preview: preview.preview,
-        hasMore: preview.hasMore
+        hasMore: preview.hasMore,
+        truncated: persistedOutputTruncated
       });
     }
     let errorMessage = normalizedStderr.trim();
     if (interrupted) {
       if (normalizedStderr) errorMessage += EOL;
-      errorMessage += '<error>Command was aborted before completion</error>';
+      errorMessage += `<error>${abortMessage ?? 'Command was aborted before completion'}</error>`;
     }
     let backgroundInfo = '';
     if (backgroundTaskId) {
@@ -651,9 +754,11 @@ export const BashTool = buildTool({
     const isMainThread = !toolUseContext.agentId;
     const preventCwdChanges = !isMainThread;
     try {
+      const commandAnalysis = await analyzeBashCommand(input.command);
       // Use the new async generator version of runShellCommand
       const commandGenerator = runShellCommand({
         input,
+        commandAnalysis,
         abortController,
         // Use the always-shared task channel so async agents' background
         // bash tasks are actually registered (and killable on agent exit).
@@ -699,7 +804,7 @@ export const BashTool = buildTool({
       // Get the final result from the generator's return value
       result = generatorResult.value;
       trackGitOperations(input.command, result.code, result.stdout);
-      const isInterrupt = result.interrupted && abortController.signal.reason === 'interrupt';
+      const isAbort = result.isAbort === true;
 
       // stderr is interleaved in stdout (merged fd) — result.stdout has both
       stdoutAccumulator.append((result.stdout || '').trimEnd() + EOL);
@@ -745,14 +850,41 @@ export const BashTool = buildTool({
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
-      if (interpretationResult.isError && !isInterrupt) {
+      if (interpretationResult.isError && !isAbort) {
         // Merged-fd setup puts both streams into result.stdout. Carry it on
         // the stdout slot of ShellError (matches PowerShellTool.tsx:595) so
         // getErrorParts() emits the captured output alongside "Exit code N"
         // — without this, a non-zero exit hides the very output users need
         // to debug the failure (issue #1231). result.stderr is empty in
         // file mode but populated in pipe mode (hooks).
-        throw new ShellError(outputWithSbFailures, result.stderr || '', result.code, result.interrupted);
+        //
+        // When the shell rolled output to a file (large output path), the
+        // first chunk on `result.stdout` is truncated. Hoist the persist
+        // step here so the error message can point at the full output
+        // (issue #1359) — otherwise the model sees only the exit code +
+        // the truncated chunk and has no signal that the rest exists. The
+        // persist step is identical to the success-path block below; both
+        // sites resolve the same `result.outputFilePath` / outputTaskId.
+        let errorStdout = outputWithSbFailures
+        if (result.outputFilePath && result.outputTaskId) {
+          const persistedForError = await persistShellOutputFile(
+            result.outputFilePath,
+            result.outputTaskId,
+          )
+          if (persistedForError) {
+            errorStdout = appendPersistedOutputHint(
+              errorStdout,
+              persistedForError.path,
+              persistedForError.size,
+              persistedForError.truncated,
+            )
+          }
+        }
+        throw new ShellError(errorStdout, result.stderr || '', result.code, result.interrupted, {
+          abortReason: result.abortReason,
+          abortMessage: result.abortMessage,
+          isAbort: result.isAbort
+        });
       }
       wasInterrupted = result.interrupted;
     } finally {
@@ -766,26 +898,18 @@ export const BashTool = buildTool({
     // stdout already contains the first chunk (from getStdout()). Copy the
     // output file to the tool-results dir so the model can read it via
     // FileRead. If > 64 MB, truncate after copying.
-    const MAX_PERSISTED_SIZE = 64 * 1024 * 1024;
     let persistedOutputPath: string | undefined;
     let persistedOutputSize: number | undefined;
+    let persistedOutputTruncated: boolean | undefined;
     if (result.outputFilePath && result.outputTaskId) {
-      try {
-        const fileStat = await fsStat(result.outputFilePath);
-        persistedOutputSize = fileStat.size;
-        await ensureToolResultsDir();
-        const dest = getToolResultPath(result.outputTaskId, false);
-        if (fileStat.size > MAX_PERSISTED_SIZE) {
-          await fsTruncate(result.outputFilePath, MAX_PERSISTED_SIZE);
-        }
-        try {
-          await link(result.outputFilePath, dest);
-        } catch {
-          await copyFile(result.outputFilePath, dest);
-        }
-        persistedOutputPath = dest;
-      } catch {
-        // File may already be gone — stdout preview is sufficient
+      const persisted = await persistShellOutputFile(
+        result.outputFilePath,
+        result.outputTaskId,
+      );
+      if (persisted) {
+        persistedOutputPath = persisted.path;
+        persistedOutputSize = persisted.size;
+        persistedOutputTruncated = persisted.truncated;
       }
     }
     const commandType = input.command.split(' ')[0];
@@ -794,7 +918,14 @@ export const BashTool = buildTool({
       stdout_length: stdout.length,
       stderr_length: 0,
       exit_code: result.code,
-      interrupted: wasInterrupted
+      interrupted: wasInterrupted,
+      duration_ms: result.durationMs,
+      signal: result.signal as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+      signal_aborted: result.signalAborted,
+      is_abort: result.isAbort,
+      abort_reason: result.abortReason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+      result_stdout_length: result.stdoutLength,
+      result_stderr_length: result.stderrLength
     });
 
     // Log code indexing tool usage
@@ -841,6 +972,9 @@ export const BashTool = buildTool({
       stdout: compressedStdout,
       stderr: stderrForShellReset,
       interrupted: wasInterrupted,
+      isAbort: result.isAbort,
+      abortReason: result.abortReason,
+      abortMessage: result.abortMessage,
       isImage,
       returnCodeInterpretation: interpretationResult?.message,
       noOutputExpected: isSilentBashCommand(input.command),
@@ -849,7 +983,8 @@ export const BashTool = buildTool({
       assistantAutoBackgrounded: result.assistantAutoBackgrounded,
       dangerouslyDisableSandbox: 'dangerouslyDisableSandbox' in input ? input.dangerouslyDisableSandbox as boolean | undefined : undefined,
       persistedOutputPath,
-      persistedOutputSize
+      persistedOutputSize,
+      persistedOutputTruncated
     };
     return {
       data
@@ -862,6 +997,7 @@ export const BashTool = buildTool({
 } satisfies ToolDef<InputSchema, Out, BashProgress>);
 async function* runShellCommand({
   input,
+  commandAnalysis,
   abortController,
   setAppState,
   setToolJSX,
@@ -871,6 +1007,7 @@ async function* runShellCommand({
   agentId
 }: {
   input: BashToolInput;
+  commandAnalysis: BashCommandAnalysis;
   abortController: AbortController;
   setAppState: (f: (prev: AppState) => AppState) => void;
   setToolJSX?: SetToolJSXFn;
@@ -930,7 +1067,7 @@ async function* runShellCommand({
       }
     },
     preventCwdChanges,
-    shouldUseSandbox: shouldUseSandbox(input),
+    shouldUseSandbox: shouldUseSandbox(input, commandAnalysis),
     shouldAutoBackground
   });
 

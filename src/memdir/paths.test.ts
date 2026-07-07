@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, expect, test, mock } from 'bun:test'
 import { setAllowedSettingSources } from '../bootstrap/state.js'
 import { SETTING_SOURCES } from '../utils/settings/constants.js'
-import * as realSettings from '../utils/settings/settings.js'
 import { isAutoMemoryEnabled } from './paths.ts'
+
+const realSettings = (await import(
+  `../utils/settings/settings.js?pathsTestReal=${Date.now()}-${Math.random()}`
+)) as typeof import('../utils/settings/settings.js')
 
 // Pin issue #1326: `memory.autoWrite` is a discoverable alias for the legacy
 // `autoMemoryEnabled` setting, and either key opts out for governance /

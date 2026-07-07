@@ -17,6 +17,7 @@ const configRef: {
     numStartups: number
     tipsHistory?: Record<string, number>
     sponsoredTipsHistory?: { lastShownAt: number; totalShown: number }
+    ads?: { enabled: boolean; earnCode?: string }
   }
 } = { value: { numStartups: 100 } }
 
@@ -155,6 +156,44 @@ describe('getTipToShowOnSpinner — sponsored partitioning', () => {
     settingsRef.value = { ...settingsRef.value, spinnerTipsEnabled: false }
     const { getTipToShowOnSpinner } = await freshScheduler()
     expect(await getTipToShowOnSpinner()).toBeUndefined()
+  })
+})
+
+describe('getTipToShowOnSpinner — earning branch', () => {
+  test('returns the Gitlawb earning tip when earning is enabled', async () => {
+    setState({
+      numStartups: 100,
+      lastSponsored: 80, // would otherwise be an eligible sponsored slot
+      frequency: 10,
+      tips: [makeTip('regular-1'), makeTip('atomic-x', true)],
+    })
+    // Opt-in earning (the mocked config provides ads.enabled + a code); every
+    // slot earns so the cadence is deterministic.
+    configRef.value = { ...configRef.value, ads: { enabled: true, earnCode: 'earn_x' } }
+    const prevTipEvery = process.env.OPENCLAUDE_ADS_TIP_EVERY
+    process.env.OPENCLAUDE_ADS_TIP_EVERY = '1'
+    try {
+      const { getTipToShowOnSpinner } = await freshScheduler()
+      const pick = await getTipToShowOnSpinner()
+      // Earning branch takes precedence over the sponsored/regular partitioning.
+      expect(pick?.id).toBe('gitlawb-earn')
+    } finally {
+      if (prevTipEvery === undefined) delete process.env.OPENCLAUDE_ADS_TIP_EVERY
+      else process.env.OPENCLAUDE_ADS_TIP_EVERY = prevTipEvery
+    }
+  })
+
+  test('does not pre-empt the normal path when earning is disabled', async () => {
+    setState({
+      numStartups: 100,
+      lastSponsored: 80,
+      frequency: 10,
+      tips: [makeTip('regular-1'), makeTip('atomic-x', true)],
+    })
+    // No ads config → adsEarningEnabled() is false → earning branch skipped.
+    const { getTipToShowOnSpinner } = await freshScheduler()
+    const pick = await getTipToShowOnSpinner()
+    expect(pick?.id).toBe('atomic-x')
   })
 })
 

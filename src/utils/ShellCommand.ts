@@ -3,6 +3,12 @@ import { stat } from 'fs/promises'
 import type { Readable } from 'stream'
 import treeKill from 'tree-kill'
 import { generateTaskId } from '../Task.js'
+import {
+  getShellAbortMessage,
+  isQueryLevelAbort,
+  normalizeAbortReason,
+  type AbortReason,
+} from './abortReasons.js'
 import { formatDuration } from './format.js'
 import {
   MAX_TASK_OUTPUT_BYTES,
@@ -27,6 +33,20 @@ export type ExecResult = {
   outputTaskId?: string
   /** Error message when the command failed before spawning (e.g., deleted cwd). */
   preSpawnError?: string
+  /** Exit signal reported by the child process or the internal kill path. */
+  signal?: NodeJS.Signals | null
+  /** Execution duration measured by the shell command wrapper. */
+  durationMs?: number
+  /** True when the command's AbortSignal was aborted before the result resolved. */
+  signalAborted?: boolean
+  /** True when the command was cancelled through the abort path, not by shell exit. */
+  isAbort?: boolean
+  /** Normalized abort or timeout reason, when known. */
+  abortReason?: AbortReason
+  /** Safe user-facing abort explanation. */
+  abortMessage?: string
+  stdoutLength?: number
+  stderrLength?: number
 }
 
 export type ShellCommand = {
@@ -135,12 +155,17 @@ class ShellCommandImpl implements ShellCommand {
   #resultResolver: ((result: ExecResult) => void) | null = null
   #exitCodeResolver: ((code: number) => void) | null = null
   #boundAbortHandler: (() => void) | null = null
+  #startedAt = Date.now()
+  #exitSignal: NodeJS.Signals | null = null
+  #killedByAbort = false
+  #timedOut = false
   readonly taskOutput: TaskOutput
 
   static #handleTimeout(self: ShellCommandImpl): void {
     if (self.#shouldAutoBackground && self.#onTimeoutCallback) {
       self.#onTimeoutCallback(self.background.bind(self))
     } else {
+      self.#timedOut = true
       self.#doKill(SIGTERM)
     }
   }
@@ -200,10 +225,12 @@ class ShellCommandImpl implements ShellCommand {
     ) {
       return
     }
+    this.#killedByAbort = true
     this.kill()
   }
 
   #exitHandler(code: number | null, signal: NodeJS.Signals | null): void {
+    this.#exitSignal = signal
     const exitCode =
       code !== null && code !== undefined
         ? code
@@ -306,12 +333,31 @@ class ShellCommandImpl implements ShellCommand {
     }
 
     const stdout = await this.taskOutput.getStdout()
+    const signalAborted = this.#abortSignal.aborted
+    const normalizedAbortReason = this.#timedOut
+      ? 'tool-timeout'
+      : signalAborted || this.#killedByAbort
+        ? normalizeAbortReason(this.#abortSignal.reason)
+        : undefined
+    const isAbort =
+      normalizedAbortReason !== undefined &&
+      isQueryLevelAbort(normalizedAbortReason) &&
+      this.#killedByAbort
     const result: ExecResult = {
       code,
       stdout,
       stderr: this.taskOutput.getStderr(),
-      interrupted: code === SIGKILL,
+      interrupted: code === SIGKILL || isAbort,
       backgroundTaskId: this.#backgroundTaskId,
+      signal: this.#exitSignal,
+      durationMs: Date.now() - this.#startedAt,
+      signalAborted,
+      isAbort,
+      abortReason: normalizedAbortReason,
+      abortMessage:
+        normalizedAbortReason && isAbort
+          ? getShellAbortMessage(normalizedAbortReason)
+          : undefined,
     }
 
     if (this.taskOutput.stdoutToFile && !this.#backgroundTaskId) {
@@ -338,6 +384,9 @@ class ShellCommandImpl implements ShellCommand {
       )
     }
 
+    result.stdoutLength = result.stdout.length
+    result.stderrLength = result.stderr.length
+
     const resultResolver = this.#resultResolver
     if (resultResolver) {
       this.#resultResolver = null
@@ -347,6 +396,7 @@ class ShellCommandImpl implements ShellCommand {
 
   #doKill(code?: number): void {
     this.#status = 'killed'
+    this.#exitSignal = code === SIGTERM ? 'SIGTERM' : 'SIGKILL'
     if (this.#childProcess.pid) {
       treeKill(this.#childProcess.pid, 'SIGKILL')
     }
@@ -427,14 +477,25 @@ class AbortedShellCommand implements ShellCommand {
     backgroundTaskId?: string
     stderr?: string
     code?: number
+    abortReason?: AbortReason
   }) {
+    const abortReason = opts?.abortReason ?? 'unknown-abort'
+    const stderr = opts?.stderr ?? getShellAbortMessage(abortReason)
     this.taskOutput = new TaskOutput(generateTaskId('local_bash'), null)
     this.result = Promise.resolve({
       code: opts?.code ?? 145,
       stdout: '',
-      stderr: opts?.stderr ?? 'Command aborted before execution',
+      stderr,
       interrupted: true,
       backgroundTaskId: opts?.backgroundTaskId,
+      signal: null,
+      durationMs: 0,
+      signalAborted: true,
+      isAbort: true,
+      abortReason,
+      abortMessage: getShellAbortMessage(abortReason),
+      stdoutLength: 0,
+      stderrLength: stderr.length,
     })
   }
 
@@ -449,7 +510,7 @@ class AbortedShellCommand implements ShellCommand {
 
 export function createAbortedCommand(
   backgroundTaskId?: string,
-  opts?: { stderr?: string; code?: number },
+  opts?: { stderr?: string; code?: number; abortReason?: AbortReason },
 ): ShellCommand {
   return new AbortedShellCommand({
     backgroundTaskId,
@@ -457,16 +518,25 @@ export function createAbortedCommand(
   })
 }
 
-export function createFailedCommand(preSpawnError: string): ShellCommand {
+export function createFailedCommand(
+  preSpawnError: string,
+  opts?: { code?: number },
+): ShellCommand {
   const taskOutput = new TaskOutput(generateTaskId('local_bash'), null)
   return {
     status: 'completed' as const,
     result: Promise.resolve({
-      code: 1,
+      code: opts?.code ?? 1,
       stdout: '',
       stderr: preSpawnError,
       interrupted: false,
       preSpawnError,
+      signal: null,
+      durationMs: 0,
+      signalAborted: false,
+      isAbort: false,
+      stdoutLength: 0,
+      stderrLength: preSpawnError.length,
     }),
     taskOutput,
     background(): boolean {

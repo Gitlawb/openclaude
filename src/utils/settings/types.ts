@@ -1025,10 +1025,41 @@ export const SettingsSchema = lazySchema(() =>
             .describe(
               'When false, disables auto-memory reads and writes for this project. Discoverable alias for `autoMemoryEnabled`; the two are equivalent and either one can be used to opt out for governance / regulated / client-sensitive repos (issue #1326). When both are set, the more restrictive (false) value wins so a parent-scope opt-out cannot be silently re-enabled by a narrower scope.',
             ),
+          requireApprovalBeforeWrite: z
+            .boolean()
+            .optional()
+            .describe(
+              'Persistent auto-memory writes require explicit permission approval by default. Set to false to restore automatic memory writes when auto-memory is enabled.',
+            ),
         })
         .optional()
         .describe(
-          'Memory governance settings. Currently exposes `autoWrite` as the discoverable shape requested in #1326; further opt-in fields (e.g. approval gates) may be added under this namespace without taking a new top-level key each time.',
+          'Memory governance settings. `autoWrite` controls whether auto-memory is active; `requireApprovalBeforeWrite` forces explicit approval for persistent memory writes.',
+        ),
+      git: z
+        .object({
+          addAICoAuthor: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated Co-Authored-By trailer for local commits. When false in any settings source, generated commit attribution is blocked.',
+            ),
+          addGeneratedWithFooter: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated OpenClaude footer for PR descriptions. When false in any settings source, generated PR attribution is blocked.',
+            ),
+          forbiddenCommitMessagePatterns: z
+            .array(z.string())
+            .optional()
+            .describe(
+              'Literal text patterns that must not appear in git commit messages, such as "Co-Authored-By:" or "Generated with".',
+            ),
+        })
+        .optional()
+        .describe(
+          'Git governance settings for AI attribution and commit-message policy.',
         ),
       autoMemoryDirectory: z
         .string()

@@ -138,3 +138,285 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     )
   })
 })
+
+type GithubModelsCredentialsModule =
+  typeof import('./githubModelsCredentials.js')
+
+function importFreshGithubModelsCredentials(
+  cacheKey: string,
+): Promise<GithubModelsCredentialsModule> {
+  return import(
+    `./githubModelsCredentials.js?${cacheKey}`
+  ) as Promise<GithubModelsCredentialsModule>
+}
+
+const STORED_OAUTH_TOKEN = 'gho_stored_oauth_token_xyz'
+const STORED_COPILOT_TOKEN = 'stored-copilot-token-abc'
+const FRESH_COPILOT_TOKEN = 'fresh-copilot-token-def'
+
+describe('refreshCopilotTokenOn401', () => {
+  const orig = {
+    GITHUB_COPILOT_KEY: process.env.GITHUB_COPILOT_KEY,
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    GITHUB_ENTERPRISE_URL: process.env.GITHUB_ENTERPRISE_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
+  }
+
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/githubModelsCredentials.refresh.test.ts')
+    // Clear early-exit guards so each test starts from a clean baseline
+    // regardless of prior test failures or CI environment.
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.CLAUDE_CODE_SIMPLE
+  })
+
+  afterEach(() => {
+    try {
+      mock.restore()
+      for (const [k, v] of Object.entries(orig)) {
+        if (v === undefined) {
+          delete process.env[k as keyof typeof orig]
+        } else {
+          process.env[k as keyof typeof orig] = v
+        }
+      }
+    } finally {
+      releaseSharedMutationLock()
+    }
+  })
+
+  test('returns false in bare mode', async () => {
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=bare-mode')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when GITHUB_COPILOT_KEY is set', async () => {
+    process.env.GITHUB_COPILOT_KEY = 'direct-key'
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=direct-key-env')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when no stored credential blob exists', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => null,
+      }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=no-blob')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when stored credential type is copilot_key', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            credentialType: 'copilot_key' as const,
+          },
+        }),
+      }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=copilot-key-type')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when current credential does not match stored token', async () => {
+    process.env.OPENAI_API_KEY = 'some-other-token'
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+      }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=cred-mismatch')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when current credential is empty', async () => {
+    delete process.env.OPENAI_API_KEY
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+      }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=empty-cred')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when no OAuth token is stored', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+          },
+        }),
+      }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=no-oauth')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when exchange fails', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+        readAsync: () =>
+          Promise.resolve({
+            githubModels: {
+              accessToken: STORED_COPILOT_TOKEN,
+              oauthAccessToken: STORED_OAUTH_TOKEN,
+            },
+          }),
+        update: () => ({ success: true }),
+      }),
+    }))
+
+    mock.module('../services/github/deviceFlow.js', () => ({
+      exchangeForCopilotToken: () =>
+        Promise.reject(new Error('Exchange failed')),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=exchange-fail')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('returns false when save fails', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+        update: () => ({ success: false, warning: 'Storage full' }),
+      }),
+    }))
+
+    mock.module('../services/github/deviceFlow.js', () => ({
+      exchangeForCopilotToken: () =>
+        Promise.resolve({ token: FRESH_COPILOT_TOKEN, expires_at: 9999999999, refresh_in: 1800, endpoints: { api: 'https://api.githubcopilot.com' } }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=save-fail')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(false)
+  })
+
+  test('successfully refreshes and updates env vars', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+        update: () => ({ success: true }),
+      }),
+    }))
+
+    mock.module('../services/github/deviceFlow.js', () => ({
+      exchangeForCopilotToken: () =>
+        Promise.resolve({ token: FRESH_COPILOT_TOKEN, expires_at: 9999999999, refresh_in: 1800, endpoints: { api: 'https://api.githubcopilot.com' } }),
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=success')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(true)
+    expect(process.env.GITHUB_TOKEN).toBe(FRESH_COPILOT_TOKEN)
+    expect(process.env.OPENAI_API_KEY).toBe(FRESH_COPILOT_TOKEN)
+  })
+
+  test('supports GHE URL when GITHUB_ENTERPRISE_URL is set', async () => {
+    process.env.OPENAI_API_KEY = STORED_COPILOT_TOKEN
+    process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+
+    let capturedGheUrl: string | undefined
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: STORED_COPILOT_TOKEN,
+            oauthAccessToken: STORED_OAUTH_TOKEN,
+          },
+        }),
+        update: () => ({ success: true }),
+      }),
+    }))
+
+    mock.module('../services/github/deviceFlow.js', () => ({
+      exchangeForCopilotToken: (
+        _token: string,
+        _fetchImpl: unknown,
+        gheUrl?: string,
+      ) => {
+        capturedGheUrl = gheUrl
+        return Promise.resolve({ token: FRESH_COPILOT_TOKEN, expires_at: 9999999999, refresh_in: 1800, endpoints: { api: 'https://github.mycompany.com/api/copilot' } })
+      },
+    }))
+
+    const { refreshCopilotTokenOn401 } =
+      await importFreshGithubModelsCredentials('refresh=ghe')
+    const result = await refreshCopilotTokenOn401()
+    expect(result).toBe(true)
+    expect(capturedGheUrl).toBe('https://github.mycompany.com')
+  })
+})

@@ -3,16 +3,16 @@
  * React's `useSyncExternalStore`.
  *
  * Three states:
- *   idle        → no query, safe to dequeue and process
- *   dispatching → an item was dequeued, async chain hasn't reached onQuery yet
- *   running     → onQuery called tryStart(), query is executing
+ *   idle        -> no query, safe to dequeue and process
+ *   dispatching -> an item was dequeued, async chain hasn't reached onQuery yet
+ *   running     -> onQuery called tryStart(), query is executing
  *
  * Transitions:
- *   idle → dispatching  (reserve)
- *   dispatching → running  (tryStart)
- *   idle → running  (tryStart, for direct user submissions)
- *   running → idle  (end / forceEnd / timeout)
- *   dispatching → idle  (cancelReservation, when processQueueIfReady fails)
+ *   idle -> dispatching  (reserve)
+ *   dispatching -> running  (tryStart)
+ *   idle -> running  (tryStart, for direct user submissions)
+ *   running -> idle  (end / forceEnd / timeout)
+ *   dispatching -> idle  (cancelReservation, when processQueueIfReady fails)
  *
  * `isActive` returns true for both dispatching and running, preventing
  * re-entry from the queue processor during the async gap.
@@ -29,18 +29,21 @@
  *   )
  */
 import { createSignal } from './signal.js'
+import type {
+  QueryActiveOperationSnapshot,
+  QueryGuardMetadata,
+  QueryGuardStart,
+  QueryGuardTimeoutInfo,
+  QueryGuardTimeoutReason,
+  QueryLifecycleContext,
+  QueryTerminalReason,
+} from './queryLifecycle.js'
+
+export type { QueryGuardTimeoutReason } from './queryLifecycle.js'
 
 export const DEFAULT_QUERY_IDLE_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 export const DEFAULT_QUERY_HARD_MAX_MS = 30 * 60 * 1000 // 30 minutes
 export const DEFAULT_TOOL_LEASE_GRACE_MS = 5_000
-
-/**
- * Why QueryGuard force-ended the current query.
- * - `idle`: no progress and no valid lease existed for the idle timeout.
- * - `hard_max`: the query reached its absolute maximum lifetime.
- * - `lease_expired`: bounded active work exceeded its own lease deadline.
- */
-export type QueryGuardTimeoutReason = 'idle' | 'hard_max' | 'lease_expired'
 
 /**
  * Input for a bounded unit of active work.
@@ -73,10 +76,7 @@ export type QueryGuardLease = {
   release(): void
 }
 
-type QueryTimeoutHandler = (
-  generation: number,
-  reason: QueryGuardTimeoutReason,
-) => void
+type QueryTimeoutHandler = (timeout: QueryGuardTimeoutInfo) => void
 
 type QueryGuardOptions = {
   idleTimeoutMs?: number
@@ -94,10 +94,23 @@ type LeaseRecord = {
   description?: string
 }
 
+const EMPTY_ACTIVE_OPERATIONS: QueryActiveOperationSnapshot = {
+  apiCalls: [],
+  toolUses: [],
+}
+
 function positiveOrDefault(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? value
     : fallback
+}
+
+function terminalReasonForTimeout(
+  reason: QueryGuardTimeoutReason,
+): QueryTerminalReason {
+  return reason === 'hard_max'
+    ? 'hard-max-query-timeout'
+    : 'query-timeout'
 }
 
 export class QueryGuard {
@@ -110,6 +123,10 @@ export class QueryGuard {
   private _lastActivityAt = 0
   private _leaseCounter = 0
   private _activeLeases = new Map<string, LeaseRecord>()
+  private _context: QueryLifecycleContext | null = null
+  private _lastContext: QueryLifecycleContext | null = null
+  private _getActiveOperations: (() => QueryActiveOperationSnapshot) | null =
+    null
   private readonly _idleTimeoutMs: number
   private readonly _hardMaxQueryMs: number
   private readonly _toolLeaseGraceMs: number
@@ -130,7 +147,7 @@ export class QueryGuard {
   }
 
   /**
-   * Reserve the guard for queue processing. Transitions idle → dispatching.
+   * Reserve the guard for queue processing. Transitions idle -> dispatching.
    * Returns false if not idle (another query or dispatch in progress).
    */
   reserve(): boolean {
@@ -142,7 +159,7 @@ export class QueryGuard {
 
   /**
    * Cancel a reservation when processQueueIfReady had nothing to process.
-   * Transitions dispatching → idle.
+   * Transitions dispatching -> idle.
    */
   cancelReservation(): void {
     if (this._status !== 'dispatching') return
@@ -156,15 +173,26 @@ export class QueryGuard {
    * Accepts transitions from both idle (direct user submit)
    * and dispatching (queue processor path).
    */
-  tryStart(): number | null {
+  tryStart(): number | null
+  tryStart(metadata: QueryGuardMetadata): QueryGuardStart | null
+  tryStart(metadata?: QueryGuardMetadata): number | QueryGuardStart | null {
     if (this._status === 'running') return null
     this._status = 'running'
     ++this._generation
     this._activeLeases.clear()
+    this._lastContext = null
     this._queryStartedAt = Date.now()
     this._lastActivityAt = this._queryStartedAt
+    this._context = this._createContext(metadata)
+    this._getActiveOperations = metadata?.getActiveOperations ?? null
     this._startTimeout()
     this._notify()
+    if (metadata) {
+      return {
+        generation: this._generation,
+        context: this._context,
+      }
+    }
     return this._generation
   }
 
@@ -173,12 +201,18 @@ export class QueryGuard {
    * (meaning the caller should perform cleanup). Returns false if a
    * newer query has started (stale finally block from a cancelled query).
    */
-  end(generation: number): boolean {
+  end(
+    generation: number,
+    terminalReason: QueryTerminalReason = 'ok',
+    abortReason?: string,
+  ): boolean {
     if (this._generation !== generation) return false
     if (this._status !== 'running') return false
     this._clearTimeout()
     this._activeLeases.clear()
+    this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
+    this._getActiveOperations = null
     this._notify()
     return true
   }
@@ -189,11 +223,16 @@ export class QueryGuard {
    * Increments generation so stale finally blocks from the cancelled
    * query's promise rejection will see a mismatch and skip cleanup.
    */
-  forceEnd(): void {
+  forceEnd(
+    terminalReason: QueryTerminalReason = 'unknown',
+    abortReason?: string,
+  ): void {
     if (this._status === 'idle') return
     this._clearTimeout()
     this._activeLeases.clear()
+    this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
+    this._getActiveOperations = null
     ++this._generation
     this._notify()
   }
@@ -283,7 +322,7 @@ export class QueryGuard {
 
   /**
    * Is the guard active (dispatching or running)?
-   * Always synchronous — not subject to React state batching delays.
+   * Always synchronous - not subject to React state batching delays.
    */
   get isActive(): boolean {
     return this._status !== 'idle'
@@ -291,6 +330,14 @@ export class QueryGuard {
 
   get generation(): number {
     return this._generation
+  }
+
+  get activeContext(): QueryLifecycleContext | null {
+    return this._context ? { ...this._context } : null
+  }
+
+  get lastContext(): QueryLifecycleContext | null {
+    return this._lastContext ? { ...this._lastContext } : null
   }
 
   /**
@@ -310,7 +357,7 @@ export class QueryGuard {
   // --
   // useSyncExternalStore interface
 
-  /** Subscribe to state changes. Stable reference — safe as useEffect dep. */
+  /** Subscribe to state changes. Stable reference - safe as useEffect dep. */
   subscribe = this._changed.subscribe
 
   /** Snapshot for useSyncExternalStore. Returns `isActive`. */
@@ -320,6 +367,55 @@ export class QueryGuard {
 
   private _notify(): void {
     this._changed.emit()
+  }
+
+  private _createContext(
+    metadata: QueryGuardMetadata | undefined,
+  ): QueryLifecycleContext {
+    return {
+      queryId: metadata?.queryId ?? `generation-${this._generation}`,
+      queryGeneration: this._generation,
+      querySource: metadata?.querySource ?? 'unknown',
+      ...(metadata?.parentQueryId && { parentQueryId: metadata.parentQueryId }),
+      ...(metadata?.subagentId && { subagentId: metadata.subagentId }),
+      startedAt: metadata?.startedAt ?? Date.now(),
+    }
+  }
+
+  private _completeContext(
+    terminalReason: QueryTerminalReason,
+    abortReason?: string,
+  ): void {
+    if (!this._context) return
+    const completed = {
+      ...this._context,
+      terminalReason,
+      ...(abortReason !== undefined && { abortReason }),
+    }
+    this._context = null
+    this._lastContext = completed
+  }
+
+  private _activeContextWithTerminalReason(
+    terminalReason: QueryTerminalReason,
+    abortReason?: string,
+  ): QueryLifecycleContext {
+    const context = this._context ?? this._createContext(undefined)
+    return {
+      ...context,
+      terminalReason,
+      ...(abortReason !== undefined && { abortReason }),
+    }
+  }
+
+  private _snapshotActiveOperations(): QueryActiveOperationSnapshot {
+    if (!this._getActiveOperations) return EMPTY_ACTIVE_OPERATIONS
+    try {
+      return this._getActiveOperations()
+    } catch (error) {
+      console.error('[QueryGuard] Active operation snapshot failed', error)
+      return EMPTY_ACTIVE_OPERATIONS
+    }
   }
 
   /**
@@ -354,21 +450,36 @@ export class QueryGuard {
     this._timeoutId = null
     if (this._status !== 'running') return
 
-    const reason = this._getTimeoutReason(Date.now())
+    const now = Date.now()
+    const reason = this._getTimeoutReason(now)
     if (!reason) {
       this._scheduleTimeout()
       return
     }
 
+    const terminalReason = terminalReasonForTimeout(reason)
+    const context = this._activeContextWithTerminalReason(
+      terminalReason,
+      reason,
+    )
+    const timeout: QueryGuardTimeoutInfo = {
+      generation: this._generation,
+      reason,
+      timeoutMs: this._getTimeoutMsForReason(reason, now),
+      elapsedMs: now - context.startedAt,
+      context,
+      activeOperations: this._snapshotActiveOperations(),
+    }
+
     console.error(
-      `[QueryGuard] Query ${reason} timeout — force-ending to prevent infinite spinner`,
+      `[QueryGuard] Query ${reason} timeout - force-ending to prevent infinite spinner`,
     )
     try {
-      this._timeoutHandler?.(this._generation, reason)
+      this._timeoutHandler?.(timeout)
     } catch (error) {
       console.error('[QueryGuard] Timeout handler failed', error)
     } finally {
-      this.forceEnd()
+      this.forceEnd(terminalReason, reason)
     }
   }
 
@@ -385,14 +496,25 @@ export class QueryGuard {
       hasValidLease = true
     }
 
-    if (
-      !hasValidLease &&
-      now >= this._lastActivityAt + this._idleTimeoutMs
-    ) {
+    if (!hasValidLease && now >= this._lastActivityAt + this._idleTimeoutMs) {
       return 'idle'
     }
 
     return null
+  }
+
+  private _getTimeoutMsForReason(
+    reason: QueryGuardTimeoutReason,
+    now: number,
+  ): number {
+    if (reason === 'hard_max') return this._hardMaxQueryMs
+    if (reason === 'idle') return this._idleTimeoutMs
+
+    const expiredLease = [...this._activeLeases.values()].find(
+      lease => lease.deadlineAt <= now,
+    )
+    if (!expiredLease) return this._idleTimeoutMs
+    return Math.max(0, expiredLease.deadlineAt - expiredLease.startedAt)
   }
 
   private _getNextDeadlineAt(now: number): number | null {

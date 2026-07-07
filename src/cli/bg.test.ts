@@ -1,11 +1,90 @@
+import { EventEmitter } from 'node:events'
+import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import {
   buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
+  followLogFile,
+  printExistingLog,
   terminateBackgroundProcessTree,
+  LOG_STREAM_CHUNK_SIZE,
   parseBackgroundInvocation,
   parseLogsInvocation,
 } from './bg.js'
+
+class TestOutput extends EventEmitter {
+  chunks: Buffer[] = []
+  destroyed = false
+  writableDestroyed = false
+  writeResults: boolean[] = []
+  writeError: unknown
+
+  write(chunk: Uint8Array): boolean {
+    if (this.writeError) throw this.writeError
+    if (this.destroyed || this.writableDestroyed) {
+      throw Object.assign(new Error('stdout closed'), { code: 'EPIPE' })
+    }
+    this.chunks.push(Buffer.from(chunk))
+    return this.writeResults.shift() ?? true
+  }
+
+  bytes(): Buffer {
+    return Buffer.concat(this.chunks)
+  }
+}
+
+function createManualScheduler() {
+  let intervalCallback: (() => void) | undefined
+  let cleared = false
+
+  return {
+    setInterval(callback: () => void): ReturnType<typeof setInterval> {
+      intervalCallback = callback
+      return 1 as unknown as ReturnType<typeof setInterval>
+    },
+    clearInterval(): void {
+      cleared = true
+    },
+    tick(): void {
+      intervalCallback?.()
+    },
+    get cleared(): boolean {
+      return cleared
+    },
+  }
+}
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if (condition()) return
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  throw new Error('condition was not met')
+}
+
+async function withTempFile<T>(
+  name: string,
+  run: (path: string) => Promise<T>,
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-bg-test-'))
+  try {
+    return await run(join(dir, name))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
 
 describe('background session CLI parsing', () => {
   it('builds a print-mode child command and preserves provider/model flags', () => {
@@ -31,6 +110,108 @@ describe('background session CLI parsing', () => {
       'auth-refactor',
       '--print',
       'refactor auth middleware',
+    ])
+  })
+
+  it('preserves provider env-file values before the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--provider-env-file',
+      '.env',
+      'fix failing tests',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--provider-env-file',
+      '.env',
+      '--print',
+      'fix failing tests',
+    ])
+  })
+
+  it('preserves provider env-file values after the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env',
+    ])
+  })
+
+  it('preserves repeated provider env-file values while finding the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--provider-env-file',
+      '.env.local',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env.ci',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--provider-env-file',
+      '.env.local',
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env.ci',
+    ])
+  })
+
+  it('preserves inline provider env-file values', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file=.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file=.env',
+    ])
+  })
+
+  it('preserves provider env-file paths containing spaces', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file',
+      'config files/provider.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      'config files/provider.env',
+    ])
+  })
+
+  it('keeps provider env-file-looking prompts after -- positional', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--',
+      '--provider-env-file=.env',
+    ])
+
+    expect(parsed.prompt).toBe('--provider-env-file=.env')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      '--',
+      '--provider-env-file=.env',
     ])
   })
 
@@ -254,6 +435,16 @@ describe('background session CLI parsing', () => {
       follow: false,
       stream: 'stderr',
     })
+    expect(parseLogsInvocation(['auth-refactor', '--stdout', '-f'])).toEqual({
+      target: 'auth-refactor',
+      follow: true,
+      stream: 'stdout',
+    })
+    expect(parseLogsInvocation(['auth-refactor', '-f', '--stderr'])).toEqual({
+      target: 'auth-refactor',
+      follow: true,
+      stream: 'stderr',
+    })
   })
 
   it('preserves Node exec flags and lets the launcher manage heap relaunch state', () => {
@@ -304,5 +495,294 @@ describe('background session CLI parsing', () => {
     })
 
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+})
+
+describe('background session log streaming', () => {
+  it('emits a multi-megabyte existing log exactly with bounded allocations', async () => {
+    await withTempFile('stdout.log', async path => {
+      const chunkSize = LOG_STREAM_CHUNK_SIZE
+      const contents = Buffer.alloc(chunkSize * 32 + 123)
+      for (let i = 0; i < contents.length; i++) contents[i] = i % 251
+      await writeFile(path, contents)
+
+      const allocations: number[] = []
+      const output = new TestOutput()
+      const offset = await printExistingLog(path, {
+        output,
+        chunkSize,
+        createBuffer: size => {
+          allocations.push(size)
+          return Buffer.alloc(size)
+        },
+      })
+
+      expect(offset).toBe(contents.length)
+      expect(output.bytes()).toEqual(contents)
+      expect(Math.max(...allocations)).toBeLessThanOrEqual(chunkSize)
+      expect(allocations.length).toBeGreaterThan(1)
+    })
+  })
+
+  it('follow mode emits existing and appended content exactly once in order', async () => {
+    await withTempFile('stdout.log', async path => {
+      const output = new TestOutput()
+      await writeFile(path, Buffer.from('existing-'))
+
+      const offset = await printExistingLog(path, { output, chunkSize: 4 })
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, offset, {
+        output,
+        chunkSize: 4,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await writeFile(path, Buffer.from('existing-appended'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'existing-appended')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('existing-appended')
+    })
+  })
+
+  it('splits a large appended range into bounded chunks', async () => {
+    await withTempFile('stdout.log', async path => {
+      const chunkSize = 16
+      await writeFile(path, Buffer.from('seed'))
+      const appended = Buffer.alloc(chunkSize * 2 + 5, 7)
+      await writeFile(path, Buffer.concat([Buffer.from('seed'), appended]))
+
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 4, {
+        output,
+        chunkSize,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      scheduler.tick()
+      await waitFor(() => output.bytes().length === appended.length)
+      abort.abort()
+      await following
+
+      expect(output.bytes()).toEqual(appended)
+      expect(output.chunks.map(chunk => chunk.length)).toEqual([16, 16, 5])
+    })
+  })
+
+  it('waits for drain before reading or writing more when stdout applies backpressure', async () => {
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('abcdef'))
+      const output = new TestOutput()
+      output.writeResults.push(false)
+
+      let settled = false
+      const printing = printExistingLog(path, { output, chunkSize: 3 }).then(
+        offset => {
+          settled = true
+          return offset
+        },
+      )
+
+      await waitFor(() => output.chunks.length === 1)
+      expect(output.bytes().toString()).toBe('abc')
+      expect(settled).toBe(false)
+
+      output.emit('drain')
+      await expect(printing).resolves.toBe(6)
+      expect(output.bytes().toString()).toBe('abcdef')
+      expect(output.chunks.map(chunk => chunk.length)).toEqual([3, 3])
+    })
+  })
+
+  it('resets the follow read position when the log is truncated', async () => {
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('abcdef'))
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 6, {
+        output,
+        chunkSize: 8,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await writeFile(path, Buffer.from('xy'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'xy')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('xy')
+    })
+  })
+
+  it('tolerates temporary file disappearance while following', async () => {
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('seed'))
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 4, {
+        output,
+        chunkSize: 8,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await unlink(path)
+      scheduler.tick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(output.bytes().length).toBe(0)
+
+      await writeFile(path, Buffer.from('new'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'new')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('new')
+    })
+  })
+
+  it('prevents writes after signal cleanup during an in-flight poll', async () => {
+    const output = new TestOutput()
+    const scheduler = createManualScheduler()
+    const abort = new AbortController()
+    const readStarted = deferred()
+    const releaseRead = deferred()
+    let closed = false
+
+    const handle = {
+      stat: async () => ({ size: 4 }),
+      read: async (buffer: Buffer) => {
+        readStarted.resolve()
+        await releaseRead.promise
+        buffer.write('late')
+        return { bytesRead: 4, buffer }
+      },
+      close: async () => {
+        closed = true
+      },
+    }
+
+    let resolved = false
+    const following = followLogFile('/tmp/stdout.log', 0, {
+      output,
+      chunkSize: 4,
+      signal: abort.signal,
+      setInterval: scheduler.setInterval,
+      clearInterval: scheduler.clearInterval,
+      openFile: async () => handle,
+    }).then(() => {
+      resolved = true
+    })
+
+    scheduler.tick()
+    await readStarted.promise
+    abort.abort()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(resolved).toBe(false)
+    releaseRead.resolve()
+    await following
+    scheduler.tick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(scheduler.cleared).toBe(true)
+    expect(closed).toBe(true)
+    expect(output.bytes().length).toBe(0)
+  })
+
+  it('preserves streamed progress when a later close failure occurs', async () => {
+    const output = new TestOutput()
+    const scheduler = createManualScheduler()
+    const abort = new AbortController()
+    let openCount = 0
+
+    const following = followLogFile('/tmp/stdout.log', 0, {
+      output,
+      chunkSize: 4,
+      signal: abort.signal,
+      setInterval: scheduler.setInterval,
+      clearInterval: scheduler.clearInterval,
+      openFile: async () => {
+        openCount++
+        return {
+          stat: async () => ({ size: 4 }),
+          read: async (buffer: Buffer) => {
+            buffer.write('once')
+            return { bytesRead: 4 }
+          },
+          close: async () => {
+            if (openCount === 1) throw new Error('close failed')
+          },
+        }
+      },
+    })
+
+    scheduler.tick()
+    await waitFor(() => output.bytes().toString() === 'once')
+    scheduler.tick()
+    await waitFor(() => openCount === 2)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    abort.abort()
+    await following
+
+    expect(output.bytes().toString()).toBe('once')
+  })
+
+  it('surfaces non-follow file read failures', async () => {
+    let closed = false
+    const readError = Object.assign(new Error('read failed'), {
+      code: 'EIO',
+    })
+
+    await expect(
+      printExistingLog('/tmp/stdout.log', {
+        chunkSize: 4,
+        openFile: async () => ({
+          stat: async () => ({ size: 4 }),
+          read: async () => {
+            throw readError
+          },
+          close: async () => {
+            closed = true
+          },
+        }),
+      }),
+    ).rejects.toThrow('read failed')
+    expect(closed).toBe(true)
+  })
+
+  it('handles EPIPE and destroyed stdout without throwing', async () => {
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('closed-pipe'))
+
+      const epipeOutput = new TestOutput()
+      epipeOutput.writeError = Object.assign(new Error('broken pipe'), {
+        code: 'EPIPE',
+      })
+      await expect(
+        printExistingLog(path, { output: epipeOutput, chunkSize: 4 }),
+      ).resolves.toBe(0)
+
+      const destroyedOutput = new TestOutput()
+      destroyedOutput.destroyed = true
+      await expect(
+        printExistingLog(path, { output: destroyedOutput, chunkSize: 4 }),
+      ).resolves.toBe(0)
+      expect(destroyedOutput.bytes().length).toBe(0)
+    })
   })
 })

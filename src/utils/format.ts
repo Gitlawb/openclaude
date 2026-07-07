@@ -11,11 +11,13 @@ export function formatFileSize(sizeInBytes: number): string {
   if (kb < 1) {
     return `${sizeInBytes} bytes`
   }
-  if (kb < 1024) {
+  // Compare the rounded magnitude so values that round up to 1024 roll over
+  // to the next unit (e.g. 1048575 bytes → "1MB", not "1024KB").
+  if (Number(kb.toFixed(1)) < 1024) {
     return `${kb.toFixed(1).replace(/\.0$/, '')}KB`
   }
   const mb = kb / 1024
-  if (mb < 1024) {
+  if (Number(mb.toFixed(1)) < 1024) {
     return `${mb.toFixed(1).replace(/\.0$/, '')}MB`
   }
   const gb = mb / 1024
@@ -27,8 +29,18 @@ export function formatFileSize(sizeInBytes: number): string {
  * Unlike formatDuration, always keeps the decimal — use for sub-minute timings
  * where the fractional second is meaningful (TTFT, hook durations, etc.).
  */
+/**
+ * Renders milliseconds as a one-decimal second value, rounding in integer
+ * milliseconds so half-steps are stable. Rounding the raw fraction with
+ * `(ms / 1000).toFixed(1)` is unstable because values like `0.95` aren't
+ * exactly representable in binary floating point (`950` would render `0.9`).
+ */
+function oneDecimalSeconds(ms: number): string {
+  return (Math.round(ms / 100) / 10).toFixed(1)
+}
+
 export function formatSecondsShort(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`
+  return `${oneDecimalSeconds(ms)}s`
 }
 
 export function formatDuration(
@@ -40,10 +52,12 @@ export function formatDuration(
     if (ms === 0) {
       return '0s'
     }
-    // For durations < 1s, show 1 decimal place (e.g., 0.5s)
-    if (ms < 1) {
-      const s = (ms / 1000).toFixed(1)
-      return `${s}s`
+    // For durations < 1s, show 1 decimal place (e.g., 0.5s). The threshold is
+    // 1000ms (1s), not 1ms — at `ms < 1` this branch could only ever fire for
+    // sub-millisecond values and always returned "0.0s", so real sub-second
+    // durations fell through and rendered as "0s".
+    if (ms < 1000) {
+      return `${oneDecimalSeconds(ms)}s`
     }
     const s = Math.floor(ms / 1000).toString()
     return `${s}s`

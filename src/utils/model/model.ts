@@ -82,9 +82,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
+  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.3.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   return getDefaultHaikuModel()
 }
@@ -95,7 +95,8 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
     model === getModelStrings().opus41 ||
     model === getModelStrings().opus45 ||
     model === getModelStrings().opus46 ||
-    model === getModelStrings().opus47
+    model === getModelStrings().opus47 ||
+    model === getModelStrings().opus48
   )
 }
 
@@ -223,11 +224,11 @@ export function getDefaultOpusModel(): ModelName {
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
-  // the next model launch. Keep 3P on Opus 4.6 until they roll out 4.7.
+  // the next model launch. Keep 3P on Opus 4.7 until they roll out 4.8.
   if (getAPIProvider() !== 'firstParty') {
-    return getModelStrings().opus46
+    return getModelStrings().opus47
   }
-  return getModelStrings().opus47
+  return getModelStrings().opus48
 }
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
@@ -315,9 +316,9 @@ export function getDefaultHaikuModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — faster Grok model for "haiku"-equivalent.
+  // xAI — use the current Grok default for "haiku"-equivalent until xAI exposes a smaller live alias.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -444,7 +445,10 @@ export function getDefaultMainLoopModel(): ModelName {
 export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
   // Special cases for Claude 4+ models to differentiate versions
-  // Order matters: check more specific versions first (4-7 before 4-6 before 4-5 before 4)
+  // Order matters: check more specific versions first (4-8 before 4-7 before 4-6 before 4-5 before 4)
+  if (name.includes('claude-opus-4-8')) {
+    return 'claude-opus-4-8'
+  }
   if (name.includes('claude-opus-4-7')) {
     return 'claude-opus-4-7'
   }
@@ -518,9 +522,9 @@ export function getClaudeAiUserDefaultModelDescription(
 ): string {
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
-      return `Opus 4.7 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `Opus 4.8 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
     }
-    return `Opus 4.7 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
   }
   return 'Sonnet 4.6 · Best for everyday tasks'
 }
@@ -529,7 +533,7 @@ export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 4.7 in plan mode, else Sonnet 4.6'
+    return 'Opus 4.8 in plan mode, else Sonnet 4.6'
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
@@ -619,7 +623,11 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
       'gemini-3-flash-preview': 'Gemini 3 Flash',
       'gemini-2.5-pro': 'Gemini 2.5 Pro',
-      'grok-code-fast-1': 'Grok Code Fast 1',
+      'grok-code-fast-1': 'Grok Build 0.1',
+      'grok-build-0.1': 'Grok Build 0.1',
+      'grok-4.20': 'Grok 4.20 Reasoning',
+      'grok-4.20-0309-reasoning': 'Grok 4.20 Reasoning',
+      'grok-4.20-0309-non-reasoning': 'Grok 4.20 Non-Reasoning',
     }
     if (copilotModelNames[model]) {
       return copilotModelNames[model]
@@ -633,6 +641,10 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       return 'GPT-5.4'
     case 'gpt-5.3-codex-spark':
       return 'GPT-5.3 Codex Spark'
+    case getModelStrings().opus48 + '[1m]':
+      return 'Opus 4.8 (1M context)'
+    case getModelStrings().opus48:
+      return 'Opus 4.8'
     case getModelStrings().opus47 + '[1m]':
       return 'Opus 4.7 (1M context)'
     case getModelStrings().opus47:
@@ -744,33 +756,56 @@ export function parseUserSpecifiedModel(
   }
   const normalizedModel = modelInputTrimmed.toLowerCase()
 
+  // Separate "the [1m] tag is present in the input" from "1M context is active".
+  // The tag must ALWAYS be stripped before alias/model matching, otherwise an
+  // aliased request like `sonnet[1m]` fails to resolve to its base model. Whether
+  // to re-append the tag depends on has1mContext, which returns false when 1M is
+  // disabled (CLAUDE_CODE_DISABLE_1M_CONTEXT) — in that case the request resolves
+  // to the base model with the tag dropped, not left as an unresolved alias.
+  const hasTagSyntax = /\[1m]$/i.test(normalizedModel)
   const has1mTag = has1mContext(normalizedModel)
-  const modelString = has1mTag
+  const modelString = hasTagSyntax
     ? normalizedModel.replace(/\[1m]$/i, '').trim()
     : normalizedModel
+
+  // Re-apply the [1m] tag policy to a resolved model. The resolved value may
+  // itself carry a [1m] suffix — e.g. a custom default override like
+  // ANTHROPIC_DEFAULT_SONNET_MODEL=Deploy[1m] baked into getDefaultSonnetModel().
+  // Strip whatever tag is present, then re-attach [1m] only when a tag was
+  // requested (on the user input OR the resolved default) AND 1M context is
+  // enabled. This guarantees CLAUDE_CODE_DISABLE_1M_CONTEXT drops the tag no
+  // matter where it came from, while still honoring an env default's opt-in.
+  const applyOneMTag = (resolved: ModelName): ModelName => {
+    const base = resolved.replace(/\[1m]$/i, '').trim()
+    return has1mTag || has1mContext(resolved) ? base + '[1m]' : base
+  }
 
   if (isModelAlias(modelString)) {
     switch (modelString) {
       case 'opusplan':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '') // Sonnet is default, Opus in plan mode
+        return applyOneMTag(getDefaultSonnetModel()) // Sonnet is default, Opus in plan mode
       case 'sonnet':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultSonnetModel())
       case 'haiku':
-        return getDefaultHaikuModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultHaikuModel())
       case 'opus':
-        return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getDefaultOpusModel())
       case 'best':
-        return getBestModel() + (has1mTag ? '[1m]' : '')
+        return applyOneMTag(getBestModel())
       default:
     }
   }
 
-  // Handle Codex aliases - map to actual model names
+  // Handle Codex aliases - map to actual model names. Preserve the [1m] tag the
+  // same way the Claude aliases above do: it is an explicit client-side opt-in
+  // to the 1M context window (see has1mContext), so dropping it here would
+  // silently shrink a `codexplan[1m]`/`codexspark[1m]` session back to the
+  // model default.
   if (modelString === 'codexplan') {
-    return 'gpt-5.5'
+    return 'gpt-5.5' + (has1mTag ? '[1m]' : '')
   }
   if (modelString === 'codexspark') {
-    return 'gpt-5.3-codex-spark'
+    return 'gpt-5.3-codex-spark' + (has1mTag ? '[1m]' : '')
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
@@ -783,7 +818,7 @@ export function parseUserSpecifiedModel(
     isLegacyOpusFirstParty(modelString) &&
     isLegacyModelRemapEnabled()
   ) {
-    return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+    return applyOneMTag(getDefaultOpusModel())
   }
 
   if (process.env.USER_TYPE === 'ant') {
@@ -801,10 +836,15 @@ export function parseUserSpecifiedModel(
     // can tell the user to restart/wait for flag cache refresh to get the latest values.
   }
 
-  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs)
-  // Only strip [1m] suffix if present, maintaining case of the base model
-  if (has1mTag) {
-    return modelInputTrimmed.replace(/\[1m\]$/i, '').trim() + '[1m]'
+  // Preserve original case for custom model names (e.g., Azure Foundry deployment IDs).
+  // Strip a present [1m] suffix (maintaining base-model case) and re-append it
+  // only when 1M is active — when disabled, a custom `mydeploy[1m]` must resolve
+  // to the base `mydeploy`, not an unservable `mydeploy[1m]` model id.
+  if (hasTagSyntax) {
+    return (
+      modelInputTrimmed.replace(/\[1m\]$/i, '').trim() +
+      (has1mTag ? '[1m]' : '')
+    )
   }
   return modelInputTrimmed
 }
@@ -883,6 +923,9 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
 
+  if (canonical.includes('claude-opus-4-8')) {
+    return has1m ? 'Opus 4.8 (with 1M context)' : 'Opus 4.8'
+  }
   if (canonical.includes('claude-opus-4-7')) {
     return has1m ? 'Opus 4.7 (with 1M context)' : 'Opus 4.7'
   }

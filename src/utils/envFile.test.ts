@@ -17,6 +17,7 @@ const TEST_ENV_KEYS = [
   'AZURE_OPENAI_API_VERSION',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -148,6 +149,30 @@ BAZ=qux
     })
   })
 
+  it('collapses escaped backslashes inside quoted values', () => {
+    // The value content is C:\\Users\\me — escaped backslashes that the
+    // closing-quote scanner already treats as single backslashes, so the
+    // unescaper must collapse them too.
+    const result = parseEnvFile('FOO="C:\\\\Users\\\\me"')
+    expect(result).toEqual({ FOO: 'C:\\Users\\me' })
+  })
+
+  it('keeps lone backslashes in quoted values intact', () => {
+    // A single backslash before an ordinary character is not an escape and
+    // must survive verbatim (e.g. a Windows path written without doubling).
+    const result = parseEnvFile('FOO="C:\\Users\\me"')
+    expect(result).toEqual({ FOO: 'C:\\Users\\me' })
+  })
+
+  it('collapses an escaped backslash adjacent to the closing quote', () => {
+    // The value content is a\\ — the escaped backslash sits right before the
+    // terminator, the trickiest interaction between findClosingQuote (which
+    // counts the even backslash run and keeps scanning) and unescapeQuotedValue
+    // (which must collapse the pair to one trailing backslash).
+    const result = parseEnvFile('FOO="a\\\\"')
+    expect(result).toEqual({ FOO: 'a\\' })
+  })
+
   it('strips inline comments from unquoted values', () => {
     const result = parseEnvFile('FOO=bar # comment\nBAZ=qux')
     expect(result).toEqual({ FOO: 'bar', BAZ: 'qux' })
@@ -220,6 +245,29 @@ describe('loadEnvFile', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('from-file')
+  })
+
+  it('loads and reapplies OpenAI credential pools from provider env files', () => {
+    const filePath = writeTempEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_BASE_URL=https://api.openai.com/v1',
+      'OPENAI_MODEL=gpt-4o',
+      'OPENAI_API_KEYS=key-a,key-b',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    rememberLoadedEnvFileValues(loaded)
+    process.env.OPENAI_API_KEYS = 'settings-key'
+
+    reapplyRememberedEnvFileValues()
+
+    expect(process.env.OPENAI_API_KEYS).toBe('key-a,key-b')
+    expect(loaded).toEqual({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEYS: 'key-a,key-b',
+    })
   })
 
   it('loads documented Azure OpenAI API version values', () => {

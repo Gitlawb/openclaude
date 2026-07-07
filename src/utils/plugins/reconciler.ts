@@ -19,7 +19,7 @@ import {
   addMarketplaceSource,
   type DeclaredMarketplace,
   getDeclaredMarketplaces,
-  loadKnownMarketplacesConfig,
+  loadKnownMarketplacesConfigSafe,
 } from './marketplaceManager.js'
 import {
   isLocalMarketplaceSource,
@@ -57,7 +57,13 @@ export function diffMarketplaces(
   const upToDate: string[] = []
 
   for (const [name, intent] of Object.entries(declared)) {
-    const state = materialized[name]
+    // Own-property-exact lookup: marketplace names are user-controlled, so a
+    // name colliding with an `Object.prototype` member (constructor / toString
+    // / __proto__ / …) must not resolve to an inherited value and masquerade as
+    // a materialized entry. Same prototype-pollution class as #1787.
+    const state = Object.hasOwn(materialized, name)
+      ? materialized[name]
+      : undefined
     const normalizedIntent = normalizeSource(intent.source, opts?.projectRoot)
 
     if (!state) {
@@ -119,13 +125,13 @@ export async function reconcileMarketplaces(
     return { installed: [], updated: [], failed: [], upToDate: [], skipped: [] }
   }
 
-  let materialized: KnownMarketplacesFile
-  try {
-    materialized = await loadKnownMarketplacesConfig()
-  } catch (e) {
-    logError(e)
-    materialized = {}
-  }
+  // Read-only snapshot, used only to diff declared intent below — the install
+  // step re-reads and mutates the real config via addMarketplaceSource, so an
+  // empty fallback here can't clobber the user's file. loadKnownMarketplacesConfigSafe
+  // degrades a corrupted/unreadable config to a null-prototype empty map (and
+  // logs via logForDebugging rather than the error file), which keeps the
+  // `materialized[name]` lookups in diffMarketplaces own-property-exact.
+  const materialized = await loadKnownMarketplacesConfigSafe()
 
   const diff = diffMarketplaces(declared, materialized, {
     projectRoot: getOriginalCwd(),

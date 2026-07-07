@@ -4,7 +4,7 @@ import { useNotifications } from 'src/context/notifications.js';
 import { Text } from 'src/ink.js';
 import { logEvent } from 'src/services/analytics/index.js';
 import { useDebounceCallback } from 'usehooks-ts';
-import { type Command, getCommandName } from '../commands.js';
+import type { Command } from '../commands.js';
 import { getModeFromInput, getValueFromInput } from '../components/PromptInput/inputModes.js';
 import type { SuggestionItem, SuggestionType } from '../components/PromptInput/PromptInputFooterSuggestions.js';
 import { useIsModalOverlayActive, useRegisterOverlay } from '../context/overlayContext.js';
@@ -22,7 +22,16 @@ import { generateProgressiveArgumentHint, parseArguments } from '../utils/argume
 import { getShellCompletions, type ShellCompletionType } from '../utils/bash/shellCompletion.js';
 import { formatLogMetadata } from '../utils/format.js';
 import { getSessionIdFromLog, searchSessionsByCustomTitle } from '../utils/sessionStorage.js';
-import { applyCommandSuggestion, findMidInputSlashCommand, generateCommandSuggestions, getBestCommandMatch, getCommandSuggestionForEnter, isCommandInput } from '../utils/suggestions/commandSuggestions.js';
+import {
+  applyCommandSuggestion,
+  findCommandByExactName,
+  findMidInputSlashCommand,
+  generateCommandSuggestions,
+  getBestCommandMatch,
+  getCommandSuggestionForEnter,
+  getCommandSuggestionsMaxWidth,
+  isCommandInput
+} from '../utils/suggestions/commandSuggestions.js';
 import { getDirectoryCompletions, getPathCompletions, isPathLikeToken } from '../utils/suggestions/directoryCompletion.js';
 import { getShellHistoryCompletion } from '../utils/suggestions/shellHistoryCompletion.js';
 import { getSlackChannelSuggestions, hasSlackMcpServer } from '../utils/suggestions/slackChannelSuggestions.js';
@@ -377,12 +386,7 @@ export function useTypeahead({
 
   // Compute max column width from ALL commands once (not filtered results)
   // This prevents layout shift when filtering
-  const allCommandsMaxWidth = useMemo(() => {
-    const visibleCommands = commands.filter(cmd => !cmd.isHidden);
-    if (visibleCommands.length === 0) return undefined;
-    const maxLen = Math.max(...visibleCommands.map(cmd => getCommandName(cmd).length));
-    return maxLen + 6; // +1 for "/" prefix, +5 for padding
-  }, [commands]);
+  const allCommandsMaxWidth = useMemo(() => getCommandSuggestionsMaxWidth(commands), [commands]);
   const [maxColumnWidth, setMaxColumnWidth] = useState<number | undefined>(undefined);
   const mcpResources = useAppState(s => s.mcp.resources);
   const store = useAppStateStore();
@@ -731,7 +735,7 @@ export function useTypeahead({
         // If input has a space after the command, don't show suggestions
         // This prevents Enter from selecting a different command after Tab completion
         if (spaceIndex !== -1) {
-          const exactMatch = commands.find(cmd => getCommandName(cmd) === commandName);
+          const exactMatch = findCommandByExactName(commands, commandName);
           if (exactMatch || hasRealArguments) {
             // Priority 1: Static argumentHint (only on first trailing space for backwards compat)
             if (exactMatch?.argumentHint && hasExactlyOneTrailingSpace) {

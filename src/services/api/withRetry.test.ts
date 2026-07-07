@@ -1,23 +1,24 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
-import { APIError } from '@anthropic-ai/sdk'
+import { APIError, APIUserAbortError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import * as debugNs from '../../utils/debug.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
   const headersObj = new Headers(headers)
-  return {
-    headers: headersObj,
-    status: 429,
-    message: 'rate limit exceeded',
-    name: 'APIError',
-    error: {},
-  } as unknown as APIError
+  return new APIError(
+    429,
+    { error: { type: 'rate_limit_error', message: 'rate limit exceeded' } },
+    'rate limit exceeded',
+    headersObj,
+  )
 }
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+const originalDebugModule = { ...debugNs }
 let originalProvidersModule: ProvidersModule | undefined
 
 const envKeys = [
@@ -27,6 +28,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_UNATTENDED_RETRY',
   'CLAUDE_CODE_MAX_RETRIES',
   'OPENCLAUDE_MAX_RETRIES',
   'OPENCLAUDE_RETRY_DELAY_MS',
@@ -52,6 +54,7 @@ afterEach(() => {
     if (originalProvidersModule) {
       mock.module('src/utils/model/providers.js', () => originalProvidersModule!)
     }
+    mock.module('src/utils/debug.js', () => originalDebugModule)
   } finally {
     releaseSharedMutationLock()
   }
@@ -73,9 +76,21 @@ async function importFreshWithRetryModule(
     | 'gemini'
     | 'codex'
     | 'foundry' = 'firstParty',
+  options?: {
+    logForDebugging?: ReturnType<typeof mock>
+  },
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
+  mock.module('src/utils/sleep.js', () => ({
+    sleep: async () => undefined,
+  }))
+  if (options?.logForDebugging) {
+    mock.module('src/utils/debug.js', () => ({
+      ...originalDebugModule,
+      logForDebugging: options.logForDebugging!,
+    }))
+  }
   mock.module('src/utils/model/providers.js', () => ({
     ...originalProvidersModule!,
     getAPIProvider: () => provider,
@@ -171,6 +186,107 @@ describe('retry configuration', () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
     const { getRetryDelay } = await importFreshWithRetryModule()
     expect(getRetryDelay(1, '3')).toBe(3000)
+  })
+})
+
+describe('abort retry classification', () => {
+  test('does not retry or error-log expected side task aborts', async () => {
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { CannotRetryError, withRetry } = await importFreshWithRetryModule(
+      'firstParty',
+      { logForDebugging: debugLog },
+    )
+    const controller = new AbortController()
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            controller.abort('agent-summary-superseded')
+            throw new APIUserAbortError()
+          },
+          {
+            maxRetries: 2,
+            model: 'test-model',
+            thinkingConfig: { type: 'disabled' },
+            signal: controller.signal,
+            querySource: 'agent_summary',
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(false)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).includes('Expected side-task API abort') &&
+          String(message).includes('agent-summary-superseded') &&
+          (options as { level?: string } | undefined)?.level !== 'error'
+        )
+      }),
+    ).toBe(true)
+  })
+
+  test('still logs and retries real retryable API errors', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { withRetry } = await importFreshWithRetryModule('firstParty', {
+      logForDebugging: debugLog,
+    })
+    const retryableError = APIError.generate(
+      500,
+      undefined,
+      'internal server error',
+      new Headers(),
+    )
+    let attempts = 0
+
+    const result = await drainAsyncGenerator(
+      withRetry(
+        async () => ({} as Anthropic),
+        async () => {
+          attempts++
+          if (attempts === 1) {
+            throw retryableError
+          }
+          return { ok: true }
+        },
+        {
+          maxRetries: 2,
+          model: 'test-model',
+          thinkingConfig: { type: 'disabled' },
+          querySource: 'repl_main_thread',
+        },
+      ),
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(attempts).toBe(2)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt 1/3)') &&
+          String(message).includes('500 internal server error') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(true)
   })
 })
 
@@ -524,5 +640,44 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
       'You requested up to 32000 tokens, but can only afford 27342',
     )
     expect(shouldRetry(err)).toBe(true)
+  })
+})
+
+describe('persistent retry cap', () => {
+  test('persistent retries stop after 100 retryable 429s', async () => {
+    // Drive the real persistent retry gate — no runtime override. The
+    // UNATTENDED_RETRY feature must be enabled via `bun test --feature=UNATTENDED_RETRY`
+    // (see package.json), and the env var must be truthy, otherwise
+    // isPersistentRetryEnabled() returns false and the cap never triggers.
+    process.env.CLAUDE_CODE_UNATTENDED_RETRY = '1'
+    const retryModule = await importFreshWithRetryModule('firstParty')
+        const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, isPersistentRetryEnabled } = retryModule
+    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
+
+    const retryableRateLimit = makeError({ 'retry-after': '1' })
+            const operation = mock(async () => {
+      throw retryableRateLimit
+    })
+
+            const runRetries = async () => {
+      for await (const _ of withRetry(
+        async () => ({} as never),
+        operation,
+        {
+          maxRetries: 0,
+          model: 'claude-sonnet-4-6',
+          thinkingConfig: { type: 'disabled' },
+        },
+      )) {
+        void _
+      }
+    }
+
+    await expect(runRetries()).rejects.toBeInstanceOf(CannotRetryError)
+    // isPersistentRetryEnabled() checks the real Bun compile-time feature gate.
+    // Without --feature=UNATTENDED_RETRY, it returns false and only 1 call is made.
+    // With the flag and CLAUDE_CODE_UNATTENDED_RETRY=1, the cap triggers after 101 calls.
+    const expectedCalls = isPersistentRetryEnabled() ? 101 : 1
+    expect(operation).toHaveBeenCalledTimes(expectedCalls)
   })
 })

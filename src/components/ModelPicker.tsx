@@ -44,6 +44,22 @@ export type Props = {
   onRefresh?: () => void;
 };
 const NO_PREFERENCE = '__NO_PREFERENCE__';
+function normalizeModelPickerValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function optionMatchesPickerValue(option: ModelOption, value: string): boolean {
+  const optionKey = normalizeModelPickerValue(option.value);
+  const valueKey = normalizeModelPickerValue(value);
+  return optionKey !== null && valueKey !== null && optionKey === valueKey;
+}
+
+function resolvePickerOptionValue(options: ModelOption[], value: string): string | undefined {
+  const optionValue = options.find(option => optionMatchesPickerValue(option, value))?.value;
+  return typeof optionValue === 'string' ? optionValue : undefined;
+}
 function mapDiscoveryToneToColor(tone: ModelPickerDiscoveryState['tone']): 'error' | 'warning' | 'success' | 'subtle' {
   switch (tone) {
     case 'error':
@@ -58,7 +74,7 @@ function mapDiscoveryToneToColor(tone: ModelPickerDiscoveryState['tone']): 'erro
   }
 }
 export function ModelPicker(t0) {
-  const $ = _c(83);
+  const $ = _c(84);
   const {
     initial,
     sessionModel,
@@ -75,7 +91,6 @@ export function ModelPicker(t0) {
   const setAppState = useSetAppState();
   const exitState = useExitOnCtrlCDWithKeybindings();
   const initialValue = initial === null ? NO_PREFERENCE : initial;
-  const [focusedValue, setFocusedValue] = useState(initialValue);
   const isFastMode = useAppState(_temp);
   const [hasToggledEffort, setHasToggledEffort] = useState(false);
   const effortValue = useAppState(_temp2);
@@ -100,7 +115,7 @@ export function ModelPicker(t0) {
   const modelOptions = optionsOverride ?? t3;
   let t4;
   bb0: {
-    if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => opt.value === initial)) {
+    if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => optionMatchesPickerValue(opt, initial))) {
       let t5;
       if ($[4] !== initial) {
         t5 = modelDisplayString(initial);
@@ -148,7 +163,7 @@ export function ModelPicker(t0) {
   const selectOptions = t5;
   let t6;
   if ($[14] !== initialValue || $[15] !== selectOptions) {
-    t6 = selectOptions.some(_ => _.value === initialValue) ? initialValue : selectOptions[0]?.value ?? undefined;
+    t6 = selectOptions.find(_ => optionMatchesPickerValue(_, initialValue))?.value ?? selectOptions[0]?.value ?? undefined;
     $[14] = initialValue;
     $[15] = selectOptions;
     $[16] = t6;
@@ -156,6 +171,7 @@ export function ModelPicker(t0) {
     t6 = $[16];
   }
   const initialFocusValue = t6;
+  const [focusedValue, setFocusedValue] = useState(initialFocusValue ?? initialValue);
   const visibleCount = Math.min(10, selectOptions.length);
   const hiddenCount = Math.max(0, selectOptions.length - visibleCount);
   let t7;
@@ -197,15 +213,17 @@ export function ModelPicker(t0) {
   const focusedDefaultEffort = t9;
   const displayEffort = focusedAvailableLevels.includes(effort) ? effort : "high";
   let t10;
-  if ($[25] !== effortValue || $[26] !== hasToggledEffort) {
+  if ($[25] !== effortValue || $[26] !== hasToggledEffort || $[83] !== selectOptions) {
     t10 = value => {
-      setFocusedValue(value);
+      const selectedValue = resolvePickerOptionValue(selectOptions, value) ?? value;
+      setFocusedValue(selectedValue);
       if (!hasToggledEffort && effortValue === undefined) {
-        setEffort(getDefaultEffortLevelForOption(value));
+        setEffort(getDefaultEffortLevelForOption(selectedValue));
       }
     };
     $[25] = effortValue;
     $[26] = hasToggledEffort;
+    $[83] = selectOptions;
     $[27] = t10;
   } else {
     t10 = $[27];
@@ -247,11 +265,12 @@ export function ModelPicker(t0) {
   }
   useKeybindings(t12, t13);
   let t14;
-  if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite || $[46] !== focusedAvailableLevels || $[47] !== focusedDefaultEffort) {
+  if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite || $[46] !== focusedAvailableLevels || $[47] !== focusedDefaultEffort || $[48] !== selectOptions) {
     t14 = function handleSelect(value_0) {
-      const selectedModel = resolveOptionModel(value_0);
-      if (value_0 !== NO_PREFERENCE && selectedModel && !isModelAllowed(selectedModel)) {
-        onSelect(value_0 === NO_PREFERENCE ? null : value_0, undefined);
+      const selectedValue = resolvePickerOptionValue(selectOptions, value_0) ?? value_0;
+      const selectedModel = resolveOptionModel(selectedValue);
+      if (selectedValue !== NO_PREFERENCE && selectedModel && !isModelAllowed(selectedModel)) {
+        onSelect(selectedValue === NO_PREFERENCE ? null : selectedValue, undefined);
         return;
       }
       // Clamp effort to a value in the focused model's available levels so
@@ -262,7 +281,7 @@ export function ModelPicker(t0) {
         effort: clampedEffort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
       if (!skipSettingsWrite) {
-        const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(value_0), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
+        const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(selectedValue), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
         if (persistable !== undefined) {
           updateSettingsForSource("userSettings", {
@@ -275,11 +294,11 @@ export function ModelPicker(t0) {
         }));
       }
       const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? clampedEffort : undefined;
-      if (value_0 === NO_PREFERENCE) {
+      if (selectedValue === NO_PREFERENCE) {
         onSelect(null, selectedEffort);
         return;
       }
-      onSelect(value_0, selectedEffort);
+      onSelect(selectedValue, selectedEffort);
     };
     $[35] = effort;
     $[36] = hasToggledEffort;
@@ -288,6 +307,7 @@ export function ModelPicker(t0) {
     $[39] = skipSettingsWrite;
     $[46] = focusedAvailableLevels;
     $[47] = focusedDefaultEffort;
+    $[48] = selectOptions;
     $[40] = t14;
   } else {
     t14 = $[40];
@@ -322,15 +342,14 @@ export function ModelPicker(t0) {
   const t19 = <Box marginBottom={1} flexDirection="column">{t15}{t17}{t18}{discoveryLine}</Box>;
   const t20 = onCancel ?? _temp4;
   let t21;
-  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== initialValue || $[53] !== selectOptions || $[54] !== t20 || $[55] !== visibleCount) {
-    t21 = <Box flexDirection="column"><Select defaultValue={initialValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} visibleOptionCount={visibleCount} /></Box>;
+  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== selectOptions || $[53] !== t20 || $[54] !== visibleCount) {
+    t21 = <Box flexDirection="column"><Select defaultValue={initialFocusValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} visibleOptionCount={visibleCount} /></Box>;
     $[49] = handleFocus;
     $[50] = handleSelect;
     $[51] = initialFocusValue;
-    $[52] = initialValue;
-    $[53] = selectOptions;
-    $[54] = t20;
-    $[55] = visibleCount;
+    $[52] = selectOptions;
+    $[53] = t20;
+    $[54] = visibleCount;
     $[56] = t21;
   } else {
     t21 = $[56];

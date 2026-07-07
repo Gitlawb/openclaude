@@ -34,6 +34,7 @@ import {
 } from './providerProfile.js'
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
+  getCatalogEntriesForRoute,
   getProviderPresetUiMetadata,
   normalizeXiaomiMimoBaseUrl,
   routeSupportsApiFormatSelection,
@@ -44,12 +45,20 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { isFireworksBaseUrl, isNearaiBaseUrl, isXaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import {
+  isClinePassBaseUrl,
+  isFireworksBaseUrl,
+  isNearaiBaseUrl,
+  isXaiBaseUrl,
+  isXiaomiMimoBaseUrl,
+  resolveEnvOnlyProviderRouteId,
+} from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
   serializeProfileCustomHeaders,
 } from './providerCustomHeaders.js'
+import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -128,6 +137,11 @@ function resolveProfileCompatibility(provider: string): {
   return { route, compatibilityMode: 'openai' }
 }
 
+function isClinePassProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
+}
+
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl?.trim()) return undefined
   try {
@@ -200,6 +214,54 @@ function resolveProfileCapabilityRouteId(
     resolveRouteIdFromBaseUrl(baseUrl) ??
     resolveProfileRoute(provider).routeId
   )
+}
+
+function normalizeProfileModelLookupKey(model: string | undefined): string {
+  return model?.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+function profileSupportsModel(profile: ProviderProfile, model: string): boolean {
+  const normalizedModel = normalizeProfileModelLookupKey(model)
+  if (!normalizedModel) {
+    return false
+  }
+
+  if (
+    parseModelList(profile.model).some(
+      configured => normalizeProfileModelLookupKey(configured) === normalizedModel,
+    )
+  ) {
+    return true
+  }
+
+  const routeId = resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl)
+  return getCatalogEntriesForRoute(routeId).some(
+    entry =>
+      normalizeProfileModelLookupKey(entry.apiName) === normalizedModel ||
+      normalizeProfileModelLookupKey(entry.id) === normalizedModel ||
+      (entry.aliases ?? []).some(
+        alias => normalizeProfileModelLookupKey(alias) === normalizedModel,
+      ),
+  )
+}
+
+let savedModelOverrideForTesting: string | undefined
+
+export function _setSavedModelOverrideForTesting(model: string | undefined): void {
+  savedModelOverrideForTesting = model
+}
+
+function getSavedModelOverrideForProfile(
+  profile: ProviderProfile,
+): string | undefined {
+  const savedModel = trimOrUndefined(
+    savedModelOverrideForTesting ?? getSettings_DEPRECATED()?.model,
+  )
+  if (!savedModel || !profileSupportsModel(profile, savedModel)) {
+    return undefined
+  }
+
+  return savedModel
 }
 
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
@@ -486,9 +548,11 @@ function isProcessEnvAlignedWithProfile(
   profile: ProviderProfile,
   options?: {
     includeApiKey?: boolean
+    primaryModel?: string
   },
 ): boolean {
   const includeApiKey = options?.includeApiKey ?? true
+  const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
@@ -503,7 +567,7 @@ function isProcessEnvAlignedWithProfile(
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
     )
@@ -519,7 +583,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
     )
@@ -535,7 +599,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.GEMINI_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
@@ -555,7 +619,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.GITHUB_ENTERPRISE_URL, expectedGheUrl) &&
       (profile.provider !== 'github-enterprise' ||
         !includeApiKey ||
@@ -572,7 +636,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BEDROCK_BASE_URL, profile.baseUrl)
     )
   }
@@ -586,14 +650,14 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_VERTEX_BASE_URL, profile.baseUrl)
     )
   }
 
   const expectedContextWindows = profile.maxContextLength
     ? JSON.stringify({
-        [getPrimaryModel(profile.model)]: profile.maxContextLength,
+        [primaryModel]: profile.maxContextLength,
       })
     : undefined
 
@@ -606,7 +670,7 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-    sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+    sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
     sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
@@ -637,6 +701,10 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('atlascloud')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
+      : true) &&
+    (isClinePassProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
       : true) &&
     (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
@@ -669,9 +737,12 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
 
-export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
+export function applyProviderProfileToProcessEnv(
+  profile: ProviderProfile,
+  options?: { primaryModel?: string },
+): void {
   const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
-  const primaryModel = getPrimaryModel(profile.model)
+  const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   let profileEnv: ProfileEnv
 
   if (route.routeId === 'unknown-fallback') {
@@ -739,7 +810,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     const supportsApiFormat = routeSupportsApiFormatSelection(capabilityRouteId)
     const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
     const normalizedProfileBaseUrl =
-      route.routeId === 'xiaomi-mimo'
+      route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
@@ -782,11 +853,18 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
+      if (
+        route.routeId === 'xiaomi-mimo' ||
+        route.routeId === 'xiaomi-mimo-token' ||
+        isXiaomiMimoBaseUrl(profile.baseUrl)
+      ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (isClinePassProfile(profile)) {
+        openAIProfileEnv.CLINE_API_KEY = profile.apiKey
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
@@ -855,12 +933,20 @@ export function applyActiveProviderProfileFromConfig(
       return undefined
     }
 
-    if (isProcessEnvAlignedWithProfile(processEnv, activeProfile)) {
+    const savedPrimaryModel = getSavedModelOverrideForProfile(activeProfile)
+    if (
+      isProcessEnvAlignedWithProfile(processEnv, activeProfile, {
+        primaryModel: savedPrimaryModel,
+      })
+    ) {
       return activeProfile
     }
   }
 
-  applyProviderProfileToProcessEnv(activeProfile)
+  const savedPrimaryModel = getSavedModelOverrideForProfile(activeProfile)
+  applyProviderProfileToProcessEnv(activeProfile, {
+    primaryModel: savedPrimaryModel,
+  })
   return activeProfile
 }
 
@@ -1045,6 +1131,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (isClinePassProfile(activeProfile)) {
+        strictEnv.CLINE_API_KEY = activeProfile.apiKey
+      }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
@@ -1071,35 +1160,38 @@ function buildOpenAICompatibleStartupEnv(
       : {}),
   }
 
-  if (activeProfile.apiKey) {
-    env.OPENAI_API_KEY = activeProfile.apiKey
-    if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
-      env.BNKR_API_KEY = activeProfile.apiKey
+    if (activeProfile.apiKey) {
+      env.OPENAI_API_KEY = activeProfile.apiKey
+      if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
+        env.BNKR_API_KEY = activeProfile.apiKey
+      }
+      if (isXaiBaseUrl(activeProfile.baseUrl)) {
+        env.XAI_API_KEY = activeProfile.apiKey
+      }
+      if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
+        env.VENICE_API_KEY = activeProfile.apiKey
+      }
+      if (
+        activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
+        activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
+      ) {
+        env.MIMO_API_KEY = activeProfile.apiKey
+      }
+      if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+        env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+      }
+      if (isClinePassProfile(activeProfile)) {
+        env.CLINE_API_KEY = activeProfile.apiKey
+      }
+      if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+        env.NEARAI_API_KEY = activeProfile.apiKey
+      }
+      if (isFireworksBaseUrl(activeProfile.baseUrl)) {
+        env.FIREWORKS_API_KEY = activeProfile.apiKey
+      }
+    } else {
+      delete env.OPENAI_API_KEY
     }
-    if (isXaiBaseUrl(activeProfile.baseUrl)) {
-      env.XAI_API_KEY = activeProfile.apiKey
-    }
-    if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
-      env.VENICE_API_KEY = activeProfile.apiKey
-    }
-    if (
-      activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
-      activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
-    ) {
-      env.MIMO_API_KEY = activeProfile.apiKey
-    }
-    if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
-      env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
-    }
-    if (isNearaiBaseUrl(activeProfile.baseUrl)) {
-      env.NEARAI_API_KEY = activeProfile.apiKey
-    }
-    if (isFireworksBaseUrl(activeProfile.baseUrl)) {
-      env.FIREWORKS_API_KEY = activeProfile.apiKey
-    }
-  } else {
-    delete env.OPENAI_API_KEY
-  }
   return applySupportedProfileCustomHeaders(activeProfile, env)
 }
 
@@ -1250,7 +1342,7 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
-      if (route.vendorId === 'atlas-cloud') {
+      if (route.routeId === 'atlas-cloud') {
         const env =
           buildAtlasCloudProfileEnv({
             model: getPrimaryModel(activeProfile.model),

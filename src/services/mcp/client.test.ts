@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  appendBoundedMcpStderr,
   cleanupFailedConnection,
   buildMcpStdioCommand,
   logMcpServerStderr,
@@ -105,6 +106,20 @@ test('failed MCP startup stderr remains error-level', () => {
       ['error', 'context7', 'Server stderr: startup failed'],
     ])
   })
+})
+
+test('appendBoundedMcpStderr caps retained stderr and marks truncation', () => {
+  const output = appendBoundedMcpStderr('', Buffer.alloc(300 * 1024, 'x'))
+
+  assert.equal(output.length, 256 * 1024)
+  assert.match(output, /\.\.\.\[stderr truncated\]$/)
+})
+
+test('appendBoundedMcpStderr ignores chunks after truncation', () => {
+  const output = appendBoundedMcpStderr('', Buffer.alloc(300 * 1024, 'x'))
+  const after = appendBoundedMcpStderr(output, 'more stderr')
+
+  assert.equal(after, output)
 })
 
 test('buildMcpStdioCommand — no prefix passes command and args through unchanged', () => {

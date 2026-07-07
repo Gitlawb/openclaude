@@ -47,6 +47,12 @@ function diagnosticCount(files: DiagnosticFile[]): number {
   return files.reduce((sum, file) => sum + file.diagnostics.length, 0)
 }
 
+function deliveryLogs(): string[] {
+  return debugMessages.filter(message =>
+    message.startsWith('LSP Diagnostics: Delivering '),
+  )
+}
+
 describe('LSPDiagnosticRegistry storm control', () => {
   beforeEach(() => {
     registry.resetAllLSPDiagnosticState()
@@ -85,6 +91,113 @@ describe('LSPDiagnosticRegistry storm control', () => {
     })
 
     expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns no diagnostic set for raw empty diagnostic files', () => {
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [{ uri: '/repo/cleared.ts', diagnostics: [] }],
+    })
+
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).toEqual([])
+  })
+
+  test('snapshots pending diagnostics without consuming delivery', () => {
+    const file = diagnosticFile('/repo/a.ts', ['same missing import'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+    })
+
+    const snapshot = registry.getPendingLSPDiagnosticsSnapshot()
+
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0]?.files).toEqual([file])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(1)
+
+    const delivered = registry.checkForLSPDiagnostics()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]?.files).toEqual([file])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('returned pending snapshot is detached from registry state', () => {
+    const file = diagnosticFile('/repo/a.ts', ['same missing import'])
+    const expected = diagnosticFile('/repo/a.ts', ['same missing import'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+    })
+
+    const snapshot = registry.getPendingLSPDiagnosticsSnapshot()
+    snapshot[0]!.files[0]!.diagnostics[0]!.message = 'mutated by caller'
+    snapshot[0]!.files[0]!.diagnostics.push(diagnostic('extra mutation', 99))
+    snapshot[0]!.files.push(diagnosticFile('/repo/extra.ts', ['extra file']))
+
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(1)
+    const delivered = registry.checkForLSPDiagnostics()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]?.files).toEqual([expected])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('snapshots pending diagnostics even when delivery would filter unchanged diagnostics', () => {
+    const file = diagnosticFile('/repo/a.ts', ['same missing import'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+    })
+    expect(registry.checkForLSPDiagnostics()).toHaveLength(1)
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [file],
+    })
+
+    const snapshot = registry.getPendingLSPDiagnosticsSnapshot()
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0]?.files).toEqual([file])
+
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+  })
+
+  test('snapshots pending diagnostics grouped by server without consuming delivery', () => {
+    const typescriptFile = diagnosticFile('/repo/a.ts', ['typescript error'])
+    const eslintFile = diagnosticFile('/repo/b.ts', ['eslint error'])
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [typescriptFile],
+    })
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'eslint',
+      files: [eslintFile],
+    })
+
+    const snapshot = registry.getPendingLSPDiagnosticsSnapshot()
+
+    expect(snapshot).toEqual([
+      { serverName: 'typescript', files: [typescriptFile] },
+      { serverName: 'eslint', files: [eslintFile] },
+    ])
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(2)
+
+    const delivered = registry.checkForLSPDiagnostics()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]?.files).toHaveLength(2)
+    expect(delivered[0]?.files).toEqual(
+      expect.arrayContaining([typescriptFile, eslintFile]),
+    )
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
   })
 
   test('allows edited files to resend diagnostics when cleared by file URI', () => {
@@ -101,6 +214,8 @@ describe('LSPDiagnosticRegistry storm control', () => {
     // Intentionally clear by file:// URI while diagnostics use a plain path;
     // both forms must normalize to the same delivered-diagnostic key.
     registry.clearDeliveredDiagnosticsForFile('file:///repo/a.ts')
+    expect(registry.checkForLSPDiagnostics()).toEqual([])
+
     registry.registerPendingLSPDiagnostic({
       serverName: 'typescript',
       files: [file],
@@ -220,6 +335,39 @@ describe('LSPDiagnosticRegistry storm control', () => {
     expect(secondFiles.map(file => file.uri)).toEqual([
       'lsp://diagnostic-storm/typescript',
     ])
+    expect(diagnosticCount(secondFiles)).toBe(1)
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 1 file(s) with 0 diagnostic(s) from 1 server(s)',
+    )
+  })
+
+  test('returns compact storm summaries when volume limiting leaves only reserved summaries', () => {
+    for (let index = 0; index < 30; index++) {
+      registry.registerPendingLSPDiagnostic({
+        serverName: `server-${index}`,
+        files: [
+          diagnosticFile(
+            `/repo/storm-${index}.ts`,
+            Array.from(
+              { length: 201 },
+              (_, diagnosticIndex) =>
+                `storm ${index} diagnostic ${diagnosticIndex}`,
+            ),
+          ),
+        ],
+      })
+    }
+
+    const files = registry.checkForLSPDiagnostics()[0]?.files ?? []
+
+    expect(files).toHaveLength(30)
+    expect(files.every(file => file.uri.startsWith('lsp://diagnostic-storm/')))
+      .toBe(true)
+    expect(diagnosticCount(files)).toBe(30)
+    expect(registry.getPendingLSPDiagnosticCount()).toBe(0)
+    expect(deliveryLogs()).not.toContain(
+      'LSP Diagnostics: Delivering 30 file(s) with 0 diagnostic(s) from 30 server(s)',
+    )
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {

@@ -1,10 +1,14 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { 
   initializeArc, 
   updateArcPhase, 
   getArcSummary,
-  resetArc 
+  resetArc,
 } from './conversationArc.js'
+import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
 import { getGlobalGraph, clearMemoryOnly, resetGlobalGraph } from './knowledgeGraph.js'
 import {
   acquireSharedMutationLock,
@@ -19,8 +23,12 @@ function createMessage(content: string): any {
 }
 
 describe('Conversation Arc Scale and Stability', () => {
+  let configDir: string
+
   beforeEach(async () => {
     await acquireSharedMutationLock('conversationArc.perf')
+    configDir = mkdtempSync(join(tmpdir(), 'openclaude-arc-perf-'))
+    setClaudeConfigHomeDirForTesting(configDir)
     resetGlobalGraph()
     clearMemoryOnly()
     resetArc()
@@ -32,6 +40,8 @@ describe('Conversation Arc Scale and Stability', () => {
       resetGlobalGraph()
       clearMemoryOnly()
       resetArc()
+      setClaudeConfigHomeDirForTesting(undefined)
+      rmSync(configDir, { recursive: true, force: true })
     } finally {
       releaseSharedMutationLock()
     }

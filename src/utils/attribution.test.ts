@@ -12,8 +12,82 @@ import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from './settings/settingsCache.js'
-import * as actualSettings from './settings/settings.js'
+import * as realSettings from './settings/settings.js'
 import type { SettingsJson } from './settings/types.js'
+
+const actualSettings = { ...realSettings }
+
+function restoredGovernancePolicyModule() {
+  const getForbiddenCommitMessagePatterns = (): string[] => {
+    const patterns: string[] = []
+    const sourceNames = [
+      'userSettings',
+      'projectSettings',
+      'localSettings',
+      'policySettings',
+      'flagSettings',
+    ]
+    for (const source of sourceNames) {
+      const sourcePatterns =
+        actualSettings.getSettingsForSource(source as never)?.git
+          ?.forbiddenCommitMessagePatterns ?? []
+      for (const pattern of sourcePatterns) {
+        if (!patterns.includes(pattern)) {
+          patterns.push(pattern)
+        }
+      }
+    }
+    return patterns
+  }
+
+  const findForbiddenCommitMessagePattern = (message: string): string | null => {
+    const normalizedMessage = message.toLocaleLowerCase()
+    for (const pattern of getForbiddenCommitMessagePatterns()) {
+      if (pattern && normalizedMessage.includes(pattern.toLocaleLowerCase())) {
+        return pattern
+      }
+    }
+    return null
+  }
+
+  const sourceHasGitFlag = (
+    key: 'addAICoAuthor' | 'addGeneratedWithFooter',
+    value: boolean,
+  ): boolean =>
+    [
+      'userSettings',
+      'projectSettings',
+      'localSettings',
+      'policySettings',
+      'flagSettings',
+    ].some(
+      source =>
+        actualSettings.getSettingsForSource(source as never)?.git?.[key] ===
+        value,
+    )
+
+  return {
+    getGitAttributionOptIns: () => {
+      const git = actualSettings.getInitialSettings().git
+      return {
+        addAICoAuthor: git?.addAICoAuthor === true,
+        addGeneratedWithFooter: git?.addGeneratedWithFooter === true,
+      }
+    },
+    isGeneratedCommitAttributionBlocked: () =>
+      sourceHasGitFlag('addAICoAuthor', false),
+    isGeneratedPrAttributionBlocked: () =>
+      sourceHasGitFlag('addGeneratedWithFooter', false),
+    isGitAttributionBlocked: () =>
+      sourceHasGitFlag('addAICoAuthor', false) ||
+      sourceHasGitFlag('addGeneratedWithFooter', false),
+    getForbiddenCommitMessagePatterns,
+    findForbiddenCommitMessagePattern,
+    isMemoryWriteApprovalRequired: () =>
+      actualSettings.getInitialSettings().memory?.requireApprovalBeforeWrite !==
+      false,
+  }
+}
 
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
 let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
@@ -142,8 +216,27 @@ beforeEach(async () => {
     ...actualSettings,
     getInitialSettings: () => testSettings,
     getSettings_DEPRECATED: () => testSettings,
+    getSettingsForSource: () => testSettings,
   }))
-
+  mock.module('./governancePolicy.js', () => ({
+    getGitAttributionOptIns: () => ({
+      addAICoAuthor: testSettings.git?.addAICoAuthor === true,
+      addGeneratedWithFooter:
+        testSettings.git?.addGeneratedWithFooter === true,
+    }),
+    isGeneratedCommitAttributionBlocked: () =>
+      testSettings.git?.addAICoAuthor === false,
+    isGeneratedPrAttributionBlocked: () =>
+      testSettings.git?.addGeneratedWithFooter === false,
+    isGitAttributionBlocked: () =>
+      testSettings.git?.addAICoAuthor === false ||
+      testSettings.git?.addGeneratedWithFooter === false,
+    getForbiddenCommitMessagePatterns: () =>
+      testSettings.git?.forbiddenCommitMessagePatterns ?? [],
+    findForbiddenCommitMessagePattern: () => null,
+    isMemoryWriteApprovalRequired: () =>
+      testSettings.memory?.requireApprovalBeforeWrite !== false,
+  }))
   const attribution = await import(
     `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
   )
@@ -160,9 +253,8 @@ afterEach(() => {
   testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
-  mock.module('./model/model.js', () => actualModel)
-  mock.module('./model/providers.js', () => actualProviders)
   mock.module('./settings/settings.js', () => actualSettings)
+  mock.module('./governancePolicy.js', restoredGovernancePolicyModule)
   restoreEnv()
 })
 
@@ -194,7 +286,7 @@ describe('getDefaultCommitCoAuthorName', () => {
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),
-    ).toBe('Claude Opus 4.6')
+    ).toBe('Claude Opus 4.8')
   })
 
   it('sanitizes unknown internal Claude co-author names', () => {
@@ -208,9 +300,13 @@ describe('getDefaultCommitCoAuthorName', () => {
   })
 
   it('does not duplicate the Claude prefix for Claude model names', () => {
+    // Use a model the public-name map recognizes (it keys on dot form) so this
+    // exercises the real de-dup path — getPublicModelDisplayName already returns
+    // a "Claude …"-prefixed name — rather than coincidentally hitting the
+    // unknown-model fallback.
     expect(
       getDefaultCommitCoAuthorName({
-        model: 'claude-opus-4-6',
+        model: 'claude-opus-4.6',
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),
@@ -273,6 +369,57 @@ describe('getAttributionTexts', () => {
     expect(attribution.commit).toStartWith('Co-Authored-By: ')
     expect(attribution.commit).toEndWith(' <openclaude@gitlawb.com>')
     expect(attribution.pr).toBe(defaultPrAttribution)
+  })
+
+  it('uses git.addAICoAuthor as an explicit generated commit opt-in', () => {
+    useSettings({ git: { addAICoAuthor: true } })
+
+    const attribution = getAttributionTexts()
+    expect(attribution.commit).toStartWith('Co-Authored-By: ')
+    expect(attribution.pr).toBe('')
+  })
+
+  it('uses git.addGeneratedWithFooter as an explicit generated PR opt-in', () => {
+    useSettings({ git: { addGeneratedWithFooter: true } })
+
+    const attribution = getAttributionTexts()
+    expect(attribution.commit).toBe('')
+    expect(attribution.pr).toBe(defaultPrAttribution)
+  })
+
+  it('lets git.addAICoAuthor false block legacy generated commit attribution', () => {
+    useSettings({ includeCoAuthoredBy: true, git: { addAICoAuthor: false } })
+
+    expect(getAttributionTexts()).toEqual({
+      commit: '',
+      pr: defaultPrAttribution,
+    })
+  })
+
+  it('lets git.addGeneratedWithFooter false block legacy generated PR attribution', () => {
+    useSettings({
+      includeCoAuthoredBy: true,
+      git: { addGeneratedWithFooter: false },
+    })
+
+    const attribution = getAttributionTexts()
+    expect(attribution.commit).toStartWith('Co-Authored-By: ')
+    expect(attribution.pr).toBe('')
+  })
+
+  it('does not block explicit custom attribution when generated attribution is disabled', () => {
+    useSettings({
+      attribution: {
+        commit: 'Signed-off-by: Human <h@example.com>',
+        pr: 'Reviewed by release engineering.',
+      },
+      git: { addAICoAuthor: false, addGeneratedWithFooter: false },
+    })
+
+    expect(getAttributionTexts()).toEqual({
+      commit: 'Signed-off-by: Human <h@example.com>',
+      pr: 'Reviewed by release engineering.',
+    })
   })
 
   it('keeps attribution off when includeCoAuthoredBy is false', () => {
@@ -352,5 +499,26 @@ describe('getEnhancedPRAttribution', () => {
     await expect(getEnhancedPRAttribution(() => ({} as never))).resolves.toBe(
       defaultPrAttribution,
     )
+  })
+
+  it('uses git.addGeneratedWithFooter as an explicit opt-in to generated PR attribution', async () => {
+    useSettings({ git: { addGeneratedWithFooter: true } })
+
+    await expect(getEnhancedPRAttribution(() => ({} as never))).resolves.toBe(
+      defaultPrAttribution,
+    )
+  })
+
+  it('lets git.addGeneratedWithFooter false block legacy generated PR attribution', async () => {
+    useSettings({
+      includeCoAuthoredBy: true,
+      git: { addGeneratedWithFooter: false },
+    })
+
+    await expect(
+      getEnhancedPRAttribution(() => {
+        throw new Error('app state should not be read when PR attribution is blocked')
+      }),
+    ).resolves.toBe('')
   })
 })

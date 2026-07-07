@@ -14,6 +14,7 @@ import type {
 } from '../services/oauth/types.js'
 import { getCwd } from '../utils/cwd.js'
 import { registerCleanup } from './cleanupRegistry.js'
+import { createDeferredWriter } from './deferredConfigWrites.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { getGlobalClaudeFile } from './env.js'
@@ -420,6 +421,14 @@ export type GlobalConfig = {
   // Btw usage tracking
   btwUseCount: number // Number of times user has used /btw
 
+  // Sponsored tips (ads.gitlawb.com) — opt-in earning of opengateway credits.
+  // Managed via the /ads command, NOT /config — intentionally excluded from
+  // GLOBAL_CONFIG_KEYS (the earnCode is a credential, never surfaced in /config).
+  ads?: {
+    enabled: boolean
+    earnCode?: string // issued in the opengateway Earn tab, sent as x-earn-code
+  }
+
   // Plan mode usage tracking
   lastPlanModeUse?: number // Timestamp of last plan mode usage
 
@@ -466,7 +475,7 @@ export type GlobalConfig = {
   modelSwitchCalloutLastShown?: number // Timestamp of last shown (don't show for 24h)
   modelSwitchCalloutVersion?: string
 
-  // Effort callout tracking - shown once for Opus 4.6 users
+  // Effort callout tracking - shown once for recent Opus users (4.8/4.7/4.6)
   effortCalloutDismissed?: boolean // v1 - legacy, read to suppress v2 for Pro users who already saw it
   effortCalloutV2Dismissed?: boolean
 
@@ -731,7 +740,9 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
-    maxMessagesCompactionThreshold: 'off',
+    // Omitted by default so callers can distinguish "unset" from an explicit
+    // persisted "off"; normalizeMaxMessagesCompactionThreshold keeps the
+    // effective default disabled.
   }
   return config
 }
@@ -949,6 +960,15 @@ export function saveGlobalConfig(
     return
   }
 
+  // Apply any queued deferred writes first. A direct save re-reads the on-disk
+  // config and write-throughs that snapshot into globalConfigCache; without
+  // draining the deferred queue first, that snapshot would drop the pending
+  // counter deltas the cache is holding and same-process readers would observe
+  // stale values until the debounce fires. flushGlobalConfigWrites() is a no-op
+  // when nothing is queued, and the drain empties the queue before its own
+  // saveGlobalConfig runs, so this recurses at most one level.
+  flushGlobalConfigWrites()
+
   let written: GlobalConfig | null = null
   try {
     const didWrite = saveConfigWithLock(
@@ -1015,6 +1035,78 @@ export function saveGlobalConfig(
   }
 }
 
+// Coalesced (debounced) global-config writer.
+//
+// saveGlobalConfig does a synchronous lockfile acquire + full re-read + backup
+// copy + fsync on every call, which stalls the event loop (and drops frames)
+// when several low-stakes writes land back-to-back. saveGlobalConfigDeferred
+// queues the updater, write-throughs the in-memory cache immediately so
+// same-process reads stay coherent, and folds all pending updaters into a
+// single locked saveGlobalConfig on a trailing debounce. The auth-loss guard,
+// lockfile and backup all remain on saveGlobalConfig's disk path — this only
+// batches WHEN the disk write happens, never how. Do NOT route auth, onboarding
+// or migration writes through it (see GH #3117); it is for idempotent,
+// loss-tolerant counters/flags only.
+const CONFIG_FLUSH_DEBOUNCE_MS = 500
+
+// The queue/debounce/write-through/batch-drain logic lives in a generic,
+// disk-free engine (see deferredConfigWrites.ts) so it can be unit-tested with
+// injected storage/scheduler. Here we wire the real saveGlobalConfig, in-memory
+// cache, and timers into it.
+const globalConfigDeferredWriter = createDeferredWriter<
+  GlobalConfig,
+  ReturnType<typeof setTimeout>
+>({
+  debounceMs: CONFIG_FLUSH_DEBOUNCE_MS,
+  save: updater => saveGlobalConfig(updater),
+  readCache: () => globalConfigCache.config,
+  writeThrough: next => writeThroughGlobalConfigCache(next),
+  setTimer: (fn, ms) => {
+    const timer = setTimeout(fn, ms)
+    // A pending config flush must never hold the process open on its own.
+    timer.unref?.()
+    return timer
+  },
+  clearTimer: timer => clearTimeout(timer),
+})
+
+export function saveGlobalConfigDeferred(
+  updater: (currentConfig: GlobalConfig) => GlobalConfig,
+): void {
+  // Keep tests synchronous and observable, matching saveGlobalConfig.
+  if (process.env.NODE_ENV === 'test') {
+    saveGlobalConfig(updater)
+    return
+  }
+  // Prime the cache before enqueueing. The deferred writer only write-throughs
+  // the pending updater when there is a cached config to apply it to; on a cold
+  // cache (no prior read) it would skip the write-through and the first deferred
+  // counter update would be invisible to getGlobalConfig() until the debounce
+  // flush — breaking same-process read coherence.
+  if (globalConfigCache.config === null) {
+    getGlobalConfig()
+  }
+  globalConfigDeferredWriter.defer(updater)
+}
+
+// Force any queued deferred writes to disk now. Safe to call repeatedly; a
+// no-op when nothing is pending. Call before reading the config from disk in
+// another process, or before spawning a subprocess that reads it.
+export function flushGlobalConfigWrites(): void {
+  globalConfigDeferredWriter.flush()
+}
+
+// Flush queued writes on shutdown. registerCleanup covers graceful exits; the
+// sync 'exit' handler is the hard-exit backstop (flush is fully synchronous).
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+registerCleanup(async () => {
+  flushGlobalConfigWrites()
+})
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+process.on('exit', () => {
+  flushGlobalConfigWrites()
+})
+
 // Cache for global config
 let globalConfigCache: { config: GlobalConfig | null; mtime: number } = {
   config: null,
@@ -1060,11 +1152,17 @@ registerCleanup(async () => {
  * @internal
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  const { maxMessagesCompactionThreshold, ...restConfig } = config
   const normalizedConfig = {
-    ...config,
-    maxMessagesCompactionThreshold: normalizeMaxMessagesCompactionThreshold(
-      config.maxMessagesCompactionThreshold,
-    ),
+    ...restConfig,
+    ...(maxMessagesCompactionThreshold === undefined
+      ? {}
+      : {
+          maxMessagesCompactionThreshold:
+            normalizeMaxMessagesCompactionThreshold(
+              maxMessagesCompactionThreshold,
+            ),
+        }),
   }
 
   // Already migrated

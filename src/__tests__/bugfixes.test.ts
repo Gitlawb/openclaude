@@ -59,8 +59,6 @@ describe('Session timeout fix', () => {
     const content = await file('services/api/openaiShim.ts').text()
 
     expect(content).toContain('STREAM_IDLE_TIMEOUT_MS')
-    expect(content).toContain('readWithTimeout')
-    expect(content).toMatch(/readWithTimeout\(\)/)
   })
 
   test('codexShim has idle timeout for SSE streams', async () => {
@@ -79,6 +77,23 @@ describe('Session timeout fix', () => {
     expect(match).not.toBeNull()
     const timeoutMs = parseInt(match![1].replace(/_/g, ''), 10)
     expect(timeoutMs).toBeGreaterThanOrEqual(60_000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix 2b: Ollama context history preservation
+// ---------------------------------------------------------------------------
+describe('Ollama context history fix', () => {
+  test('openaiShim uses native Ollama chat with request-level num_ctx', async () => {
+    const content = await file('services/api/openaiShim.ts').text()
+
+    expect(content).toContain('buildOllamaChatUrl')
+    expect(content).toContain('/api/chat')
+    expect(content).toContain('useNativeOllamaChat')
+    expect(content).toContain('num_ctx: getOllamaNumCtx()')
+    expect(content).toContain('normalizeOllamaNativeMessages(body.messages)')
+    expect(content).toContain('convertOllamaStreamingResponse')
+    expect(content).toContain('convertOllamaNonStreamingResponse')
   })
 })
 

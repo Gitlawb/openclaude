@@ -13,6 +13,7 @@ import {
 } from './memoryTypes.js'
 import { getAutoMemPath } from './paths.js'
 import { getTeamMemPath } from './teamMemPaths.js'
+import { isMemoryWriteApprovalRequired } from '../utils/governancePolicy.js'
 
 /**
  * Build the combined prompt when both auto memory and team memory are enabled.
@@ -25,6 +26,10 @@ export function buildCombinedMemoryPrompt(
 ): string {
   const autoDir = getAutoMemPath()
   const teamDir = getTeamMemPath()
+  const requiresApproval = isMemoryWriteApprovalRequired()
+  const dirGuidance = requiresApproval
+    ? 'Do not create or update files there until the user explicitly approves the specific memory write.'
+    : DIRS_EXIST_GUIDANCE
 
   const howToSave = skipIndex
     ? [
@@ -60,10 +65,16 @@ export function buildCombinedMemoryPrompt(
   const lines = [
     '# Memory',
     '',
-    `You have a persistent, file-based memory system with two directories: a private directory at \`${autoDir}\` and a shared team directory at \`${teamDir}\`. ${DIRS_EXIST_GUIDANCE}`,
+    `You have a persistent, file-based memory system with two directories: a private directory at \`${autoDir}\` and a shared team directory at \`${teamDir}\`. ${dirGuidance}`,
     '',
     "You should build up this memory system over time so that future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.",
     '',
+    ...(requiresApproval
+      ? [
+          'Before creating, updating, or deleting persistent memory files, explicitly ask the user for approval and wait for confirmation.',
+          '',
+        ]
+      : []),
     'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
     '',
     '## Memory scope',

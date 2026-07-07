@@ -38,6 +38,18 @@ export const LINUX_CLIPBOARD_IMAGE_MIME_TYPES = [
   'image/bmp',
 ]
 
+// Shared PowerShell command to check if the Windows clipboard contains an image.
+// Uses System.Windows.Forms.Clipboard.ContainsImage() which properly detects
+// raw bitmap data (CF_DIB/CF_BITMAP) from screenshot tools like PrintScreen
+// and Win+Shift+S, unlike Get-Clipboard -Format Image which only works with
+// file references copied from Explorer.
+const WIN32_CLIPBOARD_HAS_IMAGE_CMD =
+  'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::ContainsImage()'
+
+function escapePowerShellSingleQuotedString(value: string): string {
+  return value.replace(/'/g, "''")
+}
+
 export function buildLinuxClipboardCheckCommand(): string {
   const mimePattern = LINUX_CLIPBOARD_IMAGE_MIME_TYPES.map(mimeType =>
     mimeType.replace('/', '\\/'),
@@ -94,9 +106,8 @@ function getClipboardCommands() {
       deleteFile: `rm -f "${screenshotPath}"`,
     },
     win32: {
-      checkImage:
-        'powershell -NoProfile -Command "(Get-Clipboard -Format Image) -ne $null"',
-      saveImage: `powershell -NoProfile -Command "$img = Get-Clipboard -Format Image; if ($img) { $img.Save('${screenshotPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
+      checkImage: `powershell -NoProfile -Command "${WIN32_CLIPBOARD_HAS_IMAGE_CMD}"`,
+      saveImage: `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $img.Save('${escapePowerShellSingleQuotedString(screenshotPath)}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
       getPath: 'powershell -NoProfile -Command "Get-Clipboard"',
       deleteFile: `del /f "${screenshotPath}"`,
     },
@@ -118,6 +129,18 @@ export type ImageWithDimensions = {
  * Check if clipboard contains an image without retrieving it.
  */
 export async function hasImageInClipboard(): Promise<boolean> {
+  // Windows: use .NET Clipboard.ContainsImage() which properly detects
+  // raw bitmap data (CF_DIB/CF_BITMAP) from screenshot tools like
+  // PrintScreen and Win+Shift+S.
+  if (process.platform === 'win32') {
+    const result = await execFileNoThrowWithCwd('powershell', [
+      '-NoProfile',
+      '-Command',
+      WIN32_CLIPBOARD_HAS_IMAGE_CMD,
+    ])
+    return result.code === 0 && result.stdout.trim() === 'True'
+  }
+
   if (process.platform !== 'darwin') {
     return false
   }
@@ -209,12 +232,18 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
 
   const { commands, screenshotPath } = getClipboardCommands()
   try {
-    // Check if clipboard has image
+    // Check if clipboard has image.
     const checkResult = await execa(commands.checkImage, {
       shell: true,
       reject: false,
     })
     if (checkResult.exitCode !== 0) {
+      return null
+    }
+    if (
+      process.platform === 'win32' &&
+      checkResult.stdout.trim() !== 'True'
+    ) {
       return null
     }
 

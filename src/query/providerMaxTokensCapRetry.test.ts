@@ -8,6 +8,7 @@ import type { QueryDeps } from './deps.js'
 import {
   createAssistantAPIErrorMessage,
   createAssistantMessage,
+  createCompactBoundaryMessage,
   createUserMessage,
 } from '../utils/messages.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
@@ -278,6 +279,109 @@ test('does not retry OpenRouter affordability errors handled by withRetry', asyn
       message =>
         message?.type === 'assistant' &&
         message?.message?.content?.[0]?.text?.includes('can only afford 27342'),
+    ),
+  ).toBe(true)
+})
+
+test('OpenAI-compatible context overflow messages are tagged for recovery', () => {
+  const message = getAssistantMessageFromError(
+    APIError.generate(
+      400,
+      undefined,
+      'OpenAI API error 400: Bad Request [openai_category=context_overflow,host=api.z.ai] too many tokens',
+      new Headers(),
+    ),
+    'zai/model',
+  )
+
+  expect(message.apiError).toBe('context_overflow')
+  expect(message.error).toBe('invalid_request')
+})
+
+test('compacts and retries once for context overflow errors', async () => {
+  let callCount = 0
+  const seenRequestMessages: QueryParams['messages'][] = []
+  const callModel: QueryDeps['callModel'] = async function* ({ messages }) {
+    seenRequestMessages.push(messages)
+    callCount += 1
+    if (callCount === 1) {
+      yield createAssistantAPIErrorMessage({
+        content: 'The conversation exceeded the provider context limit.',
+        apiError: 'context_overflow',
+        error: 'invalid_request',
+      })
+      return
+    }
+
+    yield createAssistantMessage({ content: 'ok after compact' })
+  }
+  const params = makeParams(callModel)
+  const seenForceReasons: Array<string | undefined> = []
+  let autocompactCalls = 0
+  params.deps = {
+    ...params.deps,
+    autocompact: async (
+      _messages,
+      _toolUseContext,
+      _cacheSafeParams,
+      _querySource,
+      tracking,
+    ) => {
+      autocompactCalls += 1
+      seenForceReasons.push(tracking?.forceReason)
+      if (autocompactCalls === 1) {
+        return { wasCompacted: false }
+      }
+
+      return {
+        wasCompacted: true,
+        consecutiveFailures: 0,
+        compactionResult: {
+          boundaryMarker: createCompactBoundaryMessage('auto', 10_000),
+          summaryMessages: [
+            createUserMessage({ content: 'compacted context summary' }),
+          ],
+          messagesToKeep: [],
+          attachments: [],
+          hookResults: [],
+          preCompactTokenCount: 10_000,
+          postCompactTokenCount: 500,
+          truePostCompactTokenCount: 500,
+        },
+      }
+    },
+  } as unknown as QueryDeps
+
+  const messages = await collect(params)
+
+  expect(callCount).toBe(2)
+  expect(seenForceReasons).toEqual([undefined, 'memory-pressure'])
+  const retryMessages = seenRequestMessages[1] ?? []
+  expect(
+    retryMessages.some(
+      message =>
+        message.type === 'user' &&
+        message.isMeta === true &&
+        typeof message.message.content === 'string' &&
+        message.message.content.includes('exceeded the context window') &&
+        message.message.content.includes('retrying this turn once'),
+    ),
+  ).toBe(true)
+  expect(
+    messages.some(message => message?.apiError === 'context_overflow'),
+  ).toBe(false)
+  expect(
+    messages.some(
+      message =>
+        message?.type === 'system' &&
+        message?.content?.includes('compacting conversation and retrying'),
+    ),
+  ).toBe(true)
+  expect(
+    messages.some(
+      message =>
+        message?.type === 'assistant' &&
+        message?.message?.content?.[0]?.text === 'ok after compact',
     ),
   ).toBe(true)
 })

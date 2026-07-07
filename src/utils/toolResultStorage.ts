@@ -84,6 +84,10 @@ export type PersistedToolResult = {
   isJson: boolean
   preview: string
   hasMore: boolean
+  // When true, the persisted file is capped (only the first portion of the
+  // originalSize-byte output was written). The model-facing message must not
+  // claim the full output is available.
+  truncated?: boolean
 }
 
 // Error result when persistence fails
@@ -190,7 +194,10 @@ export function buildLargeToolResultMessage(
   result: PersistedToolResult,
 ): string {
   let message = `${PERSISTED_OUTPUT_TAG}\n`
-  message += `Output too large (${formatFileSize(result.originalSize)}). Full output saved to: ${result.filepath}\n\n`
+  const savedDescription = result.truncated
+    ? `Partial output saved to: ${result.filepath} (output was capped — the tail was not saved)`
+    : `Full output saved to: ${result.filepath}`
+  message += `Output too large (${formatFileSize(result.originalSize)}). ${savedDescription}\n\n`
   message += `Preview (first ${formatFileSize(PREVIEW_SIZE_BYTES)}):\n`
   message += result.preview
   message += result.hasMore ? '\n...\n' : '\n'
@@ -1013,6 +1020,28 @@ export function reconstructContentReplacementState(
     }
   }
   return state
+}
+
+export function filterContentReplacementsForMessages(
+  messages: Message[],
+  records: ContentReplacementRecord[],
+): ContentReplacementRecord[] {
+  const retainedToolResultIds = new Set<string>()
+  for (const message of messages) {
+    if (message.type !== 'user' || !Array.isArray(message.message.content)) {
+      continue
+    }
+    for (const block of message.message.content) {
+      if (block.type === 'tool_result') {
+        retainedToolResultIds.add(block.tool_use_id)
+      }
+    }
+  }
+  return records.filter(
+    record =>
+      record.kind === 'tool-result' &&
+      retainedToolResultIds.has(record.toolUseId),
+  )
 }
 
 /**

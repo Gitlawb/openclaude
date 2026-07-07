@@ -1,4 +1,6 @@
 import { getSessionId } from '../../bootstrap/state.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
+import { resolveOpenAICredentialEnvState } from '../../utils/providerProfile.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -37,6 +39,41 @@ function getModelFamily(model: string | undefined): string {
     .replace(/-\d{4,}$/, '')
     .replace(/-latest$/, '')
     .replace(/-preview$/, '')
+}
+
+
+export function resolveCacheProbeApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const credentialState = resolveOpenAICredentialEnvState(env)
+  if (!credentialState.configured || !credentialState.envVar) {
+    return ''
+  }
+
+  return firstUsableCredential(env[credentialState.envVar]) ?? ''
+}
+
+function resolveGithubCacheProbeApiKey(env: NodeJS.ProcessEnv): string {
+  return (
+    env.GITHUB_COPILOT_KEY?.trim() ||
+    env.GITHUB_TOKEN?.trim() ||
+    env.GH_TOKEN?.trim() ||
+    ''
+  )
+}
+
+export function resolveCacheProbeRequestApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: { isGithub?: boolean },
+): string {
+  if (options?.isGithub) {
+    const githubKey = resolveGithubCacheProbeApiKey(env)
+    if (githubKey) {
+      return githubKey
+    }
+  }
+
+  return resolveCacheProbeApiKey(env)
 }
 
 function getField(obj: unknown, path: string): unknown {
@@ -186,16 +223,11 @@ export const call: LocalCommandCall = async (args) => {
   const request = resolveProviderRequest({ model: modelStr })
   const isGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  // Resolve API key the same way the OpenAI shim does
-  let apiKey = process.env.OPENAI_API_KEY ?? ''
-  if (!apiKey && isGithub) {
+  // Resolve API key the same way the active provider path does.
+  if (isGithub) {
     hydrateGithubModelsTokenFromSecureStorage()
-    apiKey =
-      process.env.OPENAI_API_KEY ??
-      process.env.GITHUB_TOKEN ??
-      process.env.GH_TOKEN ??
-      ''
   }
+  const apiKey = resolveCacheProbeRequestApiKey(process.env, { isGithub })
 
   if (!apiKey) {
     return {
@@ -203,7 +235,7 @@ export const call: LocalCommandCall = async (args) => {
       value:
         'No API key found. Make sure you are in an active OpenAI-compatible or GitHub Copilot session.\n' +
         'For GitHub Copilot: run /onboard-github first.\n' +
-        'For OpenAI-compatible: set OPENAI_API_KEY.',
+        'For OpenAI-compatible: set OPENAI_API_KEYS or OPENAI_API_KEY.',
     }
   }
 

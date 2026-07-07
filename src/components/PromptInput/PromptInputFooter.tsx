@@ -15,6 +15,7 @@ import type { ToolPermissionContext } from '../../Tool.js';
 import type { Message } from '../../types/message.js';
 import type { PromptInputMode, VimMode } from '../../types/textInputTypes.js';
 import type { AutoUpdaterResult } from '../../utils/autoUpdater.js';
+import { getGlobalConfig } from '../../utils/config.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { BuiltinStatusLine, builtinStatusLineShouldDisplay } from '../BuiltinStatusLine.js';
 import { useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
@@ -41,6 +42,26 @@ export function resolveFooterStatusLine(settings: ReadonlySettings, guards: {
   if (statusLineShouldDisplay(settings)) return 'custom';
   if (builtinStatusLineShouldDisplay(settings, config)) return 'builtin';
   return null;
+}
+
+/**
+ * The builtin status line ships enabled, so a status line renders for nearly
+ * everyone — treating that as a reason to hide `? for shortcuts` would kill
+ * the hint's discoverability entirely. New users (by startup count) keep the
+ * hint alongside the builtin status line; established users get the quieter
+ * footer. A custom status line is an explicit user configuration, so it
+ * always wins over the hint regardless of tenure.
+ */
+export const SHORTCUTS_HINT_STARTUP_GRACE = 10;
+export function shouldSuppressShortcutsHint(args: {
+  suppressedByCaller: boolean;
+  footerStatusLine: 'custom' | 'builtin' | null;
+  isSearching: boolean;
+  numStartups: number;
+}): boolean {
+  if (args.suppressedByCaller || args.isSearching) return true;
+  if (args.footerStatusLine === 'custom') return true;
+  return args.footerStatusLine === 'builtin' && args.numStartups > SHORTCUTS_HINT_STARTUP_GRACE;
 }
 
 type Props = {
@@ -144,9 +165,15 @@ function PromptInputFooter({
     exitMessageShown: exitMessage.show,
     isPasting
   });
-  // Hide `? for shortcuts` only when a status line actually renders below
-  // (display setting AND render guards), or during ctrl-r search.
-  const suppressHint = suppressHintFromProps || footerStatusLine !== null || isSearching;
+  // Hide `? for shortcuts` during ctrl-r search, or — for established users
+  // only — when a status line actually renders below (display setting AND
+  // render guards). See shouldSuppressShortcutsHint.
+  const suppressHint = shouldSuppressShortcutsHint({
+    suppressedByCaller: suppressHintFromProps,
+    footerStatusLine,
+    isSearching,
+    numStartups: getGlobalConfig().numStartups
+  });
   // Fullscreen: portal data to FullscreenLayout — see promptOverlayContext.tsx
   const overlayData = useMemo(() => isFullscreen && suggestions.length ? {
     suggestions,

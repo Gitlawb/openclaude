@@ -13,13 +13,51 @@ import { jsonStringify } from '../slowOperations.js'
 
 export type { ParseEntry } from 'shell-quote'
 
+export type ShellParseFailureKind =
+  | 'expected-limitation'
+  | 'unexpected-error'
+
+export type ShellParseFailureReasonCode =
+  | 'bad-substitution'
+  | 'unexpected-error'
+  | 'unknown-parse-error'
+
 export type ShellParseResult =
   | { success: true; tokens: ParseEntry[] }
-  | { success: false; error: string }
+  | {
+      success: false
+      error: string
+      failureKind: ShellParseFailureKind
+      reasonCode: ShellParseFailureReasonCode
+    }
 
 export type ShellQuoteResult =
   | { success: true; quoted: string }
   | { success: false; error: string }
+
+function classifyShellParseFailure(error: unknown): {
+  error: string
+  failureKind: ShellParseFailureKind
+  reasonCode: ShellParseFailureReasonCode
+} {
+  const message =
+    error instanceof Error ? error.message : 'Unknown parse error'
+
+  if (message.startsWith('Bad substitution')) {
+    return {
+      error: message,
+      failureKind: 'expected-limitation',
+      reasonCode: 'bad-substitution',
+    }
+  }
+
+  return {
+    error: message,
+    failureKind: 'unexpected-error',
+    reasonCode:
+      error instanceof Error ? 'unexpected-error' : 'unknown-parse-error',
+  }
+}
 
 export function tryParseShellCommand(
   cmd: string,
@@ -34,12 +72,13 @@ export function tryParseShellCommand(
         : shellQuoteParse(cmd, env)
     return { success: true, tokens }
   } catch (error) {
-    if (error instanceof Error) {
+    const failure = classifyShellParseFailure(error)
+    if (failure.failureKind === 'unexpected-error' && error instanceof Error) {
       logError(error)
     }
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown parse error',
+      ...failure,
     }
   }
 }

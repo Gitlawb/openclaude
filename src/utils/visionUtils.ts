@@ -42,6 +42,7 @@ function findModelDescriptorFromCatalog(
   routeId?: string,
 ) {
   const normalized = normalizedName(modelApiName)
+  const includeAliases = routeId !== undefined
   const routeIds =
     routeId !== undefined
       ? [routeId]
@@ -56,7 +57,9 @@ function findModelDescriptorFromCatalog(
     const entry = getCatalogEntriesForRoute(routeId).find(candidate => {
       return (
         normalizedName(candidate.apiName) === normalized ||
-        normalizedName(candidate.id) === normalized
+        normalizedName(candidate.id) === normalized ||
+        (includeAliases &&
+          (candidate.aliases ?? []).some(alias => normalizedName(alias) === normalized))
       )
     })
     if (entry?.modelDescriptorId) {
