@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type * as ConfigModule from './config.js'
 import {
   NodeFsOperations,
@@ -333,8 +333,19 @@ describe('getConfig recovery (production path)', () => {
 })
 
 describe('enableConfigs startup validation (#1807)', () => {
+  // Capture the real env module once before any test overrides it. Bun's
+  // mock.module() is process-global and is NOT undone by mock.restore(), so the
+  // getGlobalClaudeFile override below would otherwise leak the virtual global
+  // config path into later same-process tests. Teardown re-registers the real
+  // module alongside the fs reset to contain that state.
+  let realEnv: Record<string, unknown>
+  beforeAll(async () => {
+    realEnv = (await import('./env.js')) as Record<string, unknown>
+  })
+
   afterEach(() => {
     setOriginalFsImplementation()
+    mock.module('./env.js', () => realEnv)
   })
 
   test('does not crash on a corrupt global config when no usable backup exists', async () => {
@@ -344,7 +355,6 @@ describe('enableConfigs startup validation (#1807)', () => {
     // terminated the process on every launch. Startup must instead fall through
     // to the corrupt-file/default handling (preserve the corrupt file, start
     // from defaults) and return normally.
-    const realEnv = (await import('./env.js')) as Record<string, unknown>
     mock.module('./env.js', () => ({
       ...realEnv,
       getGlobalClaudeFile: () => FILE,
