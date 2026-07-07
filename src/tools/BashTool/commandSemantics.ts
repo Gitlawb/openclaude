@@ -285,28 +285,20 @@ function skipEnvUtility(tokens: string[], startIndex: number): number {
   return i
 }
 
-function getEnvSplitStringPayload(
+function collectQuotedTokenPayload(
+  first: string,
   tokens: string[],
-  flagIndex: number,
-): string | undefined {
-  const flag = tokens[flagIndex]
-  if (flag === undefined) {
-    return undefined
-  }
-  const inlineValue = flag.match(/^--split-string=(.*)$/)?.[1]
-  if (inlineValue !== undefined) {
-    return inlineValue
-  }
-  const first = tokens[flagIndex + 1]
-  if (first === undefined) {
-    return undefined
-  }
+  nextIndex: number,
+): string {
   const quote = first[0]
   if (quote !== '"' && quote !== "'") {
     return first
   }
   const collected = [first]
-  for (let i = flagIndex + 2; i < tokens.length; i++) {
+  if (first.length > 1 && first.endsWith(quote)) {
+    return collected.join(' ').replace(/^["']|["']$/g, '')
+  }
+  for (let i = nextIndex; i < tokens.length; i++) {
     const token = tokens[i]
     if (token === undefined) {
       break
@@ -319,6 +311,25 @@ function getEnvSplitStringPayload(
   return collected.join(' ').replace(/^["']|["']$/g, '')
 }
 
+function getEnvSplitStringPayload(
+  tokens: string[],
+  flagIndex: number,
+): string | undefined {
+  const flag = tokens[flagIndex]
+  if (flag === undefined) {
+    return undefined
+  }
+  const inlineValue = flag.match(/^--split-string=(.*)$/)?.[1]
+  if (inlineValue !== undefined) {
+    return collectQuotedTokenPayload(inlineValue, tokens, flagIndex + 1)
+  }
+  const first = tokens[flagIndex + 1]
+  if (first === undefined) {
+    return undefined
+  }
+  return collectQuotedTokenPayload(first, tokens, flagIndex + 2)
+}
+
 function extractEnvSplitStringBaseCommand(
   tokens: string[],
   startIndex: number,
@@ -329,11 +340,13 @@ function extractEnvSplitStringBaseCommand(
       break
     }
     const token = extractBaseCommand(rawToken)
-    const flagName = token.split('=')[0] ?? token
+    const flagName = rawToken.startsWith('--split-string=')
+      ? '--split-string'
+      : token.split('=')[0] ?? token
     if (ENV_SPLIT_STRING_FLAGS.has(flagName)) {
       const payload = getEnvSplitStringPayload(tokens, i)
       return payload !== undefined
-        ? extractRunnableBaseCommand(payload.trim().split(/\s+/))
+        ? extractSemanticBaseCommand(payload)
         : undefined
     }
     if (token === '--') {
@@ -366,6 +379,14 @@ function extractRunnableBaseCommand(tokens: string[]): string {
     return token
   }
   return tokens[0] !== undefined ? extractBaseCommand(tokens[0]) : ''
+}
+
+function extractSemanticBaseCommand(command: string): string {
+  const baseCommand = extractRunnableBaseCommand(command.trim().split(/\s+/))
+  if (WRAPPER_COMMANDS.has(baseCommand)) {
+    return extractWrappedCommand(command, baseCommand) ?? baseCommand
+  }
+  return baseCommand
 }
 
 /**

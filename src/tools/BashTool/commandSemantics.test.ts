@@ -284,6 +284,12 @@ describe('interpretCommandResult', () => {
         ['env -S "eslint ."', 1],
         ['env -S "pytest -q"', 1],
         ['env --split-string="ruff check ."', 1],
+        ['env --split-string="python -m pytest"', 1],
+        ['env --split-string="uvx ruff check ."', 1],
+        ['env --split-string="npx eslint ."', 1],
+        ['env --split-string="npx -p typescript tsc --noEmit"', 2],
+        ['env --split-string="PYTHONPATH=./src pytest tests/"', 1],
+        ['env --split-string="RUFF_CACHE_DIR=/tmp/cache ruff check ."', 1],
       ] as const
       for (const [command, exitCode] of cases) {
         const result = interpretCommandResult(command, exitCode, 'diagnostics', '')
