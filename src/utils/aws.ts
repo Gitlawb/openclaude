@@ -52,7 +52,7 @@ export async function checkStsCallerIdentity(): Promise<void> {
   const { STSClient, GetCallerIdentityCommand } =
     await importOptionalRuntimeModule<typeof import('@aws-sdk/client-sts')>(
       '@aws-sdk/client-sts',
-      'AWS Bedrock',
+      'AWS credentials',
     )
   await new STSClient().send(new GetCallerIdentityCommand({}))
 }
@@ -66,7 +66,7 @@ export async function clearAwsIniCache(): Promise<void> {
     logForDebugging('Clearing AWS credential provider cache')
     const { fromIni } = await importOptionalRuntimeModule<
       typeof import('@aws-sdk/credential-providers')
-    >('@aws-sdk/credential-providers', 'AWS Bedrock')
+    >('@aws-sdk/credential-providers', 'AWS credentials')
     const iniProvider = fromIni({ ignoreCache: true })
     await iniProvider() // This updates the global file cache
     logForDebugging('AWS credential provider cache refreshed')
