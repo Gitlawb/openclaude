@@ -386,7 +386,8 @@ function isWebSearchApiProviderConfiguredForDoctor(providerName: string): boolea
 }
 
 function buildCustomWebSearchCheck(providerConfigured: boolean): CheckResult {
-  const providerPreset = process.env.WEB_PROVIDER?.trim()
+  const providerPreset = process.env.WEB_PROVIDER
+  const trimmedProviderPreset = providerPreset?.trim()
   const customUrlEnv = process.env.WEB_URL_TEMPLATE
     ? 'WEB_URL_TEMPLATE'
     : process.env.WEB_SEARCH_API
@@ -410,6 +411,17 @@ function buildCustomWebSearchCheck(providerConfigured: boolean): CheckResult {
   const requiredEnvVars = WEB_SEARCH_CUSTOM_PRESET_REQUIRED_ENV_VARS[providerPreset]
   if (!requiredEnvVars) {
     if (!customUrlEnv) {
+      if (
+        trimmedProviderPreset &&
+        trimmedProviderPreset !== providerPreset &&
+        WEB_SEARCH_CUSTOM_PRESET_REQUIRED_ENV_VARS[trimmedProviderPreset]
+      ) {
+        return fail(
+          'Web search backend',
+          `WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=${trimmedProviderPreset} but the raw WEB_PROVIDER value has surrounding whitespace and does not match a runtime custom preset. Remove the whitespace or configure WEB_SEARCH_API or WEB_URL_TEMPLATE.`,
+        )
+      }
+
       return fail(
         'Web search backend',
         `WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=${providerPreset} but WEB_SEARCH_API or WEB_URL_TEMPLATE is missing for an unknown custom preset.`,

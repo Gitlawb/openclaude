@@ -620,6 +620,30 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test('fails custom preset when WEB_PROVIDER has surrounding whitespace', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'brave '
+    process.env.WEB_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=brave but the raw WEB_PROVIDER value has surrounding whitespace and does not match a runtime custom preset. Remove the whitespace or configure WEB_SEARCH_API or WEB_URL_TEMPLATE.',
+      false,
+    )
+  })
+
+  test('passes custom provider with surrounding whitespace when a custom endpoint is configured', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'brave '
+    process.env.WEB_SEARCH_API = 'https://example.com/search'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=custom; WEB_PROVIDER and WEB_SEARCH_API configured.',
+      false,
+    )
+  })
+
   test('does not expose WebSearch secret values in diagnostics', () => {
     const secret = 'brave-secret-value-123'
     process.env.WEB_SEARCH_PROVIDER = 'brave'
