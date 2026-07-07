@@ -19,10 +19,6 @@ async function main() {
   enableConfigs()
   const { applySafeConfigEnvironmentVariables } = await import('../src/utils/managedEnv.js')
   applySafeConfigEnvironmentVariables()
-  const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../src/utils/geminiCredentials.js')
-  hydrateGeminiAccessTokenFromSecureStorage()
-  const { hydrateGithubModelsTokenFromSecureStorage } = await import('../src/utils/githubModelsCredentials.js')
-  hydrateGithubModelsTokenFromSecureStorage()
 
   const { buildStartupEnvFromProfile, applyProfileEnvToProcessEnv } = await import('../src/utils/providerProfile.js')
   const { getProviderValidationError, validateProviderEnvOrExit } = await import('../src/utils/providerValidation.js')
