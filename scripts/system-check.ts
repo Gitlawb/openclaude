@@ -327,8 +327,16 @@ function appendConfiguredWebSearchApiProviderDetail(result: CheckResult): CheckR
 }
 
 function isFirecrawlCloudApiUrl(apiUrl: string | undefined): boolean {
-  const normalized = (apiUrl ?? 'https://api.firecrawl.dev').replace(/\/$/, '')
-  return normalized.includes('api.firecrawl.dev')
+  const normalized = (apiUrl ?? 'https://api.firecrawl.dev').trim()
+  try {
+    return new URL(normalized).hostname === 'api.firecrawl.dev'
+  } catch {
+    const withoutTrailingSlash = normalized.replace(/\/+$/, '')
+    return (
+      withoutTrailingSlash === 'https://api.firecrawl.dev' ||
+      withoutTrailingSlash === 'api.firecrawl.dev'
+    )
+  }
 }
 
 function hasFirecrawlRunnableConfig(): boolean {

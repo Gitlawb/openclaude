@@ -562,6 +562,16 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test('does not classify Firecrawl proxy URLs as the cloud API', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'firecrawl'
+    process.env.FIRECRAWL_API_URL = 'https://proxy.example.com/api.firecrawl.dev'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=firecrawl; FIRECRAWL_API_URL configured.',
+    )
+  })
+
   test('fails custom Google preset when GOOGLE_CSE_ID is missing', () => {
     process.env.WEB_SEARCH_PROVIDER = 'custom'
     process.env.WEB_PROVIDER = 'google'
