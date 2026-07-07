@@ -2268,6 +2268,7 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
     }))
 
     const onDoneResults: Array<Record<string, unknown>> = []
+    const appStateChanges: Array<{ newState: any; oldState: any }> = []
     const nonce = `${Date.now()}-${Math.random()}`
     const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
     mounted = await mountProviderManager(ProviderManager, {
@@ -2275,6 +2276,9 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
         if (result && typeof result === 'object') {
           onDoneResults.push(result as Record<string, unknown>)
         }
+      },
+      onChangeAppState: args => {
+        appStateChanges.push(args as { newState: any; oldState: any })
       },
     })
 
@@ -2308,6 +2312,32 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
     expect(String(result.activeProviderName)).toMatch(/anthropic/i)
     expect(typeof result.activeProviderModel).toBe('string')
     expect((result.activeProviderModel as string).length).toBeGreaterThan(0)
+    // The switch-back must also refresh the live session AppState — that is the
+    // path onChangeAppState uses to update the runtime mainLoopModelOverride, so
+    // without it the running session could keep the previous provider model after
+    // selecting "Use Anthropic (built-in)". Mirror the active-provider tests:
+    // assert the AppState update sets mainLoopModel to the Anthropic model from
+    // the result and clears mainLoopModelForSession to null.
+    const anthropicModel = result.activeProviderModel as string
+    await waitForCondition(() =>
+      appStateChanges.some(
+        ({ newState }) => newState.mainLoopModel === anthropicModel,
+      ),
+    )
+    expect(
+      appStateChanges.some(
+        ({ newState, oldState }) =>
+          newState.mainLoopModel === anthropicModel &&
+          oldState.mainLoopModel !== newState.mainLoopModel,
+      ),
+    ).toBe(true)
+    expect(
+      appStateChanges.some(
+        ({ newState }) =>
+          newState.mainLoopModel === anthropicModel &&
+          newState.mainLoopModelForSession === null,
+      ),
+    ).toBe(true)
     expect(
       Object.keys(process.env).some(key => key.startsWith('CLAUDE_CODE_USE_')),
     ).toBe(false)
