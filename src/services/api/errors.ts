@@ -448,6 +448,32 @@ export const OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE =
 export const OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE =
   'OpenCode Go subscription limit reached · See https://opencode.ai/workspace/go'
 
+function getOpenCodeGoAssistantMessage(error: APIError): AssistantMessage | null {
+  const goLimit = parseOpenCodeGoLimitError(error)
+  if (!goLimit) return null
+
+  if (goLimit.kind === 'free') {
+    return createAssistantAPIErrorMessage({
+      content: OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
+      error: 'rate_limit',
+    })
+  }
+
+  const reset =
+    goLimit.retryAfterSeconds !== undefined
+      ? ` · Resets in ${formatResetDuration(goLimit.retryAfterSeconds)}`
+      : ''
+  const workspace =
+    goLimit.workspace && goLimit.workspace !== 'default'
+      ? ` · Workspace: ${goLimit.workspace}`
+      : ''
+  const limit = goLimit.limitName ? ` · Limit: ${goLimit.limitName}` : ''
+  return createAssistantAPIErrorMessage({
+    content: `${OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE}${limit}${workspace}${reset}`,
+    error: 'rate_limit',
+  })
+}
+
 function parseOpenCodeGoLimitError(
   error: APIError,
 ): {
@@ -773,6 +799,15 @@ export function getAssistantMessageFromError(
     }
   }
 
+  // OpenCode Go subscription quota exhaustion (429 with FreeUsageLimitError
+  // or GoUsageLimitError in the body). Check this before generic
+  // OpenAI-compatible markers so shim-shaped quota errors keep the
+  // provider-specific subscribe/reset guidance.
+  if (error instanceof APIError) {
+    const goMessage = getOpenCodeGoAssistantMessage(error)
+    if (goMessage) return goMessage
+  }
+
   // OpenAI-compatible transport and HTTP failures include structured category
   // markers from openaiShim.ts for actionable end-user remediation.
   if (error instanceof APIError) {
@@ -783,33 +818,6 @@ export function getAssistantMessageFromError(
         model,
         rawMessage: error.message,
         host: extractOpenAICategoryHost(error.message),
-      })
-    }
-  }
-
-  // OpenCode Go subscription quota exhaustion (429 with FreeUsageLimitError
-  // or GoUsageLimitError in the body). Terminal — must not be retried.
-  if (error instanceof APIError) {
-    const goLimit = parseOpenCodeGoLimitError(error)
-    if (goLimit) {
-      if (goLimit.kind === 'free') {
-        return createAssistantAPIErrorMessage({
-          content: OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
-          error: 'rate_limit',
-        })
-      }
-      const reset =
-        goLimit.retryAfterSeconds !== undefined
-          ? ` · Resets in ${formatResetDuration(goLimit.retryAfterSeconds)}`
-          : ''
-      const workspace =
-        goLimit.workspace && goLimit.workspace !== 'default'
-          ? ` · Workspace: ${goLimit.workspace}`
-          : ''
-      const limit = goLimit.limitName ? ` · Limit: ${goLimit.limitName}` : ''
-      return createAssistantAPIErrorMessage({
-        content: `${OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE}${limit}${workspace}${reset}`,
-        error: 'rate_limit',
       })
     }
   }

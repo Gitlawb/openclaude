@@ -310,25 +310,31 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
-        // OpenCode Go quota exhaustion is terminal and carries a specific,
-        // actionable assistant message (subscribe / reset timing). Throw here —
-        // before the fast-mode 429 fallback below — so fast mode can't retry or
-        // cooldown a quota-exhausted subscription. Wrapping the original
-        // APIError preserves the OpenCode Go message via
-        // getAssistantMessageFromError instead of the generic guidance.
-        if (isOpenCodeGoQuotaError(error)) {
-          throw new CannotRetryError(error, retryContext);
-        }
-        if (isQuotaExhausted(error)) {
-          throw new CannotRetryError(
-            new Error(
-              'API quota exhausted or not enabled.\n' +
-              'Fix:\n' +
-              '- Enable billing for your provider\n' +
-              '- Or switch provider via /provider',
-            ),
-            retryContext,
-          );
+      // OpenCode Go quota exhaustion is terminal and carries a specific,
+      // actionable assistant message (subscribe / reset timing). Throw here -
+      // before the fast-mode 429 fallback below - so fast mode can't retry or
+      // cooldown a quota-exhausted subscription. Wrapping the original
+      // APIError preserves the OpenCode Go message via
+      // getAssistantMessageFromError instead of the generic guidance.
+      if (isOpenCodeGoQuotaError(error)) {
+        throw new CannotRetryError(error, retryContext)
+      }
+      if (
+        error instanceof APIError &&
+        extractOpenAICategoryMarker(error.message) === 'quota_exhausted'
+      ) {
+        throw new CannotRetryError(error, retryContext)
+      }
+      if (isQuotaExhausted(error)) {
+        throw new CannotRetryError(
+          new Error(
+            'API quota exhausted or not enabled.\n' +
+            'Fix:\n' +
+            '- Enable billing for your provider\n' +
+            '- Or switch provider via /provider',
+          ),
+          retryContext,
+        )
       }
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.

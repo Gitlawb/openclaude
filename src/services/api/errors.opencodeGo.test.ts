@@ -117,6 +117,18 @@ test('falls back to OPENAI_BASE_URL env check when header is missing', () => {
   expect(text).toBe(OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE)
 })
 
+test('OpenAI compatibility quota marker does not hide OpenCode Go message', () => {
+  const error = APIError.generate(
+    429,
+    undefined,
+    'OpenAI API error 429: {"type":"FreeUsageLimitError","message":"free usage limit reached"} [openai_category=quota_exhausted,host=opencode.ai] Hint: Provider quota or usage allotment has run out.',
+    new Headers({ 'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages' }),
+  )
+  const text = getFirstText(getAssistantMessageFromError(error, 'glm-4.6'))
+
+  expect(text).toBe(OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE)
+})
+
 test('non-opencode-go 429 with similar body is NOT mapped to opencode-go message', () => {
   // Same error body shape but no opencode.ai/zen/go URL anywhere
   const savedBaseUrl = process.env.OPENAI_BASE_URL
@@ -231,7 +243,7 @@ test('retry regression: FreeUsageLimitError and GoUsageLimitError are not retrie
   const originalEnv = process.env.OPENAI_BASE_URL
   try {
     process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
-    
+
     const errorEnvFree = APIError.generate(
       429,
       undefined,
@@ -274,7 +286,7 @@ test('retry regression: non-OpenCode 429 errors with similar body markers are re
   const originalEnv = process.env.OPENAI_BASE_URL
   try {
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
-    
+
     const errorEnvFree = APIError.generate(
       429,
       undefined,

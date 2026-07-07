@@ -214,7 +214,9 @@ function isQuotaExhaustedMessage(body: string): boolean {
     lower.includes('quota exceeded') ||
     lower.includes('allotment') ||
     lower.includes('insufficient funds') ||
-    lower.includes('billing')
+    lower.includes('billing limit') ||
+    lower.includes('billing quota') ||
+    lower.includes('billing credits')
   )
 }
 

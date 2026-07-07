@@ -2362,11 +2362,20 @@ function convertNonStreamingResponseToAnthropicMessage(
   }
 }
 
+function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
+  const next = new Headers(headers)
+  if (requestUrl) {
+    next.set('x-opencode-request-url', requestUrl)
+  }
+  return next
+}
+
 async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
   isOllama = false,
+  requestUrl?: string,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -2404,26 +2413,6 @@ async function* openaiStreamToAnthropic(
   let xmlToolCallText: string | null = null
   let xmlHoldback = ''
 
-  // Emit message_start
-  yield {
-    type: 'message_start',
-    message: {
-      id: messageId,
-      type: 'message',
-      role: 'assistant',
-      content: [],
-      model,
-      stop_reason: null,
-      stop_sequence: null,
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    },
-  }
-
   const contentType = response.headers.get('content-type') ?? ''
   if (contentType.includes('application/json')) {
     const text = await response.text().catch(() => '')
@@ -2440,20 +2429,23 @@ async function* openaiStreamToAnthropic(
     }
 
     if (parsed && typeof parsed === 'object' && parsed.error) {
-      const errorMsg = parsed.error.message || JSON.stringify(parsed.error)
+      const errorMsg =
+        parsed.error && typeof parsed.error === 'object' && 'type' in parsed.error
+          ? JSON.stringify(parsed.error)
+          : parsed.error.message || JSON.stringify(parsed.error)
       const failure = classifyOpenAIHttpFailure({
         status: response.status,
         body: text,
-        url: response.url,
+        url: requestUrl ?? response.url,
       })
       throw APIError.generate(
         response.status,
         parsed,
         buildOpenAICompatibilityErrorMessage(
           `OpenAI API error ${response.status}: ${errorMsg}`,
-          { ...failure, requestUrl: response.url },
+          { ...failure, requestUrl: requestUrl ?? response.url },
         ),
-        response.headers as unknown as Headers,
+        headersWithRequestUrl(response.headers, requestUrl ?? response.url),
       )
     }
 
@@ -2463,6 +2455,25 @@ async function* openaiStreamToAnthropic(
     // content normalization, <think>-tag stripping, and raw text tool-call
     // recovery — then re-emit the resulting message as stream events.
     const message = convertNonStreamingResponseToAnthropicMessage(parsed, model)
+
+    yield {
+      type: 'message_start',
+      message: {
+        id: messageId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    }
 
     for (const block of message.content) {
       if (block.type === 'thinking') {
@@ -3413,7 +3424,7 @@ class OpenAIShimMessages {
                 ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
                 : isGeminiStream
                   ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
-                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl)),
+                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl), response.url || undefined),
           options?.signal,
           cancelBeforeIteration,
         )
@@ -4490,7 +4501,7 @@ class OpenAIShimMessages {
           `OpenAI API error ${status}: ${errorBody}${rateHint}`,
           failureWithUrl,
         ),
-        responseHeaders,
+        headersWithRequestUrl(responseHeaders, requestUrl),
       )
     }
 

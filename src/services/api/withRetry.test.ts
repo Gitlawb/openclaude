@@ -343,8 +343,9 @@ describe('OpenAI-compatible retry classification', () => {
     )
     let attempts = 0
 
-    await expect(
-      drainAsyncGenerator(
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
         withRetry(
           async () => ({} as Anthropic),
           async () => {
@@ -357,9 +358,13 @@ describe('OpenAI-compatible retry classification', () => {
             thinkingConfig: { type: 'disabled' },
           },
         ),
-      ),
-    ).rejects.toBeInstanceOf(CannotRetryError)
+      )
+    } catch (error) {
+      caught = error
+    }
 
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
     expect(attempts).toBe(1)
   })
 

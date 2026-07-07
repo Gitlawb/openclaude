@@ -298,3 +298,12 @@ test('classifies 403 with allotment messages as quota_exhausted', () => {
   expect(failure.retryable).toBe(false)
 })
 
+test('does not classify generic billing 400 errors as quota_exhausted', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Invalid billing header: x-anthropic-billing-header is malformed',
+  })
+
+  expect(failure.category).toBe('malformed_provider_response')
+  expect(failure.retryable).toBe(false)
+})

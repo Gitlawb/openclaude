@@ -5,6 +5,10 @@ import { asMockFetch } from '../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
+import {
+  getAssistantMessageFromError,
+  OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
+} from './errors.ts'
 import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
@@ -9821,6 +9825,55 @@ test('JSON fallback: maps finish_reason=length to max_tokens', async () => {
     | { delta?: { stop_reason?: string } }
     | undefined
   expect(stopEvent?.delta?.stop_reason).toBe('max_tokens')
+})
+
+test('JSON fallback: preserves OpenCode Go quota error guidance', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    withResponseUrl(
+      makeJsonChatCompletion({
+        error: {
+          type: 'FreeUsageLimitError',
+          message: 'free usage limit reached',
+        },
+      }),
+      'https://opencode.ai/zen/go/v1/chat/completions',
+    )) as unknown as FetchType
+
+  try {
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'fake-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    let caught: unknown
+    try {
+      for await (const _event of result.data) {
+        // Consume until the JSON error is surfaced.
+      }
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(APIError)
+    const apiError = caught as APIError
+    expect(apiError.headers?.get('x-opencode-request-url')).toBe(
+      'https://opencode.ai/zen/go/v1/chat/completions',
+    )
+    const message = getAssistantMessageFromError(apiError, 'glm-5.1')
+    const first = message.message.content[0]
+    expect(typeof first === 'object' && first && 'text' in first ? first.text : '').toBe(
+      OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
+    )
+  } finally {
+    globalThis.fetch = previousFetch
+  }
 })
 
 test('JSON fallback: strips <think> tags from emitted text', async () => {
