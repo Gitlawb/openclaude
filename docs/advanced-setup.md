@@ -422,10 +422,14 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
 ```
 
 - **Key matching** — keys match the model api-name exactly, or by prefix (e.g.
-  `my-custom` matches `my-custom-deployment-v2`). A host-qualified key
-  (`<host>:<model>`, where `<host>` is the `OPENAI_BASE_URL` hostname) wins over
-  a bare model key, so the same model name on two endpoints can carry different
-  limits. Either field may be omitted to override only one limit.
+  `my-custom` matches `my-custom-deployment-v2`). An **exact** key always wins
+  over a **prefix** key. A host-qualified key (`<host>:<model>`, where `<host>`
+  is the `OPENAI_BASE_URL` hostname) only wins over a bare key **within the same
+  match kind** — a host-qualified exact key beats a bare exact key, and a
+  host-qualified prefix beats a bare prefix, but a bare exact key still beats a
+  host-qualified prefix. So to give the same model different limits per endpoint,
+  use host-qualified **exact** keys for each endpoint. Either field may be
+  omitted to override only one limit.
 - **Precedence** — from highest to lowest: an **exact** env-var override → the
   built-in catalog / discovery-cache value → a **prefix** env-var override →
   `modelLimits` → the descriptor default. So env-var overrides always win over
