@@ -211,10 +211,30 @@ function resolveProfileCapabilityRouteId(
   provider: string,
   baseUrl?: string,
 ): string {
-  return (
-    resolveRouteIdFromBaseUrl(baseUrl) ??
-    resolveProfileRoute(provider).routeId
-  )
+  const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
+  if (routeIdFromBaseUrl) {
+    return routeIdFromBaseUrl
+  }
+
+  const providerRouteId = resolveProfileRoute(provider).routeId
+
+  // A cloudflare profile retargeted away from the real Workers AI endpoint
+  // (e.g. to gateway.ai.cloudflare.com or another OpenAI-compatible host) is
+  // run generically at runtime — resolveActiveRouteIdFromEnv no longer resolves
+  // it to the cloudflare route. Mirror that boundary here so capability-driven
+  // surfaces (apiFormat, custom auth headers, custom request headers) are not
+  // stripped based on the stale cloudflare route id. Keep the cloudflare route
+  // only when the base URL is the real Workers AI URL (already handled above) or
+  // unset (the descriptor default); any other base URL falls back to generic.
+  if (
+    providerRouteId === 'cloudflare' &&
+    baseUrl &&
+    !isCloudflareBaseUrl(baseUrl)
+  ) {
+    return 'custom'
+  }
+
+  return providerRouteId
 }
 
 function normalizeProfileModelLookupKey(model: string | undefined): string {

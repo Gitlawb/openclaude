@@ -823,6 +823,31 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
   })
 
+  test('cloudflare profile retargeted off Workers AI keeps generic OpenAI-compatible capabilities', async () => {
+    // The Cloudflare route strips apiFormat/custom-auth/custom-header options
+    // (Workers AI has a fixed transport). Once the base URL is retargeted away
+    // from the real Workers AI endpoint, the runtime runs it as a generic
+    // OpenAI-compatible route, so profile capability resolution must fall back
+    // to the generic route and preserve those options instead of dropping them
+    // based on the stale cloudflare route id.
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildCloudflareProfile({
+        baseUrl:
+          'https://gateway.ai.cloudflare.com/v1/abc123/my-gateway/openai',
+        apiFormat: 'responses',
+      }),
+    )
+
+    // apiFormat survives because the retargeted profile resolves to a generic
+    // OpenAI-compatible route (which supports format selection), not cloudflare.
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    // …and the Cloudflare token is still not mirrored to a non-Workers host.
+    expect(process.env.CLOUDFLARE_API_TOKEN).toBeUndefined()
+  })
+
   test('cloudflare profile on a non-Workers api.cloudflare.com path does not mirror CLOUDFLARE_API_TOKEN', async () => {
     // Same api.cloudflare.com host, but the REST management path — NOT Workers
     // AI. The mirror is gated on the isCloudflareBaseUrl path predicate, so the
