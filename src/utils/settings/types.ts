@@ -269,7 +269,9 @@ export const SettingsSchema = lazySchema(() =>
       subscriptionType: z
         .enum(['free', 'pro', 'max', 'team', 'enterprise'])
         .optional()
-        .describe('Override the active subscription type (e.g. "pro")'),
+        .describe(
+          'Override the active subscription type from global user settings only. Allowed values: free, pro, max, team, enterprise. The "free" value is authoritative and takes precedence over OAuth fallback detection.',
+        ),
       apiKeyHelper: z
         .string()
         .optional()

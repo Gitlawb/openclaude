@@ -25,7 +25,7 @@ export const providers: Provider[] = [
   },
   {
     id: 'gemini',
-    name: 'Google Gemini',
+    name: 'Google AI / Gemini',
     setup: '/provider or env vars',
     envVars: ['GOOGLE_API_KEY'],
     notes: 'Supports API-key auth only.',

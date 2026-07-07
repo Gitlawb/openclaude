@@ -65,7 +65,7 @@ export const envVars: EnvVar[] = [
   { name: 'OPENAI_API_KEY', description: 'Key for OpenAI-compatible providers and gateways (incl. Opengateway).' },
   { name: 'OPENAI_BASE_URL', description: 'Base URL of an OpenAI-compatible /v1 endpoint (OpenRouter, LM Studio, LiteLLM, …).' },
   { name: 'OPENAI_MODEL', description: 'Model name to request from the OpenAI-compatible endpoint.' },
-  { name: 'GOOGLE_API_KEY', description: 'Google Gemini API key.' },
+  { name: 'GOOGLE_API_KEY', description: 'Google AI / Gemini API key.' },
   { name: 'NEARAI_API_KEY', description: 'NEAR AI unified gateway key.' },
   { name: 'MIMO_API_KEY', description: 'Xiaomi MiMo API key.' },
   { name: 'OPENCODE_API_KEY', description: 'OpenCode Zen / Go gateway key.' },

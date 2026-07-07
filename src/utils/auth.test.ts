@@ -42,6 +42,42 @@ function mockSettings(
   }))
 }
 
+async function withOAuthFallbackEnv<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = {
+    CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+    CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+    CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+    CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+    CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+    CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  }
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = 'test-oauth-token'
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  try {
+    return await fn()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 test('isClaudeAISubscriber returns true if subscriptionType is pro in user settings', async () => {
   mockSettings('pro', 'user')
   const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
@@ -56,6 +92,14 @@ test('isClaudeAISubscriber returns false if subscriptionType is free in user set
   expect(getSubscriptionType()).toBe('free')
 })
 
+test('isClaudeAISubscriber returns true for OAuth fallback without a free override', async () => {
+  mockSettings(undefined, 'none')
+  await withOAuthFallbackEnv(async () => {
+    const { isClaudeAISubscriber } = await importAuthFresh()
+    expect(isClaudeAISubscriber()).toBe(true)
+  })
+})
+
 // P2 regression: subscriptionType: "free" must short-circuit the OAuth path.
 // Prior code only short-circuited non-free values, so free + valid OAuth
 // returned true (the OAuth-detected subscriber state leaked through). This
@@ -63,26 +107,10 @@ test('isClaudeAISubscriber returns false if subscriptionType is free in user set
 // then asserts the free override wins.
 test('isClaudeAISubscriber returns false for free override even when OAuth tokens would qualify', async () => {
   mockSettings('free', 'user')
-  // Plant a fake token so isAnthropicAuthEnabled() / shouldUseClaudeAIAuth()
-  // would return true without the override. The override must win.
-  const previousTokens = process.env.CLAUDE_AI_OAUTH_TOKEN
-  process.env.CLAUDE_AI_OAUTH_TOKEN = JSON.stringify({
-    accessToken: 'test',
-    refreshToken: 'test',
-    expiresAt: Date.now() + 60_000,
-    scopes: ['user:inference', 'user:profile'],
-    subscriptionType: 'pro',
-  })
-  try {
+  await withOAuthFallbackEnv(async () => {
     const { isClaudeAISubscriber } = await importAuthFresh()
     expect(isClaudeAISubscriber()).toBe(false)
-  } finally {
-    if (previousTokens === undefined) {
-      delete process.env.CLAUDE_AI_OAUTH_TOKEN
-    } else {
-      process.env.CLAUDE_AI_OAUTH_TOKEN = previousTokens
-    }
-  }
+  })
 })
 
 // P1 regression: project settings must NOT be able to spoof subscriber state.
@@ -101,23 +129,9 @@ test('isClaudeAISubscriber ignores subscriptionType from projectSettings', async
 // even if fallback auth conditions (OAuth/environment) are satisfied, and getSubscriptionType() returns 'free'.
 test("when subscriptionType is 'free', isClaudeAISubscriber() returns false even if fallback auth conditions are satisfied, and getSubscriptionType() returns 'free'", async () => {
   mockSettings('free', 'user')
-  const previousTokens = process.env.CLAUDE_AI_OAUTH_TOKEN
-  process.env.CLAUDE_AI_OAUTH_TOKEN = JSON.stringify({
-    accessToken: 'test-fallback-access-token',
-    refreshToken: 'test-fallback-refresh-token',
-    expiresAt: Date.now() + 3600_000,
-    scopes: ['user:inference', 'user:profile'],
-    subscriptionType: 'pro',
-  })
-  try {
+  await withOAuthFallbackEnv(async () => {
     const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
     expect(isClaudeAISubscriber()).toBe(false)
     expect(getSubscriptionType()).toBe('free')
-  } finally {
-    if (previousTokens === undefined) {
-      delete process.env.CLAUDE_AI_OAUTH_TOKEN
-    } else {
-      process.env.CLAUDE_AI_OAUTH_TOKEN = previousTokens
-    }
-  }
+  })
 })

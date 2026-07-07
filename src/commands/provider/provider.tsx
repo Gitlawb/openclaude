@@ -1646,34 +1646,31 @@ export function ProviderWizard({
       )
     }
 
-    case 'gemini-key':
+    case 'gemini-key': {
+      const currentGeminiApiKey =
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title="Google AI / Gemini setup"
           subtitle="Step 1 of 3"
           description={
-            process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+            currentGeminiApiKey
               ? 'Enter a Google AI / Gemini API key, or leave this blank to reuse the current GEMINI_API_KEY/GOOGLE_API_KEY from this session.'
               : 'Enter a Google AI / Gemini API key. You can create one at https://aistudio.google.com/apikey.'
           }
           initialValue=""
           placeholder="AIza..."
           mask="*"
-          allowEmpty={Boolean(
-            process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
-          )}
+          allowEmpty={Boolean(currentGeminiApiKey)}
           onSubmit={value => {
-            const apiKey =
-              value.trim() ||
-              process.env.GEMINI_API_KEY ||
-              process.env.GOOGLE_API_KEY ||
-              ''
+            const apiKey = value.trim() || currentGeminiApiKey
             setStep({ name: 'gemini-model', apiKey, authMode: 'api-key' })
           }}
           onCancel={() => setStep({ name: 'gemini-auth-method' })}
         />
       )
+    }
 
     case 'gemini-access-token': {
       const currentToken =
