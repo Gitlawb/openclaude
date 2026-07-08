@@ -468,7 +468,7 @@ function addTypingIndicator() {
   const el = document.createElement('div')
   el.className = 'thinking-indicator'
   el.id = 'typingIndicator'
-  el.textContent = 'thinking......'
+  el.textContent = 'Cooking......'
   chatContainer.appendChild(el)
   scrollToBottom()
 
@@ -477,7 +477,7 @@ function addTypingIndicator() {
     const elapsed = Math.floor((Date.now() - startTime) / 1000)
     const m = Math.floor(elapsed / 60)
     const s = elapsed % 60
-    el.textContent = `thinking...... (${m}m ${s}s)`
+    el.textContent = `Cooking...... (${m}m ${s}s)`
   }, 1000)
 }
 
@@ -639,7 +639,6 @@ document.getElementById('providerSelect').addEventListener('change', (e) => {
 
 // Project list management
 let currentProject = null
-let expandedProjects = new Set()
 
 async function loadProjects() {
   try {
@@ -651,16 +650,11 @@ async function loadProjects() {
 
     projects.forEach(project => {
       const group = document.createElement('div')
-      // Auto-expand projects that have sessions
-      if (project.sessionCount > 0) {
-        expandedProjects.add(project.id)
-      }
-      group.className = `project-group ${expandedProjects.has(project.id) ? 'expanded' : ''}`
+      group.className = 'project-group'
       group.dataset.projectId = project.id
 
       const header = document.createElement('div')
       header.className = 'project-header'
-      header.onclick = () => toggleProject(project.id)
       header.innerHTML = `
         <span class="project-name" title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span>
         <span class="project-count">${project.sessionCount}</span>
@@ -674,10 +668,8 @@ async function loadProjects() {
       group.appendChild(sessionList)
       projectList.appendChild(group)
 
-      // Load sessions if expanded
-      if (expandedProjects.has(project.id)) {
-        loadSessions(project.id)
-      }
+      // Always load sessions
+      loadSessions(project.id)
     })
   } catch (err) {
     console.error('Failed to load projects:', err)
@@ -711,18 +703,6 @@ async function loadSessions(projectId) {
     })
   } catch (err) {
     console.error('Failed to load sessions:', err)
-  }
-}
-
-function toggleProject(projectId) {
-  const group = document.querySelector(`.project-group[data-project-id="${projectId}"]`)
-  if (expandedProjects.has(projectId)) {
-    expandedProjects.delete(projectId)
-    group.classList.remove('expanded')
-  } else {
-    expandedProjects.add(projectId)
-    group.classList.add('expanded')
-    loadSessions(projectId)
   }
 }
 
@@ -910,9 +890,106 @@ function selectProject(path, element) {
 }
 
 function browseFolder() {
-  // For web browsers, we can't directly browse folders
-  // Show a message to use the input field
-  alert('Please enter the folder path directly in the input field.\n\nExample: /home/user/my-project or C:\\Users\\user\\my-project')
+  const browser = document.getElementById('dirBrowser')
+  const wasHidden = browser.style.display === 'none'
+  if (wasHidden) {
+    browser.style.display = 'block'
+    loadDirectory('')
+  }
+}
+
+function toggleDirBrowser() {
+  const browser = document.getElementById('dirBrowser')
+  browser.style.display = browser.style.display === 'none' ? 'block' : 'none'
+}
+
+async function loadDirectory(dirPath) {
+  const list = document.getElementById('dirBrowserList')
+  const pathEl = document.getElementById('dirBrowserPath')
+  hideCreateFolderInput()
+  list.innerHTML = '<div class="dir-loading">Loading...</div>'
+
+  try {
+    const response = await fetch(`/api/browse-directory?path=${encodeURIComponent(dirPath)}`)
+    const data = await response.json()
+
+    if (data.error) {
+      list.innerHTML = `<div class="dir-error">${escapeHtml(data.error)}</div>`
+      return
+    }
+
+    pathEl.textContent = data.currentPath
+
+    list.innerHTML = ''
+
+    // Parent directory (..)
+    if (data.parentPath) {
+      const parent = document.createElement('div')
+      parent.className = 'dir-entry dir-up'
+      parent.innerHTML = '<span class="dir-icon">📂</span> ..'
+      parent.onclick = () => loadDirectory(data.parentPath)
+      list.appendChild(parent)
+    }
+
+    data.entries.forEach(entry => {
+      const el = document.createElement('div')
+      el.className = 'dir-entry'
+      if (!entry.accessible) el.classList.add('dir-inaccessible')
+      el.innerHTML = `<span class="dir-icon">📁</span> ${escapeHtml(entry.name)}`
+      el.onclick = () => {
+        if (entry.accessible) {
+          loadDirectory(entry.path)
+        }
+      }
+      el.ondblclick = (e) => {
+        e.stopPropagation()
+        document.getElementById('customPath').value = entry.path
+        toggleDirBrowser()
+      }
+      list.appendChild(el)
+    })
+  } catch (err) {
+    list.innerHTML = `<div class="dir-error">Failed to load: ${escapeHtml(err.message)}</div>`
+  }
+}
+
+function showCreateFolderInput() {
+  document.getElementById('dirBrowserNewFolder').style.display = 'flex'
+  document.getElementById('newFolderInput').value = ''
+  document.getElementById('newFolderInput').focus()
+}
+
+function hideCreateFolderInput() {
+  document.getElementById('dirBrowserNewFolder').style.display = 'none'
+}
+
+async function createFolder() {
+  const input = document.getElementById('newFolderInput')
+  const folderName = input.value.trim()
+  if (!folderName) return
+
+  const pathEl = document.getElementById('dirBrowserPath')
+  const parentPath = pathEl.textContent
+  const fullPath = parentPath + (parentPath.endsWith('/') || parentPath.endsWith('\\') ? '' : '/') + folderName
+
+  try {
+    const response = await fetch('/api/create-directory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: fullPath }),
+    })
+    const data = await response.json()
+
+    if (data.error) {
+      alert(data.error)
+      return
+    }
+
+    hideCreateFolderInput()
+    loadDirectory(parentPath)
+  } catch (err) {
+    alert(`Failed to create folder: ${err.message}`)
+  }
 }
 
 async function createNewChat() {

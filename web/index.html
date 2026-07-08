@@ -60,6 +60,25 @@
           <div class="hint">Enter the absolute path to your project directory</div>
         </div>
 
+        <!-- Directory Browser -->
+        <div class="dir-browser" id="dirBrowser" style="display:none">
+          <div class="dir-browser-header">
+            <span class="dir-browser-path" id="dirBrowserPath"></span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button class="dir-browser-btn" onclick="showCreateFolderInput()" title="New Folder">+ Folder</button>
+              <button class="dir-browser-close" onclick="toggleDirBrowser()">✕</button>
+            </div>
+          </div>
+          <div class="dir-browser-new-folder" id="dirBrowserNewFolder" style="display:none">
+            <input type="text" id="newFolderInput" placeholder="Folder name" onkeydown="if(event.key==='Enter')createFolder()">
+            <button class="dir-browser-btn primary" onclick="createFolder()">Create</button>
+            <button class="dir-browser-btn" onclick="hideCreateFolderInput()">Cancel</button>
+          </div>
+          <div class="dir-browser-list" id="dirBrowserList">
+            <!-- Directory entries loaded here -->
+          </div>
+        </div>
+
         <div class="modal-actions">
           <button class="btn-cancel" onclick="closeProjectSelector()">Cancel</button>
           <button class="btn-save" onclick="createNewChat()">Start Chat</button>

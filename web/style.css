@@ -190,19 +190,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 4px 12px 4px 14px;
   border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.project-header:hover {
-  background: var(--surface2);
 }
 
 .project-name {
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
+  font-weight: 600;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -218,11 +213,7 @@ body {
 }
 
 .session-list {
-  display: none;
-  padding: 4px 0 4px 16px;
-}
-.project-group.expanded .session-list {
-  display: block;
+  padding: 4px 0;
 }
 
 .session-item {
@@ -604,7 +595,7 @@ body {
 .send-btn:hover { opacity: 0.8; }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Thinking indicator (thinking...... (xx m xx s)) */
+/* Thinking indicator (Cooking...... (xx m xx s)) */
 .thinking-indicator {
   align-self: flex-start;
   font-size: 13px;
@@ -851,4 +842,139 @@ body {
 
 .btn-browse:hover {
   background: var(--border);
+}
+
+/* Directory Browser */
+.dir-browser {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.dir-browser-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+
+.dir-browser-path {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dir-browser-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.dir-browser-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.dir-browser-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.dir-entry {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
+}
+.dir-entry:last-child {
+  border-bottom: none;
+}
+.dir-entry:hover {
+  background: var(--surface2);
+}
+.dir-entry.dir-up {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.dir-entry.dir-inaccessible {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dir-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.dir-loading,
+.dir-error {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.dir-error {
+  color: var(--error);
+}
+
+/* New Folder button in dir browser header */
+.dir-browser-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.dir-browser-btn:hover {
+  background: var(--border);
+}
+.dir-browser-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.dir-browser-btn.primary:hover {
+  opacity: 0.85;
+}
+
+/* New Folder inline input row */
+.dir-browser-new-folder {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.dir-browser-new-folder input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.dir-browser-new-folder input:focus {
+  border-color: var(--accent);
 }

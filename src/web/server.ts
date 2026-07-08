@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
-import { readFile, readdir } from 'node:fs/promises'
-import { join, extname, basename } from 'node:path'
+import { readFile, readdir, mkdir, stat } from 'node:fs/promises'
+import { join, extname, basename, resolve, win32 } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { createReadStream, readFileSync } from 'node:fs'
@@ -192,6 +192,19 @@ export class WebServer {
       const project = url.searchParams.get('project') || ''
       const session = url.searchParams.get('session') || ''
       return this.handleGetSessionMessages(res, project, session)
+    }
+    if (url.pathname === '/api/browse-directory') {
+      const dirPath = url.searchParams.get('path') || ''
+      return this.handleBrowseDirectory(res, dirPath)
+    }
+    if (url.pathname === '/api/create-directory') {
+      let body = ''
+      req.on('data', (chunk: string) => { body += chunk })
+      req.on('end', () => {
+        const { path: dirPath } = JSON.parse(body)
+        return this.handleCreateDirectory(res, dirPath)
+      })
+      return
     }
 
     // Static files
@@ -472,6 +485,134 @@ export class WebServer {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ messages: limited }))
     } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: err.message }))
+    }
+  }
+
+  private async handleBrowseDirectory(res: any, dirPath: string) {
+    try {
+      if (!dirPath) {
+        // Default to home directory
+        dirPath = homedir()
+      }
+
+      // On Windows, normalize bare drive letters: "C:" -> "C:\\"
+      if (process.platform === 'win32') {
+        dirPath = dirPath.replace(/^([A-Za-z]):$/i, '$1:\\')
+      }
+
+      // Resolve the path to prevent directory traversal attacks
+      const resolved = await canonicalizePath(dirPath)
+      if (!resolved) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid path' }))
+        return
+      }
+
+      // On Windows, ensure drive root paths have trailing separator for stat/readdir
+      let statPath = resolved
+      if (process.platform === 'win32' && /^[A-Za-z]:$/i.test(resolved)) {
+        statPath = resolved + '\\'
+      }
+
+      const dirStat = await stat(statPath)
+      if (!dirStat.isDirectory()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Not a directory' }))
+        return
+      }
+
+      const dirents = await readdir(statPath, { withFileTypes: true })
+      const entries = await Promise.all(
+        dirents
+          .filter(d => d.isDirectory())
+          .map(async d => {
+            const fullPath = join(statPath, d.name)
+            let isAccessible = true
+            try {
+              await stat(fullPath)
+            } catch {
+              isAccessible = false
+            }
+            return {
+              name: d.name,
+              path: fullPath,
+              accessible: isAccessible,
+            }
+          })
+      )
+
+      // Sort: accessible first, then by name
+      entries.sort((a, b) => {
+        if (a.accessible !== b.accessible) return a.accessible ? -1 : 1
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      })
+
+      // Get parent path — use resolve to handle Windows drive roots correctly
+      const parentPath = resolve(statPath, '..')
+
+      // On Windows, resolve('C:\\', '..') returns 'C:\\' — detect root by comparing normalized forms
+      let normalizedResolved = statPath
+      let normalizedParent = parentPath
+      if (process.platform === 'win32') {
+        // Normalize trailing separator for comparison: "C:\" vs "C:\" — should match
+        normalizedResolved = win32.normalize(statPath)
+        normalizedParent = win32.normalize(parentPath)
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        currentPath: normalizedResolved,
+        parentPath: normalizedResolved === normalizedParent ? null : parentPath,
+        entries,
+      }))
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: err.message }))
+    }
+  }
+
+  private async handleCreateDirectory(res: any, dirPath: string) {
+    try {
+      if (!dirPath) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Path is required' }))
+        return
+      }
+
+      // On Windows, normalize bare drive letters
+      if (process.platform === 'win32') {
+        dirPath = dirPath.replace(/^([A-Za-z]):$/i, '$1:\\')
+      }
+
+      // Prevent directory traversal
+      const resolved = await canonicalizePath(dirPath)
+      // Verify the parent exists before creating
+      const parent = join(resolved, '..')
+
+      let parentStatPath = parent
+      if (process.platform === 'win32' && /^[A-Za-z]:$/i.test(parent)) {
+        parentStatPath = parent + '\\'
+      }
+
+      try {
+        await stat(parentStatPath)
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Parent directory does not exist' }))
+        return
+      }
+
+      await mkdir(resolved, { recursive: false })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: resolved }))
+    } catch (err: any) {
+      if (err.code === 'EEXIST') {
+        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Directory already exists' }))
+        return
+      }
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: err.message }))
     }
