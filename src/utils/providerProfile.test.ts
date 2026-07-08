@@ -535,6 +535,50 @@ test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stal
   assert.equal(resolveActiveRouteIdFromEnv(env), 'nvidia-nim')
 })
 
+test('buildStartupEnvFromProfile preserves explicit OpenAI opt-out over concrete env-only NIM setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_USE_OPENAI: '0',
+    OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+    OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
+    NVIDIA_API_KEY: 'nvapi-live',
+    NVIDIA_NIM: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '0')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
+test('buildStartupEnvFromProfile preserves explicit Gemini selection over concrete env-only NIM setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_USE_GEMINI: '1',
+    GEMINI_API_KEY: 'gemini-live',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+    OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+    OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
+    NVIDIA_API_KEY: 'nvapi-live',
+    NVIDIA_NIM: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'gemini')
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
 test('buildStartupEnvFromProfile respects an explicit CLAUDE_CODE_USE_OPENAI=0 opt-out (issue #1245)', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,

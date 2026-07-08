@@ -386,6 +386,25 @@ function setNvidiaNimChatTemplateThinking(body: Record<string, unknown>): void {
   body.chat_template_kwargs = kwargs
 }
 
+function maybeSetNvidiaNimChatTemplateThinking(
+  body: Record<string, unknown>,
+  baseUrl: string | undefined,
+  reasoningRequestPlan: {
+    thinkingType?: string
+    reasoningEffort?: string
+  },
+): void {
+  if (!hasNvidiaNimApiHost(baseUrl)) return
+  if (
+    reasoningRequestPlan.thinkingType !== 'enabled' &&
+    !reasoningRequestPlan.reasoningEffort
+  ) {
+    return
+  }
+
+  setNvidiaNimChatTemplateThinking(body)
+}
+
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
@@ -3778,13 +3797,7 @@ class OpenAIShimMessages {
       if (reasoningRequestPlan.reasoningEffort) {
         body.reasoning_effort = reasoningRequestPlan.reasoningEffort
       }
-      if (
-        hasNvidiaNimApiHost(request.baseUrl) &&
-        (reasoningRequestPlan.thinkingType === 'enabled' ||
-          reasoningRequestPlan.reasoningEffort)
-      ) {
-        setNvidiaNimChatTemplateThinking(body)
-      }
+      maybeSetNvidiaNimChatTemplateThinking(body, request.baseUrl, reasoningRequestPlan)
     }
 
     if (reasoningRequestPlan.wireFormat === 'zai_compatible') {
@@ -3798,13 +3811,7 @@ class OpenAIShimMessages {
       } else {
         delete body.reasoning_effort
       }
-      if (
-        hasNvidiaNimApiHost(request.baseUrl) &&
-        (reasoningRequestPlan.thinkingType === 'enabled' ||
-          reasoningRequestPlan.reasoningEffort)
-      ) {
-        setNvidiaNimChatTemplateThinking(body)
-      }
+      maybeSetNvidiaNimChatTemplateThinking(body, request.baseUrl, reasoningRequestPlan)
     }
 
     // Route/model strip rules are authoritative even when compatibility

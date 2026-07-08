@@ -1238,14 +1238,32 @@ export function hasExplicitProviderSelection(
   )
 }
 
+function hasExplicitNonOpenAIProviderSelection(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
+function hasExplicitOpenAICompatibleOptOut(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+  )
+}
+
 function hasConcreteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
-    return true
-  }
-
-  if (getConcreteOpenAICompatibleEnvRouteId(processEnv)) {
     return true
   }
 
@@ -1294,6 +1312,14 @@ function hasConcreteProviderSelection(
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  ) {
+    return true
+  }
+
+  if (
+    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
+    !hasExplicitNonOpenAIProviderSelection(processEnv) &&
+    getConcreteOpenAICompatibleEnvRouteId(processEnv)
   ) {
     return true
   }
@@ -1976,7 +2002,9 @@ export async function buildStartupEnvFromProfile(options?: {
   const concreteOpenAIRouteId = getConcreteOpenAICompatibleEnvRouteId(processEnv)
   if (
     concreteOpenAIRouteId &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
+    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
+    !hasExplicitNonOpenAIProviderSelection(processEnv)
   ) {
     return buildLaunchEnv({
       profile: 'openai',
@@ -2005,10 +2033,7 @@ export async function buildStartupEnvFromProfile(options?: {
     // injecting the default Opengateway profile — otherwise the fallback
     // re-enables OpenAI and the startup validator reports a spurious missing
     // OPENAI_API_KEY warning (#1245).
-    if (
-      processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
-    ) {
+    if (hasExplicitOpenAICompatibleOptOut(processEnv)) {
       return processEnv
     }
 
