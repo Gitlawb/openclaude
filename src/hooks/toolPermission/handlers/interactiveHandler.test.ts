@@ -18,7 +18,11 @@ type QueueItem = {
   onReject: (feedback?: string) => void
 }
 
-function setup(opts?: { preAbort?: boolean; throwOnPush?: boolean }) {
+function setup(opts?: {
+  preAbort?: boolean
+  throwOnPush?: boolean
+  bridge?: unknown
+}) {
   // Plain (non-idempotent) spy: a double-call fails the exactly-once assertions,
   // so the handler can't lean on QueryGuard's internal idempotence.
   const resume = vi.fn()
@@ -70,7 +74,7 @@ function setup(opts?: { preAbort?: boolean; throwOnPush?: boolean }) {
     result: { behavior: 'ask' },
     // Skip the async hook/classifier races so only the dialog callbacks resolve.
     awaitAutomatedChecksBeforeDialog: true,
-    bridgeCallbacks: undefined,
+    bridgeCallbacks: opts?.bridge,
     channelCallbacks: undefined,
   } as unknown as InteractivePermissionParams
 
@@ -168,6 +172,18 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(resolve).toHaveBeenCalledTimes(1)
     // Must not enqueue a prompt that is immediately stale.
     expect(ctx.pushToQueue).not.toHaveBeenCalled()
+  })
+
+  test('cancels the remote bridge prompt on external abort', () => {
+    const bridge = {
+      sendRequest: vi.fn(),
+      onResponse: vi.fn(() => () => {}),
+      cancelRequest: vi.fn(),
+      sendResponse: vi.fn(),
+    }
+    const { abortController } = setup({ bridge })
+    abortController.abort()
+    expect(bridge.cancelRequest).toHaveBeenCalledTimes(1)
   })
 
   test('abort after a normal resolution does not double-resolve or double-resume', () => {
