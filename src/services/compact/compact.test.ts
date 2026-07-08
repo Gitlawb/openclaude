@@ -45,6 +45,9 @@ const _realDiskOutputModule = await import(
 const _realMessagesModule = await import(
   `../../utils/messages.js?real=${Date.now()}-${Math.random()}`
 )
+const _realSystemFactoriesModule = await import(
+  `../../utils/messages/systemFactories.js?real=${Date.now()}-${Math.random()}`
+)
 const _realSlowOperationsModule = await import(
   `../../utils/slowOperations.js?real=${Date.now()}-${Math.random()}`
 )
@@ -663,6 +666,9 @@ afterAll(async () => {
     MAX_TASK_OUTPUT_BYTES_DISPLAY: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES_DISPLAY,
   }))
   mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
+  mock.module('../../utils/messages/systemFactories.js', () => ({
+    ..._realSystemFactoriesModule,
+  }))
   mock.module('../../utils/slowOperations.js', () => ({
     ..._realSlowOperationsModule,
   }))
