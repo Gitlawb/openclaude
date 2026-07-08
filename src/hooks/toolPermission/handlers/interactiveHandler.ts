@@ -73,11 +73,21 @@ function handleInteractivePermission(
   // here (not around the whole permission resolution) so non-human async work
   // — e.g. the classifier in hasPermissionsToUseTool — stays watched and a
   // genuinely stuck check can still fire the watchdog.
-  const resumeWatchdog = ctx.toolUseContext.queryActivity?.beginUserInteraction?.()
+  // beginUserInteraction() documents its resume fn as "call exactly once". We
+  // resume it from two places (claim() and the resolveOnce safety net), so wrap
+  // it in a local idempotent helper that calls the underlying fn at most once —
+  // don't rely on the QueryActivity implementation being idempotent itself.
+  const rawResume = ctx.toolUseContext.queryActivity?.beginUserInteraction?.()
+  let watchdogResumed = false
+  const resumeWatchdog = () => {
+    if (watchdogResumed) return
+    watchdogResumed = true
+    rawResume?.()
+  }
   const resolveOnceHandle = createResolveOnce(
     (decision: PermissionDecision) => {
       // Idempotent safety net; the claim() wrapper below normally resumes first.
-      resumeWatchdog?.()
+      resumeWatchdog()
       resolve(decision)
     },
   )
@@ -87,10 +97,10 @@ function handleInteractivePermission(
   // Resuming here rather than in resolveOnce means: (1) post-decision async
   // work such as handleUserAllow()/persistPermissions() runs watched again once
   // the human has decided, and (2) an exception in that work cannot strand the
-  // watchdog suspended for the rest of the turn. Resume is idempotent.
+  // watchdog suspended for the rest of the turn.
   const claim = () => {
     const claimed = resolveOnceHandle.claim()
-    if (claimed) resumeWatchdog?.()
+    if (claimed) resumeWatchdog()
     return claimed
   }
   let userInteracted = false

@@ -25,16 +25,12 @@ type QueueItem = {
 }
 
 function setup() {
-  // Mirror the real QueryGuard resume fn, which is idempotent (a `resumed`
-  // guard): the claim() path resumes and the resolveOnce() safety net may call
-  // it again, but only the first call has effect. `resume` counts effects.
+  // beginUserInteraction returns a resume fn documented as "call exactly once".
+  // A plain (non-idempotent) spy: a double-call would fail the "toHaveBeenCalledTimes(1)"
+  // assertions, proving the handler honours that contract rather than leaning on
+  // QueryGuard's internal idempotence.
   const resume = vi.fn()
-  let resumed = false
-  const beginUserInteraction = vi.fn(() => () => {
-    if (resumed) return
-    resumed = true
-    resume()
-  })
+  const beginUserInteraction = vi.fn(() => resume)
   let queueItem: QueueItem | undefined
 
   const ctx = {
