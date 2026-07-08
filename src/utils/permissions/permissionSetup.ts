@@ -99,30 +99,11 @@ import {
  * 2. Prefix rules for script interpreters (python:*, node:*, etc.)
  * 3. Wildcard rules matching interpreters (python*, node*, etc.)
  */
-export function isDangerousBashPermission(
-  toolName: string,
-  ruleContent: string | undefined,
+function matchesBashPatternFamily(
+  content: string,
+  patterns: readonly string[],
 ): boolean {
-  // Only check Bash rules
-  if (toolName !== BASH_TOOL_NAME) {
-    return false
-  }
-
-  // Tool-level allow (Bash with no content, or Bash(*)) - allows ALL commands
-  if (ruleContent === undefined || ruleContent === '') {
-    return true
-  }
-
-  const content = ruleContent.trim().toLowerCase()
-
-  // Standalone wildcard (*) matches everything
-  if (content === '*') {
-    return true
-  }
-
-  // Check for dangerous patterns with prefix syntax (e.g., "python:*")
-  // or wildcard syntax (e.g., "python*")
-  for (const pattern of DANGEROUS_BASH_PATTERNS) {
+  for (const pattern of patterns) {
     const lowerPattern = pattern.toLowerCase()
 
     // Exact match to the pattern itself (e.g., "python" as a rule)
@@ -154,6 +135,32 @@ export function isDangerousBashPermission(
   return false
 }
 
+export function isDangerousBashPermission(
+  toolName: string,
+  ruleContent: string | undefined,
+): boolean {
+  // Only check Bash rules
+  if (toolName !== BASH_TOOL_NAME) {
+    return false
+  }
+
+  // Tool-level allow (Bash with no content, or Bash(*)) - allows ALL commands
+  if (ruleContent === undefined || ruleContent === '') {
+    return true
+  }
+
+  const content = ruleContent.trim().toLowerCase()
+
+  // Standalone wildcard (*) matches everything
+  if (content === '*') {
+    return true
+  }
+
+  // Check for dangerous patterns with prefix syntax (e.g., "python:*")
+  // or wildcard syntax (e.g., "python*")
+  return matchesBashPatternFamily(content, DANGEROUS_BASH_PATTERNS)
+}
+
 function isPermissiveSafetyAllowedBashRule(
   ruleValue: PermissionRuleValue,
 ): boolean {
@@ -170,20 +177,7 @@ function isPermissiveSafetyAllowedBashRule(
     pattern => pattern !== 'bash' && pattern !== 'sh' && pattern !== 'ssh',
   )
 
-  for (const pattern of relaxedPatterns) {
-    const lowerPattern = pattern.toLowerCase()
-    if (
-      content === lowerPattern ||
-      content === `${lowerPattern}:*` ||
-      content === `${lowerPattern}*` ||
-      content === `${lowerPattern} *` ||
-      (content.startsWith(`${lowerPattern} -`) && content.endsWith('*'))
-    ) {
-      return true
-    }
-  }
-
-  return false
+  return matchesBashPatternFamily(content, relaxedPatterns)
 }
 
 /**

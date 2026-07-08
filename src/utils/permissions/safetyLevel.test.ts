@@ -1,16 +1,14 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import {
   getSafetyLevel,
   isPermissiveSafety,
   resetSafetyLevelCache,
 } from './safetyLevel.js'
+import { installSafetyLevelTestCleanup } from '../../test/safetyLevelTestHelpers.js'
+
+installSafetyLevelTestCleanup()
 
 describe('getSafetyLevel', () => {
-  afterEach(() => {
-    delete process.env.OPENCLAUDE_SAFETY_LEVEL
-    resetSafetyLevelCache()
-  })
-
   it('defaults to balanced when unset', () => {
     expect(getSafetyLevel()).toBe('balanced')
     expect(isPermissiveSafety()).toBe(false)

@@ -474,7 +474,7 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
 ## Safety strictness
 
 OpenClaude runs several "safety" checks: a model-level refusal directive, bash
-command-injection heuristics, and sensitive-file / auto-edit guards. These are
+command-injection validation, and sensitive-file / auto-edit guards. These are
 conservative by design, but a few of them can surface as refusals or approval
 prompts for entirely benign, routine coding tasks (e.g. editing `.gitmodules`,
 running a build script that contains `$(date)`, or writing a CTF port scanner).
@@ -487,7 +487,7 @@ everyone:
 |-------|----------|
 | `strict` | Current/default-equivalent non-permissive behavior. |
 | `balanced` | Default. Same behavior as `strict`. |
-| `permissive` | Relaxes the application-level heuristics that produce false-positive refusals for benign tasks: the legacy bash safety validation path is bypassed, ordinary interpreter allow-rules (`Bash(python:*)`, `Bash(npm run:*)`, …) are not stripped in auto mode, and routine edits to "sensitive" config files are not prompted. Dangerous directory, Windows-path, symlink-resolved path, and UNC guards remain active. The model-level prompt is not weakened by this flag. |
+| `permissive` | Opt-in mode for users who prefer fewer false-positive stops. It bypasses the legacy bash command-injection validation path entirely, keeps ordinary interpreter allow-rules (`Bash(python:*)`, `Bash(npm run:*)`, …) when entering auto mode, and skips prompts for routine edits to filenames on the broad sensitive-file list. Dangerous directory, Windows-path, symlink-resolved path, and UNC guards remain active. The model-level prompt is not weakened by this flag. |
 
 ```bash
 export OPENCLAUDE_SAFETY_LEVEL=permissive   # relax benign-task false positives

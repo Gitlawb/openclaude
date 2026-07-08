@@ -25,14 +25,16 @@
 export type SafetyLevel = 'strict' | 'balanced' | 'permissive'
 
 let cached: SafetyLevel | undefined
+let cachedRaw: string | undefined
 
 export function getSafetyLevel(): SafetyLevel {
-  if (cached) {
-    return cached
-  }
   const raw = (process.env.OPENCLAUDE_SAFETY_LEVEL ?? '')
     .trim()
     .toLowerCase()
+  if (cached && cachedRaw === raw) {
+    return cached
+  }
+  cachedRaw = raw
   cached = raw === 'strict' || raw === 'permissive' ? raw : 'balanced'
   return cached
 }
@@ -45,4 +47,5 @@ export function isPermissiveSafety(): boolean {
 /** Test helper: reset the cached value so a new env var is picked up. */
 export function resetSafetyLevelCache(): void {
   cached = undefined
+  cachedRaw = undefined
 }

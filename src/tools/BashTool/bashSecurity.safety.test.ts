@@ -1,16 +1,14 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import {
   bashCommandIsSafeAsync_DEPRECATED,
   bashCommandIsSafe_DEPRECATED,
 } from './bashSecurity.js'
 import { resetSafetyLevelCache } from '../../utils/permissions/safetyLevel.js'
+import { installSafetyLevelTestCleanup } from '../../test/safetyLevelTestHelpers.js'
+
+installSafetyLevelTestCleanup()
 
 describe('bash security check respects safety level (issue #1616)', () => {
-  afterEach(() => {
-    delete process.env.OPENCLAUDE_SAFETY_LEVEL
-    resetSafetyLevelCache()
-  })
-
   it('flags benign command substitution under default (balanced) mode', () => {
     const result = bashCommandIsSafe_DEPRECATED('echo "built $(date)"')
     expect(result.behavior).toBe('ask')
