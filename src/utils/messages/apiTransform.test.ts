@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  appendMessageTagToUserMessage,
   createUserMessage,
-  deriveShortMessageId,
   mergeUserMessages,
-} from './messages.js'
-import type { UserMessage } from '../types/message.js'
+} from '../messages.js'
+import {
+  appendMessageTagToUserMessage,
+  deriveShortMessageId,
+} from './apiTransform.js'
+import type { UserMessage } from '../../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
