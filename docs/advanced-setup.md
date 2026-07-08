@@ -485,9 +485,9 @@ everyone:
 
 | Value | Behavior |
 |-------|----------|
-| `strict` | Every check stays on (most conservative). |
-| `balanced` | Default. Keeps all real protections. |
-| `permissive` | Relaxes the application-level heuristics that produce false-positive refusals for benign tasks: the bash command-injection check is skipped, ordinary interpreter allow-rules (`Bash(python:*)`, `Bash(npm run:*)`, …) are not stripped in auto mode, and routine edits to "sensitive" config files are not prompted. The model-level prompt is not weakened by this flag. |
+| `strict` | Current/default-equivalent non-permissive behavior. |
+| `balanced` | Default. Same behavior as `strict`. |
+| `permissive` | Relaxes the application-level heuristics that produce false-positive refusals for benign tasks: the legacy bash safety validation path is bypassed, ordinary interpreter allow-rules (`Bash(python:*)`, `Bash(npm run:*)`, …) are not stripped in auto mode, and routine edits to "sensitive" config files are not prompted. Dangerous directory, Windows-path, symlink-resolved path, and UNC guards remain active. The model-level prompt is not weakened by this flag. |
 
 ```bash
 export OPENCLAUDE_SAFETY_LEVEL=permissive   # relax benign-task false positives

@@ -11,8 +11,8 @@
  *
  * This module lets users dial the strictness without forking the behavior for
  * everyone:
- *   - "strict"    : every check stays on (current/default-equivalent behavior).
- *   - "balanced"  : default. Keeps all real protections.
+ *   - "strict"    : current/default-equivalent non-permissive behavior.
+ *   - "balanced"  : default. Same behavior as strict.
  *   - "permissive": relaxes the application-level heuristics that produce
  *                   false-positive refusals for benign tasks. The model-level
  *                   prompt is not weakened by this flag (use the prompt text
