@@ -735,7 +735,7 @@ export function isNotEmptyMessage(message: Message): boolean {
   )
 }
 
-export { deriveUUID, normalizeMessages, normalizeMessagesCached } from "./messages/normalize.js"
+export { deriveUUID, normalizeMessages, normalizeMessagesCached } from './messages/normalize.js'
 
 type ToolUseRequestMessage = NormalizedAssistantMessage & {
   message: { content: [ToolUseBlock] }
