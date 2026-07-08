@@ -841,6 +841,32 @@ export const SettingsSchema = lazySchema(() =>
             'the currently-active id) and retries the turn. ' +
             'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
         ),
+      modelLimits: z
+        .record(
+          z.string(),
+          z.object({
+            contextWindow: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Total context window size in tokens.'),
+            maxOutputTokens: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Maximum output tokens per response.'),
+          }),
+        )
+        .optional()
+        .describe(
+          'Per-model overrides for context window and max output tokens. ' +
+            'Used for OpenAI-compatible models whose limits are not in the built-in catalog. ' +
+            'Keys are matched against the model name (exact match preferred, then prefix). ' +
+            'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS / CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS env vars take precedence. ' +
+            'Example: { "qwen3.6-plus": { "contextWindow": 1048576, "maxOutputTokens": 32768 } }',
+        ),
       fastMode: z
         .boolean()
         .optional()

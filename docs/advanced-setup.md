@@ -408,6 +408,7 @@ already present as dev dependencies, so source/dev builds need no extra steps.
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
 | `OPENCLAUDE_OLLAMA_NUM_CTX` | Ollama only | Request-level Ollama context window. Defaults to `32768`; set a larger value for longer same-session history if your model and hardware can handle it. |
 | `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
+| `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS` | No | JSON map of OpenAI-compatible model names to max output tokens, such as `{"custom-model":32768}`. Use this when a custom provider does not expose output-limit metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
@@ -432,6 +433,43 @@ Model env vars are provider-scoped: first-party Anthropic sessions read
 `ANTHROPIC_MODEL`, OpenAI-compatible sessions read `OPENAI_MODEL`, Gemini reads
 `GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
 or Foundry launches, select the model with `--model`.
+
+### Per-model limit overrides (`settings.json`)
+
+When a custom OpenAI-compatible provider does not expose context metadata from
+`/v1/models`, you can pin a model's context window and max output tokens. In
+addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
+`CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS` env vars above, you can set a
+`modelLimits` map in your `settings.json` (the same file `/config` writes, e.g.
+`~/.openclaude/settings.json`):
+
+```json
+{
+  "modelLimits": {
+    "my-custom-deployment": { "contextWindow": 262144, "maxOutputTokens": 32768 },
+    "api.private-llm.test:my-custom-deployment": { "contextWindow": 1000000 }
+  }
+}
+```
+
+- **Key matching** — keys match the model api-name exactly, or by prefix (e.g.
+  `my-custom` matches `my-custom-deployment-v2`). An **exact** key always wins
+  over a **prefix** key. A host-qualified key (`<host>:<model>`) only wins over a
+  bare key **within the same match kind** — a host-qualified exact key beats a
+  bare exact key, and a host-qualified prefix beats a bare prefix, but a bare
+  exact key still beats a host-qualified prefix. So to give the same model
+  different limits per endpoint, use host-qualified **exact** keys for each
+  endpoint. `<host>` is the `OPENAI_BASE_URL` host **including the port when the
+  URL has one** (`new URL(baseUrl).host`): for `http://localhost:4000/v1` the
+  key is `localhost:4000:my-model`, not `localhost:my-model`. Either field may be
+  omitted to override only one limit.
+- **Precedence** — from highest to lowest: an **exact** env-var override → the
+  built-in catalog value → the discovery-cache value → a **prefix** env-var
+  override → `modelLimits` → the descriptor default. (The built-in catalog is
+  checked before the discovery cache.) So env-var overrides always win over
+  `modelLimits`, and `modelLimits` mainly fills in models that have no built-in
+  metadata (a known catalog model keeps its catalog limit unless you set an
+  *exact* env override for it).
 
 ## Runtime Hardening
 
