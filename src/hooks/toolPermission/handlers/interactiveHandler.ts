@@ -72,16 +72,27 @@ function handleInteractivePermission(
   // human think-time is not counted toward the idle/hard-max timeout. Scoped
   // here (not around the whole permission resolution) so non-human async work
   // — e.g. the classifier in hasPermissionsToUseTool — stays watched and a
-  // genuinely stuck check can still fire the watchdog. Resume fires on the
-  // single terminal resolution (allow/reject/abort/hook/classifier/bridge/
-  // channel), so it runs exactly once.
+  // genuinely stuck check can still fire the watchdog.
   const resumeWatchdog = ctx.toolUseContext.queryActivity?.beginUserInteraction?.()
-  const { resolve: resolveOnce, isResolved, claim } = createResolveOnce(
+  const resolveOnceHandle = createResolveOnce(
     (decision: PermissionDecision) => {
+      // Idempotent safety net; the claim() wrapper below normally resumes first.
       resumeWatchdog?.()
       resolve(decision)
     },
   )
+  const { resolve: resolveOnce, isResolved } = resolveOnceHandle
+  // Resume the watchdog the moment a decision is claimed — every terminal path
+  // (allow/reject/abort/hook/classifier/bridge/channel/recheck) claims first.
+  // Resuming here rather than in resolveOnce means: (1) post-decision async
+  // work such as handleUserAllow()/persistPermissions() runs watched again once
+  // the human has decided, and (2) an exception in that work cannot strand the
+  // watchdog suspended for the rest of the turn. Resume is idempotent.
+  const claim = () => {
+    const claimed = resolveOnceHandle.claim()
+    if (claimed) resumeWatchdog?.()
+    return claimed
+  }
   let userInteracted = false
   let checkmarkTransitionTimer: ReturnType<typeof setTimeout> | undefined
   // Hoisted so onDismissCheckmark (Esc during checkmark window) can also

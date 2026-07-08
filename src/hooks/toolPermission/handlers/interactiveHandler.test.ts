@@ -25,8 +25,16 @@ type QueueItem = {
 }
 
 function setup() {
+  // Mirror the real QueryGuard resume fn, which is idempotent (a `resumed`
+  // guard): the claim() path resumes and the resolveOnce() safety net may call
+  // it again, but only the first call has effect. `resume` counts effects.
   const resume = vi.fn()
-  const beginUserInteraction = vi.fn(() => resume)
+  let resumed = false
+  const beginUserInteraction = vi.fn(() => () => {
+    if (resumed) return
+    resumed = true
+    resume()
+  })
   let queueItem: QueueItem | undefined
 
   const ctx = {
@@ -77,6 +85,7 @@ function setup() {
   handleInteractivePermission(params, resolve)
 
   return {
+    ctx,
     resume,
     beginUserInteraction,
     resolve,
@@ -118,5 +127,33 @@ describe('handleInteractivePermission watchdog suspension', () => {
     await getQueueItem().onAllow({}, []) // loses the claim
     expect(resume).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledTimes(1)
+  })
+
+  // P2a: the watchdog must resume the instant the decision is claimed, before
+  // post-approval async work (handleUserAllow → persistPermissions) is awaited,
+  // so a stall in that work is watched again once the human has decided.
+  test('resumes before awaiting post-approval async work', () => {
+    const { ctx, getQueueItem, resume } = setup()
+    let releaseAllow: (() => void) | undefined
+    ctx.handleUserAllow = vi.fn(
+      () =>
+        new Promise(res => {
+          releaseAllow = () => res({ behavior: 'allow' })
+        }),
+    )
+    void getQueueItem().onAllow({}, []) // handleUserAllow stays pending
+    expect(resume).toHaveBeenCalledTimes(1)
+    releaseAllow?.()
+  })
+
+  // P2b: an exception in post-approval work must not strand the watchdog
+  // suspended — resume happens on claim, independent of resolveOnce succeeding.
+  test('resumes even when allow processing throws', async () => {
+    const { ctx, getQueueItem, resume } = setup()
+    ctx.handleUserAllow = vi.fn(async () => {
+      throw new Error('persist failed')
+    })
+    await expect(getQueueItem().onAllow({}, [])).rejects.toThrow('persist failed')
+    expect(resume).toHaveBeenCalledTimes(1)
   })
 })
