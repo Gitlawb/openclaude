@@ -1,19 +1,19 @@
-/* Dark theme (default) */
+/* ── Dark theme (default): warm, low-glare palette ── */
 :root, [data-theme="dark"] {
-  --bg: #1a1a2e;
-  --surface: #16213e;
-  --surface2: #0f3460;
-  --text: #e4e4e4;
-  --text-muted: #8b8b9e;
-  --accent: #e94560;
-  --accent2: #533483;
-  --border: #2a2a4a;
+  --bg: #1b1c20;
+  --surface: #24252a;
+  --surface2: #303136;
+  --text: #e0ddd7;
+  --text-muted: #92949c;
+  --accent: #d4875e;
+  --accent2: #7c6fa0;
+  --border: #36373c;
   --success: #4ade80;
-  --error: #ef4444;
-  --warning: #f59e0b;
+  --error: #f87171;
+  --warning: #fbbf24;
 }
 
-/* Light theme */
+/* ── Light theme ── */
 [data-theme="light"] {
   --bg: #f0f4f8;
   --surface: #ffffff;
@@ -28,6 +28,29 @@
   --warning: #d97706;
 }
 
+/* ── Custom scrollbar (Webkit) ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -35,6 +58,7 @@ body {
   background: var(--bg);
   color: var(--text);
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: row;
 }
@@ -548,11 +572,19 @@ body {
   color: #fff;
 }
 
+/* Bottom bar: controls above input */
+.bottom-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 4px 20px 6px;
+  display: flex;
+  align-items: center;
+}
+
 /* Input area */
 .input-area {
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  padding: 16px 20px;
+  padding: 0 20px 16px;
   display: flex;
   gap: 12px;
 }
@@ -590,12 +622,14 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: opacity 0.2s;
+  height: 43px;
+  align-self: center;
 }
 
 .send-btn:hover { opacity: 0.8; }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Thinking indicator (Cooking...... (xx m xx s)) */
+/* Thinking indicator (Cooking… (xx m xx s)) */
 .thinking-indicator {
   align-self: flex-start;
   font-size: 13px;
@@ -604,15 +638,6 @@ body {
   font-style: italic;
   letter-spacing: 0.5px;
 }
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 /* Settings button */
 .settings-btn {
@@ -630,25 +655,58 @@ body {
   color: var(--text);
 }
 
-/* Theme toggle */
+/* Theme toggle — CSS-drawn sun/moon icons */
 .theme-btn {
+  position: relative;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px;
-  color: var(--text-muted);
+  padding: 0;
   cursor: pointer;
-  font-size: 16px;
-  transition: all 0.2s;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: background 0.2s, border-color 0.2s;
   width: 36px;
   height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .theme-btn:hover {
   background: var(--surface2);
-  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.theme-btn::before,
+.theme-btn::after {
+  content: '';
+  display: block;
+  border-radius: 50%;
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Sun — a plain circle */
+.theme-btn::after {
+  background: var(--text-muted);
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+[data-theme="light"] .theme-btn::after {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+/* Moon — crescent cutout */
+.theme-btn::before {
+  background: radial-gradient(circle at 72% 50%, transparent 7px, var(--text-muted) 7.5px);
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+}
+[data-theme="dark"] .theme-btn::before {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 
 /* Settings modal */
@@ -977,4 +1035,196 @@ body {
 }
 .dir-browser-new-folder input:focus {
   border-color: var(--accent);
+}
+
+/* Sidebar toggle button — hidden on desktop */
+.sidebar-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-touch-callout: none;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* Sidebar overlay (mobile) */
+.sidebar-overlay {
+  display: none;
+}
+
+/* ========== Mobile Responsive ========== */
+@media (max-width: 768px) {
+  body {
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  body.sidebar-open {
+    overflow: hidden;
+  }
+
+  /* Sidebar toggle visible */
+  .sidebar-toggle {
+    display: block;
+  }
+
+  /* Sidebar slides in from left */
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.3);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99;
+  }
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Header — compact */
+  .header {
+    padding: 14px 16px;
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 16px;
+  }
+
+  /* Bottom bar: more padding-top, less padding-bottom */
+  .bottom-bar {
+    padding-top: 10px;
+    padding-bottom: 4px;
+  }
+
+  .settings-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .theme-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .status {
+    font-size: 12px;
+  }
+
+  /* Chat area */
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .chat-container {
+    flex: 1;
+    padding: 20px 16px;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .message {
+    max-width: 95%;
+    font-size: 14px;
+    padding: 10px 14px;
+  }
+
+  .tool-use-display,
+  .tool-calls-container {
+    max-width: 95%;
+  }
+
+  .tool-calls-container .tool-use-display {
+    font-size: 11px;
+  }
+
+  .permission-dialog {
+    max-width: 95%;
+    padding: 12px;
+  }
+
+  /* Input area */
+  .input-area {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .input-area textarea {
+    font-size: 16px; /* prevent iOS zoom */
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+  .send-btn {
+    padding: 0 14px;
+    font-size: 14px;
+    height: 44px;
+    align-self: center;
+  }
+
+  /* Modals — fullscreen on mobile */
+  .modal {
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 16px;
+    margin-bottom: 14px;
+  }
+
+  .project-options {
+    max-height: 160px;
+  }
+
+  .dir-browser-list {
+    max-height: 180px;
+  }
+
+  .project-name {
+    max-width: 120px;
+  }
+
+  .sidebar-header {
+    padding: 12px;
+  }
+  .sidebar-header h2 {
+    font-size: 13px;
+  }
+  .project-list {
+    padding: 6px;
+  }
+  .session-item {
+    padding: 6px 10px;
+  }
 }

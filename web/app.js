@@ -7,6 +7,14 @@ let thinkingIndicatorEl = null
 let pendingToolCalls = []  // Buffered tool_use_display events, rendered when tool_result arrives
 let pendingPrompts = new Map()
 let currentModel = ''  // Model name from settings
+let currentToolContainer = null  // .tool-calls-container for live tool calls
+let currentToolList = null       // .tool-calls-list inside the container
+
+// API error retry
+const MAX_RETRIES = 3
+const RETRY_DELAY = 2000
+let lastChatMessage = null
+let retryCount = 0
 
 const chatContainer = document.getElementById('chatContainer')
 const messageInput = document.getElementById('messageInput')
@@ -23,7 +31,6 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme)
   localStorage.setItem('openclaude-theme', theme)
   const btn = document.getElementById('themeToggle')
-  btn.textContent = theme === 'dark' ? '🌙' : '☀️'
 }
 
 function toggleTheme() {
@@ -108,10 +115,12 @@ function mergeToolCalls(toolCalls) {
 
 // Render a tool call with optional output and error state.
 // Handles merging with previous same-named tool call (single-line only).
+// Renders inside a .tool-calls-container with a toggle button (same pattern as history).
 function renderToolCallLive(toolName, display, output = '', isError = false) {
+  const list = getOrCreateToolList()
   const isSingleLine = !display.includes('\n')
-  // Check for merge with last rendered tool call
-  const allDisplays = chatContainer.querySelectorAll('.tool-use-display')
+  // Check for merge with last rendered tool call within this container
+  const allDisplays = list.querySelectorAll('.tool-use-display')
   const lastDisplay = allDisplays[allDisplays.length - 1]
 
   if (lastDisplay && lastDisplay.dataset.toolName === toolName && isSingleLine) {
@@ -134,6 +143,7 @@ function renderToolCallLive(toolName, display, output = '', isError = false) {
         `<span class="tool-merge-item">${escapeHtml(display)}</span>`
       ].join('')
     }
+    updateToolContainerCount()
     scrollToBottom()
     return
   }
@@ -152,8 +162,43 @@ function renderToolCallLive(toolName, display, output = '', isError = false) {
   }
 
   el.innerHTML = html
-  chatContainer.appendChild(el)
+  list.appendChild(el)
+  updateToolContainerCount()
   scrollToBottom()
+}
+
+function getOrCreateToolList() {
+  if (currentToolList) return currentToolList
+
+  // Create container
+  currentToolContainer = document.createElement('div')
+  currentToolContainer.className = 'tool-calls-container expanded'
+
+  const toggleBtn = document.createElement('div')
+  toggleBtn.className = 'tool-calls-toggle expanded'
+  toggleBtn.onclick = () => toggleToolCalls(toggleBtn)
+  toggleBtn.innerHTML = `
+    <span class="icon">&#128295;</span>
+    <span class="toggle-label">0 tool calls</span>
+    <span class="count">0</span>
+  `
+  currentToolContainer.appendChild(toggleBtn)
+
+  currentToolList = document.createElement('div')
+  currentToolList.className = 'tool-calls-list'
+  currentToolContainer.appendChild(currentToolList)
+
+  chatContainer.appendChild(currentToolContainer)
+  return currentToolList
+}
+
+function updateToolContainerCount() {
+  if (!currentToolList) return
+  const count = currentToolList.querySelectorAll('.tool-use-display').length
+  const labelEl = currentToolContainer.querySelector('.toggle-label')
+  const countEl = currentToolContainer.querySelector('.count')
+  if (labelEl) labelEl.textContent = `${count} tool call${count !== 1 ? 's' : ''}`
+  if (countEl) countEl.textContent = count
 }
 
 // Render a tool calls list from merged groups
@@ -233,6 +278,9 @@ function handleMessage(msg) {
   try {
   switch (msg.type) {
     case 'thinking_start':
+      // Reset tool call container for this new assistant response
+      currentToolContainer = null
+      currentToolList = null
       // Finalize current text bubble — next text_chunk starts a new message
       currentAssistantEl = null
       // Create thinking indicator
@@ -317,6 +365,9 @@ function handleMessage(msg) {
         const tc = pendingToolCalls.shift()
         renderToolCallLive(tc.toolName, tc.display)
       }
+      // Reset container for next response
+      currentToolContainer = null
+      currentToolList = null
       // Final render with markdown now that streaming is complete
       if (currentAssistantEl && currentAssistantEl.dataset.rawText) {
         currentAssistantEl.innerHTML = renderMarkdown(currentAssistantEl.dataset.rawText)
@@ -355,6 +406,8 @@ function handleMessage(msg) {
       isGenerating = false
       currentAssistantEl = null
       pendingToolCalls = []
+      currentToolContainer = null
+      currentToolList = null
       sendBtn.disabled = false
       removeTypingIndicator()
       addMessage('Generation cancelled.', 'assistant')
@@ -365,6 +418,16 @@ function handleMessage(msg) {
       break
 
     case 'error':
+      if (isGenerating && retryCount < MAX_RETRIES) {
+        retryCount++
+        console.log(`[retry] Attempt ${retryCount}/${MAX_RETRIES} after error: ${msg.message}`)
+        setTimeout(() => {
+          if (ws && ws.readyState === WebSocket.OPEN && lastChatMessage) {
+            ws.send(JSON.stringify(lastChatMessage))
+          }
+        }, RETRY_DELAY)
+        return  // Don't show error yet
+      }
       addMessage(`Error: ${msg.message}`, 'error')
       isGenerating = false
       sendBtn.disabled = false
@@ -468,7 +531,7 @@ function addTypingIndicator() {
   const el = document.createElement('div')
   el.className = 'thinking-indicator'
   el.id = 'typingIndicator'
-  el.textContent = 'Cooking......'
+  el.textContent = 'Cooking\u2026'
   chatContainer.appendChild(el)
   scrollToBottom()
 
@@ -477,7 +540,7 @@ function addTypingIndicator() {
     const elapsed = Math.floor((Date.now() - startTime) / 1000)
     const m = Math.floor(elapsed / 60)
     const s = elapsed % 60
-    el.textContent = `Cooking...... (${m}m ${s}s)`
+    el.textContent = `Cooking\u2026 (${m}m ${s}s)`
   }, 1000)
 }
 
@@ -514,9 +577,21 @@ function closeSettings() {
 }
 
 function loadConfig(config) {
-  document.getElementById('providerSelect').value = config.profile || 'openai'
+  document.getElementById('providerSelect').value = 'openai'
   document.getElementById('baseUrlInput').value = config.baseUrl || ''
-  document.getElementById('modelInput').value = config.model || ''
+  const modelSelect = document.getElementById('modelSelect')
+  if (config.model && [...modelSelect.options].some(o => o.value === config.model)) {
+    modelSelect.value = config.model
+  } else if (config.model) {
+    // Add a custom option if the saved model isn't in the list
+    const opt = document.createElement('option')
+    opt.value = config.model
+    opt.textContent = config.model
+    modelSelect.appendChild(opt)
+    modelSelect.value = config.model
+  } else {
+    modelSelect.value = 'gpt-4o'
+  }
   document.getElementById('apiKeyInput').value = config.hasApiKey ? '••••••••' : ''
   document.getElementById('apiKeyInput').placeholder = config.hasApiKey ? '••••••••' : 'sk-...'
   currentModel = config.model || ''
@@ -525,9 +600,9 @@ function loadConfig(config) {
 function saveSettings() {
   const config = {
     type: 'save_config',
-    profile: document.getElementById('providerSelect').value,
+    profile: 'openai',
     baseUrl: document.getElementById('baseUrlInput').value,
-    model: document.getElementById('modelInput').value,
+    model: document.getElementById('modelSelect').value,
     apiKey: document.getElementById('apiKeyInput').value,
   }
   ws.send(JSON.stringify(config))
@@ -590,6 +665,8 @@ async function sendMessage() {
     model: currentModel || undefined,
   }
   console.log('[sendMessage] Sending:', chatMsg)
+  lastChatMessage = chatMsg
+  retryCount = 0
   ws.send(JSON.stringify(chatMsg))
 }
 
@@ -615,27 +692,7 @@ document.getElementById('settingsModal').addEventListener('click', (e) => {
   }
 })
 
-// Preset URLs when selecting provider
-document.getElementById('providerSelect').addEventListener('change', (e) => {
-  const baseUrlInput = document.getElementById('baseUrlInput')
-  const modelInput = document.getElementById('modelInput')
-
-  if (e.target.value === 'ollama') {
-    if (!baseUrlInput.value || baseUrlInput.value === 'https://api.openai.com/v1') {
-      baseUrlInput.value = 'http://localhost:11434/v1'
-    }
-    if (!modelInput.value || modelInput.value.startsWith('gpt')) {
-      modelInput.value = 'llama3.2'
-    }
-  } else if (e.target.value === 'openai') {
-    if (baseUrlInput.value === 'http://localhost:11434/v1') {
-      baseUrlInput.value = 'https://api.openai.com/v1'
-    }
-    if (modelInput.value === 'llama3.2') {
-      modelInput.value = 'gpt-4o'
-    }
-  }
-})
+// Close modal when clicking outside
 
 // Project list management
 let currentProject = null
@@ -772,6 +829,7 @@ function renderSessionMessages(messages) {
 }
 
 async function switchSession(projectId, newSessionId, cwd) {
+  closeSidebar()
   // Clear current chat
   chatContainer.innerHTML = ''
   sessionId = newSessionId
@@ -839,6 +897,7 @@ function autoRestoreLastSession() {
 let selectedProjectPath = ''
 
 async function openProjectSelector() {
+  closeSidebar()
   document.getElementById('projectModal').classList.add('active')
   selectedProjectPath = ''
   document.getElementById('customPath').value = ''
@@ -1020,6 +1079,63 @@ async function createNewChat() {
 
   messageInput.focus()
 }
+
+// Mobile sidebar toggle
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar')
+  const overlay = document.getElementById('sidebarOverlay')
+  const isOpen = sidebar.classList.toggle('open')
+  overlay.classList.toggle('active', isOpen)
+  document.body.classList.toggle('sidebar-open', isOpen)
+}
+
+function closeSidebar() {
+  const sidebar = document.querySelector('.sidebar')
+  const overlay = document.getElementById('sidebarOverlay')
+  sidebar.classList.remove('open')
+  overlay.classList.remove('active')
+  document.body.classList.remove('sidebar-open')
+}
+
+// Auto-show sidebar when resizing above mobile breakpoint
+let resizeTimer
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    if (window.innerWidth > 768) {
+      document.querySelector('.sidebar')?.classList.remove('open')
+      document.getElementById('sidebarOverlay')?.classList.remove('active')
+      document.body.classList.remove('sidebar-open')
+    }
+  }, 150)
+})
+
+// VisualViewport handler — keeps body height synced on both mobile and desktop.
+// On mobile: position:fixed prevents iOS scrolling (no more blank space), but body
+// must shrink when the keyboard opens so the header stays visible. No scrollTo needed.
+// On desktop: adjusts for window chrome resize.
+function syncBodyHeight() {
+  if (!window.visualViewport) return
+  document.body.style.height = window.visualViewport.height + 'px'
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    syncBodyHeight()
+    if (window.innerWidth > 768) {
+      window.scrollTo(0, 0)
+    }
+  })
+}
+
+// MutationObserver: re-sync after DOM attribute changes (e.g. theme toggle).
+// Toggling data-theme triggers CSS variable re-evaluation + reflow, which can
+// corrupt fixed element positioning on iOS — especially when the keyboard is
+// already open. rAF lets the browser settle before re-applying the height.
+const viewportObserver = new MutationObserver(() => {
+  requestAnimationFrame(syncBodyHeight)
+})
+viewportObserver.observe(document.documentElement, { attributes: true })
 
 // Start
 connect()

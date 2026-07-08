@@ -21,13 +21,12 @@
   <!-- Main content -->
   <div class="main-content">
     <div class="header">
-      <h1>OpenClaude</h1>
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <label class="auto-approve-toggle" title="Auto-approve all tool calls">
-          <input type="checkbox" id="autoApproveToggle" onchange="toggleAutoApprove(this.checked)">
-          <span>Auto Approve</span>
-        </label>
-        <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">🌙</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
+        <h1>OpenClaude</h1>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" title="Toggle theme"></button>
         <button class="settings-btn" onclick="openSettings()">Settings</button>
         <div class="status">
           <span class="status-dot" id="statusDot"></span>
@@ -93,11 +92,10 @@
         <div class="config-status" id="configStatus"></div>
         <div class="form-group">
           <label for="providerSelect">Provider</label>
-          <select id="providerSelect" autocomplete="off">
+          <select id="providerSelect" autocomplete="off" disabled>
             <option value="openai">OpenAI Compatible</option>
-            <option value="ollama">Ollama (Local)</option>
           </select>
-          <div class="hint">Select your API provider type</div>
+          <div class="hint">Only OpenAI-compatible API is supported</div>
         </div>
         <div class="form-group">
           <label for="baseUrlInput">Base URL</label>
@@ -110,9 +108,21 @@
           <div class="hint">Leave empty to keep existing key (not required for Ollama)</div>
         </div>
         <div class="form-group">
-          <label for="modelInput">Model</label>
-          <input type="text" id="modelInput" placeholder="gpt-4o" autocomplete="off">
-          <div class="hint">Model name (e.g., llama3.2 for Ollama)</div>
+          <label for="modelSelect">Model</label>
+          <select id="modelSelect" autocomplete="off">
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4-turbo">gpt-4-turbo</option>
+            <option value="gpt-4">gpt-4</option>
+            <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+            <option value="o1">o1</option>
+            <option value="o3-mini">o3-mini</option>
+            <option value="deepseek-chat">deepseek-chat</option>
+            <option value="deepseek-reasoner">deepseek-reasoner</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-6">claude-opus-4-6</option>
+          </select>
+          <div class="hint">Select the model to use</div>
         </div>
         <div class="modal-actions">
           <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
@@ -125,10 +135,18 @@
       <div class="message assistant">Welcome to OpenClaude! I can help you with coding tasks, file operations, and more. What would you like to work on?</div>
     </div>
 
+    <!-- Bottom bar: controls above the input -->
+    <div class="bottom-bar">
+      <label class="auto-approve-toggle" title="Auto-approve all tool calls">
+        <input type="checkbox" id="autoApproveToggle" onchange="toggleAutoApprove(this.checked)">
+        <span>Auto Approve</span>
+      </label>
+    </div>
+
     <div class="input-area">
       <textarea
         id="messageInput"
-        placeholder="Type your message... (Shift+Enter for new line)"
+        placeholder="Type a message..."
         rows="1"
       ></textarea>
       <button class="send-btn" id="sendBtn" disabled>Send</button>
