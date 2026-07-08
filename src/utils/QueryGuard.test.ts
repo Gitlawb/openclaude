@@ -565,6 +565,56 @@ describe('QueryGuard', () => {
       expect(guard.isActive).toBe(false)
     })
 
+    test('lease deadlines continue while suspended', () => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const guard = new QueryGuard({
+        idleTimeoutMs: 10_000,
+        hardMaxQueryMs: 10_000,
+        toolLeaseGraceMs: 1,
+      })
+      const onTimeout = vi.fn()
+      guard.setTimeoutHandler(onTimeout)
+      guard.tryStart()
+      guard.acquireLease({ owner: 'tool', id: 'slow-read', timeoutMs: 100 })
+
+      guard.beginUserInteraction()
+      vi.advanceTimersByTime(100)
+      expect(guard.isActive).toBe(true)
+      vi.advanceTimersByTime(1)
+
+      expect(guard.isActive).toBe(false)
+      expect(onTimeout).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'lease_expired' }),
+      )
+    })
+
+    test('lease hard cap acquired during suspension excludes human wait', () => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const guard = new QueryGuard({
+        idleTimeoutMs: 10_000,
+        hardMaxQueryMs: 1_000,
+      })
+      const onTimeout = vi.fn()
+      guard.setTimeoutHandler(onTimeout)
+      guard.tryStart()
+
+      vi.advanceTimersByTime(900)
+      guard.beginUserInteraction()
+      vi.advanceTimersByTime(5_000)
+      guard.acquireLease({ owner: 'tool', id: 'during-prompt' })
+
+      vi.advanceTimersByTime(99)
+      expect(guard.isActive).toBe(true)
+      vi.advanceTimersByTime(1)
+
+      expect(guard.isActive).toBe(false)
+      expect(onTimeout).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'lease_expired' }),
+      )
+    })
+
     test('reference counts nested interactions', () => {
       vi.useFakeTimers()
       vi.spyOn(console, 'error').mockImplementation(() => {})

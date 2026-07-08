@@ -101,10 +101,9 @@ export type QueryActivity = {
   registerActivity(reason: string): void
   acquireLease(input: QueryGuardLeaseInput): QueryGuardLease
   /**
-   * Suspend the query watchdog while blocked on a human decision (permission
-   * prompt, AskUserQuestion, plan-mode selection). Returns a resume function
-   * to call exactly once when the interaction ends. Optional so existing
-   * queryActivity implementations and test mocks stay valid.
+   * Suspend query idle/hard-max accounting while blocked on a human decision.
+   * Lease deadlines continue to run. Returns a resume function to call exactly
+   * once when the interaction ends.
    */
   beginUserInteraction?(): () => void
 }
