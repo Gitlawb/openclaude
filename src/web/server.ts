@@ -13,6 +13,9 @@ import { getTools } from '../tools.js'
 import { getDefaultAppState } from '../state/AppStateStore.js'
 import { AppState } from '../state/AppState.js'
 import { FileStateCache, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js'
+import { setMainLoopModelOverride, switchSession } from '../bootstrap/state.js'
+import { resetSessionFilePointer } from '../utils/sessionStorage.js'
+import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import {
   loadProfileFile,
   saveProfileFile,
@@ -463,8 +466,11 @@ export class WebServer {
         }
       }
 
+      // Limit display messages to last 40 for consistency with API context
+      const DISPLAY_LIMIT = 40
+      const limited = messages.slice(-DISPLAY_LIMIT)
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ messages }))
+      res.end(JSON.stringify({ messages: limited }))
     } catch (err: any) {
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: err.message }))
@@ -565,8 +571,11 @@ export class WebServer {
                 const filePath = join(projectPath, `${sessionId}.jsonl`)
                 try {
                   await readFile(filePath)
-                  previousMessages = await this.loadSessionMessagesFromFile(filePath)
-                  this.sessions.set(sessionId, { messages: previousMessages })
+                  const allMessages = await this.loadSessionMessagesFromFile(filePath)
+                  // Limit to last 40 messages to avoid exceeding API token limits
+                  const MAX_HISTORY = 40
+                  previousMessages = allMessages.slice(-MAX_HISTORY)
+                  this.sessions.set(sessionId, { messages: previousMessages, createdAt: Date.now() })
                   break
                 } catch {
                   // File doesn't exist in this project, continue
@@ -581,6 +590,37 @@ export class WebServer {
           const fileCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
 
           cwd = msg.cwd || process.cwd()
+
+          // Resolve model: prefer client-sent model, then profile, then env
+          let resolvedModel: string | undefined = msg.model
+          if (!resolvedModel) {
+            const profile = loadProfileFile({ cwd })
+            if (profile?.env?.OPENAI_MODEL) {
+              resolvedModel = profile.env.OPENAI_MODEL
+            }
+          }
+          if (!resolvedModel && process.env.OPENAI_MODEL) {
+            resolvedModel = process.env.OPENAI_MODEL
+          }
+          // Set global model override so QueryEngine picks it up
+          if (resolvedModel) {
+            setMainLoopModelOverride(parseUserSpecifiedModel(resolvedModel))
+          }
+
+          const logMsg = `[${new Date().toISOString()}] [web] chat request: ${JSON.stringify({
+            clientModel: msg.model,
+            resolvedModel,
+            baseUrl: process.env.OPENAI_BASE_URL,
+            hasApiKey: !!process.env.OPENAI_API_KEY,
+            modelEnv: process.env.OPENAI_MODEL,
+          })}\n`
+          console.log(logMsg.trim())
+
+          // Sync global session ID so sessionStorage writes to the correct file
+          // (not the random UUID from process startup)
+          switchSession(sessionId as any)
+          await resetSessionFilePointer()
+
           engine = new QueryEngine({
             cwd,
             tools: getTools(appState.toolPermissionContext),
@@ -634,17 +674,29 @@ export class WebServer {
             getAppState: () => appState,
             setAppState: (updater) => { appState = updater(appState) },
             readFileCache: fileCache,
-            userSpecifiedModel: msg.model,
-            fallbackModel: msg.model,
+            userSpecifiedModel: resolvedModel,
+            fallbackModel: resolvedModel,
           })
 
           let fullText = ''
           let isThinking = false
           let currentToolUse: { id: string; name: string; inputJson: string } | null = null
+          let lastDataTime = Date.now()
+          let thinkingTokenEstimate = 0
           const generator = engine.submitMessage(msg.message)
 
+          // Send keepalive while upstream is still processing (no data received)
+          const keepaliveTimer = setInterval(() => {
+            const idleMs = Date.now() - lastDataTime
+            send({ type: 'keepalive', idleMs })
+          }, 3000)
+
           for await (const event of generator) {
-            if (interrupted) break
+            lastDataTime = Date.now()
+            if (interrupted) {
+              clearInterval(keepaliveTimer)
+              break
+            }
 
             if (event.type === 'stream_event') {
               const delta = event.event
@@ -665,7 +717,8 @@ export class WebServer {
                 }
               } else if (delta.type === 'content_block_delta') {
                 if (delta.delta.type === 'thinking_delta') {
-                  send({ type: 'thinking_chunk', text: delta.delta.thinking })
+                  thinkingTokenEstimate += delta.delta.thinking.length
+                  send({ type: 'thinking_chunk', text: delta.delta.thinking, estimatedTokens: Math.round(thinkingTokenEstimate / 4) })
                 } else if (delta.delta.type === 'text_delta') {
                   if (isThinking) {
                     isThinking = false
@@ -718,14 +771,36 @@ export class WebServer {
                   }
                 }
               }
-            } else if (event.type === 'result' && event.subtype === 'success') {
-              if (event.result) fullText = event.result
+            } else if (event.type === 'result') {
+              if (event.subtype === 'success') {
+                if (event.is_error) {
+                  // Don't overwrite fullText with error message — preserve
+                  // partial model output accumulated from stream events.
+                  // Send error separately so the frontend can display it.
+                  console.error('[web] API error (is_error):', event.result)
+                  send({ type: 'error', message: event.result || 'Unknown API error' })
+                } else if (event.result) {
+                  fullText = event.result
+                }
+              } else if (event.subtype === 'error_during_execution') {
+                console.error('[web] error_during_execution:', event.result)
+                send({ type: 'error', message: event.result || 'Execution error' })
+              } else if (event.subtype === 'error_max_turns') {
+                send({ type: 'error', message: event.result || 'Reached max turns' })
+              } else if (event.subtype === 'error_max_budget_usd') {
+                send({ type: 'error', message: event.result || 'Exceeded USD budget' })
+              }
+            } else if (event.type === 'system') {
+              // System events (e.g. init) — no-op
+            } else {
+              console.log('[web] unhandled event:', event.type, event.subtype || '')
             }
           }
 
           if (!interrupted) {
-            // Save for multi-turn
-            previousMessages = [...engine.getMessages()]
+            // Save for multi-turn (cap to avoid unbounded growth)
+            const rawMessages = [...engine.getMessages()]
+            previousMessages = rawMessages.slice(-60)
             this.sessions.set(sessionId, {
               messages: previousMessages,
               createdAt: Date.now(),
@@ -734,6 +809,7 @@ export class WebServer {
             send({ type: 'done', fullText, sessionId })
           }
 
+          clearInterval(keepaliveTimer)
           engine = null
 
         } else if (msg.type === 'input') {
@@ -858,7 +934,7 @@ export class WebServer {
 
         }
       } catch (err: any) {
-        console.error('WebSocket error:', err)
+        console.error('[web] WebSocket handler error:', err.message, err.stack)
         send({ type: 'error', message: err.message || 'Internal error' })
       }
     })

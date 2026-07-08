@@ -81,7 +81,7 @@ export function getContextWindowForModel(
   // Unknown models get a conservative 128k default. This was previously 8k,
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
-  const openaiWindow = getOpenAIContextWindow(model)
+  const openaiWindow = getOpenAIContextWindow()
   if (openaiWindow !== undefined) {
     return openaiWindow
   }
@@ -157,10 +157,12 @@ export function getModelMaxOutputTokens(model: string): {
     }
   }
 
-  // OpenAI-compatible provider — use known output limits to avoid 400 errors
-  const openaiMax = getOpenAIMaxOutputTokens(model)
+  // OpenAI-compatible provider — use known output limits to avoid 400 errors.
+  // upperLimit is set higher than default so that CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  // can increase the limit when the model supports it (e.g. gpt-5.4: 128k).
+  const openaiMax = getOpenAIMaxOutputTokens()
   if (openaiMax !== undefined) {
-    return { default: openaiMax, upperLimit: openaiMax }
+    return { default: openaiMax, upperLimit: Math.max(openaiMax, 128_000) }
   }
 
   const m = getCanonicalName(model)
@@ -197,8 +199,11 @@ export function getModelMaxOutputTokens(model: string): {
     defaultTokens = 32_000
     upperLimit = 64_000
   } else {
-    defaultTokens = MAX_OUTPUT_TOKENS_DEFAULT
-    upperLimit = MAX_OUTPUT_TOKENS_UPPER_LIMIT
+    // Not a known Claude model — use generous defaults for unknown 3P models.
+    // 32k default was causing spurious max_tokens errors on models that support
+    // much larger outputs (deepseek, local models, etc.).
+    defaultTokens = 64_000
+    upperLimit = 128_000
   }
 
   const cap = getModelCapability(model)

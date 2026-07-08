@@ -998,6 +998,7 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
+    console.log(`[openai-shim] _doOpenAIRequest called: model=${request.resolvedModel}, baseUrl=${request.baseUrl}, stream=${params.stream}`)
     const openaiMessages = convertMessages(
       params.messages as Array<{
         role: string
@@ -1111,6 +1112,18 @@ class OpenAIShimMessages {
       chatCompletionsUrl = `${request.baseUrl}/chat/completions`
     }
 
+    // Debug logging for API requests
+    console.log('[openai-shim] API request:', {
+      url: chatCompletionsUrl,
+      model: body.model,
+      messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+      hasTools: Array.isArray(body.tools) && body.tools.length > 0,
+      toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+      stream: body.stream,
+      maxCompletionTokens: body.max_completion_tokens,
+      hasSystemPrompt: openaiMessages.some((m: any) => m.role === 'system'),
+    })
+
     const response = await fetch(chatCompletionsUrl, {
       method: 'POST',
       headers,
@@ -1120,6 +1133,12 @@ class OpenAIShimMessages {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => 'unknown error')
+      console.error('[openai-shim] API error:', {
+        status: response.status,
+        url: chatCompletionsUrl,
+        model: body.model,
+        errorBody: errorBody.slice(0, 500),
+      })
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
       throw APIError.generate(
