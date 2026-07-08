@@ -686,6 +686,32 @@ function combineFailureOutput(stdout: string, stderr: string): string {
     .join('\n')
 }
 
+const POWERSHELL_ALIAS_COMMANDS = new Map([
+  ['cd', 'set-location'],
+  ['chdir', 'set-location'],
+  ['sl', 'set-location'],
+  ['cat', 'get-content'],
+  ['gc', 'get-content'],
+  ['type', 'get-content'],
+  ['ls', 'get-childitem'],
+  ['dir', 'get-childitem'],
+  ['gci', 'get-childitem'],
+  ['echo', 'write-output'],
+  ['write', 'write-output'],
+  ['rm', 'remove-item'],
+  ['del', 'remove-item'],
+  ['erase', 'remove-item'],
+  ['rmdir', 'remove-item'],
+  ['rd', 'remove-item'],
+])
+
+const SILENT_FAILURE_COMMANDS = new Set([
+  '$false',
+  'false',
+  'test-path',
+  'set-location',
+])
+
 function getNonFinalCommandNames(command: string): string[] {
   const segments = splitStatements(command)
   if (segments.length < 2) {
@@ -693,7 +719,10 @@ function getNonFinalCommandNames(command: string): string[] {
   }
   return segments
     .slice(0, -1)
-    .map(segment => extractRunnableBaseCommand(segment.trim().split(/\s+/)))
+    .map(segment => {
+      const commandName = extractRunnableBaseCommand(segment.trim().split(/\s+/))
+      return POWERSHELL_ALIAS_COMMANDS.get(commandName) ?? commandName
+    })
     .filter(Boolean)
 }
 
@@ -745,12 +774,14 @@ function looksLikeSilentSkippedDiagnostic(
   stderr: string,
   result: { isError: boolean },
 ): boolean {
+  const previousCommands = getNonFinalCommandNames(command)
   return (
     exitCode !== 0 &&
     !result.isError &&
     combineFailureOutput(stdout, stderr).length === 0 &&
     hasUnquotedShortCircuitOrPipeline(command) &&
-    getResolvedDiagnosticCommandName(command) !== undefined
+    getResolvedDiagnosticCommandName(command) !== undefined &&
+    previousCommands.some(commandName => SILENT_FAILURE_COMMANDS.has(commandName))
   )
 }
 
@@ -772,7 +803,7 @@ function looksLikeSetupOrPipelineFailure(
   return previousCommands.some(commandName => {
     const escaped = commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return new RegExp(
-      `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|not found|permission denied|not recognized)`,
+      `(^|\\n)\\s*${escaped}\\s*:.*(cannot find path|does not exist|no such file|not found|command not found|permission denied|not recognized)`,
       'i',
     ).test(failureOutput)
   })

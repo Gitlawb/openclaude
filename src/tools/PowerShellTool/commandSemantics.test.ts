@@ -249,6 +249,7 @@ describe('interpretCommandResult (PowerShell)', () => {
     test('failed setup before && does not inherit linter semantics', () => {
       for (const [command, stdout] of [
         ['Set-Location missing && ruff check .', ''],
+        ['cd missing && ruff check .', ''],
         ['Set-Location missing & ruff check .', ''],
         ['Write-Output setup; Set-Location missing && ruff check .', 'setup\n'],
       ] as const) {
@@ -260,6 +261,32 @@ describe('interpretCommandResult (PowerShell)', () => {
         )
         expect(result.isError).toBe(true)
       }
+    })
+
+    test('alias-invoked setup failures match resolved cmdlet errors', () => {
+      for (const [command, stderr] of [
+        [
+          'cd missing && ruff check .',
+          'Set-Location : Cannot find path missing because it does not exist.',
+        ],
+        [
+          'cat missing | ruff check .',
+          'Get-Content : Cannot find path missing because it does not exist.',
+        ],
+      ] as const) {
+        const result = interpretCommandResult(command, 1, '', stderr)
+        expect(result.isError).toBe(true)
+      }
+    })
+
+    test('external setup failures before pipelines use default error semantics', () => {
+      const result = interpretCommandResult(
+        'python missing.py | ruff check .',
+        1,
+        '',
+        "python: can't open file 'missing.py': [Errno 2] No such file or directory",
+      )
+      expect(result.isError).toBe(true)
     })
 
     test('silent short-circuited setup before && stays a command error', () => {
@@ -305,6 +332,11 @@ describe('interpretCommandResult (PowerShell)', () => {
 
     test('successful setup before && lets linter diagnostics through', () => {
       const result = interpretCommandResult('Set-Location src && ruff check .', 1, 'F401', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('successful setup with empty diagnostic output keeps diagnostic semantics', () => {
+      const result = interpretCommandResult('Write-Output hi && ruff check .', 1, '', '')
       expect(result.isError).toBe(false)
     })
 

@@ -647,6 +647,8 @@ function getNonFinalCommandNames(command: string): string[] {
     .filter(Boolean)
 }
 
+const SILENT_FAILURE_COMMANDS = new Set(['false', 'test', '[', 'cd', 'pushd'])
+
 function hasUnquotedShortCircuitOrPipeline(command: string): boolean {
   let quote: '"' | "'" | undefined
   for (let i = 0; i < command.length; i++) {
@@ -695,12 +697,14 @@ function looksLikeSilentSkippedDiagnostic(
   stderr: string,
   result: { isError: boolean },
 ): boolean {
+  const previousCommands = getNonFinalCommandNames(command)
   return (
     exitCode !== 0 &&
     !result.isError &&
     combineFailureOutput(stdout, stderr).length === 0 &&
     hasUnquotedShortCircuitOrPipeline(command) &&
-    getResolvedDiagnosticCommandName(command) !== undefined
+    getResolvedDiagnosticCommandName(command) !== undefined &&
+    previousCommands.some(commandName => SILENT_FAILURE_COMMANDS.has(commandName))
   )
 }
 

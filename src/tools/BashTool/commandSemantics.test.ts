@@ -466,6 +466,11 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(false)
     })
 
+    test('successful setup with empty diagnostic output keeps diagnostic semantics', () => {
+      const result = interpretCommandResult('echo hi && ruff check .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
     test('diagnostics after successful setup can mention missing files', () => {
       for (const command of [
         'cd src && pytest',
