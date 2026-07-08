@@ -177,9 +177,11 @@ describe('handleInteractivePermission watchdog suspension', () => {
   })
 
   test('resolves and resumes immediately if already aborted when shown', () => {
-    const { resume, resolve } = setup({ preAbort: true })
+    const { ctx, resume, resolve } = setup({ preAbort: true })
     expect(resume).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledTimes(1)
+    // Must not enqueue a prompt that is immediately stale.
+    expect(ctx.pushToQueue).not.toHaveBeenCalled()
   })
 
   test('abort after a normal resolution does not double-resolve or double-resume', () => {

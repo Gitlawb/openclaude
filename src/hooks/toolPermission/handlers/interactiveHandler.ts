@@ -89,10 +89,12 @@ function handleInteractivePermission(
   // otherwise the watchdog stays suspended for the rest of the turn. Rethrow so
   // the caller still sees the failure.
   try {
+  let removeExternalAbortListener = () => {}
   const resolveOnceHandle = createResolveOnce(
     (decision: PermissionDecision) => {
       // Idempotent safety net; the claim() wrapper below normally resumes first.
       resumeWatchdog()
+      removeExternalAbortListener()
       resolve(decision)
     },
   )
@@ -122,10 +124,16 @@ function handleInteractivePermission(
     resolveOnce(ctx.cancelAndAbort(undefined, true))
   }
   if (abortSignal.aborted) {
+    // Already aborted before the dialog is shown: cancel and stop setup so we
+    // never enqueue a prompt that is immediately stale.
     onExternalAbort()
-  } else {
-    abortSignal.addEventListener('abort', onExternalAbort, { once: true })
+    return
   }
+  abortSignal.addEventListener('abort', onExternalAbort, { once: true })
+  // Detach on any normal terminal resolution so a resolved prompt does not
+  // retain a closure on the (query-scoped) abort signal.
+  removeExternalAbortListener = () =>
+    abortSignal.removeEventListener('abort', onExternalAbort)
   let userInteracted = false
   let checkmarkTransitionTimer: ReturnType<typeof setTimeout> | undefined
   // Hoisted so onDismissCheckmark (Esc during checkmark window) can also
