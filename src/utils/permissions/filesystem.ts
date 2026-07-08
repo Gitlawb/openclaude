@@ -51,6 +51,7 @@ import type { PermissionRule, PermissionRuleSource } from './PermissionRule.js'
 import { createReadRuleSuggestion } from './PermissionUpdate.js'
 import type { PermissionUpdate } from './PermissionUpdateSchema.js'
 import { getRuleByContentsForToolName } from './permissions.js'
+import { isPermissiveSafety } from './safetyLevel.js'
 
 declare const MACRO: { VERSION: string }
 
@@ -722,13 +723,19 @@ export function checkPathSafetyForAutoEdit(
     }
   }
 
-  // Check for dangerous files on all paths
-  for (const pathToCheck of pathsToCheck) {
-    if (isDangerousFilePathToAutoEdit(pathToCheck)) {
-      return {
-        safe: false,
-        message: `${PRODUCT_DISPLAY_NAME} requested permissions to edit ${path} which is a sensitive file.`,
-        classifierApprovable: true,
+  // Check for dangerous files on all paths.
+  // In permissive safety mode (OPENCLAUDE_SAFETY_LEVEL=permissive) we skip
+  // this broad list, which otherwise prompts on routine edits to files like
+  // .gitmodules, shell rc files, or .mcp.json. The Windows-path and symlink
+  // checks above remain active as genuine safety guards. See issue #1616.
+  if (!isPermissiveSafety()) {
+    for (const pathToCheck of pathsToCheck) {
+      if (isDangerousFilePathToAutoEdit(pathToCheck)) {
+        return {
+          safe: false,
+          message: `${PRODUCT_DISPLAY_NAME} requested permissions to edit ${path} which is a sensitive file.`,
+          classifierApprovable: true,
+        }
       }
     }
   }

@@ -471,6 +471,28 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   metadata (a known catalog model keeps its catalog limit unless you set an
   *exact* env override for it).
 
+## Safety strictness
+
+OpenClaude runs several "safety" checks: a model-level refusal directive, bash
+command-injection heuristics, and sensitive-file / auto-edit guards. These are
+conservative by design, but a few of them can surface as refusals or approval
+prompts for entirely benign, routine coding tasks (e.g. editing `.gitmodules`,
+running a build script that contains `$(date)`, or writing a CTF port scanner).
+See [issue #1616](https://github.com/Gitlawb/openclaude/issues/1616).
+
+Set `OPENCLAUDE_SAFETY_LEVEL` to dial strictness without changing behavior for
+everyone:
+
+| Value | Behavior |
+|-------|----------|
+| `strict` | Every check stays on (most conservative). |
+| `balanced` | Default. Keeps all real protections. |
+| `permissive` | Relaxes the application-level heuristics that produce false-positive refusals for benign tasks: the bash command-injection check is skipped, ordinary interpreter allow-rules (`Bash(python:*)`, `Bash(npm run:*)`, …) are not stripped in auto mode, and routine edits to "sensitive" config files are not prompted. The model-level prompt is not weakened by this flag. |
+
+```bash
+export OPENCLAUDE_SAFETY_LEVEL=permissive   # relax benign-task false positives
+```
+
 ## Runtime Hardening
 
 Use these commands to validate your setup and catch mistakes early:

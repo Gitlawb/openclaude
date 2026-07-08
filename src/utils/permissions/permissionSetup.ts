@@ -28,6 +28,7 @@ import {
   permissionModeFromString,
   permissionModeTitle,
 } from './PermissionMode.js'
+import { isPermissiveSafety } from './safetyLevel.js'
 import { applyPermissionRulesToPermissionContext } from './permissions.js'
 import { getStartupDangerousPermissionPromptState } from './dangerousModePromptRuntime.js'
 import { loadAllPermissionRulesFromDisk } from './permissionsLoader.js'
@@ -517,6 +518,17 @@ export function removeDangerousPermissions(
 export function stripDangerousPermissionsForAutoMode(
   context: ToolPermissionContext,
 ): ToolPermissionContext {
+  // In permissive safety mode (OPENCLAUDE_SAFETY_LEVEL=permissive) we keep the
+  // user's allow rules intact, so ordinary interpreter invocations such as
+  // Bash(python:*), Bash(npm run:*), or Bash(node:*) are not forced into
+  // approval prompts in auto mode. See issue #1616.
+  if (isPermissiveSafety()) {
+    return {
+      ...context,
+      strippedDangerousRules: context.strippedDangerousRules ?? {},
+    }
+  }
+
   const rules: PermissionRule[] = []
   for (const [source, ruleStrings] of Object.entries(
     context.alwaysAllowRules,
