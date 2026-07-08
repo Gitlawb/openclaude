@@ -272,13 +272,15 @@ test('resolveActiveRouteIdFromEnv does not claim cloudflare for a retargeted clo
   // shortcut — otherwise the Workers AI shim config + CLOUDFLARE_API_TOKEN
   // mirroring would be applied to the shared AI Gateway host or a general REST
   // path.
+  // Falls back to the generic OpenAI-compatible `custom` route (not just
+  // "anything but cloudflare"), so the assertion also pins the intended target.
   const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/abc/gw/openai'
   expect(
     resolveActiveRouteIdFromEnv(
       { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: gatewayUrl },
       { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: gatewayUrl },
     ),
-  ).not.toBe('cloudflare')
+  ).toBe('custom')
 
   const restUrl = 'https://api.cloudflare.com/client/v4/user/tokens/verify'
   expect(
@@ -286,7 +288,7 @@ test('resolveActiveRouteIdFromEnv does not claim cloudflare for a retargeted clo
       { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: restUrl },
       { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: restUrl },
     ),
-  ).not.toBe('cloudflare')
+  ).toBe('custom')
 })
 
 test('resolveActiveRouteIdFromEnv still resolves cloudflare for a real Workers AI profile (#1100)', () => {
