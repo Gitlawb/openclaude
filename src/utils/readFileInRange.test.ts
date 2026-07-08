@@ -1,15 +1,24 @@
-import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { readFileInRange } from './readFileInRange.js'
 
+const createdDirs: string[] = []
+
 function writeTemp(name: string, contents: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'openclaude-readrange-'))
+  createdDirs.push(dir)
   const path = join(dir, name)
   writeFileSync(path, contents)
   return path
 }
+
+afterEach(() => {
+  while (createdDirs.length > 0) {
+    rmSync(createdDirs.pop()!, { recursive: true, force: true })
+  }
+})
 
 describe('readFileInRange', () => {
   test('reports zero lines for an empty file', async () => {
