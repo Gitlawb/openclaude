@@ -84,19 +84,6 @@ function handleInteractivePermission(
     watchdogResumed = true
     rawResume?.()
   }
-  // Guarantee resume on every exit path. The dialog callbacks below resume via
-  // claim(), but aborts that bypass them — a bridge interrupt, or the REPL's
-  // now-priority/backgrounding paths calling abortController.abort() while the
-  // prompt is open — never run claim()/resolveOnce(). Without this the watchdog
-  // would stay suspended (QueryGuard stops scheduling while suspended) and the
-  // turn could hang on the unresolved permission promise with no watchdog to
-  // recover it. resumeWatchdog is idempotent, so this is safe alongside claim().
-  const abortSignal = ctx.toolUseContext.abortController.signal
-  if (abortSignal.aborted) {
-    resumeWatchdog()
-  } else {
-    abortSignal.addEventListener('abort', resumeWatchdog, { once: true })
-  }
   // Guarantee resume even if dialog setup below throws synchronously (e.g.
   // pushToQueue or bridge wiring) before any claim()/resolveOnce() runs —
   // otherwise the watchdog stays suspended for the rest of the turn. Rethrow so
@@ -120,6 +107,24 @@ function handleInteractivePermission(
     const claimed = resolveOnceHandle.claim()
     if (claimed) resumeWatchdog()
     return claimed
+  }
+  // Handle an abort that bypasses the dialog callbacks — a bridge interrupt, or
+  // the REPL's now-priority/backgrounding paths calling abortController.abort()
+  // while the prompt is open. Only resuming the watchdog would leave the
+  // permission promise unresolved while resetting the idle deadline, so the turn
+  // would stay active for a full idle timeout before cleanup — blocking the
+  // queued interrupt/background work. Claim + cancel so the awaiter unblocks
+  // immediately; claim() also resumes the watchdog. The bridge/channel blocks
+  // below clean up their own subscriptions on abort.
+  const abortSignal = ctx.toolUseContext.abortController.signal
+  const onExternalAbort = () => {
+    if (!claim()) return
+    resolveOnce(ctx.cancelAndAbort(undefined, true))
+  }
+  if (abortSignal.aborted) {
+    onExternalAbort()
+  } else {
+    abortSignal.addEventListener('abort', onExternalAbort, { once: true })
   }
   let userInteracted = false
   let checkmarkTransitionTimer: ReturnType<typeof setTimeout> | undefined
