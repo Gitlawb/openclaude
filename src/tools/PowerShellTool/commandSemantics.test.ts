@@ -262,6 +262,17 @@ describe('interpretCommandResult (PowerShell)', () => {
       }
     })
 
+    test('silent short-circuited setup before && stays a command error', () => {
+      for (const command of [
+        '$false && ruff check .',
+        'Test-Path missing && ruff check .',
+        'Set-Location missing && ruff check .',
+      ]) {
+        const result = interpretCommandResult(command, 1, '', '')
+        expect(result.isError).toBe(true)
+      }
+    })
+
     test('merged-output setup failures do not inherit linter semantics', () => {
       for (const [command, stdout] of [
         [
@@ -278,6 +289,16 @@ describe('interpretCommandResult (PowerShell)', () => {
         ],
       ] as const) {
         const result = interpretCommandResult(command, 1, stdout, '')
+        expect(result.isError).toBe(true)
+      }
+    })
+
+    test('silent failed pipeline input stays a command error', () => {
+      for (const command of [
+        '$false | pytest',
+        'Test-Path missing | ruff check .',
+      ]) {
+        const result = interpretCommandResult(command, 1, '', '')
         expect(result.isError).toBe(true)
       }
     })

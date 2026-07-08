@@ -253,6 +253,22 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['pylint', PYLINT_SEMANTIC],
 ])
 
+const DIAGNOSTIC_COMMANDS = new Set([
+  'ruff',
+  'eslint',
+  'flake8',
+  'biome',
+  'mypy',
+  'pyright',
+  'prettier',
+  'black',
+  'pytest',
+  'jest',
+  'vitest',
+  'tsc',
+  'pylint',
+])
+
 function resolvePackageScriptCommand(
   normalized: string[],
   startIndex: number,
@@ -681,6 +697,63 @@ function getNonFinalCommandNames(command: string): string[] {
     .filter(Boolean)
 }
 
+function hasUnquotedShortCircuitOrPipeline(command: string): boolean {
+  let quote: '"' | "'" | undefined
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]
+    const next = command[i + 1]
+    const prev = command[i - 1]
+    if ((char === '"' || char === "'") && quote === undefined) {
+      quote = char
+      continue
+    }
+    if (char === quote) {
+      quote = undefined
+      continue
+    }
+    if (quote !== undefined) {
+      continue
+    }
+    if (char === '&' && next === '&') {
+      return true
+    }
+    if (char === '|' && next !== '|' && prev !== '|') {
+      return true
+    }
+  }
+  return false
+}
+
+function getResolvedDiagnosticCommandName(command: string): string | undefined {
+  const baseCommand = heuristicallyExtractBaseCommand(command)
+  if (DIAGNOSTIC_COMMANDS.has(baseCommand)) {
+    return baseCommand
+  }
+  if (!WRAPPER_COMMANDS.has(baseCommand)) {
+    return undefined
+  }
+  const wrapped = extractWrappedCommand(command, baseCommand)
+  return wrapped !== undefined && DIAGNOSTIC_COMMANDS.has(wrapped)
+    ? wrapped
+    : undefined
+}
+
+function looksLikeSilentSkippedDiagnostic(
+  command: string,
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+  result: { isError: boolean },
+): boolean {
+  return (
+    exitCode !== 0 &&
+    !result.isError &&
+    combineFailureOutput(stdout, stderr).length === 0 &&
+    hasUnquotedShortCircuitOrPipeline(command) &&
+    getResolvedDiagnosticCommandName(command) !== undefined
+  )
+}
+
 function looksLikeSetupOrPipelineFailure(
   command: string,
   exitCode: number,
@@ -731,6 +804,11 @@ export function interpretCommandResult(
   }
   if (
     looksLikeSetupOrPipelineFailure(command, exitCode, stdout, stderr, result)
+  ) {
+    return DEFAULT_SEMANTIC(exitCode, stdout, stderr)
+  }
+  if (
+    looksLikeSilentSkippedDiagnostic(command, exitCode, stdout, stderr, result)
   ) {
     return DEFAULT_SEMANTIC(exitCode, stdout, stderr)
   }

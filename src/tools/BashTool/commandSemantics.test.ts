@@ -392,6 +392,17 @@ describe('interpretCommandResult', () => {
       }
     })
 
+    test('silent short-circuited setup before && stays a command error', () => {
+      for (const command of [
+        'false && ruff check .',
+        'test -f missing && ruff check .',
+        'cd missing && ruff check .',
+      ]) {
+        const result = interpretCommandResult(command, 1, '', '')
+        expect(result.isError).toBe(true)
+      }
+    })
+
     test('failed pipeline input does not inherit linter or test-runner semantics', () => {
       for (const [command, stderr] of [
         ['cat missing | pytest', 'cat: missing: No such file or directory'],
@@ -415,6 +426,13 @@ describe('interpretCommandResult', () => {
       ] as const) {
         const stdout = command.startsWith('echo setup') ? 'setup\n' : ''
         const result = interpretCommandResult(command, 1, stdout, stderr)
+        expect(result.isError).toBe(true)
+      }
+    })
+
+    test('silent failed pipeline input stays a command error', () => {
+      for (const command of ['false | pytest', 'test -f missing | ruff check .']) {
+        const result = interpretCommandResult(command, 1, '', '')
         expect(result.isError).toBe(true)
       }
     })
