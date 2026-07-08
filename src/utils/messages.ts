@@ -5418,7 +5418,7 @@ export {
   selectToolPairSafeMessageRange,
   validateToolResultPairing,
   formatToolResultPairingIssue,
-} from "./messages/toolPairing.js"
+} from './messages/toolPairing.js'
 export type {
   ToolPairSafeMessageRangeDiagnostics,
   ToolPairSafeMessageRangeOptions,
@@ -5427,7 +5427,7 @@ export type {
   ToolResultPairingIssueKind,
   ToolResultPairingValidationContext,
   ToolResultPairingValidationResult,
-} from "./messages/toolPairing.js"
+} from './messages/toolPairing.js'
 
 /**
  * Defensive validation: ensure tool_use/tool_result pairing is correct.
