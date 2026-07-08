@@ -50,9 +50,7 @@ import type {
   NormalizedUserMessage,
   PartialCompactDirection,
   ProgressMessage,
-  RequestStartEvent,
   StopHookInfo,
-  StreamEvent,
   SystemAgentsKilledMessage,
   SystemAPIErrorMessage,
   SystemApiMetricsMessage,
@@ -69,7 +67,6 @@ import type {
   SystemScheduledTaskFireMessage,
   SystemStopHookSummaryMessage,
   SystemTurnDurationMessage,
-  TombstoneMessage,
   ToolUseSummaryMessage,
   UserMessage,
 } from '../types/message.js'
@@ -123,7 +120,6 @@ import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import type { DeepImmutable } from 'src/types/utils.js'
 import { getStrictToolResultPairing } from '../bootstrap/state.js'
-import type { SpinnerMode } from '../components/Spinner.js'
 import {
   COMMAND_ARGS_TAG,
   COMMAND_MESSAGE_TAG,
@@ -3186,8 +3182,8 @@ export function getContentText(
   return null
 }
 
-export { handleMessageFromStream } from "./messages/streaming.js"
-export type { StreamingThinking, StreamingToolUse } from "./messages/streaming.js"
+export { handleMessageFromStream } from './messages/streaming.js'
+export type { StreamingThinking, StreamingToolUse } from './messages/streaming.js'
 
 export function wrapInSystemReminder(content: string): string {
   return `<system-reminder>\n${content}\n</system-reminder>`
