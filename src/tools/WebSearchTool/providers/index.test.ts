@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -8,8 +8,21 @@ import type { ProviderMode } from './index.js'
 
 const savedWebSearchEnv = {
   WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER,
+  WEB_SEARCH_TIMEOUT_SEC: process.env.WEB_SEARCH_TIMEOUT_SEC,
+  FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
+  FIRECRAWL_API_URL: process.env.FIRECRAWL_API_URL,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+  EXA_API_KEY: process.env.EXA_API_KEY,
+  YOU_API_KEY: process.env.YOU_API_KEY,
+  JINA_API_KEY: process.env.JINA_API_KEY,
+  BRAVE_API_KEY: process.env.BRAVE_API_KEY,
+  BING_API_KEY: process.env.BING_API_KEY,
+  MOJEEK_API_KEY: process.env.MOJEEK_API_KEY,
+  LINKUP_API_KEY: process.env.LINKUP_API_KEY,
 }
+
+const originalFetch = globalThis.fetch
+const originalConsoleError = console.error
 
 function restoreWebSearchEnv() {
   for (const [key, value] of Object.entries(savedWebSearchEnv)) {
@@ -28,10 +41,49 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     restoreWebSearchEnv()
+    globalThis.fetch = originalFetch
+    console.error = originalConsoleError
+    mock.restore()
   } finally {
     releaseSharedMutationLock()
   }
 })
+
+function configureAutoModeWithOnlyBrave(): void {
+  process.env.WEB_SEARCH_PROVIDER = 'auto'
+  delete process.env.FIRECRAWL_API_KEY
+  delete process.env.FIRECRAWL_API_URL
+  delete process.env.TAVILY_API_KEY
+  delete process.env.EXA_API_KEY
+  delete process.env.YOU_API_KEY
+  delete process.env.JINA_API_KEY
+  process.env.BRAVE_API_KEY = 'brv-test-key'
+  delete process.env.BING_API_KEY
+  delete process.env.MOJEEK_API_KEY
+  delete process.env.LINKUP_API_KEY
+}
+
+function mockDuckDuckGoSearch(
+  search: () => Promise<{
+    results: Array<{ title: string; url: string; description?: string }>
+  }>,
+): void {
+  mock.module('duck-duck-scrape', () => ({
+    SafeSearchType: {
+      STRICT: 0,
+      MODERATE: -1,
+      OFF: -2,
+    },
+    search,
+  }))
+}
+
+function stalledJsonResponse(): Response {
+  return new Response(new ReadableStream({ start() {} }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
 
 // ---------------------------------------------------------------------------
 // getProviderMode
@@ -144,6 +196,82 @@ describe('runSearch', () => {
       if (savedProvider !== undefined) process.env.WEB_SEARCH_PROVIDER = savedProvider
       else delete process.env.WEB_SEARCH_PROVIDER
     }
+  })
+
+  test('auto mode falls through when a provider times out', async () => {
+    configureAutoModeWithOnlyBrave()
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+    console.error = () => {}
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Promise<Response>(() => undefined)) as typeof fetch
+    mockDuckDuckGoSearch(async () => ({
+      results: [
+        {
+          title: 'Fallback result',
+          url: 'https://example.com/fallback',
+          description: 'from ddg',
+        },
+      ],
+    }))
+
+    const { runSearch } = await import('./index.js')
+    const output = await runSearch({ query: 'timeout fallback' })
+
+    expect(output.providerName).toBe('duckduckgo')
+    expect(output.hits).toHaveLength(1)
+    expect(output.hits[0].title).toBe('Fallback result')
+  })
+
+  test('auto mode falls through when a provider response body stalls', async () => {
+    configureAutoModeWithOnlyBrave()
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+    console.error = () => {}
+    globalThis.fetch = (async (_input: any, _init?: any) =>
+      stalledJsonResponse()) as unknown as typeof fetch
+    mockDuckDuckGoSearch(async () => ({
+      results: [
+        {
+          title: 'Body fallback result',
+          url: 'https://example.com/body-fallback',
+          description: 'from ddg',
+        },
+      ],
+    }))
+
+    const { runSearch } = await import('./index.js')
+    const output = await runSearch({ query: 'body timeout fallback' })
+
+    expect(output.providerName).toBe('duckduckgo')
+    expect(output.hits).toHaveLength(1)
+    expect(output.hits[0].title).toBe('Body fallback result')
+  })
+
+  test('auto mode does not fall through after caller abort', async () => {
+    configureAutoModeWithOnlyBrave()
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+
+    let fetchCalls = 0
+    globalThis.fetch = (async (_input: any, _init: any) => {
+      fetchCalls++
+      return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 })
+    }) as typeof fetch
+
+    let duckDuckGoCalls = 0
+    mockDuckDuckGoSearch(async () => {
+      duckDuckGoCalls++
+      return { results: [] }
+    })
+
+    const controller = new AbortController()
+    controller.abort()
+
+    const { runSearch } = await import('./index.js')
+    await expect(
+      runSearch({ query: 'user abort' }, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(fetchCalls).toBe(0)
+    expect(duckDuckGoCalls).toBe(0)
   })
 })
 

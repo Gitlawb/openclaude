@@ -4460,6 +4460,15 @@ You have exited auto mode. The user may now want to interact more directly. You 
         }),
       ])
     }
+    case 'ultracode_mode': {
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content:
+            'You are running in ultracode mode. You have standing permission to orchestrate multi-agent workflows for this session: you may spawn subagents, parallelize tasks, and coordinate parallel tool calls without asking for confirmation.',
+          isMeta: true,
+        }),
+      ])
+    }
     case 'deferred_tools_delta': {
       const parts: string[] = []
       if (attachment.addedLines.length > 0) {

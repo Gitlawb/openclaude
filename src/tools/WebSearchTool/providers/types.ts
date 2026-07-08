@@ -90,9 +90,18 @@ export function safeHostname(url: string | undefined): string | undefined {
  *          hostMatchesDomain('badexample.com', 'example.com') → false
  */
 export function hostMatchesDomain(host: string, domain: string): boolean {
-  if (host === domain) return true
+  // `host` arrives already lowercased (WHATWG `new URL().hostname` via
+  // safeHostname), but `domain` comes straight from the caller's
+  // allowed_domains / blocked_domains and is never normalized. Lowercase both
+  // so a capitalized entry like `Reddit.com` still matches `reddit.com` — hosts
+  // are case-insensitive, and without this `blocked_domains: ['Reddit.com']`
+  // silently fails to block and `allowed_domains: ['GitHub.com']` drops every
+  // legitimate hit.
+  const normalizedHost = host.toLowerCase()
+  const normalizedDomain = domain.toLowerCase()
+  if (normalizedHost === normalizedDomain) return true
   // Subdomain: must end with `.domain` (not just `domain`)
-  return host.endsWith('.' + domain)
+  return normalizedHost.endsWith('.' + normalizedDomain)
 }
 
 export function applyDomainFilters(

@@ -2,6 +2,7 @@ import type { DiagnosticInfo, InstallationType } from './doctorDiagnostic.js'
 import { getDoctorDiagnostic } from './doctorDiagnostic.js'
 import { localInstallationExists } from './localInstaller.js'
 import { type LegacyAPIProvider, getAPIProvider } from './model/providers.js'
+import { hasNativeDistribution } from './nativeDistribution.js'
 import type { PackageManager } from './nativeInstaller/packageManagers.js'
 import { getPackageManager } from './nativeInstaller/packageManagers.js'
 
@@ -56,6 +57,7 @@ export type UpdateStrategyDeps = {
   getDiagnostic: () => Promise<DiagnosticInfo>
   getPackageManager: () => Promise<PackageManager>
   localInstallationExists: () => Promise<boolean>
+  hasNativeDistribution: () => boolean
 }
 
 const defaultDeps: UpdateStrategyDeps = {
@@ -63,6 +65,7 @@ const defaultDeps: UpdateStrategyDeps = {
   getDiagnostic: getDoctorDiagnostic,
   getPackageManager,
   localInstallationExists,
+  hasNativeDistribution,
 }
 
 /**
@@ -76,6 +79,7 @@ export function planUpdate(input: {
   installationType: InstallationType
   packageManager: PackageManager
   localInstallExists: boolean
+  nativeDistributionAvailable: boolean
 }): UpdateStrategy {
   if (input.thirdPartyBlocked) {
     return { action: 'blocked', reason: 'third-party-build' }
@@ -86,7 +90,11 @@ export function planUpdate(input: {
     case 'package-manager':
       return { action: 'package-manager', manager: input.packageManager }
     case 'native':
-      return { action: 'native' }
+      // npm-only builds must never route to the native installer — it would
+      // download the first-party binary this build does not ship.
+      return input.nativeDistributionAvailable
+        ? { action: 'native' }
+        : { action: 'npm', method: 'global' }
     case 'npm-local':
       return { action: 'npm', method: 'local' }
     case 'npm-global':
@@ -117,6 +125,7 @@ export async function resolveUpdateStrategy(
   return planUpdate({
     thirdPartyBlocked: false,
     installationType,
+    nativeDistributionAvailable: deps.hasNativeDistribution(),
     packageManager:
       installationType === 'package-manager'
         ? await deps.getPackageManager()

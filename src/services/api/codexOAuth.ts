@@ -203,15 +203,99 @@ type CodexOAuthListener = Pick<
   | 'cancelPendingAuthorization'
 >
 
+export type CodexManualCallbackResult =
+  | { ok: true }
+  | { ok: false; error: string }
+
 export class CodexOAuthService {
   private authCodeListener: CodexOAuthListener | null = null
   private port: number | null = null
   private tokenExchangeAbortController: AbortController | null = null
+  private manualResolver: ((authorizationCode: string) => void) | null = null
+  private manualRejecter: ((error: Error) => void) | null = null
+  private expectedState: string | null = null
 
   constructor(private readonly options: CodexOAuthServiceOptions = {}) {}
 
   private buildCancellationError(): Error {
     return new Error('Codex OAuth flow was cancelled.')
+  }
+
+  /**
+   * Recover the flow when the loopback callback is unreachable — typically a
+   * remote SSH session where the user's browser redirects to a localhost URL
+   * that resolves to their workstation, not the openclaude host. The user
+   * pastes the full redirected URL (or just its query string), we validate
+   * the state parameter against the in-flight flow, and resolve the same
+   * authorization code the loopback path would have produced.
+   *
+   * Returns a structured outcome instead of throwing so the UI layer can
+   * surface parse / state errors inline without unmounting the flow.
+   */
+  submitManualCallback(input: string): CodexManualCallbackResult {
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return { ok: false, error: 'Paste the callback URL or its query string.' }
+    }
+    if (!this.manualResolver || !this.expectedState) {
+      return {
+        ok: false,
+        error: 'No Codex OAuth flow is waiting for a manual callback.',
+      }
+    }
+
+    let searchParams: URLSearchParams
+    try {
+      if (trimmed.includes('://')) {
+        searchParams = new URL(trimmed).searchParams
+      } else {
+        searchParams = new URLSearchParams(
+          trimmed.startsWith('?') ? trimmed.slice(1) : trimmed,
+        )
+      }
+    } catch {
+      return {
+        ok: false,
+        error: 'Could not parse the callback URL — paste the full address.',
+      }
+    }
+
+    const code = asTrimmedString(searchParams.get('code') ?? undefined)
+    const state = asTrimmedString(searchParams.get('state') ?? undefined)
+    const errorParam = asTrimmedString(searchParams.get('error') ?? undefined)
+    if (errorParam) {
+      const description = asTrimmedString(
+        searchParams.get('error_description') ?? undefined,
+      )
+      return {
+        ok: false,
+        error: description
+          ? `Authorization failed: ${errorParam} — ${description}`
+          : `Authorization failed: ${errorParam}`,
+      }
+    }
+    if (!code) {
+      return { ok: false, error: 'Callback URL is missing the `code` parameter.' }
+    }
+    if (!state) {
+      return {
+        ok: false,
+        error: 'Callback URL is missing the `state` parameter.',
+      }
+    }
+    if (state !== this.expectedState) {
+      return {
+        ok: false,
+        error:
+          'State mismatch — the URL is from a different login attempt. Start over.',
+      }
+    }
+
+    const resolver = this.manualResolver
+    this.manualResolver = null
+    this.manualRejecter = null
+    resolver(code)
+    return { ok: true }
   }
 
   async startOAuthFlow(
@@ -242,13 +326,29 @@ export class CodexOAuthService {
         state,
       })
 
+      this.expectedState = state
+      const manualPromise = new Promise<string>((resolve, reject) => {
+        this.manualResolver = resolve
+        this.manualRejecter = reject
+      })
+      // Manual path may never be taken; swallow its rejection (raised from
+      // cleanup()) so it doesn't bubble as an unhandledRejection when the
+      // loopback wins the race.
+      manualPromise.catch(() => undefined)
+
       try {
-        const authorizationCode = await authCodeListener.waitForAuthorization(
+        const loopbackPromise = authCodeListener.waitForAuthorization(
           state,
           async () => {
             await authURLHandler(authUrl)
           },
         )
+        loopbackPromise.catch(() => undefined)
+
+        const authorizationCode = await Promise.race([
+          loopbackPromise,
+          manualPromise,
+        ])
 
         const tokenExchangeAbortController = new AbortController()
         this.tokenExchangeAbortController = tokenExchangeAbortController
@@ -344,5 +444,13 @@ export class CodexOAuthService {
     this.authCodeListener?.cancelPendingAuthorization(cancellationError)
     this.authCodeListener = null
     this.port = null
+
+    // Unblock any caller awaiting Promise.race against the manual path so the
+    // race resolves to the listener's rejection (or to this cancellation)
+    // instead of hanging forever.
+    this.manualRejecter?.(cancellationError)
+    this.manualResolver = null
+    this.manualRejecter = null
+    this.expectedState = null
   }
 }

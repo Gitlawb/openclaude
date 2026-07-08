@@ -20,7 +20,7 @@ import {
   redactDiagnosticObject,
   redactHomePath,
   redactLikelySecrets,
-} from './diagnostics/redaction.js'
+} from './redaction.js'
 import { stableStringifyJson } from './stableStringify.js'
 
 export const TASK_REPORT_SCHEMA_VERSION = 1

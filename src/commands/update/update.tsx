@@ -6,13 +6,22 @@ import {
   getLatestVersion,
   installGlobalPackage,
 } from '../../utils/autoUpdater.js'
-import type { ReleaseChannel } from '../../utils/config.js'
+import {
+  getGlobalConfig,
+  type InstallMethod,
+  type ReleaseChannel,
+} from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 import { detectGlobalPackageManager } from '../../utils/globalPackageManager.js'
 import { installOrUpdateClaudePackage } from '../../utils/localInstaller.js'
-import { installLatest as installLatestNative } from '../../utils/nativeInstaller/index.js'
+import { hasNativeDistribution } from '../../utils/nativeDistribution.js'
+import {
+  installLatest as installLatestNative,
+  removeInstalledSymlink,
+} from '../../utils/nativeInstaller/index.js'
 import type { PackageManager } from '../../utils/nativeInstaller/packageManagers.js'
+import { shouldRemoveInstalledSymlinkForNpmUpdate } from '../../utils/autoUpdaterRouting.js'
 import { resolveUpdateStrategy } from '../../utils/updateStrategy.js'
 
 const PACKAGE_URL = MACRO.PACKAGE_URL
@@ -49,6 +58,24 @@ function packageManagerHint(manager: PackageManager): string | null {
     default:
       return null
   }
+}
+
+export async function removeStaleNativeLauncherForNpmUpdate(deps: {
+  getConfig?: () => { installMethod?: InstallMethod }
+  hasNativeDistribution?: () => boolean
+  removeInstalledSymlink?: () => Promise<void>
+} = {}): Promise<boolean> {
+  const config = (deps.getConfig ?? getGlobalConfig)()
+  if (
+    shouldRemoveInstalledSymlinkForNpmUpdate(
+      config.installMethod,
+      (deps.hasNativeDistribution ?? hasNativeDistribution)(),
+    )
+  ) {
+    await (deps.removeInstalledSymlink ?? removeInstalledSymlink)()
+    return true
+  }
+  return false
 }
 
 function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
@@ -115,6 +142,10 @@ function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
         }
 
         // strategy.action === 'npm' — update the local or global npm install.
+        // Clear stale native launchers before any early success path so the
+        // next `openclaude` resolves to the npm install we are updating.
+        await removeStaleNativeLauncherForNpmUpdate()
+
         const via =
           strategy.method === 'global'
             ? await detectGlobalPackageManager()

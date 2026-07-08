@@ -97,7 +97,10 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
-import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
+import {
+  redactUrlForDisplay,
+  shouldRedactUrlQueryParam,
+} from '../../utils/redaction.js'
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
   normalizeToolArguments,
@@ -367,26 +370,11 @@ function formatRetryAfterHint(response: Response): string {
 }
 
 function redactUrlForDiagnostics(url: string): string {
-  try {
-    const parsed = new URL(url)
-    if (parsed.username) {
-      parsed.username = 'redacted'
-    }
-    if (parsed.password) {
-      parsed.password = 'redacted'
-    }
-
-    for (const key of parsed.searchParams.keys()) {
-      if (shouldRedactUrlQueryParam(key)) {
-        parsed.searchParams.set(key, 'redacted')
-      }
-    }
-
-    const serialized = parsed.toString()
-    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? serialized
-  } catch {
-    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
-  }
+  const redacted = redactUrlForDisplay(url)
+  return (
+    redactSecretValueForDisplay(redacted, process.env as SecretValueSource) ??
+    redacted
+  )
 }
 
 function redactUrlsInMessage(message: string): string {
@@ -3887,6 +3875,10 @@ class OpenAIShimMessages {
         if (convertedTools.length > 0) {
           responsesBody.tools = convertedTools
         }
+      }
+
+      for (const field of shimConfig.removeBodyFields ?? []) {
+        delete responsesBody[field]
       }
 
       return responsesBody

@@ -11,7 +11,7 @@ import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getModelOptions, type ModelOption } from '../utils/model/modelOptions.js';
+import { getModelOptions, type ModelOption, parseSwitchProfileValue, resolveSelectedSwitchProfileId } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -26,7 +26,18 @@ export type ModelPickerDiscoveryState = {
 export type Props = {
   initial: string | null;
   sessionModel?: ModelSetting;
-  onSelect: (model: string | null, effort: EffortLevel | undefined) => void;
+  /**
+   * `switchToProfileId` is the marker of the selected cross-profile option
+   * (issue #1119). It is defined only when the picked option is a genuine
+   * "switch profile" entry, so consumers must gate profile activation on this
+   * marker rather than re-parsing the encoded value — a literal custom model id
+   * that merely starts with `__switch_profile__:` arrives with it undefined.
+   */
+  onSelect: (
+    model: string | null,
+    effort: EffortLevel | undefined,
+    switchToProfileId?: string,
+  ) => void;
   onCancel?: () => void;
   isStandaloneCommand?: boolean;
   showFastModeNotice?: boolean;
@@ -42,6 +53,14 @@ export type Props = {
   optionsOverride?: ModelOption[];
   discoveryState?: ModelPickerDiscoveryState;
   onRefresh?: () => void;
+  /**
+   * Allow cross-profile "switch profile" options (issue #1119) to appear in the
+   * list. These carry an encoded `__switch_profile__:<id>:<model>` value that
+   * only the `/model` command's onSelect knows how to activate. Inline pickers
+   * (prompt hotkey, Settings) that write the raw value to `mainLoopModel` must
+   * leave this off so they never surface an option they cannot honor.
+   */
+  allowProfileSwitch?: boolean;
 };
 const NO_PREFERENCE = '__NO_PREFERENCE__';
 function normalizeModelPickerValue(value: unknown): string | null {
@@ -86,7 +105,8 @@ export function ModelPicker(t0) {
     skipSettingsWrite,
     optionsOverride,
     discoveryState,
-    onRefresh
+    onRefresh,
+    allowProfileSwitch
   } = t0;
   const setAppState = useSetAppState();
   const exitState = useExitOnCtrlCDWithKeybindings();
@@ -112,7 +132,16 @@ export function ModelPicker(t0) {
   } else {
     t3 = $[3];
   }
-  const modelOptions = optionsOverride ?? t3;
+  const modelOptionsBase = optionsOverride ?? t3;
+  // Cross-profile switch options can only be honored by the /model command's
+  // onSelect, which decodes the value and activates the target profile. Strip
+  // them for inline pickers (allowProfileSwitch falsy) so a hotkey/Settings
+  // selection never writes the raw `__switch_profile__:...` value as a model.
+  // Key on the `switchToProfileId` marker, not the raw value prefix, so a real
+  // custom model id that merely starts with `__switch_profile__:` is not hidden.
+  const modelOptions = allowProfileSwitch
+    ? modelOptionsBase
+    : modelOptionsBase.filter(opt => opt.switchToProfileId === undefined);
   let t4;
   bb0: {
     if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => optionMatchesPickerValue(opt, initial))) {
@@ -298,7 +327,17 @@ export function ModelPicker(t0) {
         onSelect(null, selectedEffort);
         return;
       }
-      onSelect(selectedValue, selectedEffort);
+      // Thread the presented option's cross-profile marker (issue #1119) so the
+      // /model command activates a provider only for a genuine switch option,
+      // never for a literal custom id that merely starts with the prefix.
+      // selectOptions is the actual presented list (already captured in this
+      // memo's deps) and its entries spread the source ModelOption's
+      // `switchToProfileId`. If two options share the selected value (a literal
+      // custom id colliding with an encoded switch value), the selection is
+      // ambiguous — the Select cannot tell them apart — so treat it as NOT a
+      // switch rather than letting the literal borrow another option's marker.
+      const selectedSwitchProfileId = resolveSelectedSwitchProfileId(selectOptions, selectedValue);
+      onSelect(selectedValue, selectedEffort, selectedSwitchProfileId);
     };
     $[35] = effort;
     $[36] = hasToggledEffort;
@@ -447,9 +486,32 @@ function _temp2(s_0) {
 function _temp(s) {
   return isFastModeEnabled() ? s.fastMode : false;
 }
+// A picker value is a genuine cross-profile switch only when the option with
+// that exact value carries the `switchToProfileId` marker. A literal custom
+// model id that merely starts with `__switch_profile__:` is a plain option with
+// no marker and must NOT be decoded — otherwise the display resolver would
+// strip a real model id down to its `:`-tail. getModelOptions() is the
+// authority for the switch options (they only appear in the base list, never in
+// a discovery override, and discovered ids never carry the prefix). If two
+// options share the value (a literal id colliding with an encoded switch
+// value), the match is ambiguous, so require exactly one option and treat that
+// lone option's marker as authoritative.
+function isGenuineSwitchProfileValue(value: string): boolean {
+  return resolveSelectedSwitchProfileId(getModelOptions(), value) !== undefined;
+}
 function resolveOptionModel(value?: string): string | undefined {
   if (!value) return undefined;
-  return value === NO_PREFERENCE ? getDefaultMainLoopModel() : parseUserSpecifiedModel(value);
+  if (value === NO_PREFERENCE) return getDefaultMainLoopModel();
+  // Cross-profile entries from /model encode the picker value as
+  // `__switch_profile__:<profileId>:<model>`. Effort / display logic needs
+  // the bare target model id (e.g. `gpt-5.4`) — otherwise
+  // `modelSupportsEffort` sees the prefixed string and reports
+  // "Effort not supported" even for reasoning-capable models. Decode only when
+  // the value is a genuine marker-backed switch option, not any prefixed id.
+  const switched = isGenuineSwitchProfileValue(value)
+    ? parseSwitchProfileValue(value)
+    : null;
+  return parseUserSpecifiedModel(switched ? switched.model : value);
 }
 function EffortLevelIndicator(t0) {
   const $ = _c(5);

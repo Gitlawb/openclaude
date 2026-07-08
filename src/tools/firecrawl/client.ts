@@ -42,11 +42,21 @@ interface FirecrawlScrapeOptions extends FirecrawlRequestOptions {
   formats?: string[]
 }
 
+export function isFirecrawlCloudApiUrl(apiUrl: string | undefined): boolean {
+  const normalized = (apiUrl ?? DEFAULT_FIRECRAWL_API_URL).trim()
+  try {
+    return new URL(normalized).hostname === 'api.firecrawl.dev'
+  } catch {
+    const withoutTrailingSlash = normalized.replace(/\/+$/, '')
+    return withoutTrailingSlash.toLowerCase() === 'api.firecrawl.dev'
+  }
+}
+
 function getFirecrawlConfig(options: FirecrawlRequestOptions) {
   const apiKey = options.apiKey ?? process.env.FIRECRAWL_API_KEY ?? ''
   const apiUrl = (options.apiUrl ?? process.env.FIRECRAWL_API_URL ?? DEFAULT_FIRECRAWL_API_URL).replace(/\/$/, '')
 
-  if (apiUrl.includes('api.firecrawl.dev') && !apiKey) {
+  if (isFirecrawlCloudApiUrl(apiUrl) && !apiKey) {
     throw new Error(
       'Firecrawl API key is required for the cloud API. Set FIRECRAWL_API_KEY or use FIRECRAWL_API_URL for a self-hosted instance.',
     )

@@ -557,6 +557,18 @@ Supported values:
   profile-only custom model IDs.
 - `profile`: show only explicitly configured profile models.
 
+When the provider-profile env workflow is active (i.e. a profile has been
+applied and `CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED=1` is set — as it is after
+launching with a saved profile) and you have more than one saved provider
+profile, `/model` also lists models from your **inactive** profiles, grouped
+under their profile name. Selecting one activates that provider profile and
+switches to the chosen model in a single step, reconciling fast mode if the
+target provider cannot run it. These cross-profile entries appear only in the
+interactive `/model` picker — they are never returned to SDK/automation callers
+and are hidden from inline pickers (such as the prompt hotkey or Settings),
+which cannot switch the active profile. Simply having multiple profiles
+configured without the env workflow active does not surface them.
+
 Use `--provider ollama` when you want a local-only path. Auto mode falls back to OpenAI when no viable local chat model is installed.
 
 Use `--provider atomic-chat` when you want Atomic Chat as the local Apple Silicon provider.

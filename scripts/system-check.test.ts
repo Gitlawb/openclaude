@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 import {
   buildMemoryGuardChecks,
   buildSandboxRuntimeCheck,
+  checkWebSearchEnv,
   checkOpenAIEnv,
   checkNodeVersion,
   formatReachabilityFailureDetail,
@@ -11,42 +15,113 @@ import {
   serializeSafeEnvSummary,
 } from './system-check.ts'
 import { DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP } from '../src/utils/maxActiveMessages.ts'
+import { resetSettingsCache } from '../src/utils/settings/settingsCache.ts'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+  'CLAUDE_CODE_DEFAULT_STARTUP_PROVIDER',
   'CLAUDE_CODE_SIMPLE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
+  'ANTHROPIC_BEDROCK_BASE_URL',
+  'ANTHROPIC_VERTEX_BASE_URL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'GEMINI_MODEL',
+  'GEMINI_BASE_URL',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_ACCESS_TOKEN',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
+  'MISTRAL_BASE_URL',
   'OPENAI_MODEL',
   'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENGATEWAY_API_KEY',
   'GITHUB_TOKEN',
   'GH_TOKEN',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'CODEX_API_KEY',
+  'CODEX_CREDENTIAL_SOURCE',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'CHATGPT_ACCOUNT_ID',
+  'CODEX_ACCOUNT_ID',
+  'NVIDIA_NIM',
+  'NVIDIA_API_KEY',
+  'NVIDIA_MODEL',
+  'MINIMAX_API_KEY',
+  'MINIMAX_BASE_URL',
+  'MINIMAX_MODEL',
+  'BANKR_BASE_URL',
+  'BNKR_API_KEY',
+  'BANKR_MODEL',
+  'XAI_API_KEY',
+  'XAI_CREDENTIAL_SOURCE',
+  'AIMLAPI_API_KEY',
+  'VENICE_API_KEY',
+  'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
+  'FIREWORKS_API_KEY',
+  'CLINE_API_KEY',
+  'OPENCODE_API_KEY',
   'DISABLE_COMPACT',
   'DISABLE_AUTO_COMPACT',
   'OPENCLAUDE_MAX_ACTIVE_MESSAGES',
   'OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP',
   'OPENCLAUDE_MAX_MEMORY_MB',
+  'OPENCLAUDE_CONFIG_DIR',
+  'WEB_SEARCH_PROVIDER',
+  'WEB_SEARCH_TIMEOUT_SEC',
+  'WEB_SEARCH_API',
+  'WEB_PROVIDER',
+  'WEB_URL_TEMPLATE',
+  'WEB_KEY',
+  'GOOGLE_CSE_ID',
+  'FIRECRAWL_API_KEY',
+  'FIRECRAWL_API_URL',
+  'TAVILY_API_KEY',
+  'EXA_API_KEY',
+  'YOU_API_KEY',
+  'JINA_API_KEY',
+  'BRAVE_API_KEY',
+  'BING_API_KEY',
+  'MOJEEK_API_KEY',
+  'LINKUP_API_KEY',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
+let tempConfigDir: string | undefined
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+  tempConfigDir = mkdtempSync(join(tmpdir(), 'openclaude-system-check-'))
+  process.env.OPENCLAUDE_CONFIG_DIR = tempConfigDir
+  resetSettingsCache()
 })
 
 afterEach(() => {
@@ -56,6 +131,11 @@ afterEach(() => {
     } else {
       process.env[key] = originalEnv[key]
     }
+  }
+  resetSettingsCache()
+  if (tempConfigDir) {
+    rmSync(tempConfigDir, { recursive: true, force: true })
+    tempConfigDir = undefined
   }
 })
 
@@ -263,6 +343,317 @@ describe('system-check provider diagnostics', () => {
       label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
       detail: 'Placeholder value detected: SUA_CHAVE.',
     })
+  })
+})
+
+describe('system-check WebSearch diagnostics', () => {
+  const reliableBackendHint =
+    'FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
+
+  function expectWebSearchBackend(
+    ok: boolean,
+    detail: string,
+    timeoutSeconds: string | false = '15',
+  ) {
+    expect(checkWebSearchEnv()).toEqual([
+      {
+        ok,
+        label: 'Web search backend',
+        detail: timeoutSeconds === false
+          ? detail
+          : `${detail} Built-in provider timeout: ${timeoutSeconds}s.`,
+      },
+    ])
+  }
+
+  function useOpenAICompatibleProvider() {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  }
+
+  function useOpenAICompatibleProviderWithoutModel() {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  }
+
+  test('reports auto mode using native first-party search before adapters', () => {
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; firstParty native web search will be used before adapter providers.',
+      false,
+    )
+  })
+
+  test('reports configured API-backed providers when auto mode uses native search first', () => {
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; firstParty native web search will be used before adapter providers. Configured API-backed providers: brave.',
+      false,
+    )
+  })
+
+  test('fails auto mode for unsupported Vertex native model instead of claiming DuckDuckGo fallback', () => {
+    process.env.CLAUDE_CODE_USE_VERTEX = '1'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-3-7-sonnet@20250219'
+
+    expectWebSearchBackend(
+      false,
+      `WEB_SEARCH_PROVIDER=auto selected, but vertex model claude-3-7-sonnet@20250219 does not support native web search and runtime will not use adapter providers in auto mode. Use a Claude 4 Vertex model or set an explicit WEB_SEARCH_PROVIDER adapter mode with ${reliableBackendHint}.`,
+      false,
+    )
+  })
+
+  test('fails auto mode for unsupported Vertex native model even when adapter keys are configured', () => {
+    process.env.CLAUDE_CODE_USE_VERTEX = '1'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-3-7-sonnet@20250219'
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      false,
+      `WEB_SEARCH_PROVIDER=auto selected, but vertex model claude-3-7-sonnet@20250219 does not support native web search and runtime will not use adapter providers in auto mode. Use a Claude 4 Vertex model or set an explicit WEB_SEARCH_PROVIDER adapter mode with ${reliableBackendHint}. Configured API-backed providers: brave.`,
+      false,
+    )
+  })
+
+  test('reports auto mode with only DuckDuckGo fallback available', () => {
+    useOpenAICompatibleProvider()
+
+    expectWebSearchBackend(
+      true,
+      `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search.`,
+    )
+  })
+
+  test('uses the runtime OpenAI default model in auto mode when OPENAI_MODEL is unset', () => {
+    useOpenAICompatibleProviderWithoutModel()
+
+    expectWebSearchBackend(
+      true,
+      `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search.`,
+    )
+  })
+
+  test('reports the configured built-in provider timeout', () => {
+    useOpenAICompatibleProvider()
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '30'
+
+    expectWebSearchBackend(
+      true,
+      `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search.`,
+      '30',
+    )
+  })
+
+  test('reports Firecrawl cloud URL without an API key in auto mode with DuckDuckGo fallback', () => {
+    useOpenAICompatibleProvider()
+    process.env.FIRECRAWL_API_URL = 'https://api.firecrawl.dev'
+
+    expectWebSearchBackend(
+      true,
+      `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search. FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.`,
+    )
+  })
+
+  test('reports Firecrawl cloud URL without an API key in auto mode with a later API fallback', () => {
+    useOpenAICompatibleProvider()
+    process.env.FIRECRAWL_API_URL = 'https://api.firecrawl.dev'
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; configured providers: brave; fallback includes duckduckgo. FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.',
+    )
+  })
+
+  test('reports configured API-backed providers in auto mode', () => {
+    useOpenAICompatibleProvider()
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+    process.env.EXA_API_KEY = 'exa-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; configured providers: exa, brave; fallback includes duckduckgo.',
+    )
+  })
+
+  test('fails explicit provider mode when required credentials are missing', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'brave'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=brave but BRAVE_API_KEY is missing.',
+    )
+  })
+
+  test('passes explicit provider mode when required credentials are configured', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'brave'
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=brave; BRAVE_API_KEY configured.',
+    )
+  })
+
+  test('reports supported native mode without requiring API-backed provider credentials', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'native'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=native selected; firstParty provider supports native web search.',
+      false,
+    )
+  })
+
+  test('reports configured API-backed providers when native mode is selected', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'native'
+    process.env.BRAVE_API_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=native selected; firstParty provider supports native web search. Configured API-backed providers: brave.',
+      false,
+    )
+  })
+
+  test('fails native mode when the active provider does not support native web search', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'native'
+    useOpenAICompatibleProvider()
+
+    expectWebSearchBackend(
+      false,
+      `WEB_SEARCH_PROVIDER=native selected, but openai provider does not support native web search. Configure ${reliableBackendHint}, or switch to an Anthropic, Vertex, Foundry, or Codex responses provider.`,
+      false,
+    )
+  })
+
+  test('uses the runtime OpenAI default model in native mode when OPENAI_MODEL is unset', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'native'
+    useOpenAICompatibleProviderWithoutModel()
+
+    expectWebSearchBackend(
+      false,
+      `WEB_SEARCH_PROVIDER=native selected, but openai provider does not support native web search. Configure ${reliableBackendHint}, or switch to an Anthropic, Vertex, Foundry, or Codex responses provider.`,
+      false,
+    )
+  })
+
+  test('fails native mode for Codex aliases when the runtime tool gate rejects that provider', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'native'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'codexspark'
+
+    expectWebSearchBackend(
+      false,
+      `WEB_SEARCH_PROVIDER=native selected, but codex provider does not support native web search. Configure ${reliableBackendHint}, or switch to an Anthropic, Vertex, Foundry, or Codex responses provider.`,
+      false,
+    )
+  })
+
+  test('fails Firecrawl cloud mode when the API key is missing', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'firecrawl'
+    process.env.FIRECRAWL_API_URL = 'https://api.firecrawl.dev'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=firecrawl but FIRECRAWL_API_KEY is missing for the Firecrawl cloud API.',
+    )
+  })
+
+  test('passes Firecrawl self-hosted mode without an API key', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'firecrawl'
+    process.env.FIRECRAWL_API_URL = 'https://self-hosted.firecrawl.dev'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=firecrawl; FIRECRAWL_API_URL configured.',
+    )
+  })
+
+  test('does not classify Firecrawl proxy URLs as the cloud API', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'firecrawl'
+    process.env.FIRECRAWL_API_URL = 'https://proxy.example.com/api.firecrawl.dev'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=firecrawl; FIRECRAWL_API_URL configured.',
+    )
+  })
+
+  test('fails custom Google preset when GOOGLE_CSE_ID is missing', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'google'
+    process.env.WEB_KEY = 'google-secret-value-123'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=google but GOOGLE_CSE_ID is missing.',
+      false,
+    )
+  })
+
+  test('fails custom Google preset when WEB_KEY is missing', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'google'
+    process.env.GOOGLE_CSE_ID = 'cse-test-id'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=google but WEB_KEY is missing.',
+      false,
+    )
+  })
+
+  test('passes custom Google preset when required preset credentials are configured', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'google'
+    process.env.WEB_KEY = 'google-secret-value-123'
+    process.env.GOOGLE_CSE_ID = 'cse-test-id'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=custom; WEB_PROVIDER, WEB_KEY, and GOOGLE_CSE_ID configured.',
+      false,
+    )
+  })
+
+  test('fails custom preset when WEB_PROVIDER has surrounding whitespace', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'brave '
+    process.env.WEB_KEY = 'brave-secret-value-123'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=brave but the raw WEB_PROVIDER value has surrounding whitespace and does not match a runtime custom preset. Remove the whitespace or configure WEB_SEARCH_API or WEB_URL_TEMPLATE.',
+      false,
+    )
+  })
+
+  test('passes custom provider with surrounding whitespace when a custom endpoint is configured', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'custom'
+    process.env.WEB_PROVIDER = 'brave '
+    process.env.WEB_SEARCH_API = 'https://example.com/search'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=custom; WEB_PROVIDER and WEB_SEARCH_API configured.',
+      false,
+    )
+  })
+
+  test('does not expose WebSearch secret values in diagnostics', () => {
+    const secret = 'brave-secret-value-123'
+    process.env.WEB_SEARCH_PROVIDER = 'brave'
+    process.env.BRAVE_API_KEY = secret
+
+    const results = checkWebSearchEnv()
+    const serialized = JSON.stringify(results)
+
+    expect(serialized).toContain('BRAVE_API_KEY configured')
+    expect(serialized).not.toContain(secret)
   })
 })
 

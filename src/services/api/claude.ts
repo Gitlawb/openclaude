@@ -463,7 +463,7 @@ function should1hCacheTTL(querySource?: QuerySource): boolean {
  *
  */
 function configureEffortParams(
-  effortValue: EffortValue | undefined,
+  effortValue: Exclude<EffortValue, 'ultracode'> | undefined,
   outputConfig: BetaOutputConfig,
   extraBodyParams: Record<string, unknown>,
   betas: string[],

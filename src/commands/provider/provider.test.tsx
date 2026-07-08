@@ -439,7 +439,7 @@ test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly',
     'D:/codings/Opensource/openclaude/.openclaude-profile.json',
   )
 
-  expect(message).toContain('Saved Google Gemini profile.')
+  expect(message).toContain('Saved Google AI / Gemini profile.')
   expect(message).toContain('Model: gemini-2.5-flash')
   expect(message).toContain('Credentials: access token (stored securely)')
   expect(message).not.toContain('AIza')
@@ -693,7 +693,7 @@ test('buildCurrentProviderSummary recognizes Gemini mode', () => {
     persisted: null,
   })
 
-  expect(summary.providerLabel).toBe('Google Gemini')
+  expect(summary.providerLabel).toBe('Google AI / Gemini')
   expect(summary.modelLabel).toBe('gemini-2.5-pro')
   expect(summary.endpointLabel).toBe(
     'https://generativelanguage.googleapis.com/v1beta/openai',

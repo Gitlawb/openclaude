@@ -66,7 +66,7 @@ const heartbeatEvent: HeadlessHeartbeatEvent = {
 }
 
 describe('createHeadlessHeartbeatStructuredEmitter', () => {
-  test('does not emit heartbeat events before the stream-json drain starts', async () => {
+  test('writes heartbeat events before the stream-json drain starts (avoids dropping startup signals)', async () => {
     const write = mock(async (_message: HeadlessHeartbeatEvent) => {})
     const enqueue = mock((_message: HeadlessHeartbeatEvent) => {})
     const emitter = createHeadlessHeartbeatStructuredEmitter(
@@ -76,7 +76,7 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 
     await emitter(heartbeatEvent)
 
-    expect(write).not.toHaveBeenCalled()
+    expect(write).toHaveBeenCalledWith(heartbeatEvent)
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -92,6 +92,25 @@ describe('createHeadlessHeartbeatStructuredEmitter', () => {
 
     expect(write).not.toHaveBeenCalled()
     expect(enqueue).toHaveBeenCalledWith(heartbeatEvent)
+  })
+
+  // Regression: the pre-drain branch must return the write promise so
+  // callers can observe write failures and backpressure. The emitter
+  // should reject when the underlying write rejects.
+  test('propagates write rejection before drain starts', async () => {
+    const writeError = new Error('write failed')
+    const write = mock(async (_message: HeadlessHeartbeatEvent) => {
+      throw writeError
+    })
+    const enqueue = mock((_message: HeadlessHeartbeatEvent) => {})
+    const emitter = createHeadlessHeartbeatStructuredEmitter(
+      { write, outbound: { enqueue } },
+      () => false,
+    )
+
+    await expect(emitter(heartbeatEvent)).rejects.toThrow('write failed')
+    expect(write).toHaveBeenCalledWith(heartbeatEvent)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })
 
@@ -151,7 +170,7 @@ describe('createRunHeadlessHeartbeat', () => {
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
-    expect(written).toHaveLength(0)
+    expect(written).toHaveLength(1)
     expect(enqueued).toHaveLength(0)
 
     streamJsonDrainStarted = true
@@ -159,7 +178,7 @@ describe('createRunHeadlessHeartbeat', () => {
     clock.advance(HEADLESS_HEARTBEAT_MIN_INTERVAL_MS)
     await clock.tick()
 
-    expect(written).toHaveLength(0)
+    expect(written).toHaveLength(1)
     expect(enqueued).toHaveLength(1)
     expect(enqueued[0]!.phase).toBe('loading_session')
 

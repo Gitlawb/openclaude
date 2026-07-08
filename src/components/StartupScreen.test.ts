@@ -323,6 +323,7 @@ describe('detectProvider — modelOverride from --model flag', () => {
   test('modelOverride works for Gemini provider', () => {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     const result = detectProvider('gemini-2.5-pro')
+    expect(result.name).toBe('Google AI / Gemini')
     expect(result.model).toBe('gemini-2.5-pro')
   })
 

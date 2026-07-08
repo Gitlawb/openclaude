@@ -18,6 +18,7 @@ import {
   installOrUpdateClaudePackage,
   localInstallationExists,
 } from 'src/utils/localInstaller.js'
+import { hasNativeDistribution } from 'src/utils/nativeDistribution.js'
 import {
   installLatest as installLatestNative,
   removeInstalledSymlink,
@@ -25,8 +26,20 @@ import {
 import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
+import { shouldRemoveInstalledSymlinkForNpmUpdate } from 'src/utils/autoUpdaterRouting.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
-import { isThirdPartyBuildBlocked } from 'src/utils/updateStrategy.js'
+import {
+  isThirdPartyBuildBlocked,
+  planUpdate,
+} from 'src/utils/updateStrategy.js'
+
+export function getGlobalUpdateFailureHint(
+  nativeDistributionAvailable: boolean = hasNativeDistribution(),
+): string {
+  return nativeDistributionAvailable
+    ? 'Or consider using native installation with: openclaude install\n'
+    : `Or update manually with:\n  npm install -g ${MACRO.PACKAGE_URL}@latest\n`
+}
 
 export async function update() {
   // Block updates for third-party providers using upstream Anthropic builds.
@@ -235,8 +248,10 @@ export async function update() {
     }
   }
 
-  // Handle native installation updates first
-  if (diagnostic.installationType === 'native') {
+  // Handle native installation updates first. npm-only builds fall through to
+  // the npm update path even when the running binary looks native — they have
+  // no native distribution to update from.
+  if (diagnostic.installationType === 'native' && hasNativeDistribution()) {
     logForDebugging(
       'update: Detected native installation, using native updater',
     )
@@ -285,7 +300,12 @@ export async function update() {
   // Fallback to existing JS/npm-based update logic
   // Remove native installer symlink since we're not using native installation
   // But only if user hasn't migrated to native installation
-  if (config.installMethod !== 'native') {
+  if (
+    shouldRemoveInstalledSymlinkForNpmUpdate(
+      config.installMethod,
+      hasNativeDistribution(),
+    )
+  ) {
     await removeInstalledSymlink()
   }
 
@@ -347,33 +367,33 @@ export async function update() {
   let useLocalUpdate = false
   let updateMethodName = ''
 
-  switch (diagnostic.installationType) {
-    case 'npm-local':
-      useLocalUpdate = true
-      updateMethodName = 'local'
-      break
-    case 'npm-global':
-      useLocalUpdate = false
-      updateMethodName = 'global'
-      break
-    case 'unknown': {
-      // Fallback to detection if we can't determine installation type
-      const isLocal = await localInstallationExists()
-      useLocalUpdate = isLocal
-      updateMethodName = isLocal ? 'local' : 'global'
+  const strategy = planUpdate({
+    thirdPartyBlocked: false,
+    installationType: diagnostic.installationType,
+    nativeDistributionAvailable: hasNativeDistribution(),
+    packageManager: 'unknown',
+    localInstallExists:
+      diagnostic.installationType === 'unknown'
+        ? await localInstallationExists()
+        : false,
+  })
+
+  if (strategy.action === 'npm') {
+    useLocalUpdate = strategy.method === 'local'
+    updateMethodName = strategy.method
+    if (diagnostic.installationType === 'unknown') {
       writeToStdout(
         chalk.yellow('Warning: Could not determine installation type') + '\n',
       )
       writeToStdout(
         `Attempting ${updateMethodName} update based on file detection...\n`,
       )
-      break
     }
-    default:
-      process.stderr.write(
-        `Error: Cannot update ${diagnostic.installationType} installation\n`,
-      )
-      await gracefulShutdown(1)
+  } else {
+    process.stderr.write(
+      `Error: Cannot update ${diagnostic.installationType} installation\n`,
+    )
+    await gracefulShutdown(1)
   }
 
   writeToStdout(`Using ${updateMethodName} installation update method...\n`)
@@ -415,9 +435,7 @@ export async function update() {
         )
       } else {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
-        process.stderr.write(
-          'Or consider using native installation with: openclaude install\n',
-        )
+        process.stderr.write(getGlobalUpdateFailureHint())
       }
       await gracefulShutdown(1)
       break
@@ -429,9 +447,7 @@ export async function update() {
           `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
-        process.stderr.write(
-          'Or consider using native installation with: openclaude install\n',
-        )
+        process.stderr.write(getGlobalUpdateFailureHint())
       }
       await gracefulShutdown(1)
       break

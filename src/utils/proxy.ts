@@ -79,6 +79,8 @@ export function getNoProxy(env: EnvLike = process.env): string | undefined {
  * Check if a URL should bypass the proxy based on NO_PROXY environment variable
  * Supports:
  * - Exact hostname matches (e.g., "localhost")
+ * - Bare domain matches, covering the domain and its subdomains
+ *   (e.g., "example.com" matches "example.com" and "api.example.com")
  * - Domain suffix matches with leading dot (e.g., ".example.com")
  * - Wildcard "*" to bypass all
  * - Port-specific matches (e.g., "example.com:8080")
@@ -101,29 +103,50 @@ export function shouldBypassProxy(
     const port = url.port || (
       url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80'
     )
-    const hostWithPort = `${hostname}:${port}`
 
     // Split by comma or space and trim each entry
     const noProxyList = noProxy.split(/[,\s]+/).filter(Boolean)
 
-    return noProxyList.some(pattern => {
-      pattern = pattern.toLowerCase().trim()
+    return noProxyList.some(rawPattern => {
+      let pattern = rawPattern.toLowerCase().trim()
 
-      // Check for port-specific match
-      if (pattern.includes(':')) {
-        return hostWithPort === pattern
+      // Port-qualified entry (e.g. `example.com:8080`). Split the port off and
+      // require it to match FIRST, then fall through to the same host predicate
+      // below — undici parses the port separately (`/^(.+):(\d+)$/`) and applies
+      // the exact-or-subdomain host check once the port matches, so a bare
+      // `hostWithPort === pattern` string compare would miss `api.example.com:8080`.
+      const portMatch = pattern.match(/^(.+):(\d+)$/)
+      if (portMatch) {
+        if (portMatch[2] !== port) {
+          return false
+        }
+        pattern = portMatch[1]!
       }
 
-      // Check for domain suffix match (with or without leading dot)
+      // Normalize a leading `*.` wildcard to the leading-dot suffix form.
+      // undici strips `*.` when parsing NO_PROXY, and upstream proxy lists use
+      // that form for hosts such as `*.githubusercontent.com`; without this,
+      // those entries bypass on the undici/fetch path but not here.
+      if (pattern.startsWith('*.')) {
+        pattern = pattern.slice(1) // `*.example.com` -> `.example.com`
+      }
+
+      // Leading-dot suffix (e.g. `.example.com`): match the apex and any
+      // subdomain, but NOT `notexample.com`.
       if (pattern.startsWith('.')) {
-        // Pattern ".example.com" should match "sub.example.com" and "example.com"
-        // but NOT "notexample.com"
-        const suffix = pattern
-        return hostname === pattern.substring(1) || hostname.endsWith(suffix)
+        return hostname === pattern.slice(1) || hostname.endsWith(pattern)
       }
 
-      // Check for exact hostname match or IP address
-      return hostname === pattern
+      // Bare domain / exact host / IP: match the host exactly OR any subdomain
+      // of it. This mirrors the undici EnvHttpProxyAgent path this module also
+      // drives via getProxyAgent (which bypasses subdomains for a bare NO_PROXY
+      // entry), and the curl/Go/deno NO_PROXY convention. Without the subdomain
+      // arm, `NO_PROXY=example.com` bypasses `api.example.com` on the
+      // fetch/undici path but routes it THROUGH the proxy on the axios/WebSocket
+      // path — the same env var, two decisions. `notexample.com` still does not
+      // match (the leading `.` is required); IP-address patterns never gain a
+      // spurious subdomain match.
+      return hostname === pattern || hostname.endsWith(`.${pattern}`)
     })
   } catch {
     // If URL parsing fails, don't bypass proxy

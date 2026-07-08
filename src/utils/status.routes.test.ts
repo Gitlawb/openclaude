@@ -339,7 +339,7 @@ test('Gemini route remains clear', async () => {
   process.env.GEMINI_API_KEY = 'gem-test-key'
 
   const properties = await buildPropertiesWithProvider('gemini')
-  expect(findValue(properties, 'API provider')).toBe('Google Gemini')
+  expect(findValue(properties, 'API provider')).toBe('Google AI / Gemini')
   // Gemini has a native transport; route-aware block does not override it.
   expect(findValue(properties, 'Provider route')).toBeUndefined()
   expect(findValue(properties, 'Model')).toBe('gemini-2.0-flash')

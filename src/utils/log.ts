@@ -20,6 +20,7 @@ import { stripDisplayTags, stripDisplayTagsAllowEmpty } from './displayTags.js'
 import { isEnvTruthy } from './envUtils.js'
 import { toError } from './errors.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
+import { jsonRedactor, redactSensitiveInfo } from './redaction.js'
 import { jsonParse } from './slowOperations.js'
 
 /**
@@ -177,10 +178,12 @@ export function logError(error: unknown): void {
       return
     }
 
-    const errorStr = err.stack || err.message
+    // Build a sanitized copy so callers that keep a reference to the
+    // original error don't see redacted message/stack as a side effect.
+    const sanitizedErr = sanitizeError(err)
 
     const errorInfo = {
-      error: errorStr,
+      error: sanitizedErr.stack || sanitizedErr.message,
       timestamp: new Date().toISOString(),
     }
 
@@ -189,14 +192,54 @@ export function logError(error: unknown): void {
 
     // If sink not attached, queue the event
     if (errorLogSink === null) {
-      errorQueue.push({ type: 'error', error: err })
+      errorQueue.push({ type: 'error', error: sanitizedErr })
       return
     }
 
-    errorLogSink.logError(err)
+    errorLogSink.logError(sanitizedErr)
   } catch {
     // pass
   }
+}
+
+/**
+ * Build a sanitized copy of an Error that has its message, stack, and all
+ * enumerable own string/object properties redacted. The original error is
+ * not mutated. The returned copy shares the same prototype chain so
+ * `instanceof` checks and inherited getters (e.g. `.name`) still work.
+ *
+ * @internal exported for testing only
+ */
+export function sanitizeError(err: Error): Error {
+  const sanitizedErr = Object.assign(Object.create(Object.getPrototypeOf(err)), err)
+  sanitizedErr.message = redactSensitiveInfo(err.message)
+  if (err.stack) {
+    sanitizedErr.stack = redactSensitiveInfo(err.stack)
+  }
+  for (const key of Object.keys(err)) {
+    const value = (err as unknown as Record<string, unknown>)[key]
+    if (typeof value === 'string') {
+      const redacted = jsonRedactor(key, value)
+      if (typeof redacted === 'string') {
+        (sanitizedErr as unknown as Record<string, unknown>)[key] = redacted
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      const topLevelRedacted = jsonRedactor(key, value)
+      if (topLevelRedacted !== value) {
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] =
+          topLevelRedacted
+        continue
+      }
+      try {
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] = JSON.parse(
+          JSON.stringify(value, jsonRedactor),
+        )
+      } catch {
+        ;(sanitizedErr as unknown as Record<string, unknown>)[key] = "[REDACTED]"
+      }
+    }
+  }
+  return sanitizedErr
 }
 
 export function getInMemoryErrors(): { error: string; timestamp: string }[] {

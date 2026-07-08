@@ -2,20 +2,19 @@ import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import { logForDebugging } from 'src/utils/debug.js'
-import { getAllowedChannels } from '../../../bootstrap/state.js'
 import type { BridgePermissionCallbacks } from '../../../bridge/bridgePermissionCallbacks.js'
 import { getTerminalFocused } from '../../../ink/terminal-focus-state.js'
 import {
   CHANNEL_PERMISSION_REQUEST_METHOD,
   type ChannelPermissionRequestParams,
-  findChannelEntry,
+  gateChannelServer,
 } from '../../../services/mcp/channelNotification.js'
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
-  filterPermissionRelayClients,
   shortRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
+import type { ConnectedMCPServer } from '../../../services/mcp/types.js'
 import { executeAsyncClassifierCheck } from '../../../tools/BashTool/bashPermissions.js'
 import { BASH_TOOL_NAME } from '../../../tools/BashTool/toolName.js'
 import {
@@ -390,11 +389,17 @@ function handleInteractivePermission(
       !ctx.tool.requiresUserInteraction?.()
     ) {
       const channelRequestId = shortRequestId(ctx.toolUseID)
-      const allowedChannels = getAllowedChannels()
-      const channelClients = filterPermissionRelayClients(
-        ctx.toolUseContext.getAppState().mcp.clients,
-        name => findChannelEntry(name, allowedChannels) !== undefined,
-      )
+      const channelClients = ctx.toolUseContext
+        .getAppState()
+        .mcp.clients.filter(
+          (c): c is ConnectedMCPServer =>
+            c.type === 'connected' &&
+            Boolean(
+              c.capabilities?.experimental?.['claude/channel/permission'],
+            ) &&
+            gateChannelServer(c.name, c.capabilities, c.config.pluginSource)
+              .action === 'register',
+        )
 
       if (channelClients.length > 0) {
         // Outbound is structured too (Kenneth's symmetry ask) — server owns

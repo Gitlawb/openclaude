@@ -6,11 +6,13 @@ import { join } from 'node:path'
 import {
   _setBackgroundSessionsRootForTesting,
   createBackgroundSession,
+  isBackgroundSessionProcessAlive,
   isTerminalBackgroundSession,
   listBackgroundSessions,
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
+  type BackgroundSession,
 } from './bgRegistry.js'
 
 describe('background session registry', () => {
@@ -801,5 +803,157 @@ describe('background session registry', () => {
     )
 
     expect(await listBackgroundSessions()).toEqual([])
+  })
+})
+
+describe('isBackgroundSessionProcessAlive process identity', () => {
+  const session: BackgroundSession = {
+    id: 'bg-identity',
+    pid: 4242,
+    cwd: '/repo',
+    status: 'running',
+    startedAt: '2026-07-01T08:00:00.000Z',
+    updatedAt: '2026-07-01T08:00:00.000Z',
+    // sessionId deliberately absent from the command lines below so the stored
+    // launch invocation (command) is what has to match.
+    sessionId: 'conversation-identity',
+    command: ['node', 'openclaude', '1642'],
+    stdoutLogPath: '/tmp/stdout.log',
+    stderrLogPath: '/tmp/stderr.log',
+  }
+
+  it('does not treat a reused PID whose command merely contains the arg as alive (#1770)', () => {
+    // The live process at this PID is unrelated: its final token "16420" only
+    // contains the stored selector "1642" as a substring. Ordered substring
+    // matching wrongly reported this session as alive, so `kill` could target
+    // the wrong process.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude 16420 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('still recognizes the real process by exact command tokens', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude 1642 --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('matches on the session id when it is present on the command line', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude conversation-identity',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('does not match the session id as a substring of a larger token (#1770)', () => {
+    // A short id must not match an unrelated live command that merely contains
+    // it inside a longer token — the same reused-PID collision class as the
+    // command-arg path. Command args are absent from the live line so only the
+    // session-id branch can produce a match here.
+    const shortIdSession: BackgroundSession = {
+      ...session,
+      sessionId: 'sess-1',
+      command: ['node', 'openclaude', 'unused-token'],
+    }
+    const alive = isBackgroundSessionProcessAlive(shortIdSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude sess-100 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('matches the session id only as a whole token', () => {
+    const shortIdSession: BackgroundSession = {
+      ...session,
+      sessionId: 'sess-1',
+      command: ['node', 'openclaude', 'unused-token'],
+    }
+    const alive = isBackgroundSessionProcessAlive(shortIdSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude sess-1 --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('matches a stored multi-word prompt arg across command tokens (#1770)', () => {
+    // A prompt like "refactor auth" is stored as a single argv entry but `ps`
+    // renders it as separate words; the matcher must span both. The session id
+    // is absent from the live line so the command args are what must match.
+    const promptSession: BackgroundSession = {
+      ...session,
+      sessionId: 'conversation-absent',
+      command: ['node', 'openclaude', '--print', 'refactor auth'],
+    }
+    const alive = isBackgroundSessionProcessAlive(promptSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        'node openclaude --print refactor auth --serve',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('matches a quoted Windows command line with a spaced exe path and prompt (#1770)', () => {
+    // Windows `Get-CimInstance ... CommandLine` returns the raw command line
+    // with quoted paths/prompts, so a whitespace split fuses quotes onto the
+    // edge tokens (`"C:\Program`, `node.exe"`, `"refactor`, `auth"`). The stored
+    // argv holds those values unquoted, so without quote trimming the contiguous
+    // run never matched and a live `--from-pr` resume (whose only identity path
+    // is the stored command) was wrongly marked stale.
+    const windowsSession: BackgroundSession = {
+      ...session,
+      sessionId: 'conversation-absent',
+      command: [
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\repo\\dist\\cli.mjs',
+        '--from-pr',
+        '1642',
+        '--print',
+        'refactor auth',
+      ],
+    }
+    const alive = isBackgroundSessionProcessAlive(windowsSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        '"C:\\Program Files\\nodejs\\node.exe" C:\\repo\\dist\\cli.mjs --from-pr 1642 --print "refactor auth"',
+    })
+    expect(alive).toBe(true)
+  })
+
+  it('quote trimming does not reopen the substring collision (#1770)', () => {
+    // Trimming surrounding quotes must not degrade to substring matching: a
+    // quoted live token "16420" still only contains the stored selector "1642",
+    // so it must not satisfy the lookup.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => '"node" openclaude "16420" --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('does not treat interspersed stored tokens as alive (#1770)', () => {
+    // The stored tokens all appear on the live command line but only as an
+    // ordered subsequence with unrelated tokens ("attacker", "extra") wedged
+    // between them, i.e. a different process at a reused PID. Requiring a
+    // contiguous whole-token run rejects this token-insertion collision; a
+    // subsequence match would wrongly report it alive and risk killing the
+    // wrong process.
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node attacker openclaude extra 1642 --serve',
+    })
+    expect(alive).toBe(false)
+  })
+
+  it('reports a dead process regardless of command line', () => {
+    const alive = isBackgroundSessionProcessAlive(session, {
+      isProcessAlive: () => false,
+      getProcessCommand: () => 'node openclaude 1642',
+    })
+    expect(alive).toBe(false)
   })
 })

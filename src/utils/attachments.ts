@@ -65,6 +65,8 @@ import {
 } from 'src/types/textInputTypes.js'
 import { randomUUID, type UUID } from 'crypto'
 import { getSettings_DEPRECATED } from './settings/settings.js'
+import { getAPIProvider } from './model/providers.js'
+import { getEffortEnvOverride, modelSupportsXHighEffort } from './effort.js'
 import { getSnippetForTwoFileDiff } from 'src/tools/FileEditTool/utils.js'
 import type {
   ContentBlockParam,
@@ -706,6 +708,9 @@ export type Attachment =
       level: 'high'
     }
   | {
+      type: 'ultracode_mode'
+    }
+  | {
       type: 'deferred_tools_delta'
       addedNames: string[]
       addedLines: string[]
@@ -855,6 +860,9 @@ export async function getAttachments(
     ),
     maybe('ultrathink_effort', () =>
       Promise.resolve(getUltrathinkEffortAttachment(input)),
+    ),
+    maybe('ultracode_mode', () =>
+      Promise.resolve(getUltracodePermissionAttachment(toolUseContext)),
     ),
     maybe('deferred_tools_delta', () =>
       Promise.resolve(
@@ -1474,11 +1482,43 @@ export function getDateChangeAttachments(
 }
 
 function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
-  if (!isUltrathinkEnabled() || !input || !hasUltrathinkKeyword(input)) {
+  // Gate the model-facing attachment behind the same rollout flag as the UI.
+  // Without this, the hidden `ultrathink_effort` attachment would still raise
+  // the turn to high effort even when the ULTRATHINK build flag / GrowthBook
+  // rollout is disabled.
+  if (!input || !isUltrathinkEnabled() || !hasUltrathinkKeyword(input)) {
     return []
   }
   logEvent('tengu_ultrathink', {})
   return [{ type: 'ultrathink_effort', level: 'high' }]
+}
+
+// Exported for focused testing of the first-party / provider-override gating.
+export function getUltracodePermissionAttachment(toolUseContext: ToolUseContext): Attachment[] {
+  const effortValue = toolUseContext.getAppState().effortValue
+  const envOverride = getEffortEnvOverride()
+  // Mirror resolveAppliedEffort's precedence so the permission tracks the effort
+  // the API actually runs with: a set CLAUDE_CODE_EFFORT_LEVEL wins over app
+  // state, and `null` (auto/unset) clears it. Otherwise `/effort ultracode` with
+  // CLAUDE_CODE_EFFORT_LEVEL=high would still leak ultracode_mode for a turn the
+  // API runs at high.
+  const effectiveEffort =
+    envOverride === null ? undefined : (envOverride ?? effortValue)
+  const isUltracode = effectiveEffort === 'ultracode'
+  if (
+    !isUltracode ||
+    getAPIProvider() !== 'firstParty' ||
+    // A per-agent providerOverride routes the actual request through a
+    // third-party shim (runAgent.ts sets it; query.ts forwards it to
+    // getAnthropicClient()), so the process-wide first-party check above is not
+    // enough. Suppress the first-party-only ultracode permission reminder
+    // whenever an override is in effect so it cannot leak into routed calls.
+    Boolean(toolUseContext.options.providerOverride) ||
+    !modelSupportsXHighEffort(toolUseContext.options.mainLoopModel)
+  ) {
+    return []
+  }
+  return [{ type: 'ultracode_mode' }]
 }
 
 // Exported for compact.ts — the gate must be identical at both call sites.

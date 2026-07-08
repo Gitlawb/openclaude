@@ -56,13 +56,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeId": "aimlapi",
     "vendorId": "openai",
     "gatewayId": "aimlapi",
-    "description": "AI/ML API OpenAI-compatible endpoint",
+    "description": "1,000+ models OpenAI compatible endpoint",
     "apiKeyEnvVars": [
       "AIMLAPI_API_KEY"
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ]
+    ],
+    "badge": {
+      "text": "Recommended",
+      "color": "success"
+    }
   },
   {
     "preset": "dashscope-cn",
@@ -169,7 +173,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeKind": "vendor",
     "routeId": "gemini",
     "vendorId": "gemini",
-    "description": "Gemini OpenAI-compatible endpoint",
+    "description": "Google AI / Gemini OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "GEMINI_API_KEY"
     ]

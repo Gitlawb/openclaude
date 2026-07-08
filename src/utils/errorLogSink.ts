@@ -19,6 +19,7 @@ import { registerCleanup } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { getFsImplementation } from './fsOperations.js'
 import { attachErrorLogSink, dateToFilename } from './log.js'
+import { redactSensitiveInfo } from './redaction.js'
 import { jsonStringify } from './slowOperations.js'
 
 const DATE = dateToFilename(new Date())
@@ -168,8 +169,11 @@ function logErrorImpl(error: Error): void {
 
   logForDebugging(`${error.name}: ${context}${errorStr}`, { level: 'error' })
 
+  const redactedContext = redactSensitiveInfo(context)
+  const redactedErrorStr = redactSensitiveInfo(errorStr)
+
   appendToLog(getErrorsPath(), {
-    error: `${context}${errorStr}`,
+    error: `${redactedContext}${redactedErrorStr}`,
   })
 }
 
@@ -185,7 +189,7 @@ function logMCPErrorImpl(serverName: string, error: unknown): void {
     error instanceof Error ? error.stack || error.message : String(error)
 
   const errorInfo = {
-    error: errorStr,
+    error: redactSensitiveInfo(errorStr),
     timestamp: new Date().toISOString(),
     sessionId: getSessionId(),
     cwd: getFsImplementation().cwd(),
@@ -203,7 +207,7 @@ function logMCPDebugImpl(serverName: string, message: string): void {
   const logFile = getMCPLogsPath(serverName)
 
   const debugInfo = {
-    debug: message,
+    debug: redactSensitiveInfo(message),
     timestamp: new Date().toISOString(),
     sessionId: getSessionId(),
     cwd: getFsImplementation().cwd(),

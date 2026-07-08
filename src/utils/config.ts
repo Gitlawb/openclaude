@@ -1530,12 +1530,29 @@ function saveConfigWithLock<A extends object>(
         Number.isNaN(mostRecentTimestamp) ||
         Date.now() - mostRecentTimestamp >= MIN_BACKUP_INTERVAL_MS
 
-      if (shouldCreateBackup) {
+      // Whether the live config currently parses. If it is corrupt — e.g. after
+      // getConfig recovered from a backup in memory but the healthy config has
+      // not been written back yet (#1807) — we must neither rotate the bad
+      // content into the backup set nor prune the existing backups: an older
+      // healthy snapshot may be the only recovery source, and runMigrations()
+      // calls saveGlobalConfig() during startup before the repaired config is
+      // durably on disk.
+      let currentConfigParses = false
+      try {
+        jsonParse(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
+        currentConfigParses = true
+      } catch {
+        currentConfigParses = false
+      }
+
+      if (shouldCreateBackup && currentConfigParses) {
         const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
         fs.copyFileSync(file, backupPath)
       }
 
-      // Clean up old backups, keeping only the 5 most recent
+      // Clean up old backups, keeping only the 5 most recent — but never while
+      // the live config is corrupt (selectBackupsToPrune returns [] then, so a
+      // healthy older backup is not unlinked before recovery is durable).
       const MAX_BACKUPS = 5
       // Re-read if we just created one; otherwise reuse the list
       const backupsForCleanup = shouldCreateBackup
@@ -1546,7 +1563,11 @@ function saveConfigWithLock<A extends object>(
             .reverse()
         : existingBackups
 
-      for (const oldBackup of backupsForCleanup.slice(MAX_BACKUPS)) {
+      for (const oldBackup of selectBackupsToPrune(
+        backupsForCleanup,
+        MAX_BACKUPS,
+        currentConfigParses,
+      )) {
         try {
           fs.unlinkSync(join(backupDir, oldBackup))
         } catch {
@@ -1598,17 +1619,22 @@ export function enableConfigs(): void {
   // Any reads to configuration before this flag is set show an console warning
   // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
-  // We only check the global config because currently all the configs share a file
-  getConfig(
-    getGlobalClaudeFile(),
-    createDefaultGlobalConfig,
-    true /* throw on invalid */,
-  )
+  // We only check the global config because currently all the configs share a
+  // file. This warms the recovery path (recover from a healthy backup, or
+  // preserve the corrupt file and start from defaults) without throwing, so a
+  // corrupt global config self-heals instead of crashing startup (#1807).
+  getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig)
 
   logForDiagnosticsNoPII('info', 'enable_configs_completed', {
     duration_ms: Date.now() - startTime,
   })
 }
+
+// Basename of the current global config, plus the pre-rename legacy basename
+// its backups may still be filed under (#1807). Compared by basename so backup
+// recovery works against an injected virtual path in tests.
+const GLOBAL_CONFIG_BASENAME = '.openclaude.json'
+const LEGACY_GLOBAL_CONFIG_BASENAME = '.claude.json'
 
 /**
  * Returns the directory where config backup files are stored.
@@ -1624,59 +1650,150 @@ function getConfigBackupDir(): string {
  * (next to the config file) for backwards compatibility.
  * Returns the full path to the most recent backup, or null if none exist.
  */
-function findMostRecentBackup(file: string): string | null {
+/**
+ * All backup paths for `file`, newest first. The dedicated backup directory
+ * takes precedence over the legacy location next to the config file; within
+ * each location, entries are ordered by descending timestamp (the numeric
+ * suffix after `.backup.` sorts lexicographically). The timestampless legacy
+ * `<file>.backup` is tried last.
+ */
+function listBackupsNewestFirst(file: string): string[] {
   const fs = getFsImplementation()
-  const fileBase = basename(file)
-  const backupDir = getConfigBackupDir()
+  // The global config was renamed `.claude.json` -> `.openclaude.json`. #1807's
+  // reported scenario is that repeated corrupt writes poisoned every
+  // `.openclaude.json.backup.*` snapshot and the only clean sources left were
+  // the pre-rename `.claude.json.backup.*` files sitting in the same backup
+  // dir. Recover the global config from that legacy basename too, otherwise the
+  // recovery still fails for exactly the case the issue calls out.
+  const fileBases = [basename(file)]
+  if (basename(file) === GLOBAL_CONFIG_BASENAME) {
+    fileBases.push(LEGACY_GLOBAL_CONFIG_BASENAME)
+  }
+  const isTimestampedBackupOf = (name: string): boolean =>
+    fileBases.some(base => name.startsWith(`${base}.backup.`))
+  // Order by the numeric timestamp after `.backup.` so the current and legacy
+  // basenames interleave by recency instead of grouping by filename (a plain
+  // lexicographic sort would put every `.claude.json.*` before every
+  // `.openclaude.json.*` regardless of when each was written).
+  const backupTimestamp = (name: string): number => {
+    const suffix = name.split('.backup.').pop()
+    const parsed = suffix ? Number(suffix) : NaN
+    return Number.isFinite(parsed) ? parsed : -1
+  }
+  const paths: string[] = []
 
-  // Check the new backup directory first
-  try {
-    const backups = fs
-      .readdirStringSync(backupDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(backupDir, mostRecent)
+  const collect = (dir: string): void => {
+    try {
+      const backups = fs
+        .readdirStringSync(dir)
+        .filter(isTimestampedBackupOf)
+        .sort((a, b) => backupTimestamp(b) - backupTimestamp(a))
+      for (const name of backups) {
+        paths.push(join(dir, name))
+      }
+    } catch {
+      // Directory doesn't exist yet.
     }
-  } catch {
-    // Backup dir doesn't exist yet
   }
 
-  // Fall back to legacy location (next to the config file)
-  const fileDir = dirname(file)
+  // Check the new backup directory first, then the legacy location next to
+  // the config file.
+  collect(getConfigBackupDir())
+  collect(dirname(file))
 
-  try {
-    const backups = fs
-      .readdirStringSync(fileDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(fileDir, mostRecent)
-    }
-
-    // Check for legacy backup file (no timestamp)
-    const legacyBackup = `${file}.backup`
+  // Legacy timestampless backups (`<basename>.backup`), tried last.
+  for (const base of fileBases) {
+    const legacyBackup = join(dirname(file), `${base}.backup`)
     try {
       fs.statSync(legacyBackup)
-      return legacyBackup
+      paths.push(legacyBackup)
     } catch {
-      // Legacy backup doesn't exist
+      // Legacy backup doesn't exist.
     }
-  } catch {
-    // Ignore errors reading directory
   }
 
-  return null
+  return paths
+}
+
+function findMostRecentBackup(file: string): string | null {
+  return listBackupsNewestFirst(file)[0] ?? null
+}
+
+/**
+ * Attempt to recover a config whose live file is present but corrupt by
+ * reading the most recent healthy backup and parsing it. Backups in
+ * ~/.claude/backups are written from previously-valid configs, so this lets a
+ * one-off bad write be undone instead of silently discarding the user's
+ * settings. Returns the merged config when a backup exists and parses, or
+ * undefined when there is no usable backup (#1807).
+ *
+ * Exported for unit testing: `getConfig` is module-private and short-circuits
+ * to the in-memory config under NODE_ENV=test, so the recovery path is covered
+ * directly against an injected filesystem.
+ */
+/**
+ * Given the current backup filenames and whether the live config parses,
+ * returns the backups to unlink so only the newest `maxBackups` remain.
+ *
+ * Returns `[]` when the live config is corrupt: pruning then could delete the
+ * last healthy backup before the recovered config has been durably rewritten,
+ * which is exactly the #1807 data-loss window (runMigrations() saves during
+ * startup before recovery lands on disk). Exported for unit testing.
+ */
+export function selectBackupsToPrune(
+  backupNames: string[],
+  maxBackups: number,
+  liveConfigParses: boolean,
+): string[] {
+  if (!liveConfigParses) {
+    return []
+  }
+  return [...backupNames]
+    .sort()
+    .reverse()
+    .slice(maxBackups)
+}
+
+export function recoverConfigFromBackup<A>(
+  file: string,
+  createDefault: () => A,
+): A | undefined {
+  const fs = getFsImplementation()
+
+  // The newest backup can itself be corrupt (the #1807 scenario tends to
+  // write several bad snapshots in a row), so try each backup from newest to
+  // oldest and recover from the first one that still parses.
+  for (const backupPath of listBackupsNewestFirst(file)) {
+    try {
+      const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
+      const parsedBackup = jsonParse(stripBOM(backupContent))
+      // A backup can parse as valid JSON yet not be a config object (`null`,
+      // an array, a bare string/number). Spreading such a value would either
+      // return bare defaults or splice index/char keys into the result and
+      // then stop, discarding the older healthy snapshots we still have. Skip
+      // it and keep looking so recovery falls through to a usable backup.
+      if (
+        typeof parsedBackup !== 'object' ||
+        parsedBackup === null ||
+        Array.isArray(parsedBackup)
+      ) {
+        continue
+      }
+      return {
+        ...createDefault(),
+        ...parsedBackup,
+      }
+    } catch {
+      // This backup is missing or itself corrupt — try the next oldest.
+    }
+  }
+
+  return undefined
 }
 
 function getConfig<A>(
   file: string,
   createDefault: () => A,
-  throwOnInvalid?: boolean,
 ): A {
   // Log a warning if config is accessed before it's allowed
   if (!configReadingAllowed && process.env.NODE_ENV !== 'test') {
@@ -1717,10 +1834,27 @@ function getConfig<A>(
       return createDefault()
     }
 
-    // Re-throw ConfigParseError if throwOnInvalid is true
-    if (error instanceof ConfigParseError && throwOnInvalid) {
-      throw error
+    // A present-but-corrupt config previously reset to defaults (or crashed the
+    // startup validation path), discarding the user's settings even though
+    // healthy backups exist in ~/.claude/backups. Recover the most recent
+    // backup that still parses before doing anything destructive, so a one-off
+    // bad write no longer wipes config or crashes startup (#1807).
+    if (error instanceof ConfigParseError) {
+      const recovered = recoverConfigFromBackup<A>(file, createDefault)
+      if (recovered) {
+        process.stderr.write(
+          `\nClaude configuration file at ${file} was corrupted and has been ` +
+            `recovered from the most recent healthy backup.\n\n`,
+        )
+        return recovered
+      }
     }
+
+    // A present-but-corrupt config used to re-throw here for the startup
+    // validation path (enableConfigs), locking users out on every launch when
+    // recovery found no usable backup. #1807 requires self-healing instead:
+    // once recovery is exhausted, fall through to preserve the corrupt file
+    // aside and start from defaults rather than crashing.
 
     // Log config parse errors so users know what happened
     if (error instanceof ConfigParseError) {

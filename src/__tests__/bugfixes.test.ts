@@ -8,7 +8,7 @@
  * 4. Web search result count improvements
  */
 
-import { describe, test, expect } from 'bun:test'
+import { afterEach, describe, test, expect, mock } from 'bun:test'
 import { resolve } from 'path'
 import {
   clearRegisteredHooks,
@@ -18,6 +18,13 @@ import { getMatchingHooks } from '../utils/hooks.js'
 import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
+
+// Real channelAllowlist module — captured before mocking so describe-block
+// afterEach can re-register it. Must be at module scope so describe() is
+// synchronous (Bun registers tests synchronously from describe callbacks).
+const _realChannelAllowlist = await import(
+  `../services/mcp/channelAllowlist.js?real=${Date.now()}-${Math.random()}`
+)
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
 
 // ---------------------------------------------------------------------------
@@ -547,5 +554,144 @@ describe('Project-scope MCP approval — third-party providers (issue #696)', ()
   test('issue #696 is referenced from the comment so future readers can find context', async () => {
     const content = await file('interactiveHelpers.tsx').text()
     expect(content).toContain('#696')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix N: --dangerously-load-development-channels dialog coverage (PR review)
+// ---------------------------------------------------------------------------
+describe('Dev-channels dialog coverage', () => {
+  // Source structure check: verify the branching logic exists in the code
+  test('showSetupScreens guards dev-channels dialog behind isChannelsEnabled', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // The dev-channels section at interactiveHelpers.tsx:~263 must branch on
+    // isChannelsEnabled(): true → show dialog, false → register directly.
+    expect(content).toContain('if (!isChannelsEnabled())')
+    expect(content).toContain('DevChannelsDialog')
+
+    // Verify that registerDevChannels is called in exactly two sites.
+    // This count is a SEMANTIC requirement, not a style preference.
+    // interactiveHelpers.tsx has exactly two sites that register
+    // dev entries:
+    //   1. The `!isChannelsEnabled()` branch (~line 286): entries
+    //      are registered directly without user interaction.
+    //   2. The DevChannelsDialog `onAccept` handler (~line 303):
+    //      entries are registered after the user confirms.
+    // Both sites delegate to registerDevChannels() which sets
+    // `dev: true` per-entry so the allowlist bypass (granted by the
+    // dev flag in `gateChannelServer`) cannot leak to production
+    // `--channels` entries. If a refactor adds or removes a site,
+    // update this count AND verify the security invariant still
+    // holds: a dev entry is never confused with a production entry
+    // in the allowlist check.
+    const regCalls = content.match(/registerDevChannels\(devChannels\)/g)
+    expect(regCalls).not.toBeNull()
+    expect(regCalls!.length).toBe(2)
+  })
+
+  // The function that materialises dev: true per-entry lives in the
+  // importable seam, not in showSetupScreens inline.
+  test('registerDevChannels definition sets dev: true', async () => {
+    const content = await file('utils/devChannelRegistration.ts').text()
+    expect(content).toContain('dev: true')
+  })
+
+  // Runtime tests: exercise the same behavior paths that showSetupScreens
+  // uses when --dangerously-load-development-channels is passed.
+  //
+  // NOTE: We cannot import showSetupScreens() directly in tests.  The
+  // module chain (interactiveHelpers.tsx → main.js → main.tsx) triggers
+  // Bun's compile-time `feature()` macro checker at main.tsx lines ~1494
+  // and ~1516, which require `feature()` to appear directly in an
+  // `if`/ternary — the object-literal usage there fails at parse time
+  // before mock.module can intercept resolution.  The tests below
+  // exercise the identical state-mutation patterns through the directly
+  // importable registerDevChannels seam and DevChannelsDialog component.
+  describe('isChannelsEnabled branching', () => {
+    // afterEach re-registers the real module so neighboring test files
+    // (e.g. channelNotification.test.ts) don't fail with "Export named
+    // 'getChannelAllowlist' not found". mock.restore() does NOT clear
+    // module-level mock.module() overrides in bun (registry is
+    // process-global), so we must re-register from the cache-busted
+    // reference captured at module scope.
+    afterEach(() => {
+      mock.restore()
+      mock.module(
+        '../services/mcp/channelAllowlist.js',
+        () => _realChannelAllowlist,
+      )
+      // Reset shared bootstrap state so failures don't leak into later tests.
+      const {
+        setAllowedChannels: resetAllowed,
+        setHasDevChannels: resetHasDev,
+      } = require('../bootstrap/state.js')
+      resetAllowed([])
+      resetHasDev(false)
+    })
+
+    const devChannels = [
+      { kind: 'server' as const, name: 'dev-server' },
+    ]
+
+    test(
+      'isChannelsEnabled=true: DevChannelsDialog onAccept calls registerDevChannels',
+      async () => {
+        mock.module('../services/mcp/channelAllowlist.js', () => ({
+          isChannelsEnabled: () => true,
+        }))
+
+        const { registerDevChannels } = await import(
+          '../utils/devChannelRegistration.js'
+        )
+        const { DevChannelsDialog } = await import(
+          '../components/DevChannelsDialog.js'
+        )
+        const React = await import('react')
+        const { getAllowedChannels, getHasDevChannels } = await import(
+          '../bootstrap/state.js'
+        )
+
+        let onAcceptCalled = false
+        const element = React.createElement(DevChannelsDialog, {
+          channels: devChannels,
+          onAccept: () => {
+            registerDevChannels(devChannels)
+            onAcceptCalled = true
+          },
+        })
+
+        element.props.onAccept()
+        expect(onAcceptCalled).toBe(true)
+
+        const all = getAllowedChannels()
+        expect(all.length).toBe(1)
+        expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
+        expect(getHasDevChannels()).toBe(true)
+      },
+    )
+
+    test(
+      'isChannelsEnabled=false: registerDevChannels called directly without dialog',
+      async () => {
+        mock.module('../services/mcp/channelAllowlist.js', () => ({
+          isChannelsEnabled: () => false,
+        }))
+
+        const { registerDevChannels } = await import(
+          '../utils/devChannelRegistration.js'
+        )
+        const { getAllowedChannels, getHasDevChannels } = await import(
+          '../bootstrap/state.js'
+        )
+
+        registerDevChannels(devChannels)
+
+        const all = getAllowedChannels()
+        expect(all.length).toBe(1)
+        expect(all[0]).toMatchObject({ name: 'dev-server', dev: true })
+        expect(getHasDevChannels()).toBe(true)
+      },
+    )
   })
 })
