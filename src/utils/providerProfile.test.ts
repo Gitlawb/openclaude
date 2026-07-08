@@ -507,6 +507,34 @@ test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env withou
   assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
+test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stale profile', async () => {
+  const processEnv = {
+    OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+    OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
+    NVIDIA_API_KEY: 'nvapi-live',
+    NVIDIA_NIM: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+      OPENAI_MODEL: 'z-ai/glm-5.2',
+      NVIDIA_API_KEY: 'nvapi-stale',
+      NVIDIA_NIM: '1',
+    }),
+    processEnv,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'nvidia-nim')
+  assert.equal(env.OPENAI_MODEL, 'qwen/qwen3.5-397b-a17b')
+  assert.equal(env.OPENAI_BASE_URL, 'https://integrate.api.nvidia.com/v1')
+  assert.equal(env.NVIDIA_API_KEY, 'nvapi-live')
+  assert.equal(env.NVIDIA_NIM, '1')
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'nvidia-nim')
+})
+
 test('buildStartupEnvFromProfile respects an explicit CLAUDE_CODE_USE_OPENAI=0 opt-out (issue #1245)', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,

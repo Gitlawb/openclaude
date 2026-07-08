@@ -7993,6 +7993,46 @@ test('DeepSeek sends thinking toggle and normalized reasoning effort', async () 
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('NVIDIA NIM DeepSeek sends chat template thinking kwargs', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-ai/deepseek-v4-pro',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.chat_template_kwargs).toEqual({
+    thinking: true,
+    enable_thinking: true,
+  })
+})
+
 test('DeepSeek omits thinking controls when the Anthropic-side request does not set them', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
   process.env.OPENAI_API_KEY = 'sk-deepseek'
@@ -8563,6 +8603,43 @@ test('Z.AI GLM-5.2: per-turn thinking overrides model-query default', async () =
 
   expect(requestBody?.thinking).toEqual({ type: 'enabled' })
   expect(requestBody?.reasoning_effort).toBe('high')
+})
+
+test('NVIDIA NIM Z.AI GLM sends chat template thinking kwargs', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'z-ai/glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'z-ai/glm-5.2',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.chat_template_kwargs).toEqual({
+    thinking: true,
+    enable_thinking: true,
+  })
 })
 
 test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {
