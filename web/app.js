@@ -3,8 +3,10 @@ let ws = null
 let sessionId = ''
 let isGenerating = false
 let currentAssistantEl = null
-let currentToolCalls = []  // Collect tool calls for current message
+let thinkingIndicatorEl = null
+let pendingToolCalls = []  // Buffered tool_use_display events, rendered when tool_result arrives
 let pendingPrompts = new Map()
+let currentModel = ''  // Model name from settings
 
 const chatContainer = document.getElementById('chatContainer')
 const messageInput = document.getElementById('messageInput')
@@ -104,6 +106,56 @@ function mergeToolCalls(toolCalls) {
   return groups
 }
 
+// Render a tool call with optional output and error state.
+// Handles merging with previous same-named tool call (single-line only).
+function renderToolCallLive(toolName, display, output = '', isError = false) {
+  const isSingleLine = !display.includes('\n')
+  // Check for merge with last rendered tool call
+  const allDisplays = chatContainer.querySelectorAll('.tool-use-display')
+  const lastDisplay = allDisplays[allDisplays.length - 1]
+
+  if (lastDisplay && lastDisplay.dataset.toolName === toolName && isSingleLine) {
+    if (lastDisplay.classList.contains('tool-merge-group')) {
+      // Already a group — add item
+      const header = lastDisplay.querySelector('.tool-header')
+      const items = lastDisplay.querySelectorAll('.tool-merge-item')
+      header.innerHTML = `&#9679; ${escapeHtml(toolName)} \u00d7${items.length + 1}`
+      const item = document.createElement('span')
+      item.className = 'tool-merge-item'
+      item.textContent = display
+      lastDisplay.appendChild(item)
+    } else {
+      // Convert single to merge group
+      const headerText = lastDisplay.querySelector('.tool-header')?.textContent?.replace('\u25cf ', '') || toolName
+      lastDisplay.classList.add('tool-merge-group')
+      lastDisplay.innerHTML = [
+        `<span class="tool-header">&#9679; ${escapeHtml(toolName)} \u00d72</span>`,
+        `<span class="tool-merge-item">${escapeHtml(headerText)}</span>`,
+        `<span class="tool-merge-item">${escapeHtml(display)}</span>`
+      ].join('')
+    }
+    scrollToBottom()
+    return
+  }
+
+  // New element
+  const el = document.createElement('div')
+  el.className = 'tool-use-display'
+  if (isError) el.classList.add('tool-error')
+  el.dataset.toolName = toolName
+
+  let html = formatToolCallDisplay(display)
+
+  if (output) {
+    const statusClass = isError ? 'tool-result-error' : 'tool-result-neutral'
+    html += `<div class="tool-result-output ${statusClass}">${escapeHtml(output)}</div>`
+  }
+
+  el.innerHTML = html
+  chatContainer.appendChild(el)
+  scrollToBottom()
+}
+
 // Render a tool calls list from merged groups
 function renderToolCallsList(toolCalls) {
   const groups = mergeToolCalls(toolCalls)
@@ -152,6 +204,10 @@ function connect() {
     if (localStorage.getItem('autoApprove') === '1') {
       ws.send(JSON.stringify({ type: 'set_permission_mode', mode: 'auto_approve' }))
     }
+    // Load config to populate currentModel
+    ws.send(JSON.stringify({ type: 'get_config' }))
+    // Restore the last session from localStorage
+    autoRestoreLastSession()
   }
 
   ws.onclose = () => {
@@ -162,17 +218,44 @@ function connect() {
   }
 
   ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data)
-    handleMessage(msg)
+    try {
+      const msg = JSON.parse(event.data)
+      console.log('[ws] Received:', msg.type, msg)
+      handleMessage(msg)
+    } catch (e) {
+      console.error('[ws] Error parsing message:', e, event.data)
+    }
   }
 }
 
 function handleMessage(msg) {
+  console.log('[handleMessage] Processing:', msg.type)
+  try {
   switch (msg.type) {
     case 'thinking_start':
+      // Finalize current text bubble — next text_chunk starts a new message
+      currentAssistantEl = null
+      // Create thinking indicator
+      if (thinkingIndicatorEl) thinkingIndicatorEl.remove()
+      thinkingIndicatorEl = document.createElement('div')
+      thinkingIndicatorEl.className = 'thinking-indicator'
+      thinkingIndicatorEl.textContent = 'Thinking\u2026'
+      chatContainer.appendChild(thinkingIndicatorEl)
+      scrollToBottom()
+      break
+
     case 'thinking_chunk':
+      if (thinkingIndicatorEl && msg.estimatedTokens) {
+        const k = (msg.estimatedTokens / 1000).toFixed(2)
+        thinkingIndicatorEl.textContent = `Thinking\u2026 (${k}k)`
+      }
+      break
+
     case 'thinking_end':
-      // Thinking chain display removed - silently ignore
+      if (thinkingIndicatorEl) {
+        thinkingIndicatorEl.remove()
+        thinkingIndicatorEl = null
+      }
       break
 
     case 'text_chunk':
@@ -180,6 +263,7 @@ function handleMessage(msg) {
         currentAssistantEl = addMessage('', 'assistant')
       }
       currentAssistantEl.dataset.rawText = (currentAssistantEl.dataset.rawText || '') + msg.text
+      // 流式渲染 markdown，每块逐步追加，兼顾逐字效果和 markdown/diff 高亮
       currentAssistantEl.innerHTML = renderMarkdown(currentAssistantEl.dataset.rawText)
       scrollToBottom()
       break
@@ -188,17 +272,22 @@ function handleMessage(msg) {
       // Tool start is handled by tool_use_display - skip
       break
 
-    case 'tool_result':
-      // Tool results are not shown in the UI - skip
+    case 'tool_use_display':
+      // Finalize current text bubble — next text_chunk starts a new message
+      currentAssistantEl = null
+      // Buffer — render on tool_result so we have output/isError for coloring
+      pendingToolCalls.push({ toolName: msg.toolName, display: msg.display })
       break
 
-    case 'tool_use_display':
-      // Collect tool calls for current message
-      currentToolCalls.push({
-        toolName: msg.toolName,
-        toolUseId: msg.toolUseId,
-        display: msg.display,
-      })
+    case 'tool_result':
+      // Render now that we have output and error status
+      if (pendingToolCalls.length > 0) {
+        const tc = pendingToolCalls.shift()
+        // Skip Read tool display — file contents are noisy and unnecessary in chat
+        if (tc.toolName !== 'Read') {
+          renderToolCallLive(tc.toolName, tc.display, msg.output || '', msg.isError || false)
+        }
+      }
       break
 
     case 'action_required':
@@ -207,38 +296,31 @@ function handleMessage(msg) {
 
     case 'done':
       sessionId = msg.sessionId || sessionId
-      // Attach collected tool calls to the message
-      if (currentToolCalls.length > 0) {
-        const toolCallsContainer = document.createElement('div')
-        toolCallsContainer.className = 'tool-calls-container'
-
-        // Create toggle button
-        const mergedGroups = mergeToolCalls(currentToolCalls)
-        const toggleBtn = document.createElement('div')
-        toggleBtn.className = 'tool-calls-toggle'
-        toggleBtn.onclick = () => toggleToolCalls(toggleBtn)
-        const label = mergedGroups.length < currentToolCalls.length
-          ? `${mergedGroups.length} tool calls (merged from ${currentToolCalls.length})`
-          : `${currentToolCalls.length} tool calls`
-        toggleBtn.innerHTML = `
-          <span class="icon">&#128295;</span>
-          <span>${label}</span>
-          <span class="count">${mergedGroups.length}</span>
-        `
-        toolCallsContainer.appendChild(toggleBtn)
-
-        // Create tool calls list with merged groups
-        const toolCallsList = renderToolCallsList(currentToolCalls)
-        toolCallsContainer.appendChild(toolCallsList)
-
-        // Insert tool calls after the message, or append to chat
-        if (currentAssistantEl) {
-          currentAssistantEl.after(toolCallsContainer)
-        } else {
-          chatContainer.appendChild(toolCallsContainer)
+      // Save session ID for auto-restore on page reload
+      if (sessionId) {
+        localStorage.setItem('lastSessionId', sessionId)
+        if (currentProject) {
+          localStorage.setItem('lastProjectDir', currentProject)
         }
+        // Also save in the same format switchSession() uses
+        const projectDir = currentProject
+          ? currentProject.replace(/[/\\:]/g, '-')
+          : 'unknown'
+        localStorage.setItem('lastSession', JSON.stringify({
+          projectId: projectDir,
+          sessionId,
+          cwd: currentProject || '',
+        }))
       }
-      currentToolCalls = []
+      // Flush any remaining buffered tool calls (no output — never got results)
+      while (pendingToolCalls.length > 0) {
+        const tc = pendingToolCalls.shift()
+        renderToolCallLive(tc.toolName, tc.display)
+      }
+      // Final render with markdown now that streaming is complete
+      if (currentAssistantEl && currentAssistantEl.dataset.rawText) {
+        currentAssistantEl.innerHTML = renderMarkdown(currentAssistantEl.dataset.rawText)
+      }
 
       // Remove empty assistant message bubble
       if (currentAssistantEl && !currentAssistantEl.textContent.trim()) {
@@ -249,15 +331,30 @@ function handleMessage(msg) {
       sendBtn.disabled = false
       messageInput.focus()
       removeTypingIndicator()
+      if (thinkingIndicatorEl) {
+        thinkingIndicatorEl.remove()
+        thinkingIndicatorEl = null
+      }
       break
 
     case 'cancelled':
+      // Flush any remaining buffered tool calls
+      while (pendingToolCalls.length > 0) {
+        const tc = pendingToolCalls.shift()
+        if (tc.toolName !== 'Read') {
+          renderToolCallLive(tc.toolName, tc.display)
+        }
+      }
       if (currentAssistantEl && !currentAssistantEl.textContent.trim()) {
         currentAssistantEl.remove()
       }
+      if (thinkingIndicatorEl) {
+        thinkingIndicatorEl.remove()
+        thinkingIndicatorEl = null
+      }
       isGenerating = false
       currentAssistantEl = null
-      currentToolCalls = []
+      pendingToolCalls = []
       sendBtn.disabled = false
       removeTypingIndicator()
       addMessage('Generation cancelled.', 'assistant')
@@ -297,6 +394,9 @@ function handleMessage(msg) {
       showConfigStatus('error', msg.message || 'Validation failed')
       document.querySelector('.btn-save').disabled = false
       break
+  }
+  } catch (e) {
+    console.error('[handleMessage] Error:', e, msg)
   }
 }
 
@@ -362,16 +462,30 @@ function addMessage(text, className) {
   return el
 }
 
+let typingTimerInterval = null
+
 function addTypingIndicator() {
   const el = document.createElement('div')
-  el.className = 'typing'
+  el.className = 'thinking-indicator'
   el.id = 'typingIndicator'
-  el.innerHTML = '<span></span><span></span><span></span>'
+  el.textContent = 'thinking......'
   chatContainer.appendChild(el)
   scrollToBottom()
+
+  const startTime = Date.now()
+  typingTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000)
+    const m = Math.floor(elapsed / 60)
+    const s = elapsed % 60
+    el.textContent = `thinking...... (${m}m ${s}s)`
+  }, 1000)
 }
 
 function removeTypingIndicator() {
+  if (typingTimerInterval) {
+    clearInterval(typingTimerInterval)
+    typingTimerInterval = null
+  }
   const el = document.getElementById('typingIndicator')
   if (el) el.remove()
 }
@@ -405,6 +519,7 @@ function loadConfig(config) {
   document.getElementById('modelInput').value = config.model || ''
   document.getElementById('apiKeyInput').value = config.hasApiKey ? '••••••••' : ''
   document.getElementById('apiKeyInput').placeholder = config.hasApiKey ? '••••••••' : 'sk-...'
+  currentModel = config.model || ''
 }
 
 function saveSettings() {
@@ -437,9 +552,27 @@ function showConfigStatus(type, message) {
   statusEl.textContent = message
 }
 
-function sendMessage() {
+async function sendMessage() {
   const message = messageInput.value.trim()
   if (!message || isGenerating) return
+
+  // If continuing an existing session, load and display full history
+  // so the user sees the complete conversation context.
+  if (sessionId) {
+    const projectDir = currentProject
+      ? currentProject.replace(/[/\\:]/g, '-')
+      : 'unknown'
+    try {
+      const resp = await fetch(`/api/session-messages?project=${encodeURIComponent(projectDir)}&session=${encodeURIComponent(sessionId)}`)
+      const data = await resp.json()
+      if (data.messages && data.messages.length > 0) {
+        chatContainer.innerHTML = ''
+        renderSessionMessages(data.messages)
+      }
+    } catch {
+      // Failed to load history — proceed with empty chat
+    }
+  }
 
   addMessage(message, 'user')
   messageInput.value = ''
@@ -449,13 +582,15 @@ function sendMessage() {
   sendBtn.disabled = true
   addTypingIndicator()
 
-  ws.send(JSON.stringify({
+  const chatMsg = {
     type: 'chat',
     message,
     sessionId,
     cwd: currentProject || undefined,
-    model: undefined,
-  }))
+    model: currentModel || undefined,
+  }
+  console.log('[sendMessage] Sending:', chatMsg)
+  ws.send(JSON.stringify(chatMsg))
 }
 
 // Event listeners
@@ -591,6 +726,71 @@ function toggleProject(projectId) {
   }
 }
 
+function renderSessionMessages(messages) {
+  if (!messages || messages.length === 0) {
+    addMessage('No messages in this session. Start typing to continue...', 'assistant')
+    return
+  }
+
+  // First pass: merge consecutive tool-calls-only assistant messages
+  const mergedMessages = []
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      mergedMessages.push(msg)
+    } else if (msg.role === 'assistant') {
+      const last = mergedMessages[mergedMessages.length - 1]
+      if (last && last.role === 'assistant' && !last.content?.trim() && last.toolCalls?.length > 0
+          && !msg.content?.trim() && msg.toolCalls?.length > 0) {
+        last.toolCalls.push(...msg.toolCalls)
+      } else {
+        mergedMessages.push(msg)
+      }
+    }
+  }
+
+  mergedMessages.forEach(msg => {
+    if (msg.role === 'user') {
+      addMessage(msg.content, 'user')
+    } else if (msg.role === 'assistant') {
+      let el = null
+      if (msg.content && msg.content.trim()) {
+        el = addMessage(msg.content, 'assistant')
+      }
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        // Filter out Read tool calls from history display
+        const filteredCalls = msg.toolCalls.filter(tc => tc.toolName !== 'Read')
+        if (filteredCalls.length === 0) return
+
+        const toolCallsContainer = document.createElement('div')
+        toolCallsContainer.className = 'tool-calls-container'
+
+        const mergedGroups = mergeToolCalls(filteredCalls)
+        const toggleBtn = document.createElement('div')
+        toggleBtn.className = 'tool-calls-toggle'
+        toggleBtn.onclick = () => toggleToolCalls(toggleBtn)
+        const label = mergedGroups.length < filteredCalls.length
+          ? `${mergedGroups.length} tool calls (merged from ${filteredCalls.length})`
+          : `${filteredCalls.length} tool calls`
+        toggleBtn.innerHTML = `
+          <span class="icon">&#128295;</span>
+          <span>${label}</span>
+          <span class="count">${mergedGroups.length}</span>
+        `
+        toolCallsContainer.appendChild(toggleBtn)
+
+        const toolCallsList = renderToolCallsList(filteredCalls)
+        toolCallsContainer.appendChild(toolCallsList)
+
+        if (el) {
+          el.after(toolCallsContainer)
+        } else {
+          chatContainer.appendChild(toolCallsContainer)
+        }
+      }
+    }
+  })
+}
+
 async function switchSession(projectId, newSessionId, cwd) {
   // Clear current chat
   chatContainer.innerHTML = ''
@@ -608,76 +808,51 @@ async function switchSession(projectId, newSessionId, cwd) {
   try {
     const response = await fetch(`/api/session-messages?project=${encodeURIComponent(projectId)}&session=${encodeURIComponent(newSessionId)}`)
     const data = await response.json()
-
-    if (data.messages && data.messages.length > 0) {
-      // First pass: merge consecutive assistant messages with tool calls
-      const mergedMessages = []
-      for (const msg of data.messages) {
-        if (msg.role === 'user') {
-          mergedMessages.push(msg)
-        } else if (msg.role === 'assistant') {
-          const last = mergedMessages[mergedMessages.length - 1]
-          // If last message is a tool-calls-only assistant with no text, and current is also tool-calls-only, merge
-          if (last && last.role === 'assistant' && !last.content?.trim() && last.toolCalls?.length > 0
-              && !msg.content?.trim() && msg.toolCalls?.length > 0) {
-            last.toolCalls.push(...msg.toolCalls)
-          } else {
-            mergedMessages.push(msg)
-          }
-        }
-      }
-
-      mergedMessages.forEach(msg => {
-        if (msg.role === 'user') {
-          addMessage(msg.content, 'user')
-        } else if (msg.role === 'assistant') {
-          // Only add message bubble if there's text content
-          let el = null
-          if (msg.content && msg.content.trim()) {
-            el = addMessage(msg.content, 'assistant')
-          }
-          // Render tool calls if present
-          if (msg.toolCalls && msg.toolCalls.length > 0) {
-            const toolCallsContainer = document.createElement('div')
-            toolCallsContainer.className = 'tool-calls-container'
-
-            // Create toggle button
-            const mergedGroups = mergeToolCalls(msg.toolCalls)
-            const toggleBtn = document.createElement('div')
-            toggleBtn.className = 'tool-calls-toggle'
-            toggleBtn.onclick = () => toggleToolCalls(toggleBtn)
-            const label = mergedGroups.length < msg.toolCalls.length
-              ? `${mergedGroups.length} tool calls (merged from ${msg.toolCalls.length})`
-              : `${msg.toolCalls.length} tool calls`
-            toggleBtn.innerHTML = `
-              <span class="icon">&#128295;</span>
-              <span>${label}</span>
-              <span class="count">${mergedGroups.length}</span>
-            `
-            toolCallsContainer.appendChild(toggleBtn)
-
-            // Create tool calls list with merged groups
-            const toolCallsList = renderToolCallsList(msg.toolCalls)
-            toolCallsContainer.appendChild(toolCallsList)
-
-            // Insert tool calls after the message, or append to chat
-            if (el) {
-              el.after(toolCallsContainer)
-            } else {
-              chatContainer.appendChild(toolCallsContainer)
-            }
-          }
-        }
-      })
-    } else {
-      addMessage('No messages in this session. Start typing to continue...', 'assistant')
-    }
+    renderSessionMessages(data.messages)
   } catch (err) {
     console.error('Failed to load session messages:', err)
     addMessage('Failed to load session history. Start typing to continue...', 'assistant')
   }
 
   scrollToBottom()
+}
+
+// Auto-restore last session on page load
+function autoRestoreLastSession() {
+  try {
+    const saved = localStorage.getItem('lastSession')
+    if (!saved) return
+
+    const { projectId, sessionId: savedSessionId, cwd } = JSON.parse(saved)
+    if (!savedSessionId) return
+
+    // Don't restore if already in a session
+    if (sessionId) return
+
+    // Don't restore if chat is not empty (has more than just welcome message)
+    const existingMessages = chatContainer.querySelectorAll('.message')
+    if (existingMessages.length > 1) return
+
+    sessionId = savedSessionId
+    currentProject = cwd || projectId
+
+    // Fetch and display session messages via HTTP
+    fetch(`/api/session-messages?project=${encodeURIComponent(projectId)}&session=${encodeURIComponent(savedSessionId)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.messages && data.messages.length > 0) {
+          // Remove welcome message before restoring
+          const welcome = chatContainer.querySelector('.message.assistant:only-child')
+          if (welcome && welcome.textContent.includes('Welcome to OpenClaude')) {
+            welcome.remove()
+          }
+          renderSessionMessages(data.messages)
+        }
+      })
+      .catch(err => console.error('[autoRestore] Failed to load session:', err))
+  } catch (err) {
+    console.error('[autoRestore] Error:', err)
+  }
 }
 
 // Project Selector
@@ -772,12 +947,8 @@ async function createNewChat() {
 // Start
 connect()
 loadProjects().then(() => {
-  // Restore last session
-  try {
-    const saved = JSON.parse(localStorage.getItem('lastSession') || 'null')
-    if (saved && saved.sessionId) {
-      switchSession(saved.projectId, saved.sessionId, saved.cwd)
-    }
-  } catch {}
+  // Don't auto-restore last session — start fresh to avoid
+  // dumping all previous messages into a new conversation.
+  // Users can manually switch to a session from the sidebar.
 })
 messageInput.focus()

@@ -369,6 +369,21 @@ body {
   display: block;
 }
 
+/* Thinking indicator - shows token count during thinking phase */
+.thinking-indicator {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 4px;
+  animation: thinking-pulse 2s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 /* Tool calls container */
 .tool-calls-container {
   align-self: flex-start;
@@ -407,6 +422,10 @@ body {
   display: block;
 }
 
+.tool-use-display .diff-line-neutral {
+  display: block;
+}
+
 .tool-calls-container .tool-use-display .diff-line-minus {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
@@ -416,7 +435,25 @@ body {
   border-radius: 2px;
 }
 
+.tool-use-display .diff-line-minus {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  display: block;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 2px;
+}
+
 .tool-calls-container .tool-use-display .diff-line-plus {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  display: block;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 2px;
+}
+
+.tool-use-display .diff-line-plus {
   color: #22c55e;
   background: rgba(34, 197, 94, 0.1);
   display: block;
@@ -443,6 +480,39 @@ body {
   display: block;
   color: var(--text-muted);
   padding: 0;
+}
+
+/* Tool error — red left border */
+.tool-use-display.tool-error {
+  border-left-color: var(--error);
+}
+
+/* Tool result output block */
+.tool-result-output {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-result-success {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+.tool-result-neutral {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.tool-result-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
 /* Permission dialog */
@@ -534,27 +604,14 @@ body {
 .send-btn:hover { opacity: 0.8; }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Typing indicator */
-.typing {
-  display: flex;
-  gap: 4px;
+/* Thinking indicator (thinking...... (xx m xx s)) */
+.thinking-indicator {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--text-muted);
   padding: 8px 0;
-}
-
-.typing span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  animation: bounce 1.4s ease-in-out infinite;
-}
-
-.typing span:nth-child(2) { animation-delay: 0.2s; }
-.typing span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-6px); }
+  font-style: italic;
+  letter-spacing: 0.5px;
 }
 
 /* Scrollbar */
