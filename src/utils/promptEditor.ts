@@ -18,6 +18,22 @@ const EDITOR_OVERRIDES: Record<string, string> = {
   subl: 'subl --wait', // Sublime Text: wait for file to be closed
 }
 
+/**
+ * Resolve the shell command for an editor name, applying any override.
+ *
+ * `editor` comes from $VISUAL / $EDITOR, so it can be an arbitrary string.
+ * Guard the lookup with Object.hasOwn: a bare `EDITOR_OVERRIDES[editor]` would
+ * resolve inherited Object.prototype members for names like `constructor` or
+ * `__proto__` (the Object constructor function / Object.prototype), which are
+ * non-nullish and so defeat the `?? editor` fallback — the command would become
+ * a stringified function instead of the literal editor name.
+ */
+export function resolveEditorCommand(editor: string): string {
+  return Object.hasOwn(EDITOR_OVERRIDES, editor)
+    ? EDITOR_OVERRIDES[editor]!
+    : editor
+}
+
 function isGuiEditor(editor: string): boolean {
   return classifyGuiEditor(editor) !== undefined
 }
@@ -65,7 +81,7 @@ export function editFileInEditor(filePath: string): EditorResult {
 
   try {
     // Use override command if available, otherwise use the editor as-is
-    const editorCommand = EDITOR_OVERRIDES[editor] ?? editor
+    const editorCommand = resolveEditorCommand(editor)
     execSync_DEPRECATED(`${editorCommand} "${filePath}"`, {
       stdio: 'inherit',
     })
