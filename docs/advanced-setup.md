@@ -423,16 +423,19 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
 
 - **Key matching** — keys match the model api-name exactly, or by prefix (e.g.
   `my-custom` matches `my-custom-deployment-v2`). An **exact** key always wins
-  over a **prefix** key. A host-qualified key (`<host>:<model>`, where `<host>`
-  is the `OPENAI_BASE_URL` hostname) only wins over a bare key **within the same
-  match kind** — a host-qualified exact key beats a bare exact key, and a
-  host-qualified prefix beats a bare prefix, but a bare exact key still beats a
-  host-qualified prefix. So to give the same model different limits per endpoint,
-  use host-qualified **exact** keys for each endpoint. Either field may be
+  over a **prefix** key. A host-qualified key (`<host>:<model>`) only wins over a
+  bare key **within the same match kind** — a host-qualified exact key beats a
+  bare exact key, and a host-qualified prefix beats a bare prefix, but a bare
+  exact key still beats a host-qualified prefix. So to give the same model
+  different limits per endpoint, use host-qualified **exact** keys for each
+  endpoint. `<host>` is the `OPENAI_BASE_URL` host **including the port when the
+  URL has one** (`new URL(baseUrl).host`): for `http://localhost:4000/v1` the
+  key is `localhost:4000:my-model`, not `localhost:my-model`. Either field may be
   omitted to override only one limit.
 - **Precedence** — from highest to lowest: an **exact** env-var override → the
-  built-in catalog / discovery-cache value → a **prefix** env-var override →
-  `modelLimits` → the descriptor default. So env-var overrides always win over
+  built-in catalog value → the discovery-cache value → a **prefix** env-var
+  override → `modelLimits` → the descriptor default. (The built-in catalog is
+  checked before the discovery cache.) So env-var overrides always win over
   `modelLimits`, and `modelLimits` mainly fills in models that have no built-in
   metadata (a known catalog model keeps its catalog limit unless you set an
   *exact* env override for it).
