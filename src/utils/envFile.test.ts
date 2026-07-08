@@ -22,6 +22,7 @@ const TEST_ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENCLAUDE_OLLAMA_NUM_CTX',
   'WEB_AUTH_HEADER',
   'WEB_AUTH_SCHEME',
   'WEB_BODY_TEMPLATE',
@@ -282,6 +283,17 @@ describe('loadEnvFile', () => {
     expect(process.env.AZURE_OPENAI_API_VERSION).toBe('2024-12-01-preview')
     expect(loaded).toEqual({
       AZURE_OPENAI_API_VERSION: '2024-12-01-preview',
+    })
+  })
+
+  it('loads documented Ollama request context window values', () => {
+    const filePath = writeTempEnvFile('OPENCLAUDE_OLLAMA_NUM_CTX=32768')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.OPENCLAUDE_OLLAMA_NUM_CTX).toBe('32768')
+    expect(loaded).toEqual({
+      OPENCLAUDE_OLLAMA_NUM_CTX: '32768',
     })
   })
 
