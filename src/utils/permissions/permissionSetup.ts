@@ -154,6 +154,38 @@ export function isDangerousBashPermission(
   return false
 }
 
+function isPermissiveSafetyAllowedBashRule(
+  ruleValue: PermissionRuleValue,
+): boolean {
+  if (ruleValue.toolName !== BASH_TOOL_NAME || !ruleValue.ruleContent) {
+    return false
+  }
+
+  const content = ruleValue.ruleContent.trim().toLowerCase()
+  if (content === '*') {
+    return false
+  }
+
+  const relaxedPatterns = CROSS_PLATFORM_CODE_EXEC.filter(
+    pattern => pattern !== 'bash' && pattern !== 'sh' && pattern !== 'ssh',
+  )
+
+  for (const pattern of relaxedPatterns) {
+    const lowerPattern = pattern.toLowerCase()
+    if (
+      content === lowerPattern ||
+      content === `${lowerPattern}:*` ||
+      content === `${lowerPattern}*` ||
+      content === `${lowerPattern} *` ||
+      (content.startsWith(`${lowerPattern} -`) && content.endsWith('*'))
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
 /**
  * Checks if a PowerShell permission rule is dangerous for auto mode.
  * A rule is dangerous if it would auto-allow commands that execute arbitrary
@@ -518,17 +550,6 @@ export function removeDangerousPermissions(
 export function stripDangerousPermissionsForAutoMode(
   context: ToolPermissionContext,
 ): ToolPermissionContext {
-  // In permissive safety mode (OPENCLAUDE_SAFETY_LEVEL=permissive) we keep the
-  // user's allow rules intact, so ordinary interpreter invocations such as
-  // Bash(python:*), Bash(npm run:*), or Bash(node:*) are not forced into
-  // approval prompts in auto mode. See issue #1616.
-  if (isPermissiveSafety()) {
-    return {
-      ...context,
-      strippedDangerousRules: context.strippedDangerousRules ?? {},
-    }
-  }
-
   const rules: PermissionRule[] = []
   for (const [source, ruleStrings] of Object.entries(
     context.alwaysAllowRules,
@@ -545,7 +566,15 @@ export function stripDangerousPermissionsForAutoMode(
       })
     }
   }
-  const dangerousPermissions = findDangerousClassifierPermissions(rules, [])
+  let dangerousPermissions = findDangerousClassifierPermissions(rules, [])
+  if (isPermissiveSafety()) {
+    // Permissive mode only keeps the false-positive-prone Bash interpreter and
+    // package-runner rules requested in #1616. Broad shell/sub-agent allow rules
+    // still bypass the auto-mode classifier and must continue to be stripped.
+    dangerousPermissions = dangerousPermissions.filter(
+      permission => !isPermissiveSafetyAllowedBashRule(permission.ruleValue),
+    )
+  }
   if (dangerousPermissions.length === 0) {
     return {
       ...context,

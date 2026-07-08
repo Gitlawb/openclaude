@@ -2593,7 +2593,7 @@ export function bashCommandIsSafe_DEPRECATED(
   if (isPermissiveSafety()) {
     return {
       behavior: 'passthrough',
-      message: 'Command passed all security checks (permissive safety level)',
+      message: 'Command allowed because permissive safety level is enabled',
     }
   }
 
@@ -2771,7 +2771,7 @@ export async function bashCommandIsSafeAsync_DEPRECATED(
   if (isPermissiveSafety()) {
     return {
       behavior: 'passthrough',
-      message: 'Command passed all security checks (permissive safety level)',
+      message: 'Command allowed because permissive safety level is enabled',
     }
   }
 

@@ -156,7 +156,10 @@ export function applyPermissionUpdate(
       const existingRules = context[ruleKind][update.destination] || []
       const rulesToRemove = new Set(ruleStrings)
       const filteredRules = existingRules.filter(
-        rule => !rulesToRemove.has(rule),
+        rule =>
+          !rulesToRemove.has(
+            permissionRuleValueToString(permissionRuleValueFromString(rule)),
+          ),
       )
 
       return {

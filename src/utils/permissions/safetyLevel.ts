@@ -18,8 +18,8 @@
  *                   prompt is not weakened by this flag (use the prompt text
  *                   for that), but bash/file permission heuristics are eased.
  *
- * Driven by the OPENCLAUDE_SAFETY_LEVEL env var (and, if present, the
- * settings `safetyLevel` key). Unknown values fall back to "balanced".
+ * Driven by the OPENCLAUDE_SAFETY_LEVEL env var. Unknown values fall back to
+ * "balanced".
  */
 
 export type SafetyLevel = 'strict' | 'balanced' | 'permissive'

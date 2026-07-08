@@ -13,6 +13,7 @@ import {
 import { getAutoMemPath } from '../../memdir/paths.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
 import { checkWritePermissionForTool } from './filesystem.js'
+import { resetSafetyLevelCache } from './safetyLevel.js'
 
 const writeInputSchema = z.object({
   file_path: z.string(),
@@ -113,6 +114,8 @@ describe('OpenClaude commit message temp file permissions', () => {
 
   afterEach(async () => {
     setOriginalCwd(originalCwd)
+    delete process.env.OPENCLAUDE_SAFETY_LEVEL
+    resetSafetyLevelCache()
     await rm(projectDir, { recursive: true, force: true })
   })
 
@@ -175,5 +178,42 @@ describe('OpenClaude commit message temp file permissions', () => {
     )
 
     expect(result.behavior).not.toBe('allow')
+  })
+
+  test('permits routine dangerous-file-list edits in permissive safety mode', () => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(projectDir, '.gitmodules') },
+      {
+        ...permissionContext('acceptEdits'),
+        additionalWorkingDirectories: new Map([
+          [projectDir, { path: projectDir, source: 'session' }],
+        ]),
+      },
+    )
+
+    expect(result.behavior).toBe('allow')
+  })
+
+  test('still prompts for dangerous directories in permissive safety mode', () => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(projectDir, '.git', 'config') },
+      {
+        ...permissionContext('acceptEdits'),
+        additionalWorkingDirectories: new Map([
+          [projectDir, { path: projectDir, source: 'session' }],
+        ]),
+      },
+    )
+
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({ type: 'safetyCheck' })
   })
 })

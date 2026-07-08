@@ -1,13 +1,15 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 
 import {
   applyPermissionModeChange,
   applyPermissionUpdatesToLiveContext,
   getDangerousPermissionModeTransitionError,
   getEffectiveDefaultPermissionModeFromSettingsSources,
+  stripDangerousPermissionsForAutoMode,
 } from './permissionSetup.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { requestPermissionModeChange } from './permissionModeChange.js'
+import { resetSafetyLevelCache } from './safetyLevel.js'
 
 describe('getEffectiveDefaultPermissionModeFromSettingsSources', () => {
   test('ignores dangerous default modes from shared project settings', () => {
@@ -291,5 +293,52 @@ describe('requestPermissionModeChange', () => {
     })
     expect(callCount).toBe(2)
     expect(applied).toBe(1)
+  })
+})
+
+describe('stripDangerousPermissionsForAutoMode permissive safety', () => {
+  afterEach(() => {
+    delete process.env.OPENCLAUDE_SAFETY_LEVEL
+    resetSafetyLevelCache()
+  })
+
+  test('keeps focused Bash interpreter allow rules in permissive safety mode', () => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const updated = stripDangerousPermissionsForAutoMode({
+      ...getEmptyToolPermissionContext(),
+      alwaysAllowRules: {
+        userSettings: ['Bash(python:*)', 'Bash(npm run:*)'],
+      },
+    })
+
+    expect(updated.alwaysAllowRules.userSettings).toEqual([
+      'Bash(python:*)',
+      'Bash(npm run:*)',
+    ])
+    expect(updated.strippedDangerousRules).toEqual({})
+  })
+
+  test('still strips broad classifier-bypass allow rules in permissive safety mode', () => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const updated = stripDangerousPermissionsForAutoMode({
+      ...getEmptyToolPermissionContext(),
+      alwaysAllowRules: {
+        userSettings: [
+          'Bash(*)',
+          'PowerShell(*)',
+          'Agent(*)',
+          'Bash(python:*)',
+        ],
+      },
+    })
+
+    expect(updated.alwaysAllowRules.userSettings).toEqual(['Bash(python:*)'])
+    expect(updated.strippedDangerousRules).toEqual({
+      userSettings: ['Bash', 'PowerShell', 'Agent'],
+    })
   })
 })
