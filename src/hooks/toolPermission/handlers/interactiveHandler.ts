@@ -84,6 +84,19 @@ function handleInteractivePermission(
     watchdogResumed = true
     rawResume?.()
   }
+  // Guarantee resume on every exit path. The dialog callbacks below resume via
+  // claim(), but aborts that bypass them — a bridge interrupt, or the REPL's
+  // now-priority/backgrounding paths calling abortController.abort() while the
+  // prompt is open — never run claim()/resolveOnce(). Without this the watchdog
+  // would stay suspended (QueryGuard stops scheduling while suspended) and the
+  // turn could hang on the unresolved permission promise with no watchdog to
+  // recover it. resumeWatchdog is idempotent, so this is safe alongside claim().
+  const abortSignal = ctx.toolUseContext.abortController.signal
+  if (abortSignal.aborted) {
+    resumeWatchdog()
+  } else {
+    abortSignal.addEventListener('abort', resumeWatchdog, { once: true })
+  }
   const resolveOnceHandle = createResolveOnce(
     (decision: PermissionDecision) => {
       // Idempotent safety net; the claim() wrapper below normally resumes first.

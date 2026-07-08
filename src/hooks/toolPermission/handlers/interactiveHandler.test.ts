@@ -24,7 +24,7 @@ type QueueItem = {
   onReject: (feedback?: string) => void
 }
 
-function setup() {
+function setup(opts?: { preAbort?: boolean }) {
   // beginUserInteraction returns a resume fn documented as "call exactly once".
   // A plain (non-idempotent) spy: a double-call would fail the "toHaveBeenCalledTimes(1)"
   // assertions, proving the handler honours that contract rather than leaning on
@@ -32,6 +32,9 @@ function setup() {
   const resume = vi.fn()
   const beginUserInteraction = vi.fn(() => resume)
   let queueItem: QueueItem | undefined
+
+  const abortController = new AbortController()
+  if (opts?.preAbort) abortController.abort()
 
   const ctx = {
     tool: { name: 'Bash', requiresUserInteraction: () => false },
@@ -44,7 +47,7 @@ function setup() {
         acquireLease: vi.fn(() => ({ id: '', release() {} })),
         beginUserInteraction,
       },
-      abortController: new AbortController(),
+      abortController,
       getAppState: () => ({
         toolPermissionContext: { mode: 'default' },
         mcp: { clients: [] },
@@ -85,6 +88,7 @@ function setup() {
     resume,
     beginUserInteraction,
     resolve,
+    abortController,
     getQueueItem: () => queueItem as QueueItem,
   }
 }
@@ -150,6 +154,27 @@ describe('handleInteractivePermission watchdog suspension', () => {
       throw new Error('persist failed')
     })
     await expect(getQueueItem().onAllow({}, [])).rejects.toThrow('persist failed')
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  // Abort that bypasses the dialog callbacks (bridge interrupt, REPL
+  // backgrounding) must still resume so the watchdog can recover the turn.
+  test('resumes when the query is aborted outside the dialog callbacks', () => {
+    const { abortController, resume } = setup()
+    expect(resume).not.toHaveBeenCalled()
+    abortController.abort()
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  test('resumes immediately if the signal is already aborted when shown', () => {
+    const { resume } = setup({ preAbort: true })
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  test('abort after a normal resolution does not double-resume', () => {
+    const { abortController, getQueueItem, resume } = setup()
+    getQueueItem().onReject('no')
+    abortController.abort()
     expect(resume).toHaveBeenCalledTimes(1)
   })
 })
