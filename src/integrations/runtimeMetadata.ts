@@ -218,7 +218,15 @@ function inferRemoteModelOpenAIShimConfig(
   const hasGlm = segments.some(s => /^glm-\d/.test(s))
   const isFireworks = segments.some(s => s === 'fireworks')
   if (hasGlm && !isFireworks && !catalogEntry) {
-    return { ...ZAI_GLM_OPENAI_SHIM }
+    // `tool_stream` is a Z.AI-proprietary streaming extension. Only a catalog
+    // entry may opt into it (Z.AI-contract gateways set it via
+    // `transportOverrides.openaiShim`); it must not be inferred from the model
+    // name alone. An arbitrary OpenAI-compatible gateway serving GLM — e.g.
+    // NVIDIA NIM (`integrate.api.nvidia.com`) — rejects the request with
+    // `400 Unsupported parameter(s): tool_stream` (#1896). Keep the
+    // reasoning-shaping fields (which any GLM endpoint benefits from) but drop
+    // tool streaming; without it tool calls simply aren't streamed.
+    return { ...ZAI_GLM_OPENAI_SHIM, enableToolStreaming: false }
   }
 
   return undefined

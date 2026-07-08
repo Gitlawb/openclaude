@@ -183,6 +183,26 @@ describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
   })
 })
 
+describe('resolveOpenAIShimRuntimeContext - GLM on a non-Z.AI gateway (#1896)', () => {
+  it('infers the GLM reasoning shim but not tool streaming for a third-party gateway', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'z-ai/glm-5.2',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      processEnv: {},
+    })
+
+    // No catalog entry for a custom OpenAI-compatible gateway, so the shim is
+    // inferred from the model name.
+    expect(result.catalogEntry).toBeNull()
+    // Reasoning-shaping fields still apply — GLM needs them on any gateway.
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    // tool_stream is Z.AI-proprietary and must NOT be inferred; NVIDIA NIM (and
+    // other third-party gateways) reject it with 400 Unsupported parameter(s).
+    expect(result.openaiShimConfig.enableToolStreaming).not.toBe(true)
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metadata', () => {
   it('uses Moonshot direct catalog order, limits, and reasoning controls', () => {
     expect(
