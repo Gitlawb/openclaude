@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { call as knowledgeCall } from './knowledge.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
-import { getArc, resetArc } from '../../utils/conversationArc.js'
+import { getArc, resetArc, initializeArc, addGoal } from '../../utils/conversationArc.js'
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import { getAutoMemPath } from '../../memdir/paths.js'
@@ -23,6 +23,7 @@ describe('knowledge command', () => {
     configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-command-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
     setClaudeConfigHomeDirForTesting(configDir)
+    getAutoMemPath.cache?.clear?.()
     resetArc()
     resetGlobalGraph()
   })
@@ -92,7 +93,7 @@ describe('knowledge command', () => {
     }
   })
 
-  it('clears the knowledge graph', async () => {
+  it('clears the knowledge graph and arc state', async () => {
     // Seed a fact file so we have state to clear
     const memDir = getAutoMemPath()
     const factsDir = join(memDir, '.facts')
@@ -111,10 +112,23 @@ Test content
     const countBefore = Object.keys(graph.entities).length
     expect(countBefore).toBeGreaterThan(0)
 
+    // Seed arc state: initialize arc and add a goal
+    initializeArc(memDir)
+    addGoal('Test goal for clear')
+    expect(getArc()).not.toBeNull()
+    expect(getArc()!.goals.length).toBeGreaterThan(0)
+    expect(getArc()!.decisions.length).toBe(0)
+
     const res = await knowledgeCallWithCapture('clear')
     const graphAfter = getGlobalGraph()
     expect(res.toLowerCase()).toContain('cleared')
     expect(Object.keys(graphAfter.entities).length).toBe(0)
+
+    // Arc state should be reset (getArc re-initializes an empty arc
+    // since clear deletes the .arc.json file from disk)
+    expect(getArc()).not.toBeNull()
+    expect(getArc()!.goals.length).toBe(0)
+    expect(getArc()!.currentPhase).toBe('init')
   })
 
   it('shows error on unknown subcommand', async () => {

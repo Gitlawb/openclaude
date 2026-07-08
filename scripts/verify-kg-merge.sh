@@ -9,7 +9,15 @@ FAIL=0
 
 pass()  { echo "  ✅ $1"; PASS=$((PASS+1)); }
 fail()  { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { local msg="$1"; shift; if "$@" &>/dev/null; then pass "$msg"; else fail "$msg"; fi }
+check() {
+  local msg="$1"; shift
+  local tmpfile; tmpfile=$(mktemp)
+  if "$@" &>"$tmpfile"; then
+    rm -f "$tmpfile"; pass "$msg"
+  else
+    cat "$tmpfile"; rm -f "$tmpfile"; fail "$msg"
+  fi
+}
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Verifying memdir-kg-merge refactor"
@@ -136,11 +144,7 @@ check "bun run typecheck passes" bun run typecheck
 echo ""
 echo "── 12. Test suite ──"
 
-if bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/commands/knowledge/knowledge.test.ts &>/dev/null; then
-  pass "All focused tests pass"
-else
-  fail "All focused tests pass"
-fi
+check "All focused tests pass" bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/utils/multiTurnContext.test.ts src/commands/knowledge/knowledge.test.ts
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
