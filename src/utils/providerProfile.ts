@@ -1316,14 +1316,6 @@ function hasConcreteProviderSelection(
     return true
   }
 
-  if (
-    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
-    !hasExplicitNonOpenAIProviderSelection(processEnv) &&
-    getConcreteOpenAICompatibleEnvRouteId(processEnv)
-  ) {
-    return true
-  }
-
   // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
@@ -2001,7 +1993,7 @@ export async function buildStartupEnvFromProfile(options?: {
 
   const concreteOpenAIRouteId = getConcreteOpenAICompatibleEnvRouteId(processEnv)
   if (
-    concreteOpenAIRouteId &&
+    concreteOpenAIRouteId === 'nvidia-nim' &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     !hasExplicitOpenAICompatibleOptOut(processEnv) &&
     !hasExplicitNonOpenAIProviderSelection(processEnv)

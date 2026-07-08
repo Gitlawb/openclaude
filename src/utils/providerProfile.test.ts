@@ -535,6 +535,49 @@ test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stal
   assert.equal(resolveActiveRouteIdFromEnv(env), 'nvidia-nim')
 })
 
+test('buildStartupEnvFromProfile does not activate non-NIM env-only OpenAI-compatible setup', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      OPENAI_BASE_URL: 'https://openrouter.ai/api/v1',
+      OPENAI_MODEL: 'openrouter/zhipu/glm-5.2',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
+  assert.equal(env.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'mimo-v2.5-pro')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'gitlawb-opengateway')
+  assert.equal(isDefaultStartupProviderEnv(env), true)
+})
+
+test('buildStartupEnvFromProfile documents no-flag Gemini env does not beat concrete NIM setup', async () => {
+  const processEnv = {
+    GEMINI_API_KEY: 'gemini-live',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+    OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+    OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
+    NVIDIA_API_KEY: 'nvapi-live',
+    NVIDIA_NIM: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, undefined)
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'nvidia-nim')
+  assert.equal(env.GEMINI_API_KEY, undefined)
+  assert.equal(env.OPENAI_MODEL, 'qwen/qwen3.5-397b-a17b')
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'nvidia-nim')
+})
+
 test('buildStartupEnvFromProfile preserves explicit OpenAI opt-out over concrete env-only NIM setup', async () => {
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '0',
