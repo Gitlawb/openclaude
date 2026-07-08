@@ -66,16 +66,11 @@ function handleInteractivePermission(
     channelCallbacks,
   } = params
 
-  // Reaching this handler means we are about to show a dialog and block on the
-  // user's decision. Suspend the query watchdog for exactly that window so
-  // human think-time is not counted toward the idle/hard-max timeout. Scoped
-  // here (not around the whole permission resolution) so non-human async work
-  // — e.g. the classifier in hasPermissionsToUseTool — stays watched and a
-  // genuinely stuck check can still fire the watchdog.
-  // beginUserInteraction() documents its resume fn as "call exactly once". We
-  // resume it from two places (claim() and the resolveOnce safety net), so wrap
-  // it in a local idempotent helper that calls the underlying fn at most once —
-  // don't rely on the QueryActivity implementation being idempotent itself.
+  // Suspend the watchdog for the dialog window so human think-time isn't counted
+  // toward the idle/hard-max timeout. Scoped here, not around the whole
+  // resolution, so non-human async work (e.g. the classifier) stays watched.
+  // Idempotent: resume runs from both claim() and the resolveOnce safety net,
+  // but the QueryActivity resume fn must be called at most once.
   const rawResume = ctx.toolUseContext.queryActivity?.beginUserInteraction?.()
   let watchdogResumed = false
   const resumeWatchdog = () => {
@@ -83,12 +78,8 @@ function handleInteractivePermission(
     watchdogResumed = true
     rawResume?.()
   }
-  // Guarantee resume even if dialog setup below throws synchronously (e.g.
-  // pushToQueue or bridge wiring) before any claim()/resolveOnce() runs —
-  // otherwise the watchdog stays suspended for the rest of the turn. Rethrow so
-  // the caller still sees the failure.
+  let removeExternalAbortListener = () => {}
   try {
-    let removeExternalAbortListener = () => {}
     const resolveOnceHandle = createResolveOnce(
       (decision: PermissionDecision) => {
         // Idempotent safety net; the claim() wrapper below normally resumes first.
@@ -98,44 +89,34 @@ function handleInteractivePermission(
       },
     )
     const { resolve: resolveOnce, isResolved } = resolveOnceHandle
-    // Resume the watchdog the moment a decision is claimed — every terminal path
-    // (allow/reject/abort/hook/classifier/bridge/channel/recheck) claims first.
-    // Resuming here rather than in resolveOnce means: (1) post-decision async
-    // work such as handleUserAllow()/persistPermissions() runs watched again once
-    // the human has decided, and (2) an exception in that work cannot strand the
-    // watchdog suspended for the rest of the turn.
+    // Resume on claim, not resolveOnce: post-decision work (handleUserAllow →
+    // persistPermissions) then runs watched, and a throw there can't strand the
+    // watchdog suspended.
     const claim = () => {
       const claimed = resolveOnceHandle.claim()
       if (claimed) resumeWatchdog()
       return claimed
     }
-    // Handle an abort that bypasses the dialog callbacks — a bridge interrupt, or
-    // the REPL's now-priority/backgrounding paths calling abortController.abort()
-    // while the prompt is open. Only resuming the watchdog would leave the
-    // permission promise unresolved while resetting the idle deadline, so the turn
-    // would stay active for a full idle timeout before cleanup — blocking the
-    // queued interrupt/background work. Claim + cancel so the awaiter unblocks
-    // immediately; claim() also resumes the watchdog. The bridge/channel blocks
-    // below clean up their own subscriptions on abort.
+    // Aborts that bypass the dialog callbacks (bridge interrupt, backgrounding)
+    // must claim + cancel the pending permission, not just resume — otherwise the
+    // promise stays unresolved and the turn idles for a full timeout before
+    // cleanup, blocking the queued interrupt/background work.
     const abortSignal = ctx.toolUseContext.abortController.signal
     const onExternalAbort = () => {
       if (!claim()) return
-      // Remove the queued prompt too: external aborts don't go through the UI's
-      // onDone, so without this the stale ToolUseConfirm stays at the queue head
-      // and keeps focusedInputDialog pointing at a dismissed turn. No-op before
-      // the dialog is pushed (immediate-abort path).
+      // Drop the stale queue entry; external aborts skip the UI's onDone. No-op
+      // before the dialog is pushed.
       ctx.removeFromQueue()
       resolveOnce(ctx.cancelAndAbort(undefined, true))
     }
     if (abortSignal.aborted) {
-      // Already aborted before the dialog is shown: cancel and stop setup so we
-      // never enqueue a prompt that is immediately stale.
+      // Already aborted: cancel and stop setup so we never enqueue a stale prompt.
       onExternalAbort()
       return
     }
     abortSignal.addEventListener('abort', onExternalAbort, { once: true })
-    // Detach on any normal terminal resolution so a resolved prompt does not
-    // retain a closure on the (query-scoped) abort signal.
+    // Detach on a normal resolution so a resolved prompt doesn't retain a closure
+    // on the abort signal.
     removeExternalAbortListener = () =>
       abortSignal.removeEventListener('abort', onExternalAbort)
     let userInteracted = false
@@ -605,6 +586,10 @@ function handleInteractivePermission(
       })
     }
   } catch (setupError) {
+    // Clean up partial setup before rethrowing (all idempotent / no-op if not
+    // yet done).
+    removeExternalAbortListener()
+    ctx.removeFromQueue()
     resumeWatchdog()
     throw setupError
   }

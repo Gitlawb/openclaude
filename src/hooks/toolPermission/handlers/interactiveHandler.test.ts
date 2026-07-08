@@ -4,15 +4,9 @@ import {
   type InteractivePermissionParams,
 } from './interactiveHandler.js'
 
-/**
- * These tests pin the watchdog pause/resume wiring in the interactive
- * permission path: `beginUserInteraction()` must run once when the dialog is
- * shown, and its resume fn must fire exactly once per terminal resolution
- * (allow/reject/abort) — and never twice, even if two branches race. This is
- * the choke-point the session-timeout fix depends on; a future resolution path
- * that bypasses `resolveOnce` would fail these tests instead of silently
- * reintroducing the original bug.
- */
+// Pin the watchdog pause/resume wiring: resume must fire exactly once per
+// terminal path (including aborts and setup throws), so a future path that
+// bypasses resolveOnce fails here instead of silently stranding the watchdog.
 
 type QueueItem = {
   onAbort: () => void
@@ -25,10 +19,8 @@ type QueueItem = {
 }
 
 function setup(opts?: { preAbort?: boolean; throwOnPush?: boolean }) {
-  // beginUserInteraction returns a resume fn documented as "call exactly once".
-  // A plain (non-idempotent) spy: a double-call would fail the "toHaveBeenCalledTimes(1)"
-  // assertions, proving the handler honours that contract rather than leaning on
-  // QueryGuard's internal idempotence.
+  // Plain (non-idempotent) spy: a double-call fails the exactly-once assertions,
+  // so the handler can't lean on QueryGuard's internal idempotence.
   const resume = vi.fn()
   const beginUserInteraction = vi.fn(() => resume)
   let queueItem: QueueItem | undefined
@@ -136,9 +128,6 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(resolve).toHaveBeenCalledTimes(1)
   })
 
-  // P2a: the watchdog must resume the instant the decision is claimed, before
-  // post-approval async work (handleUserAllow → persistPermissions) is awaited,
-  // so a stall in that work is watched again once the human has decided.
   test('resumes before awaiting post-approval async work', () => {
     const { ctx, getQueueItem, resume } = setup()
     let releaseAllow: (() => void) | undefined
@@ -153,8 +142,6 @@ describe('handleInteractivePermission watchdog suspension', () => {
     releaseAllow?.()
   })
 
-  // P2b: an exception in post-approval work must not strand the watchdog
-  // suspended — resume happens on claim, independent of resolveOnce succeeding.
   test('resumes even when allow processing throws', async () => {
     const { ctx, getQueueItem, resume } = setup()
     ctx.handleUserAllow = vi.fn(async () => {
@@ -164,9 +151,6 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(resume).toHaveBeenCalledTimes(1)
   })
 
-  // Abort that bypasses the dialog callbacks (bridge interrupt, REPL
-  // backgrounding) must resume AND resolve the pending permission, so the
-  // awaiter unblocks immediately instead of waiting a full idle timeout.
   test('resolves, resumes, and dequeues when aborted outside the dialog callbacks', () => {
     const { ctx, abortController, resume, resolve } = setup()
     expect(resume).not.toHaveBeenCalled()
@@ -194,12 +178,18 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(resolve).toHaveBeenCalledTimes(1)
   })
 
-  // P3: a synchronous throw during dialog setup (before any claim/resolveOnce)
-  // must still resume, and the error must propagate to the caller.
-  test('resumes and rethrows if dialog setup throws synchronously', () => {
-    const { resume, thrownError } = setup({ throwOnPush: true })
+  test('resumes, rethrows, and cleans up if dialog setup throws synchronously', () => {
+    const { ctx, abortController, resume, resolve, thrownError } = setup({
+      throwOnPush: true,
+    })
     expect(thrownError).toBeInstanceOf(Error)
     expect((thrownError as Error).message).toBe('setup boom')
     expect(resume).toHaveBeenCalledTimes(1)
+    // catch path dequeues the (partially) pushed prompt...
+    expect(ctx.removeFromQueue).toHaveBeenCalled()
+    // ...and detaches the abort listener, so a later abort cannot re-fire it.
+    const resolveCallsBefore = resolve.mock.calls.length
+    abortController.abort()
+    expect(resolve.mock.calls.length).toBe(resolveCallsBefore)
   })
 })
