@@ -167,13 +167,15 @@ describe('handleInteractivePermission watchdog suspension', () => {
   // Abort that bypasses the dialog callbacks (bridge interrupt, REPL
   // backgrounding) must resume AND resolve the pending permission, so the
   // awaiter unblocks immediately instead of waiting a full idle timeout.
-  test('resolves and resumes when aborted outside the dialog callbacks', () => {
-    const { abortController, resume, resolve } = setup()
+  test('resolves, resumes, and dequeues when aborted outside the dialog callbacks', () => {
+    const { ctx, abortController, resume, resolve } = setup()
     expect(resume).not.toHaveBeenCalled()
     expect(resolve).not.toHaveBeenCalled()
     abortController.abort()
     expect(resume).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledTimes(1)
+    // Stale prompt must be removed from the queue on external abort.
+    expect(ctx.removeFromQueue).toHaveBeenCalledTimes(1)
   })
 
   test('resolves and resumes immediately if already aborted when shown', () => {
