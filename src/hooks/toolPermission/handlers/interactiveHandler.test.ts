@@ -24,7 +24,7 @@ type QueueItem = {
   onReject: (feedback?: string) => void
 }
 
-function setup(opts?: { preAbort?: boolean }) {
+function setup(opts?: { preAbort?: boolean; throwOnPush?: boolean }) {
   // beginUserInteraction returns a resume fn documented as "call exactly once".
   // A plain (non-idempotent) spy: a double-call would fail the "toHaveBeenCalledTimes(1)"
   // assertions, proving the handler honours that contract rather than leaning on
@@ -54,6 +54,7 @@ function setup(opts?: { preAbort?: boolean }) {
       }),
     },
     pushToQueue: vi.fn((item: QueueItem) => {
+      if (opts?.throwOnPush) throw new Error('setup boom')
       queueItem = item
     }),
     removeFromQueue: vi.fn(),
@@ -81,7 +82,12 @@ function setup(opts?: { preAbort?: boolean }) {
     channelCallbacks: undefined,
   } as unknown as InteractivePermissionParams
 
-  handleInteractivePermission(params, resolve)
+  let thrownError: unknown
+  try {
+    handleInteractivePermission(params, resolve)
+  } catch (e) {
+    thrownError = e
+  }
 
   return {
     ctx,
@@ -89,6 +95,7 @@ function setup(opts?: { preAbort?: boolean }) {
     beginUserInteraction,
     resolve,
     abortController,
+    thrownError,
     getQueueItem: () => queueItem as QueueItem,
   }
 }
@@ -175,6 +182,15 @@ describe('handleInteractivePermission watchdog suspension', () => {
     const { abortController, getQueueItem, resume } = setup()
     getQueueItem().onReject('no')
     abortController.abort()
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  // P3: a synchronous throw during dialog setup (before any claim/resolveOnce)
+  // must still resume, and the error must propagate to the caller.
+  test('resumes and rethrows if dialog setup throws synchronously', () => {
+    const { resume, thrownError } = setup({ throwOnPush: true })
+    expect(thrownError).toBeInstanceOf(Error)
+    expect((thrownError as Error).message).toBe('setup boom')
     expect(resume).toHaveBeenCalledTimes(1)
   })
 })

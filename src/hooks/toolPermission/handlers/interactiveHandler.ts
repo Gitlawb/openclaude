@@ -97,6 +97,11 @@ function handleInteractivePermission(
   } else {
     abortSignal.addEventListener('abort', resumeWatchdog, { once: true })
   }
+  // Guarantee resume even if dialog setup below throws synchronously (e.g.
+  // pushToQueue or bridge wiring) before any claim()/resolveOnce() runs —
+  // otherwise the watchdog stays suspended for the rest of the turn. Rethrow so
+  // the caller still sees the failure.
+  try {
   const resolveOnceHandle = createResolveOnce(
     (decision: PermissionDecision) => {
       // Idempotent safety net; the claim() wrapper below normally resumes first.
@@ -575,6 +580,10 @@ function handleInteractivePermission(
         level: 'error',
       })
     })
+  }
+  } catch (setupError) {
+    resumeWatchdog()
+    throw setupError
   }
 }
 
