@@ -1,4 +1,4 @@
-import { randomUUID, type UUID } from 'crypto'
+import type { UUID } from 'crypto'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type {
   NormalizedAssistantMessage,
@@ -13,10 +13,12 @@ function createNormalizedUserBlockMessage({
   source,
   content,
   imagePasteIds,
+  uuid,
 }: {
   source: UserMessage
   content: ContentBlockParam[]
   imagePasteIds?: number[]
+  uuid: UUID
 }): UserMessage {
   return {
     type: 'user',
@@ -28,7 +30,7 @@ function createNormalizedUserBlockMessage({
     isVisibleInTranscriptOnly: source.isVisibleInTranscriptOnly,
     isVirtual: source.isVirtual,
     isCollapseSummary: source.isCollapseSummary,
-    uuid: randomUUID(),
+    uuid,
     timestamp: source.timestamp,
     toolUseResult: source.toolUseResult,
     mcpMeta: source.mcpMeta,
@@ -120,14 +122,12 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
               ? message.imagePasteIds[imageIndex]
               : undefined
           if (isImage) imageIndex++
-          return {
-            ...createNormalizedUserBlockMessage({
-              source: message,
-              content: [_],
-              imagePasteIds: imageId !== undefined ? [imageId] : undefined,
-            }),
+          return createNormalizedUserBlockMessage({
+            source: message,
+            content: [_],
+            imagePasteIds: imageId !== undefined ? [imageId] : undefined,
             uuid: isNewChain ? deriveUUID(message.uuid, index) : message.uuid,
-          } as NormalizedMessage
+          }) as NormalizedMessage
         })
       }
     }
