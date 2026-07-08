@@ -44,8 +44,14 @@ const DIAGNOSTIC_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
  * (for example, build mode uses DiagnosticsPresent_OutputsSkipped = 1).
  */
 const TSC_SEMANTIC: CommandSemantic = (exitCode, stdout, stderr) => {
+  const output = stdout + stderr
+  const hasTypeScriptUsageError =
+    /error TS(?:5023|5024|5025|5029|5057|6053|6054):|Unknown compiler option|Compiler option .* requires a value|File .* not found/i.test(
+      output,
+    )
   const hasTypeScriptDiagnostics =
-    exitCode === 2 || (exitCode === 1 && /error TS\d+/i.test(stdout + stderr))
+    !hasTypeScriptUsageError &&
+    (exitCode === 2 || (exitCode === 1 && /error TS\d+/i.test(output)))
   return {
     isError: exitCode !== 0 && !hasTypeScriptDiagnostics,
     message: hasTypeScriptDiagnostics
@@ -602,7 +608,7 @@ function looksLikeWrapperFailure(
   if (failureOutput.length === 0) {
     return false
   }
-  return /(^|\n)\s*(npm (ERR!|error)|pnpm ERR!|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
+  return /(^|\n)\s*(npm (ERR!|error) code (?!ELIFECYCLE\b)\S+|pnpm ERR! (?!Command failed with exit code\b)|yarn (error|ERR!)|bunx? (error|ERR!)|pipx(:| ).*error|Fatal error from pip|error: failed to (download|install|fetch)|failed to download|failed to install|No matching distribution found|Could not find a version that satisfies)/i.test(
     failureOutput,
   )
 }

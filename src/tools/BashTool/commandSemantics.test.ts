@@ -222,6 +222,14 @@ describe('interpretCommandResult', () => {
       expect(
         interpretCommandResult('tsc --bogus', 1, '', 'unknown option').isError,
       ).toBe(true)
+      expect(
+        interpretCommandResult(
+          'tsc --bogus',
+          1,
+          '',
+          "error TS5023: Unknown compiler option '--bogus'.",
+        ).isError,
+      ).toBe(true)
     })
 
     test('pylint diagnostic bits are reported, usage-error bit is an error', () => {
@@ -475,6 +483,35 @@ describe('interpretCommandResult', () => {
       for (const [command, stdout, stderr] of cases) {
         const result = interpretCommandResult(command, 1, stdout, stderr)
         expect(result.isError).toBe(true)
+      }
+    })
+
+    test('package script diagnostic exits ignore generic lifecycle noise', () => {
+      const cases = [
+        [
+          'npm test',
+          '1 failed\nnpm error code ELIFECYCLE\nnpm error Test failed.',
+        ],
+        [
+          'npm run test',
+          '1 failed\nnpm error code ELIFECYCLE\nnpm error Command failed with exit code 1.',
+        ],
+        [
+          'npm run lint',
+          'F401\nnpm error code ELIFECYCLE\nnpm error Command failed with exit code 1.',
+        ],
+        [
+          'pnpm test',
+          '1 failed\npnpm ERR! Command failed with exit code 1.',
+        ],
+        [
+          'pnpm run lint',
+          'F401\npnpm error Command failed with exit code 1.',
+        ],
+      ] as const
+      for (const [command, stdout] of cases) {
+        const result = interpretCommandResult(command, 1, stdout, '')
+        expect(result.isError).toBe(false)
       }
     })
 
