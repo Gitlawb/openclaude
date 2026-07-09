@@ -38,6 +38,7 @@ describe('knowledge command', () => {
         process.env.CLAUDE_CONFIG_DIR = originalConfigDir
       }
       setClaudeConfigHomeDirForTesting(undefined)
+      getAutoMemPath.cache?.clear?.()
     } finally {
       const dirToRemove = configDir
       configDir = undefined
