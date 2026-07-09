@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { feature } from 'bun:bundle'
 import React from 'react'
 
 import type { Notification } from '../../context/notifications.js'
@@ -17,6 +18,7 @@ const actualAutoUpdaterWrapper = await import(
   `../AutoUpdaterWrapper.js?actual=${Date.now()}-${Math.random()}`
 )
 const EFFORT_ENV_KEY = 'CLAUDE_CODE_EFFORT_LEVEL'
+const briefFeatureTest = feature('KAIROS') || feature('KAIROS_BRIEF') ? test : test.skip
 let savedEffortEnv: string | undefined
 
 beforeEach(async () => {
@@ -48,11 +50,15 @@ async function renderNotifications({
   currentNotification = null,
   ideSelection = undefined,
   mcpClients = undefined,
+  isBriefOnly = false,
+  viewingAgentTaskId = undefined,
 }: {
   effortValue: EffortValue | undefined
   currentNotification?: Notification | null
   ideSelection?: IDESelection
   mcpClients?: MCPServerConnection[]
+  isBriefOnly?: boolean
+  viewingAgentTaskId?: string
 }): Promise<string> {
   const { Notifications } = await import(
     `./Notifications.js?ts=${Date.now()}-${Math.random()}`
@@ -64,6 +70,8 @@ async function renderNotifications({
         ...getDefaultAppState(),
         mainLoopModelForSession: 'claude-opus-4-8',
         effortValue,
+        isBriefOnly,
+        viewingAgentTaskId,
         notifications: {
           current: currentNotification,
           queue: [],
@@ -144,5 +152,14 @@ test('preserves IDE selection status before the effort fallback', async () => {
   })
 
   expect(output).toContain('In example.ts')
+  expect(output).not.toContain('medium · /effort')
+})
+
+briefFeatureTest('suppresses effort when brief owns the footer gap', async () => {
+  const output = await renderNotifications({
+    effortValue: 'medium',
+    isBriefOnly: true,
+  })
+
   expect(output).not.toContain('medium · /effort')
 })
