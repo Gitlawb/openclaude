@@ -338,64 +338,43 @@ A configuracao atual em `~/.claude/settings.json`:
 
 ---
 
-## Autonomy (routing por complexidade) — Phase 1
+## Autonomy Ollama-first (frota local + cloud)
 
-Alem do routing por **tipo de agente**, o OpenClaude pode escolher o modelo pela **dificuldade da tarefa**.
+Routing por **dificuldade da tarefa** usando **todos** os modelos Ollama instalados.
 
-### Ativar no lancamento
+### Aplicar / reaplicar politica
 
 ```powershell
-.\start-ollama.ps1 -Mode local -AutonomyMode smart
-.\start-ollama.ps1 -AutonomyMode fast      # prefere modelos pequenos
-.\start-ollama.ps1 -AutonomyMode code      # prefere modelos *coder*
-.\start-ollama.ps1 -AutonomyMode quality   # prefere tier hard
-.\start-ollama.ps1 -AutonomyMode fixed     # so agentRouting estatico
+bun run autonomy:ollama
+bun run doctor:autonomy:probe
 ```
 
-Isso define `OPENCLAUDE_AUTONOMY=1` e `OPENCLAUDE_AUTONOMY_MODE=...`.
+### Lancamento (default smart)
 
-### Configuracao recomendada em `~/.claude/settings.json`
-
-Registre modelos locais **e** o taskRouting (os nomes devem existir em `agentModels`):
-
-```json
-{
-  "autonomy": {
-    "enabled": true,
-    "mode": "smart",
-    "classifier": "heuristic",
-    "autoApplyPolicy": false
-  },
-  "agentModels": {
-    "qwen2.5:7b": {
-      "base_url": "http://localhost:11434/v1",
-      "api_key": "ollama"
-    },
-    "qwen2.5:14b": {
-      "base_url": "http://localhost:11434/v1",
-      "api_key": "ollama"
-    },
-    "qwen3-vl:235b-cloud": {
-      "base_url": "http://localhost:11434/v1",
-      "api_key": "ollama"
-    },
-    "mimo-v2.5-pro": {
-      "base_url": "https://token-plan-sgp.xiaomimimo.com/v1",
-      "api_key": "YOUR_KEY"
-    }
-  },
-  "taskRouting": {
-    "trivial": "qwen2.5:7b",
-    "standard": "qwen2.5:14b",
-    "hard": "mimo-v2.5-pro",
-    "vision": "qwen3-vl:235b-cloud"
-  },
-  "fallbackChains": {
-    "hard": ["mimo-v2.5-pro", "qwen3-vl:235b-cloud"],
-    "default": ["mimo-v2.5-pro", "qwen2.5:14b"]
-  }
-}
+```powershell
+.\start-ollama.ps1                     # Mode=smart + AutonomyMode=smart
+.\start-ollama.ps1 -Mode local         # so GPU 14b
+.\start-ollama.ps1 -Mode cloud         # forca 235b
+.\start-ollama.ps1 -AutonomyMode fast  # prefere 7b/14b
+.\start-ollama.ps1 -AutonomyMode quality
 ```
+
+### Escada de modelos (verificada)
+
+| Prompt exemplo | Tier | Modelo |
+|----------------|------|--------|
+| `oi` | trivial | `qwen2.5:7b` (local) |
+| bug em `src/foo.ts` | standard | `qwen2.5:14b` (local) |
+| redesenha arquitetura multi-modulo | hard | `qwen3-vl:235b-cloud` |
+| screenshot / imagem | vision | `qwen3-vl:235b-cloud` |
+
+Fallbacks: `glm-5.1:cloud` → `kimi-k2.6:cloud` → `minimax-m3:cloud` → local.
+
+Dentro do app: **`/route`** para ver a rota ativa.
+
+### Configuracao em `~/.claude/settings.json`
+
+Ja aplicada por `autonomy:ollama`. Backup automatico em `settings.json.bak-ollama-*`.
 
 ### Tiers (classificador heuristico)
 
