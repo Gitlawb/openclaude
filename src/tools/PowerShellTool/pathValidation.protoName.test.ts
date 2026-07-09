@@ -49,12 +49,14 @@ function parsedCommandNamed(name: string): ParsedPowerShellCommand {
 }
 
 // CMDLET_PATH_CONFIG is keyed by the (lowercased) cmdlet name. A command whose
-// name collides with an Object.prototype member — `constructor`, `__proto__` —
-// must resolve to no config (unknown-cmdlet passthrough), not an inherited
-// prototype value. Before the null-proto fix the lookup returned a truthy
-// inherited member, so `[...config.knownSwitches]` threw (spread of undefined)
-// and crashed path-constraint validation. (`toString`/`valueOf` lowercase to
-// `tostring`/`valueof` and never collide, so only these two are reachable.)
+// name collides with an inherited Object.prototype member must resolve to no
+// config (unknown-cmdlet passthrough), not the inherited prototype value. Before
+// the null-proto fix the lookup returned a truthy inherited member, so
+// `[...config.knownSwitches]` threw (spread of undefined) and crashed
+// path-constraint validation. `constructor` and `__proto__` below are
+// representative all-lowercase collisions reachable through the lowercased key;
+// the null-prototype container neutralizes every inherited-key lookup, not just
+// these two.
 describe('checkPathConstraints with prototype-polluting cmdlet names', () => {
   test.each(['constructor', '__proto__'])(
     'treats %s as an unknown cmdlet instead of crashing',
@@ -80,13 +82,15 @@ describe('checkPathConstraints with prototype-polluting cmdlet names', () => {
     const parsed = parsedCommandNamed('set-content')
     // set-content is a known write cmdlet, so its config is found and the
     // lookup does not fall through to the unknown-cmdlet branch — proves the
-    // null-proto container still holds its own entries.
-    expect(() =>
-      checkPathConstraints(
-        { command: parsed.originalCommand },
-        parsed,
-        defaultContext(),
-      ),
-    ).not.toThrow()
+    // null-proto container still holds and resolves its own entries. Its
+    // parameterized `-Path` cannot be statically validated, so the classified
+    // decision is `ask` rather than the `passthrough` returned for the
+    // prototype-key names above.
+    const result = checkPathConstraints(
+      { command: parsed.originalCommand },
+      parsed,
+      defaultContext(),
+    )
+    expect(result.behavior).toBe('ask')
   })
 })
