@@ -421,6 +421,18 @@ describe('GLM streaming — XML tool calls', () => {
     expect(textOf(events)).not.toContain('</tool_calls')
   })
 
+  test('recovers an HY3 wrapper when its colon suffix is split across SSE deltas', async () => {
+    const events = await run([
+      hy3Chunk('<tool_calls'),
+      hy3Chunk(':call_1><tool_call:call_1>TaskCreate\n subject: Verify HY3\n description: Run the live test\n</tool_call:call_1></tool_calls:call_1>'),
+      hy3Chunk('', 'stop'),
+    ])
+
+    expect(toolStarts(events)).toHaveLength(1)
+    expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('TaskCreate')
+    expect(textOf(events)).not.toContain('<tool_calls')
+  })
+
   test('recovers Tencent HY3 official tagged arguments from streaming output', async () => {
     const events = await run([
       hy3Chunk('<tool_calls:opensource><tool_call:opensource>TaskCreate<tool_sep:opensource><arg_key:opensource>subject</arg_key:opensource>'),

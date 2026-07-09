@@ -1919,13 +1919,17 @@ function parseHy3ToolCallInner(inner: string): {
  * opener split across SSE deltas so it is never emitted as visible text.
  */
 function trailingXmlOpenerPrefixLen(s: string): number {
+  let longest = 0
   for (const opener of XML_TOOL_CALL_OPENERS) {
     const max = Math.min(s.length, opener.length - 1)
     for (let len = max; len > 0; len--) {
-      if (opener.startsWith(s.slice(s.length - len))) return len
+      if (opener.startsWith(s.slice(s.length - len))) {
+        longest = Math.max(longest, len)
+        break
+      }
     }
   }
-  return 0
+  return longest
 }
 
 function findXmlToolCallOpener(text: string): number {
