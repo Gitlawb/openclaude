@@ -60,6 +60,7 @@ describe('conversationArc', () => {
         process.env.CLAUDE_CONFIG_DIR = originalConfigDir
       }
       setClaudeConfigHomeDirForTesting(undefined)
+      getAutoMemPath.cache?.clear?.()
       if (memDir) {
         rmSync(memDir, { recursive: true, force: true })
       }
