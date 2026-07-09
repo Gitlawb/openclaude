@@ -216,7 +216,7 @@ export function stripCallerFieldFromAssistantMessage(
 ): AssistantMessage {
   const hasCallerField = message.message.content.some(
     block =>
-      block.type === 'tool_use' && 'caller' in block && block.caller !== null,
+      block.type === 'tool_use' && 'caller' in block,
   )
 
   if (!hasCallerField) {
