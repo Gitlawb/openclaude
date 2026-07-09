@@ -106,10 +106,8 @@ function getClipboardCommands() {
       deleteFile: `rm -f "${screenshotPath}"`,
     },
     win32: {
-      // System.Windows.Forms.Clipboard requires an STA thread. PowerShell's
-      // default apartment state is not guaranteed for non-interactive calls.
-      checkImage: `powershell -NoProfile -STA -Command "${WIN32_CLIPBOARD_HAS_IMAGE_CMD}"`,
-      saveImage: `powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $img.Save('${escapePowerShellSingleQuotedString(screenshotPath)}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
+      checkImage: `powershell -NoProfile -Command "${WIN32_CLIPBOARD_HAS_IMAGE_CMD}"`,
+      saveImage: `powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if (-not $img) { exit 1 }; $img.Save('${escapePowerShellSingleQuotedString(screenshotPath)}', [System.Drawing.Imaging.ImageFormat]::Png)"`,
       getPath: 'powershell -NoProfile -Command "Get-Clipboard"',
       deleteFile: `del /f "${screenshotPath}"`,
     },
@@ -137,7 +135,6 @@ export async function hasImageInClipboard(): Promise<boolean> {
   if (process.platform === 'win32') {
     const result = await execFileNoThrowWithCwd('powershell', [
       '-NoProfile',
-      '-STA',
       '-Command',
       WIN32_CLIPBOARD_HAS_IMAGE_CMD,
     ])
@@ -240,15 +237,11 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
       shell: true,
       reject: false,
     })
-    if (checkResult.exitCode !== 0) {
+    if (process.platform !== 'win32' && checkResult.exitCode !== 0) {
       return null
     }
-    if (
-      process.platform === 'win32' &&
-      checkResult.stdout.trim() !== 'True'
-    ) {
-      return null
-    }
+    // GetImage() and the saved PNG are authoritative. In particular, do not
+    // reject a raw Windows bitmap solely because the probe fails or says False.
 
     // Save the image
     const saveResult = await execa(commands.saveImage, {

@@ -101,7 +101,7 @@ async function copyPngToClipboard(
     const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${pngPath.replace(/'/g, "''")}'))`
     const result = await execFileNoThrowWithCwd(
       'powershell',
-      ['-NoProfile', '-STA', '-Command', psScript],
+      ['-NoProfile', '-Command', psScript],
       { timeout: 5000 },
     )
 
