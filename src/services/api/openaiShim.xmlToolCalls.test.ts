@@ -183,6 +183,22 @@ describe('parseXmlToolCalls', () => {
     expect(calls[0]).toMatchObject({ name: 'EnterPlanMode', arguments: {} })
   })
 
+  test('dialect D: Tencent HY3 official tagged arguments', () => {
+    const text =
+      '<tool_calls:opensource><tool_call:opensource>TaskCreate<tool_sep:opensource>' +
+      '<arg_key:opensource>subject</arg_key:opensource><arg_value:opensource>Verify HY3</arg_value:opensource>' +
+      '<arg_key:opensource>description</arg_key:opensource><arg_value:opensource>Run the live test</arg_value:opensource>' +
+      '</tool_call:opensource></tool_calls:opensource>'
+    const { calls, toolCallRanges } = parseXmlToolCalls(text)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      name: 'TaskCreate',
+      arguments: { subject: 'Verify HY3', description: 'Run the live test' },
+    })
+    expect(toolCallRanges).toEqual([[0, text.length]])
+  })
+
   test('multiple tool calls in one message', () => {
     const text =
       '<tool_call><function=Read><parameter=file_path>a.ts</parameter></function></tool_call>' +
@@ -403,5 +419,24 @@ describe('GLM streaming — XML tool calls', () => {
     expect(toolStarts(events)).toHaveLength(1)
     expect(textOf(events)).not.toContain('<tool_call')
     expect(textOf(events)).not.toContain('</tool_calls')
+  })
+
+  test('recovers Tencent HY3 official tagged arguments from streaming output', async () => {
+    const events = await run([
+      hy3Chunk('<tool_calls:opensource><tool_call:opensource>TaskCreate<tool_sep:opensource><arg_key:opensource>subject</arg_key:opensource>'),
+      hy3Chunk('<arg_value:opensource>Verify HY3</arg_value:opensource><arg_key:opensource>description</arg_key:opensource><arg_value:opensource>Run the live test</arg_value:opensource></tool_call:opensource></tool_calls:opensource>'),
+      hy3Chunk('', 'stop'),
+    ])
+
+    expect(toolStarts(events)).toHaveLength(1)
+    expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('TaskCreate')
+    expect(textOf(events)).not.toContain('<tool_call')
+    const jsonDelta = events.find(
+      event => event.type === 'content_block_delta' && (event.delta as Record<string, string>)?.type === 'input_json_delta',
+    )
+    expect(JSON.parse((jsonDelta!.delta as Record<string, string>).partial_json)).toEqual({
+      subject: 'Verify HY3',
+      description: 'Run the live test',
+    })
   })
 })

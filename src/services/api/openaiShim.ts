@@ -1848,6 +1848,7 @@ const XML_PARAMETER_RE = /<parameter=([^>\s]+)\s*>([\s\S]*?)<\/parameter>/g
 const XML_ARG_PAIR_RE = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g
 const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
 const HY3_NAMED_ARGUMENT_LINE_RE = /^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/gm
+const HY3_ARG_PAIR_RE = /<arg_key(?::[^>\s]+)?>([\s\S]*?)<\/arg_key(?::[^>\s]+)?>\s*<arg_value(?::[^>\s]+)?>([\s\S]*?)<\/arg_value(?::[^>\s]+)?>/g
 const HY3_ZERO_ARGUMENT_TOOL_NAMES = new Set([
   'EnterPlanMode',
   'ExitPlanMode',
@@ -1890,6 +1891,13 @@ function parseHy3ToolCallInner(inner: string): {
     if (key) {
       hasStructuredArguments = true
       args[key] = coerceXmlToolValue(line[2] ?? '')
+    }
+  }
+  for (const pair of inner.matchAll(HY3_ARG_PAIR_RE)) {
+    const key = pair[1]?.trim()
+    if (key) {
+      hasStructuredArguments = true
+      args[key] = coerceXmlToolValue(pair[2] ?? '')
     }
   }
 
@@ -1943,22 +1951,29 @@ export function parseXmlToolCalls(text: string): {
     results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
   }
 
+  const hy3Blocks = [...text.matchAll(HY3_TOOL_CALL_BLOCK_RE)].map(block => ({
+    range: [block.index!, block.index! + block[0].length] as [number, number],
+    parsed: parseHy3ToolCallInner(block[1] ?? ''),
+  }))
   const hy3WrapperRanges = [...text.matchAll(HY3_TOOL_CALLS_BLOCK_RE)]
-    .filter(wrapper =>
-      [...(wrapper[1] ?? '').matchAll(HY3_TOOL_CALL_BLOCK_RE)].length > 0,
-    )
+    .filter(wrapper => {
+      const range: [number, number] = [
+        wrapper.index!,
+        wrapper.index! + wrapper[0].length,
+      ]
+      return hy3Blocks.some(
+        block => block.parsed.name && range[0] <= block.range[0] && block.range[1] <= range[1],
+      )
+    })
     .map(wrapper => [
       wrapper.index!,
       wrapper.index! + wrapper[0].length,
     ] as [number, number])
 
-  for (const block of text.matchAll(HY3_TOOL_CALL_BLOCK_RE)) {
-    const { name, args } = parseHy3ToolCallInner(block[1] ?? '')
+  for (const block of hy3Blocks) {
+    const { name, args } = block.parsed
     if (!name) continue
-    const range: [number, number] = [
-      block.index!,
-      block.index! + block[0].length,
-    ]
+    const range = block.range
     if (!hy3WrapperRanges.some(wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1])) {
       ranges.push(range)
     }
