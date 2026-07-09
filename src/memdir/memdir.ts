@@ -59,7 +59,10 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
   const trimmed = raw.trim()
   const contentLines = trimmed.split('\n')
   const lineCount = contentLines.length
-  const byteCount = trimmed.length
+  // Actual UTF-8 byte size — `.length` counts UTF-16 code units, which
+  // undercounts multibyte content (CJK/emoji are 3-4 bytes each) by up to ~4x
+  // and would let a large multibyte file slip past this byte budget entirely.
+  const byteCount = Buffer.byteLength(trimmed)
 
   const wasLineTruncated = lineCount > MAX_ENTRYPOINT_LINES
   // Check original byte count — long lines are the failure mode the byte cap
@@ -80,9 +83,13 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
     ? contentLines.slice(0, MAX_ENTRYPOINT_LINES).join('\n')
     : trimmed
 
-  if (truncated.length > MAX_ENTRYPOINT_BYTES) {
-    const cutAt = truncated.lastIndexOf('\n', MAX_ENTRYPOINT_BYTES)
-    truncated = truncated.slice(0, cutAt > 0 ? cutAt : MAX_ENTRYPOINT_BYTES)
+  if (Buffer.byteLength(truncated) > MAX_ENTRYPOINT_BYTES) {
+    // Cut in byte space so the cap actually bounds bytes. Snap back to the last
+    // newline before the cap to avoid slicing mid-line (and mid-multibyte-char).
+    const buf = Buffer.from(truncated, 'utf8')
+    const newlineByte = buf.lastIndexOf(0x0a, MAX_ENTRYPOINT_BYTES)
+    const cutAt = newlineByte > 0 ? newlineByte : MAX_ENTRYPOINT_BYTES
+    truncated = buf.subarray(0, cutAt).toString('utf8')
   }
 
   const reason =
