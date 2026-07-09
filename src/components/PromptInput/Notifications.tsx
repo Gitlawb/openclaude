@@ -278,8 +278,29 @@ function NotificationContent({
   const isBriefOnly = feature('KAIROS') || feature('KAIROS_BRIEF') ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s_1 => s_1.isBriefOnly) : false;
-  const effortValue = useAppState(s => s.effortValue);
-  const effortNotificationText = isBriefOnly ? undefined : getEffortNotificationText(effortValue, mainLoopModel);
+  const viewingAgentTaskId = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
+  useAppState(s_2 => s_2.viewingAgentTaskId) : undefined;
+  const showExtras = !isBriefOnly;
+  const briefOwnsGap = isBriefOnly && !viewingAgentTaskId;
+  const {
+    status: ideStatus
+  } = useIdeConnectionStatus(mcpClients);
+  const shouldShowIdeSelection = ideStatus === "connected" && Boolean(ideSelection?.filePath || ideSelection?.text && ideSelection.lineCount > 0);
+  const shouldShowEffortFallback = !briefOwnsGap && !shouldShowIdeSelection;
+  const effortValue = useAppState(s => shouldShowEffortFallback ? s.effortValue : null);
+  const effortNotificationText = shouldShowEffortFallback ? getEffortNotificationText(effortValue ?? undefined, mainLoopModel) : undefined;
+  let notificationNode: ReactNode = null;
+  if (notifications.current) {
+    notificationNode = 'jsx' in notifications.current ? <Text wrap="truncate" key={notifications.current.key}>
+        {notifications.current.jsx}
+      </Text> : <Text color={notifications.current.color} dimColor={!notifications.current.color} wrap="truncate">
+        {notifications.current.text}
+      </Text>;
+  }
+  const effortFallbackNode = effortNotificationText ? <Text dimColor wrap="truncate">
+        {effortNotificationText}
+      </Text> : null;
 
   // When voice is actively recording or processing, replace all
   // notifications with just the voice indicator.
@@ -288,13 +309,7 @@ function NotificationContent({
   }
   return <>
       <IdeStatusIndicator ideSelection={ideSelection} mcpClients={mcpClients} />
-      {notifications.current ? ('jsx' in notifications.current ? <Text wrap="truncate" key={notifications.current.key}>
-            {notifications.current.jsx}
-          </Text> : <Text color={notifications.current.color} dimColor={!notifications.current.color} wrap="truncate">
-            {notifications.current.text}
-          </Text>) : effortNotificationText ? <Text dimColor wrap="truncate">
-            {effortNotificationText}
-          </Text> : null}
+      {notificationNode ?? effortFallbackNode}
       {isInOverageMode && !isTeamOrEnterprise && <Box>
           <Text dimColor wrap="truncate">
             Now using extra usage
@@ -323,7 +338,7 @@ function NotificationContent({
             {tokenUsage} tokens
           </Text>
         </Box>}
-      {!isBriefOnly && <TokenWarning tokenUsage={tokenUsage} model={mainLoopModel} />}
+      {showExtras && <TokenWarning tokenUsage={tokenUsage} model={mainLoopModel} />}
       {shouldShowAutoUpdater && <AutoUpdaterWrapper verbose={verbose} onAutoUpdaterResult={onAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} isUpdating={isAutoUpdating} onChangeIsUpdating={onChangeIsUpdating} showSuccessMessage={!isShowingCompactMessage} />}
       {feature('VOICE_MODE') ? voiceEnabled && voiceError && <Box>
               <Text color="error" wrap="truncate">

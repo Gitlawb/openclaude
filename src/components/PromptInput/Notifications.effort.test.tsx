@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
 import type { Notification } from '../../context/notifications.js'
+import type { IDESelection } from '../../hooks/useIdeSelection.js'
+import type { MCPServerConnection } from '../../services/mcp/types.js'
 import { AppStateProvider, getDefaultAppState } from '../../state/AppState.js'
 import {
   acquireSharedMutationLock,
@@ -32,9 +34,13 @@ afterEach(() => {
 async function renderNotifications({
   effortValue,
   currentNotification = null,
+  ideSelection = undefined,
+  mcpClients = undefined,
 }: {
   effortValue: EffortValue | undefined
   currentNotification?: Notification | null
+  ideSelection?: IDESelection
+  mcpClients?: MCPServerConnection[]
 }): Promise<string> {
   const { Notifications } = await import(
     `./Notifications.js?ts=${Date.now()}-${Math.random()}`
@@ -61,7 +67,8 @@ async function renderNotifications({
         messages={[] as Message[]}
         onAutoUpdaterResult={() => {}}
         onChangeIsUpdating={() => {}}
-        ideSelection={undefined}
+        ideSelection={ideSelection}
+        mcpClients={mcpClients}
       />
     </AppStateProvider>,
     120,
@@ -97,5 +104,33 @@ test('lets transient notifications temporarily occupy the footer slot', async ()
   })
 
   expect(output).toContain('Other notice')
+  expect(output).not.toContain('medium · /effort')
+})
+
+test('preserves IDE selection status before the effort fallback', async () => {
+  const output = await renderNotifications({
+    effortValue: 'medium',
+    ideSelection: {
+      lineCount: 0,
+      filePath: '/tmp/example.ts',
+    },
+    mcpClients: [
+      {
+        name: 'ide',
+        type: 'connected',
+        capabilities: {},
+        config: {
+          type: 'sse-ide',
+          url: 'http://localhost:1234',
+          ideName: 'VS Code',
+          scope: 'local',
+        },
+        client: {},
+        cleanup: async () => {},
+      } as unknown as MCPServerConnection,
+    ],
+  })
+
+  expect(output).toContain('In example.ts')
   expect(output).not.toContain('medium · /effort')
 })
