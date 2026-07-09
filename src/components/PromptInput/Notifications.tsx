@@ -27,11 +27,11 @@ import { getMessagesAfterCompactBoundary } from '../../utils/messages.js';
 import { tokenCountFromLastAPIResponse } from '../../utils/tokens.js';
 import { AutoUpdaterWrapper } from '../AutoUpdaterWrapper.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
+import { getEffortNotificationText } from '../EffortIndicator.js';
 import { hasIdeSelection, IdeStatusIndicator } from '../IdeStatusIndicator.js';
 import { MemoryUsageIndicator } from '../MemoryUsageIndicator.js';
 import { SentryErrorBoundary } from '../SentryErrorBoundary.js';
 import { TokenWarning } from '../TokenWarning.js';
-import { getEffortNotificationText } from '../EffortIndicator.js';
 import { SandboxPromptFooterHint } from './SandboxPromptFooterHint.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -286,15 +286,19 @@ function NotificationContent({
   useAppState(s_2 => s_2.viewingAgentTaskId) : undefined;
   const briefOwnsGap = isBriefOnly && !viewingAgentTaskId;
   const shouldShowEffortFallback = !briefOwnsGap && !shouldShowIdeSelection;
-  const effortValue = useAppState(s => s.effortValue);
+  const effortValue = useAppState(s_3 => s_3.effortValue);
   const effortNotificationText = shouldShowEffortFallback ? getEffortNotificationText(effortValue, mainLoopModel) : undefined;
   let notificationNode: ReactNode = null;
   if (notifications.current) {
-    notificationNode = 'jsx' in notifications.current ? <Text wrap="truncate" key={notifications.current.key}>
+    if ('jsx' in notifications.current) {
+      notificationNode = <Text wrap="truncate" key={notifications.current.key}>
         {notifications.current.jsx}
-      </Text> : <Text color={notifications.current.color} dimColor={!notifications.current.color} wrap="truncate">
+      </Text>;
+    } else if (notifications.current.text) {
+      notificationNode = <Text color={notifications.current.color} dimColor={!notifications.current.color} wrap="truncate">
         {notifications.current.text}
       </Text>;
+    }
   }
   const effortFallbackNode = effortNotificationText ? <Text dimColor wrap="truncate" key="effort-fallback">
         {effortNotificationText}

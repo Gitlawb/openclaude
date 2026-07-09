@@ -127,6 +127,19 @@ test('lets transient notifications temporarily occupy the footer slot', async ()
   expect(output).not.toContain('medium · /effort')
 })
 
+test('ignores empty text notifications when rendering the effort footer fallback', async () => {
+  const output = await renderNotifications({
+    effortValue: 'medium',
+    currentNotification: {
+      key: 'empty',
+      text: '',
+      priority: 'low',
+    },
+  })
+
+  expect(output).toContain('medium · /effort')
+})
+
 test('preserves IDE selection status before the effort fallback', async () => {
   const output = await renderNotifications({
     effortValue: 'medium',
