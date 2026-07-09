@@ -136,7 +136,7 @@ describe('parseXmlToolCalls', () => {
       '<parameter name="subject">Verify HY3</parameter>' +
       '<parameter name="description">Run the live test</parameter>' +
       '</invoke></tool_call:call_1></tool_calls:call_1>'
-    const { calls, toolCallRanges } = parseXmlToolCalls(text)
+    const { calls, toolCallRanges } = parseXmlToolCalls(text, true)
 
     expect(calls).toHaveLength(1)
     expect(calls[0].name).toBe('TaskCreate')
@@ -154,7 +154,7 @@ describe('parseXmlToolCalls', () => {
       ' description: Run the live test\n' +
       ' activeForm: Validating HY3\n' +
       '</tool_call:call_1>'
-    const { calls } = parseXmlToolCalls(text)
+    const { calls } = parseXmlToolCalls(text, true)
 
     expect(calls).toHaveLength(1)
     expect(calls[0].name).toBe('TaskCreate')
@@ -168,6 +168,15 @@ describe('parseXmlToolCalls', () => {
   test('does not treat a literal HY3 wrapper example as a tool call', () => {
     const text =
       'Documentation: <tool_call:example>Run this example</tool_call:example>'
+    const { calls, toolCallRanges } = parseXmlToolCalls(text, true)
+
+    expect(calls).toEqual([])
+    expect(toolCallRanges).toEqual([])
+  })
+
+  test('does not recover structured HY3 examples for non-HY3 routes', () => {
+    const text =
+      '<tool_call:example>TaskCreate\nsubject: merely a documentation example\n</tool_call:example>'
     const { calls, toolCallRanges } = parseXmlToolCalls(text)
 
     expect(calls).toEqual([])
@@ -177,6 +186,7 @@ describe('parseXmlToolCalls', () => {
   test('allows zero-argument tools without a name allowlist', () => {
     const { calls } = parseXmlToolCalls(
       '<tool_call:call_1>CronList</tool_call:call_1>',
+      true,
     )
 
     expect(calls).toHaveLength(1)
@@ -189,7 +199,7 @@ describe('parseXmlToolCalls', () => {
       '<arg_key:opensource>subject</arg_key:opensource><arg_value:opensource>Verify HY3</arg_value:opensource>' +
       '<arg_key:opensource>description</arg_key:opensource><arg_value:opensource>Run the live test</arg_value:opensource>' +
       '</tool_call:opensource></tool_calls:opensource>'
-    const { calls, toolCallRanges } = parseXmlToolCalls(text)
+    const { calls, toolCallRanges } = parseXmlToolCalls(text, true)
 
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({
@@ -263,7 +273,10 @@ describe('GLM streaming — XML tool calls', () => {
     delete process.env.OPENAI_BASE_URL
   })
 
-  async function run(chunks: unknown[]): Promise<Record<string, unknown>[]> {
+  async function run(
+    chunks: unknown[],
+    model = 'glm-5.2',
+  ): Promise<Record<string, unknown>[]> {
     const previousFetch = globalThis.fetch
     globalThis.fetch = (async () =>
       makeSseResponse(makeChunks(chunks))) as unknown as FetchType
@@ -271,7 +284,7 @@ describe('GLM streaming — XML tool calls', () => {
       const client = createOpenAIShimClient({}) as OpenAIShimClient
       const result = await client.beta.messages
         .create({
-          model: 'glm-5.2',
+          model,
           messages: [{ role: 'user', content: 'do it' }],
           max_tokens: 64,
           stream: true,
@@ -356,6 +369,27 @@ describe('GLM streaming — XML tool calls', () => {
     expect(textOf(events)).toBe('The <tool_call> tag is how models request tools.')
   })
 
+  test('does not recover a structured HY3 example for a non-HY3 model', async () => {
+    const text =
+      '<tool_call:example>TaskCreate\nsubject: merely a documentation example\n</tool_call:example>'
+    const events = await run([glmChunk(text), glmChunk('', 'stop')])
+
+    expect(toolStarts(events)).toHaveLength(0)
+    expect(textOf(events)).toBe(text)
+  })
+
+  test('does not recover a structured HY3 example for a non-Tencent model name', async () => {
+    const text =
+      '<tool_call:example>TaskCreate\nsubject: merely a documentation example\n</tool_call:example>'
+    const events = await run(
+      [glmChunk(text), glmChunk('', 'stop')],
+      'other/hy3-documentation',
+    )
+
+    expect(toolStarts(events)).toHaveLength(0)
+    expect(textOf(events)).toBe(text)
+  })
+
   // Locks in current behavior: when a single streamed message contains prose
   // *between* two XML tool calls, all surviving prose is emitted in one text
   // block BEFORE the tool_use blocks (the interleave is flattened to
@@ -400,7 +434,7 @@ describe('GLM streaming — XML tool calls', () => {
       hy3Chunk('<tool_call:call_1>TaskCreate\n subject: Verify HY3\n'),
       hy3Chunk(' description: Run the live test\n</tool_call:call_1>'),
       hy3Chunk('', 'stop'),
-    ])
+    ], 'tencent/hy3')
     const starts = toolStarts(events)
     expect(starts).toHaveLength(1)
     expect((starts[0].content_block as Record<string, string>).name).toBe('TaskCreate')
@@ -418,7 +452,7 @@ describe('GLM streaming — XML tool calls', () => {
     const events = await run([
       hy3Chunk('<tool_call:call_1>CronList</tool_call:call_1>'),
       hy3Chunk('', 'stop'),
-    ])
+    ], 'tencent/hy3')
 
     expect(toolStarts(events)).toHaveLength(1)
     expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('CronList')
@@ -434,7 +468,7 @@ describe('GLM streaming — XML tool calls', () => {
       hy3Chunk('<tool_calls:call_1><tool_call:call_1>TaskCreate\n subject: Verify HY3\n'),
       hy3Chunk(' description: Run the live test\n</tool_call:call_1></tool_calls:call_1>'),
       hy3Chunk('', 'stop'),
-    ])
+    ], 'tencent/hy3')
 
     expect(toolStarts(events)).toHaveLength(1)
     expect(textOf(events)).not.toContain('<tool_call')
@@ -446,7 +480,7 @@ describe('GLM streaming — XML tool calls', () => {
       hy3Chunk('<tool_calls'),
       hy3Chunk(':call_1><tool_call:call_1>TaskCreate\n subject: Verify HY3\n description: Run the live test\n</tool_call:call_1></tool_calls:call_1>'),
       hy3Chunk('', 'stop'),
-    ])
+    ], 'tencent/hy3')
 
     expect(toolStarts(events)).toHaveLength(1)
     expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('TaskCreate')
@@ -458,7 +492,7 @@ describe('GLM streaming — XML tool calls', () => {
       hy3Chunk('<tool_calls:opensource><tool_call:opensource>TaskCreate<tool_sep:opensource><arg_key:opensource>subject</arg_key:opensource>'),
       hy3Chunk('<arg_value:opensource>Verify HY3</arg_value:opensource><arg_key:opensource>description</arg_key:opensource><arg_value:opensource>Run the live test</arg_value:opensource></tool_call:opensource></tool_calls:opensource>'),
       hy3Chunk('', 'stop'),
-    ])
+    ], 'tencent/hy3')
 
     expect(toolStarts(events)).toHaveLength(1)
     expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('TaskCreate')

@@ -242,7 +242,8 @@ export function getToolSearchMode(): ToolSearchMode {
 // HY3 supports standard OpenAI function calls, but it does not reliably follow
 // the extra ToolSearch round trip before calling a deferred tool. Keep its
 // schemas inline so it can call tools such as TaskCreate on the first attempt.
-const DEFAULT_UNSUPPORTED_MODEL_PATTERNS = ['haiku', 'hy3']
+const BUILT_IN_UNSUPPORTED_MODEL_IDS = new Set(['tencent/hy3'])
+const DEFAULT_UNSUPPORTED_MODEL_PATTERNS = ['haiku']
 
 /**
  * Get the list of model patterns that do NOT support tool_reference.
@@ -280,6 +281,10 @@ function getUnsupportedToolReferencePatterns(): string[] {
  */
 export function modelSupportsToolReference(model: string): boolean {
   const normalizedModel = model.toLowerCase()
+  const canonicalModelId = normalizedModel.split('?', 1)[0] ?? normalizedModel
+  if (BUILT_IN_UNSUPPORTED_MODEL_IDS.has(canonicalModelId)) {
+    return false
+  }
   const unsupportedPatterns = getUnsupportedToolReferencePatterns()
 
   // Check if model matches any unsupported pattern

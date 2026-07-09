@@ -57,7 +57,8 @@ describe('resolveToolSearchMode', () => {
 describe('modelSupportsToolReference', () => {
   test('keeps Tencent HY3 on the inline tool-schema path', () => {
     expect(modelSupportsToolReference('tencent/hy3')).toBe(false)
-    expect(modelSupportsToolReference('hy3')).toBe(false)
+    expect(modelSupportsToolReference('tencent/hy3?reasoning=high')).toBe(false)
+    expect(modelSupportsToolReference('other/hy3-documentation')).toBe(true)
   })
 
   test('does not defer TaskCreate for Tencent HY3', async () => {

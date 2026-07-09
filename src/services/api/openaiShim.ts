@@ -1909,14 +1909,19 @@ function parseHy3ToolCallInner(inner: string): {
   }
 }
 
+function isHy3Model(model: string): boolean {
+  return model.split('?', 1)[0]?.toLowerCase() === 'tencent/hy3'
+}
+
 /**
  * Returns the length of the longest suffix of `s` that is a (proper) prefix of
  * the `<tool_call>` opener. Used by the stream to hold back a trailing partial
  * opener split across SSE deltas so it is never emitted as visible text.
  */
-function trailingXmlOpenerPrefixLen(s: string): number {
+function trailingXmlOpenerPrefixLen(s: string, allowHy3: boolean): number {
   let longest = 0
-  for (const opener of XML_TOOL_CALL_OPENERS) {
+  const openers = allowHy3 ? XML_TOOL_CALL_OPENERS : [XML_TOOL_CALL_OPEN]
+  for (const opener of openers) {
     const max = Math.min(s.length, opener.length - 1)
     for (let len = max; len > 0; len--) {
       if (opener.startsWith(s.slice(s.length - len))) {
@@ -1928,15 +1933,16 @@ function trailingXmlOpenerPrefixLen(s: string): number {
   return longest
 }
 
-function findXmlToolCallOpener(text: string): number {
-  return XML_TOOL_CALL_OPENERS.reduce((first, opener) => {
+function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
+  const openers = allowHy3 ? XML_TOOL_CALL_OPENERS : [XML_TOOL_CALL_OPEN]
+  return openers.reduce((first, opener) => {
     const index = text.indexOf(opener)
     return index === -1 ? first : first === -1 ? index : Math.min(first, index)
   }, -1)
 }
 
 /** Exported for unit testing only. */
-export function parseXmlToolCalls(text: string): {
+export function parseXmlToolCalls(text: string, allowHy3 = false): {
   calls: ParsedTextToolCall[]
   toolCallRanges: Array<[number, number]>
 } {
@@ -1951,24 +1957,28 @@ export function parseXmlToolCalls(text: string): {
     results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
   }
 
-  const hy3Blocks = [...text.matchAll(HY3_TOOL_CALL_BLOCK_RE)].map(block => ({
-    range: [block.index!, block.index! + block[0].length] as [number, number],
-    parsed: parseHy3ToolCallInner(block[1] ?? ''),
-  }))
-  const hy3WrapperRanges = [...text.matchAll(HY3_TOOL_CALLS_BLOCK_RE)]
-    .filter(wrapper => {
-      const range: [number, number] = [
+  const hy3Blocks = allowHy3
+    ? [...text.matchAll(HY3_TOOL_CALL_BLOCK_RE)].map(block => ({
+      range: [block.index!, block.index! + block[0].length] as [number, number],
+      parsed: parseHy3ToolCallInner(block[1] ?? ''),
+    }))
+    : []
+  const hy3WrapperRanges = allowHy3
+    ? [...text.matchAll(HY3_TOOL_CALLS_BLOCK_RE)]
+      .filter(wrapper => {
+        const range: [number, number] = [
+          wrapper.index!,
+          wrapper.index! + wrapper[0].length,
+        ]
+        return hy3Blocks.some(
+          block => block.parsed.name && range[0] <= block.range[0] && block.range[1] <= range[1],
+        )
+      })
+      .map(wrapper => [
         wrapper.index!,
         wrapper.index! + wrapper[0].length,
-      ]
-      return hy3Blocks.some(
-        block => block.parsed.name && range[0] <= block.range[0] && block.range[1] <= range[1],
-      )
-    })
-    .map(wrapper => [
-      wrapper.index!,
-      wrapper.index! + wrapper[0].length,
-    ] as [number, number])
+      ] as [number, number])
+    : []
 
   for (const block of hy3Blocks) {
     const { name, args } = block.parsed
@@ -2391,7 +2401,10 @@ function convertNonStreamingResponseToAnthropicMessage(
   const appendTextOrRecoveredToolCalls = (rawText: string) => {
     const strippedContent = stripThinkTags(rawText)
     if (!hasStructuredToolCalls) {
-      const { calls: xmlToolCalls, toolCallRanges } = parseXmlToolCalls(strippedContent)
+      const { calls: xmlToolCalls, toolCallRanges } = parseXmlToolCalls(
+        strippedContent,
+        isHy3Model(model),
+      )
       if (xmlToolCalls.length > 0) {
         const visibleText = stripRanges(strippedContent, toolCallRanges).trim()
         if (visibleText) content.push({ type: 'text', text: visibleText })
@@ -2513,6 +2526,7 @@ async function* openaiStreamToAnthropic(
   requestUrl?: string,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
+  const allowHy3ToolCalls = isHy3Model(model)
   let contentBlockIndex = 0
   const activeToolCalls = new Map<
     number,
@@ -2917,14 +2931,20 @@ async function* openaiStreamToAnthropic(
             // converted to tool_use blocks at finalize; prose before it streams
             // normally, minus a trailing partial-opener prefix.
             const combined = xmlHoldback + delta.content
-            const openIdx = findXmlToolCallOpener(combined)
+            const openIdx = findXmlToolCallOpener(
+              combined,
+              allowHy3ToolCalls,
+            )
             if (openIdx !== -1) {
               const before = combined.slice(0, openIdx)
               if (before) yield* emitTextDelta(before)
               xmlHoldback = ''
               xmlToolCallText = combined.slice(openIdx)
             } else {
-              const keep = trailingXmlOpenerPrefixLen(combined)
+              const keep = trailingXmlOpenerPrefixLen(
+                combined,
+                allowHy3ToolCalls,
+              )
               const emit =
                 keep > 0 ? combined.slice(0, combined.length - keep) : combined
               xmlHoldback = keep > 0 ? combined.slice(combined.length - keep) : ''
@@ -3180,7 +3200,10 @@ async function* openaiStreamToAnthropic(
           if (!isOllamaStream && xmlToolCallText !== null) {
             const buffered = xmlToolCallText
             xmlToolCallText = null
-            const { calls, toolCallRanges } = parseXmlToolCalls(buffered)
+            const { calls, toolCallRanges } = parseXmlToolCalls(
+              buffered,
+              allowHy3ToolCalls,
+            )
             if (calls.length > 0) {
               const stripped = stripRanges(buffered, toolCallRanges).trim()
               const strippedVisible = stripThinkTags(stripped).trim()
