@@ -36,3 +36,11 @@ export {
   recordProviderSuccess,
   type FallbackCapableOverride,
 } from './providerFallback.js'
+export {
+  createCircuitBreakerState,
+  defaultCircuitConfig,
+  observeToolResult,
+  type CircuitBreakerConfig,
+  type CircuitBreakerState,
+  type CircuitResult,
+} from './circuitBreakers.js'

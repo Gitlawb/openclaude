@@ -422,6 +422,18 @@ bun run doctor:autonomy:probe   # ping endpoints de agentModels
 bun run doctor:autonomy:json
 ```
 
+### Phase 3 — Circuit breakers
+
+Com autonomy ON (e `circuitBreakers` nao `false`):
+
+| Regra | Padrao |
+|-------|--------|
+| Mesma tool + mesmo erro | 3x → para o lote de tools |
+| Edit/Write sem mudanca | 2x seguidos → para |
+| Max tools por turn | env `OPENCLAUDE_MAX_TOOLS_PER_TURN` |
+
+Tier → effort sugerido no routing: trivial=`low`, standard=`medium`, hard/vision=`high`.
+
 ---
 
 ## Arquivos de Configuracao
