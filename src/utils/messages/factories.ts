@@ -1,14 +1,32 @@
-import type { BetaUsage as Usage } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs"
-import type { BetaContentBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs"
-import type { ContentBlockParam, ToolResultBlockParam } from "@anthropic-ai/sdk/resources/index.mjs"
-import { randomUUID, type UUID } from "crypto"
-import type { Progress } from "../../Tool.js"
-import type { SDKAssistantMessageError } from "../../entrypoints/agentSdkTypes.js"
-import type { Message, AssistantMessage, UserMessage, ProgressMessage, MessageOrigin, PartialCompactDirection } from "../../types/message.js"
-import type { PermissionMode } from "../../types/permissions.js"
-import { NO_CONTENT_MESSAGE } from "../../constants/messages.js"
-import { COMMAND_ARGS_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_CAVEAT_TAG, LOCAL_COMMAND_STDOUT_TAG } from "../../constants/xml.js"
-import { isDangerousPermissionMode } from "../permissions/PermissionMode.js"
+import type {
+  BetaContentBlock,
+  BetaUsage as Usage,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type {
+  ContentBlockParam,
+  ToolResultBlockParam,
+} from '@anthropic-ai/sdk/resources/index.mjs'
+import { randomUUID, type UUID } from 'crypto'
+import type { Progress } from '../../Tool.js'
+import { NO_CONTENT_MESSAGE } from '../../constants/messages.js'
+import {
+  COMMAND_ARGS_TAG,
+  COMMAND_MESSAGE_TAG,
+  COMMAND_NAME_TAG,
+  LOCAL_COMMAND_CAVEAT_TAG,
+  LOCAL_COMMAND_STDOUT_TAG,
+} from '../../constants/xml.js'
+import type { SDKAssistantMessageError } from '../../entrypoints/agentSdkTypes.js'
+import type {
+  AssistantMessage,
+  Message,
+  MessageOrigin,
+  PartialCompactDirection,
+  ProgressMessage,
+  UserMessage,
+} from '../../types/message.js'
+import type { PermissionMode } from '../../types/permissions.js'
+import { isDangerousPermissionMode } from '../permissions/PermissionMode.js'
 
 export const INTERRUPT_MESSAGE = '[Request interrupted by user]'
 export const INTERRUPT_MESSAGE_FOR_TOOL_USE =

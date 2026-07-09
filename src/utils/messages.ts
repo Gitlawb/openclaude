@@ -323,7 +323,7 @@ export {
   hasToolCallsInLastAssistantTurn,
   isSyntheticMessage,
   prepareUserContent,
-} from "./messages/factories.js"
+} from './messages/factories.js'
 
 export function extractTag(html: string, tagName: string): string | null {
   if (!html.trim() || !tagName.trim()) {
