@@ -114,6 +114,31 @@ test('hasToolCallsInLastAssistantTurn inspects only the last assistant', () => {
   )
 })
 
+test('hasToolCallsInLastAssistantTurn preserves non-array assistant content behavior', () => {
+  const toolAssistant = createAssistantMessage({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: 'Read',
+        input: {},
+      } as never,
+    ],
+  })
+  const baseAssistant = createAssistantMessage({ content: 'legacy text content' })
+  const nonArrayAssistant = {
+    ...baseAssistant,
+    message: {
+      ...baseAssistant.message,
+      content: 'legacy text content',
+    },
+  } as unknown as Message
+
+  expect(
+    hasToolCallsInLastAssistantTurn([toolAssistant, nonArrayAssistant]),
+  ).toBe(true)
+})
+
 test('prepareUserContent keeps plain input unless preceding blocks exist', () => {
   expect(
     prepareUserContent({ inputString: 'hello', precedingInputBlocks: [] }),

@@ -79,10 +79,13 @@ export function getLastAssistantMessage(
 }
 
 export function hasToolCallsInLastAssistantTurn(messages: Message[]): boolean {
-  const content = getLastAssistantMessage(messages)?.message.content
-  return (
-    Array.isArray(content) && content.some(block => block.type === 'tool_use')
-  )
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.type !== 'assistant') continue
+    if (!Array.isArray(message.message.content)) continue
+    return message.message.content.some(block => block.type === 'tool_use')
+  }
+  return false
 }
 
 function baseCreateAssistantMessage({
