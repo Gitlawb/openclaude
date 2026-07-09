@@ -13,11 +13,18 @@ import type { Message } from '../../types/message.js'
 import type { EffortValue } from '../../utils/effort.js'
 import { renderToString } from '../../utils/staticRender.js'
 
+const actualAutoUpdaterWrapper = await import(
+  `../AutoUpdaterWrapper.js?actual=${Date.now()}-${Math.random()}`
+)
+const EFFORT_ENV_KEY = 'CLAUDE_CODE_EFFORT_LEVEL'
+let savedEffortEnv: string | undefined
+
 beforeEach(async () => {
   await acquireSharedMutationLock(
     'components/PromptInput/Notifications.effort.test.tsx',
   )
-  mock.restore()
+  savedEffortEnv = process.env[EFFORT_ENV_KEY]
+  delete process.env[EFFORT_ENV_KEY]
   mock.module('../AutoUpdaterWrapper.js', () => ({
     AutoUpdaterWrapper: () => null,
   }))
@@ -25,7 +32,12 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    mock.restore()
+    if (savedEffortEnv === undefined) {
+      delete process.env[EFFORT_ENV_KEY]
+    } else {
+      process.env[EFFORT_ENV_KEY] = savedEffortEnv
+    }
+    mock.module('../AutoUpdaterWrapper.js', () => actualAutoUpdaterWrapper)
   } finally {
     releaseSharedMutationLock()
   }
