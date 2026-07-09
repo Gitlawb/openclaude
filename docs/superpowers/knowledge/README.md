@@ -22,9 +22,14 @@ Complementa: o que vale para **todo o time / todo o repo** sobe para cá.
 
 | Arquivo | Tema | Status |
 |---------|------|--------|
-| [ROUTING_BASELINE.md](./ROUTING_BASELINE.md) | Modelos e routing atuais (baseline) | Preencher no Task 0.1 |
+| [ROUTING_BASELINE.md](./ROUTING_BASELINE.md) | Modelos e routing (baseline pré-autonomy) | Snapshot |
 | [SESSION_INSIGHTS_TEMPLATE.md](./SESSION_INSIGHTS_TEMPLATE.md) | Template de insight de sessão | Pronto |
-| *(promovidos)* | Lições validadas pós-sessão | Após Phase 4 |
+| [2026-07-09-phase1-shipped.md](./2026-07-09-phase1-shipped.md) | Phase 1 ship | Feito |
+| [2026-07-09-phase2-health-fallback.md](./2026-07-09-phase2-health-fallback.md) | Phase 2 health/fallback | Feito |
+| [2026-07-09-consistency-eval.md](./2026-07-09-consistency-eval.md) | Testes e gaps | Feito |
+| [2026-07-09-ollama-first-fleet.md](./2026-07-09-ollama-first-fleet.md) | Frota Ollama | Feito |
+| [2026-07-09-phase5-context-budget.md](./2026-07-09-phase5-context-budget.md) | Phase 5 masking | Feito |
+| [../specs/2026-07-09-phase6-hybrid-local-intelligence.md](../specs/2026-07-09-phase6-hybrid-local-intelligence.md) | Phase 6 design (não implementada) | **Doc only** |
 
 ---
 

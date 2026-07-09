@@ -386,6 +386,12 @@ Com autonomy ON, resultados grandes de tools (Bash/Grep/etc.) sao **persistidos 
 
 Read de arquivos ja tem **dedup** (`file_unchanged`) se o arquivo nao mudou no disco.
 
+### Phase 6 — documentada (nao implementada)
+
+Design: `docs/superpowers/specs/2026-07-09-phase6-hybrid-local-intelligence.md`  
+Tema: Hybrid Local Intelligence (draft/executor, tool top-K, RAG local).  
+Checklist de teste atual: `docs/superpowers/knowledge/2026-07-09-STOP-AND-TEST.md`
+
 ### Configuracao em `~/.claude/settings.json`
 
 Ja aplicada por `autonomy:ollama`. Backup automatico em `settings.json.bak-ollama-*`.
