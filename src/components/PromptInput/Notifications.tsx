@@ -39,6 +39,9 @@ const VoiceIndicator: typeof import('./VoiceIndicator.js').VoiceIndicator = feat
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 export const FOOTER_TEMPORARY_STATUS_TIMEOUT = 5000;
+function hasIdeSelection(ideSelection: IDESelection | undefined): boolean {
+  return Boolean(ideSelection?.filePath || ideSelection?.text && ideSelection.lineCount > 0);
+}
 type Props = {
   apiKeyStatus: VerificationStatus;
   autoUpdaterResult: AutoUpdaterResult | null;
@@ -125,7 +128,7 @@ export function Notifications(t0) {
     t6 = $[7];
   }
   useEffect(t5, t6);
-  const shouldShowIdeSelection = ideStatus === "connected" && (ideSelection?.filePath || ideSelection?.text && ideSelection.lineCount > 0);
+  const shouldShowIdeSelection = ideStatus === "connected" && hasIdeSelection(ideSelection);
   const shouldShowAutoUpdater = !shouldShowIdeSelection || isAutoUpdating || autoUpdaterResult?.status !== "success";
   const isInOverageMode = claudeAiLimits.isUsingOverage;
   let t7;
@@ -281,15 +284,14 @@ function NotificationContent({
   const viewingAgentTaskId = feature('KAIROS') || feature('KAIROS_BRIEF') ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s_2 => s_2.viewingAgentTaskId) : undefined;
-  const showExtras = !isBriefOnly;
   const briefOwnsGap = isBriefOnly && !viewingAgentTaskId;
   const {
     status: ideStatus
   } = useIdeConnectionStatus(mcpClients);
-  const shouldShowIdeSelection = ideStatus === "connected" && Boolean(ideSelection?.filePath || ideSelection?.text && ideSelection.lineCount > 0);
+  const shouldShowIdeSelection = ideStatus === "connected" && hasIdeSelection(ideSelection);
   const shouldShowEffortFallback = !briefOwnsGap && !shouldShowIdeSelection;
-  const effortValue = useAppState(s => shouldShowEffortFallback ? s.effortValue : null);
-  const effortNotificationText = shouldShowEffortFallback ? getEffortNotificationText(effortValue ?? undefined, mainLoopModel) : undefined;
+  const effortValue = useAppState(s => s.effortValue);
+  const effortNotificationText = shouldShowEffortFallback ? getEffortNotificationText(effortValue, mainLoopModel) : undefined;
   let notificationNode: ReactNode = null;
   if (notifications.current) {
     notificationNode = 'jsx' in notifications.current ? <Text wrap="truncate" key={notifications.current.key}>
@@ -338,7 +340,7 @@ function NotificationContent({
             {tokenUsage} tokens
           </Text>
         </Box>}
-      {showExtras && <TokenWarning tokenUsage={tokenUsage} model={mainLoopModel} />}
+      {!isBriefOnly && <TokenWarning tokenUsage={tokenUsage} model={mainLoopModel} />}
       {shouldShowAutoUpdater && <AutoUpdaterWrapper verbose={verbose} onAutoUpdaterResult={onAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} isUpdating={isAutoUpdating} onChangeIsUpdating={onChangeIsUpdating} showSuccessMessage={!isShowingCompactMessage} />}
       {feature('VOICE_MODE') ? voiceEnabled && voiceError && <Box>
               <Text color="error" wrap="truncate">
