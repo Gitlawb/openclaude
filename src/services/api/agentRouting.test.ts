@@ -122,4 +122,62 @@ describe('resolveAgentProvider', () => {
     const result = resolveAgentProvider('frontend-dev', undefined, baseSettings)
     expect(result?.model).toBe('deepseek-chat')
   })
+
+  // ── Autonomy task routing ─────────────────────────────────
+
+  test('autonomy off keeps legacy routing', () => {
+    const settings = {
+      ...baseSettings,
+      autonomy: { enabled: false },
+      taskRouting: {
+        trivial: 'deepseek-chat',
+        standard: 'deepseek-chat',
+        hard: 'gpt-4o',
+        vision: 'gpt-4o',
+      },
+    } as unknown as SettingsJson
+    const result = resolveAgentProvider(undefined, 'Explore', settings, {
+      userText: 'olá',
+    })
+    expect(result?.model).toBe('deepseek-chat')
+    expect(result?.autonomy).toBeUndefined()
+  })
+
+  test('autonomy on routes trivial greeting via taskRouting', () => {
+    const settings = {
+      ...baseSettings,
+      autonomy: { enabled: true, mode: 'smart', classifier: 'heuristic' },
+      taskRouting: {
+        trivial: 'deepseek-chat',
+        standard: 'gpt-4o',
+        hard: 'gpt-4o',
+        vision: 'gpt-4o',
+      },
+    } as unknown as SettingsJson
+    const result = resolveAgentProvider(undefined, 'Explore', settings, {
+      userText: 'olá',
+    })
+    expect(result?.model).toBe('deepseek-chat')
+    expect(result?.autonomy?.tier).toBe('trivial')
+    expect(result?.autonomy?.reason.length).toBeGreaterThan(0)
+  })
+
+  test('autonomy on routes architecture prompt to hard model', () => {
+    const settings = {
+      ...baseSettings,
+      autonomy: { enabled: true, mode: 'smart' },
+      taskRouting: {
+        trivial: 'deepseek-chat',
+        standard: 'deepseek-chat',
+        hard: 'gpt-4o',
+        vision: 'deepseek-chat',
+      },
+    } as unknown as SettingsJson
+    const result = resolveAgentProvider(undefined, 'Explore', settings, {
+      userText:
+        'Redesenha a arquitetura de autenticação em vários módulos e propõe migration',
+    })
+    expect(result?.model).toBe('gpt-4o')
+    expect(result?.autonomy?.tier).toBe('hard')
+  })
 })

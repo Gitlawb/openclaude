@@ -734,6 +734,67 @@ export const SettingsSchema = lazySchema(() =>
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
         ),
+      autonomy: z
+        .object({
+          enabled: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, task-tier routing and autonomy policies apply on top of agentRouting.',
+            ),
+          mode: z
+            .enum(['smart', 'fast', 'code', 'quality', 'fixed'])
+            .optional()
+            .describe(
+              'Autonomy preset: smart (default policy), fast (prefer small models), ' +
+                'code (prefer coder models), quality (prefer hard tier), fixed (disable task routing).',
+            ),
+          autoApplyPolicy: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, allow autonomous writes to taskRouting from telemetry. Default false.',
+            ),
+          classifier: z
+            .enum(['heuristic', 'off'])
+            .optional()
+            .describe(
+              'Task complexity classifier. heuristic = rules; off = skip tier classification.',
+            ),
+          circuitBreakers: z
+            .boolean()
+            .optional()
+            .describe('When true, stop agent loops that are stuck repeating failures.'),
+          telemetry: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, write local turn telemetry for routing decisions (never phones home).',
+            ),
+        })
+        .optional()
+        .describe(
+          'Autonomy controller settings for task-tier model routing and safety policies.',
+        ),
+      taskRouting: z
+        .object({
+          trivial: z.string().optional(),
+          standard: z.string().optional(),
+          hard: z.string().optional(),
+          vision: z.string().optional(),
+        })
+        .optional()
+        .describe(
+          'Map of task complexity tier to model name (must exist in agentModels). ' +
+            'Used when autonomy.enabled is true and mode is not fixed.',
+        ),
+      fallbackChains: z
+        .record(z.string(), z.array(z.string()))
+        .optional()
+        .describe(
+          'Ordered model fallback lists keyed by tier or "default". ' +
+            'Example: { "hard": ["mimo-v2.5-pro", "qwen3-vl:235b-cloud"], "default": ["gpt-4o"] }',
+        ),
       fastMode: z
         .boolean()
         .optional()
