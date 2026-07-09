@@ -255,6 +255,13 @@ import {
   type RetryContext,
   withRetry,
 } from './withRetry.js'
+import {
+  advanceFallbackOnFailure,
+  isProviderFailoverError,
+  recordProviderSuccess,
+  type FallbackCapableOverride,
+} from '../autonomy/providerFallback.js'
+import { getInitialSettings } from '../../utils/settings/settings.js'
 
 // Define a type that represents valid JSON values
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray
@@ -850,14 +857,17 @@ export async function* executeNonStreamingRequest(
   originatingRequestId?: string | null,
 ): AsyncGenerator<SystemAPIErrorMessage, BetaMessage> {
   const fallbackTimeoutMs = getNonstreamingFallbackTimeoutMs()
+  let activeProviderOverride = clientOptions.providerOverride as
+    | FallbackCapableOverride
+    | undefined
   const generator = withRetry(
     () =>
       getAnthropicClient({
         maxRetries: 0,
-        model: clientOptions.model,
+        model: activeProviderOverride?.model ?? clientOptions.model,
         fetchOverride: clientOptions.fetchOverride,
         source: clientOptions.source,
-        providerOverride: clientOptions.providerOverride,
+        providerOverride: activeProviderOverride,
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
@@ -906,13 +916,34 @@ export async function* executeNonStreamingRequest(
       }
     },
     {
-      model: retryOptions.model,
+      model: activeProviderOverride?.model ?? retryOptions.model,
       fallbackModel: retryOptions.fallbackModel,
       thinkingConfig: retryOptions.thinkingConfig,
       ...(isFastModeEnabled() && { fastMode: retryOptions.fastMode }),
       signal: retryOptions.signal,
       initialConsecutive529Errors: retryOptions.initialConsecutive529Errors,
       querySource: retryOptions.querySource,
+      tryProviderFailover: (error, context) => {
+        if (!activeProviderOverride) return false
+        if (!isProviderFailoverError(error)) return false
+        const next = advanceFallbackOnFailure(
+          activeProviderOverride,
+          getInitialSettings(),
+          error,
+        )
+        if (!next) return false
+        activeProviderOverride = next
+        context.model = next.model
+        return true
+      },
+      onProviderSuccess: (durationMs, model) => {
+        if (activeProviderOverride) {
+          recordProviderSuccess(
+            { ...activeProviderOverride, model },
+            durationMs,
+          )
+        }
+      },
     },
   )
 
@@ -1794,14 +1825,19 @@ async function* queryModel(
 
   try {
     queryCheckpoint('query_client_creation_start')
+    // Mutable so autonomy failover can switch provider mid-retry
+    let activeProviderOverride = options.providerOverride as
+      | FallbackCapableOverride
+      | undefined
+
     const generator = withRetry(
       () =>
         getAnthropicClient({
           maxRetries: 0, // Disabled auto-retry in favor of manual implementation
-          model: options.model,
+          model: activeProviderOverride?.model ?? options.model,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
-          providerOverride: options.providerOverride,
+          providerOverride: activeProviderOverride,
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
@@ -1856,12 +1892,33 @@ async function* queryModel(
         return result.data
       },
       {
-        model: options.model,
+        model: activeProviderOverride?.model ?? options.model,
         fallbackModel: options.fallbackModel,
         thinkingConfig,
         ...(isFastModeEnabled() ? { fastMode: isFastMode } : false),
         signal,
         querySource: options.querySource,
+        tryProviderFailover: (error, context) => {
+          if (!activeProviderOverride) return false
+          if (!isProviderFailoverError(error)) return false
+          const next = advanceFallbackOnFailure(
+            activeProviderOverride,
+            getInitialSettings(),
+            error,
+          )
+          if (!next) return false
+          activeProviderOverride = next
+          context.model = next.model
+          return true
+        },
+        onProviderSuccess: (durationMs, model) => {
+          if (activeProviderOverride) {
+            recordProviderSuccess(
+              { ...activeProviderOverride, model },
+              durationMs,
+            )
+          }
+        },
       },
     )
 

@@ -410,6 +410,18 @@ Com `autonomy.enabled=false` (default se ausente), o comportamento antigo de `ag
 
 Design e plano: `docs/superpowers/specs/2026-07-09-agent-performance-autonomy-design.md`
 
+### Phase 2 — Health + fallback
+
+- Providers com **2 falhas seguidas** ficam `unhealthy`; o routing pula para o proximo da `fallbackChains`.
+- Em erro de rede/5xx/429/529 durante a request, o CLI tenta o **proximo modelo da cadeia** e recria o client.
+- Diagnostico:
+
+```powershell
+bun run doctor:autonomy
+bun run doctor:autonomy:probe   # ping endpoints de agentModels
+bun run doctor:autonomy:json
+```
+
 ---
 
 ## Arquivos de Configuracao

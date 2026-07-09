@@ -148,6 +148,14 @@ interface RetryOptions {
    * regardless of which request mode hit the overload.
    */
   initialConsecutive529Errors?: number
+  /**
+   * Autonomy provider failover: on connection/5xx errors, try next model in
+   * the agentRouting fallback chain. Mutate context.model when switching.
+   * Return true if a new provider was selected (withRetry refreshes client).
+   */
+  tryProviderFailover?: (error: unknown, context: RetryContext) => boolean
+  /** Called after a successful operation when provider telemetry is active */
+  onProviderSuccess?: (durationMs: number, model: string) => void
 }
 
 export class CannotRetryError extends Error {
@@ -195,6 +203,7 @@ export async function* withRetry<T>(
   let consecutive529Errors = options.initialConsecutive529Errors ?? 0
   let lastError: unknown
   let persistentAttempt = 0
+  let providerFailoverUsed = false
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     if (options.signal?.aborted) {
       throw new APIUserAbortError()
@@ -224,6 +233,7 @@ export async function* withRetry<T>(
       // - Bedrock-specific auth errors (403 or CredentialsProviderError)
       // - Vertex-specific auth errors (credential refresh failures, 401)
       // - ECONNRESET/EPIPE: stale keep-alive socket; disable pooling and reconnect
+      // - autonomy provider failover (new baseURL / api key)
       const isStaleConnection = isStaleConnectionError(lastError)
       if (
         isStaleConnection &&
@@ -240,12 +250,14 @@ export async function* withRetry<T>(
 
       if (
         client === null ||
+        providerFailoverUsed ||
         (lastError instanceof APIError && lastError.status === 401) ||
         isOAuthTokenRevokedError(lastError) ||
         isBedrockAuthError(lastError) ||
         isVertexAuthError(lastError) ||
         isStaleConnection
       ) {
+        providerFailoverUsed = false
         // On 401 "token expired" or 403 "token revoked", force a token refresh
         if (
           (lastError instanceof APIError && lastError.status === 401) ||
@@ -259,13 +271,31 @@ export async function* withRetry<T>(
         client = await getClient()
       }
 
-      return await operation(client, attempt, retryContext)
+      const attemptStarted = Date.now()
+      const result = await operation(client, attempt, retryContext)
+      options.onProviderSuccess?.(
+        Date.now() - attemptStarted,
+        retryContext.model,
+      )
+      return result
     } catch (error) {
       lastError = error
       logForDebugging(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
+
+      // Autonomy: switch provider/model in fallback chain, then retry
+      if (options.tryProviderFailover?.(error, retryContext)) {
+        providerFailoverUsed = true
+        client = null
+        logForDebugging(
+          `[autonomy] provider failover → model=${retryContext.model}`,
+          { level: 'warn' },
+        )
+        continue
+      }
+
         if (isQuotaExhausted(error)) {
           throw new CannotRetryError(
             new Error(

@@ -5,6 +5,7 @@ import {
   resolveTaskRoute,
   type RouteDecision,
 } from '../autonomy/index.js'
+import { applyHealthSelection } from '../autonomy/providerFallback.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -131,7 +132,7 @@ export function resolveAgentProvider(
     })
 
     if (decision) {
-      return {
+      const override: ProviderOverride = {
         model: decision.model,
         baseURL: decision.baseURL,
         apiKey: decision.apiKey,
@@ -143,8 +144,32 @@ export function resolveAgentProvider(
           source: decision.source,
         },
       }
+      return applyHealthSelection(override, settings)
     }
   }
 
-  return resolveLegacyAgentProvider(name, subagentType, settings)
+  const legacy = resolveLegacyAgentProvider(name, subagentType, settings)
+  if (!legacy) return null
+
+  // Attach default fallback chain from settings when present (Phase 2)
+  const chain =
+    settings.fallbackChains?.default ??
+    settings.fallbackChains?.hard ??
+    []
+  if (chain.length > 0 && isAutonomyEnabled(settings)) {
+    return applyHealthSelection(
+      {
+        ...legacy,
+        autonomy: {
+          tier: 'standard',
+          reason: ['legacy agentRouting'],
+          fallbackChain: chain.filter(m => m !== legacy.model),
+          source: 'static',
+        },
+      },
+      settings,
+    )
+  }
+
+  return legacy
 }
