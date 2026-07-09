@@ -372,6 +372,20 @@ Fallbacks: `glm-5.1:cloud` → `kimi-k2.6:cloud` → `minimax-m3:cloud` → loca
 
 Dentro do app: **`/route`** para ver a rota ativa.
 
+### Phase 5 — Context budget (mask de tool results)
+
+Com autonomy ON, resultados grandes de tools (Bash/Grep/etc.) sao **persistidos em disco** e o modelo recebe so preview + path — protege a janela de contexto dos modelos Ollama.
+
+| Setting / env | Default autonomy | Efeito |
+|---------------|------------------|--------|
+| `maskToolResults` | true | Liga o budget de tool results |
+| `maxToolResultChars` | 20000 | Limite por tool antes de persistir |
+| `maxToolResultsPerMessageChars` | 80000 | Limite agregado por turno |
+| `OPENCLAUDE_MASK_TOOL_RESULTS=0` | — | Desliga masking |
+| `OPENCLAUDE_MAX_TOOL_RESULT_CHARS` | — | Override por env |
+
+Read de arquivos ja tem **dedup** (`file_unchanged`) se o arquivo nao mudou no disco.
+
 ### Configuracao em `~/.claude/settings.json`
 
 Ja aplicada por `autonomy:ollama`. Backup automatico em `settings.json.bak-ollama-*`.

@@ -66,3 +66,10 @@ export {
   extractToolObservation,
   observeToolMessage,
 } from './circuitToolBridge.js'
+export {
+  shouldEnableAutonomyToolResultMasking,
+  getAutonomyPersistenceThreshold,
+  getAutonomyPerMessageBudgetLimit,
+  AUTONOMY_DEFAULT_MAX_TOOL_RESULT_CHARS,
+  AUTONOMY_DEFAULT_MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
+} from './contextBudget.js'

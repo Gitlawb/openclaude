@@ -771,6 +771,29 @@ export const SettingsSchema = lazySchema(() =>
             .describe(
               'When true, write local turn telemetry for routing decisions (never phones home).',
             ),
+          maskToolResults: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true (default if autonomy enabled), persist oversized tool results to disk ' +
+                'and send previews to the model to protect context window.',
+            ),
+          maxToolResultChars: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              'Per-tool result size (chars) before persistence to disk. Default 20000 when autonomy masking is on.',
+            ),
+          maxToolResultsPerMessageChars: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              'Aggregate tool_result budget per user message (chars). Default 80000 when autonomy masking is on.',
+            ),
         })
         .optional()
         .describe(

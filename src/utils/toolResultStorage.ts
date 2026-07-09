@@ -74,6 +74,20 @@ export function getPersistenceThreshold(
   ) {
     return override
   }
+  // Autonomy / Ollama: tighter per-tool caps when masking is enabled
+  try {
+    const { getAutonomyPersistenceThreshold } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/autonomy/contextBudget.js') as typeof import('../services/autonomy/contextBudget.js')
+    const autonomyCap = getAutonomyPersistenceThreshold(
+      declaredMaxResultSizeChars,
+    )
+    if (autonomyCap !== undefined) {
+      return autonomyCap
+    }
+  } catch {
+    // ignore — fall through to default
+  }
   return Math.min(declaredMaxResultSizeChars, DEFAULT_MAX_RESULT_SIZE_CHARS)
 }
 
@@ -430,6 +444,18 @@ export function getPerMessageBudgetLimit(): number {
   ) {
     return override
   }
+  // Autonomy / local models: smaller aggregate budget per turn
+  try {
+    const { getAutonomyPerMessageBudgetLimit } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/autonomy/contextBudget.js') as typeof import('../services/autonomy/contextBudget.js')
+    const autonomyLimit = getAutonomyPerMessageBudgetLimit()
+    if (autonomyLimit !== undefined) {
+      return autonomyLimit
+    }
+  } catch {
+    // ignore
+  }
   return MAX_TOOL_RESULTS_PER_MESSAGE_CHARS
 }
 
@@ -448,11 +474,22 @@ export function provisionContentReplacementState(
   initialMessages?: Message[],
   initialContentReplacements?: ContentReplacementRecord[],
 ): ContentReplacementState | undefined {
-  const enabled = getFeatureValue_CACHED_MAY_BE_STALE(
+  const gbEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
     'tengu_hawthorn_steeple',
     false,
   )
-  if (!enabled) return undefined
+  // OpenClaude: enable tool-result budget when autonomy masking is on,
+  // even if GrowthBook hawthorn flag is off (open builds default false).
+  let autonomyEnabled = false
+  try {
+    const { shouldEnableAutonomyToolResultMasking } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/autonomy/contextBudget.js') as typeof import('../services/autonomy/contextBudget.js')
+    autonomyEnabled = shouldEnableAutonomyToolResultMasking()
+  } catch {
+    autonomyEnabled = false
+  }
+  if (!gbEnabled && !autonomyEnabled) return undefined
   if (initialMessages) {
     return reconstructContentReplacementState(
       initialMessages,

@@ -45,6 +45,10 @@ function main(): void {
     circuitBreakers: true,
     telemetry: true,
     autoApplyPolicy: false,
+    // Phase 5: protect local-model context from huge Bash/Grep dumps
+    maskToolResults: true,
+    maxToolResultChars: 20_000,
+    maxToolResultsPerMessageChars: 80_000,
   }
   settings.agentModels = agentModels
   settings.agentRouting = {
