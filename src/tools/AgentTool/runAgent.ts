@@ -349,39 +349,22 @@ export async function* runAgent({
     permissionMode,
   )
 
-  // Resolve per-agent provider routing from settings (task-tier when autonomy on)
-  const latestUserText = promptMessages
-    .map(message => {
-      if (message.type !== 'user') return ''
-      const content = message.message.content
-      if (typeof content === 'string') return content
-      if (Array.isArray(content)) {
-        return content
-          .map(block =>
-            block.type === 'text' && 'text' in block ? block.text : '',
-          )
-          .join('\n')
-      }
-      return ''
-    })
-    .filter(Boolean)
-    .join('\n')
-  const hasImage = promptMessages.some(message => {
-    if (message.type !== 'user') return false
-    const content = message.message.content
-    return (
-      Array.isArray(content) && content.some(block => block.type === 'image')
-    )
-  })
-  const providerOverride = resolveAgentProvider(
-    agentName,
-    agentDefinition.agentType,
-    getInitialSettings(),
-    {
-      userText: latestUserText,
-      hasImage,
-    },
+  // Resolve per-agent provider routing (shared path with main-thread autonomy)
+  const { resolveAutonomyForMessages } = await import(
+    '../../services/autonomy/resolveForMessages.js'
   )
+  const providerOverride =
+    resolveAutonomyForMessages({
+      messages: promptMessages,
+      agentName,
+      subagentType: agentDefinition.agentType,
+      recordTelemetry: true,
+    }) ??
+    resolveAgentProvider(
+      agentName,
+      agentDefinition.agentType,
+      getInitialSettings(),
+    )
   const effectiveModel = providerOverride ? providerOverride.model : resolvedAgentModel
 
   const agentId = override?.agentId ? override.agentId : createAgentId()

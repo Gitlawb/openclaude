@@ -154,6 +154,24 @@ export async function* handleStopHooks(
     if (!toolUseContext.agentId) {
       void executeAutoDream(stopHookContext, toolUseContext.appendSystemMessage)
     }
+    // Autonomy knowledge loop: write session insights from local telemetry
+    if (!toolUseContext.agentId) {
+      void import('../services/autonomy/sessionInsights.js')
+        .then(m => m.writeSessionInsights())
+        .then(result => {
+          if (result && toolUseContext.appendSystemMessage) {
+            toolUseContext.appendSystemMessage(
+              createSystemMessage(
+                `Autonomy insight · ${result.bullets[0] ?? 'session summarized'}`,
+                'info',
+              ),
+            )
+          }
+        })
+        .catch(() => {
+          // Non-critical — knowledge capture must never block the turn
+        })
+    }
   }
 
   // chicago MCP: auto-unhide + lock release at turn end.

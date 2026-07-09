@@ -34,6 +34,7 @@ import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
+import { resolveAutonomyForMessages } from '../services/autonomy/resolveForMessages.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
 import { consumeEarlyInput } from '../utils/earlyInput.js';
 import { setMemberActive } from '../utils/swarm/teamHelpers.js';
@@ -2412,6 +2413,17 @@ export function REPL({
       if (!mainThreadAgentDefinition) return merged;
       return resolveAgentTools(mainThreadAgentDefinition, merged, false, true).resolvedTools;
     };
+    // Autonomy: task-tier routing for the main thread (same policy as subagents)
+    const autonomyOverride = resolveAutonomyForMessages({
+      messages: [...messages, ...newMessages],
+      agentName: mainThreadAgentDefinition?.agentType,
+      subagentType: mainThreadAgentDefinition?.agentType ?? 'default',
+      recordTelemetry: true
+    });
+    if (autonomyOverride?.autonomy) {
+      logForDebugging(`[autonomy] main-thread route model=${autonomyOverride.model} tier=${autonomyOverride.autonomy.tier} reasons=${autonomyOverride.autonomy.reason.join('; ')}`);
+    }
+    const effectiveMainLoopModel = autonomyOverride?.model ?? mainLoopModel;
     return {
       abortController,
       options: {
@@ -2419,7 +2431,7 @@ export function REPL({
         tools: computeTools(),
         debug,
         verbose: s.verbose,
-        mainLoopModel,
+        mainLoopModel: effectiveMainLoopModel,
         thinkingConfig: s.thinkingEnabled !== false ? thinkingConfig : {
           type: 'disabled'
         },
@@ -2437,7 +2449,8 @@ export function REPL({
         } : s.agentDefinitions,
         customSystemPrompt,
         appendSystemPrompt,
-        refreshTools: computeTools
+        refreshTools: computeTools,
+        providerOverride: autonomyOverride ?? undefined
       },
       getAppState: () => store.getState(),
       setAppState,

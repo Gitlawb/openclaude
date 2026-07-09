@@ -434,6 +434,22 @@ Com autonomy ON (e `circuitBreakers` nao `false`):
 
 Tier → effort sugerido no routing: trivial=`low`, standard=`medium`, hard/vision=`high`.
 
+### Phase 4 — Conhecimento + visibilidade
+
+- Telemetria local: `~/.openclaude/telemetry/turns.jsonl` (nunca envia dados externos)
+- Insights de sessao: `~/.openclaude/insights/*.md` (apos turnos com autonomy)
+- Comando **`/route`** — mostra mode, taskRouting, health e ultimas rotas
+- **Main thread** e subagentes usam a mesma politica de routing
+
+```powershell
+# Dentro do OpenClaude
+/route
+
+# Fora
+bun run doctor:autonomy:probe
+bun run test:autonomy
+```
+
 ---
 
 ## Arquivos de Configuracao

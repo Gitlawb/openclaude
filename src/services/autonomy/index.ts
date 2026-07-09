@@ -44,3 +44,19 @@ export {
   type CircuitBreakerState,
   type CircuitResult,
 } from './circuitBreakers.js'
+export {
+  appendTurnTelemetry,
+  getTelemetryPath,
+  readRecentTelemetry,
+  type TurnTelemetryEvent,
+} from './telemetry.js'
+export {
+  writeSessionInsights,
+  listInsightFiles,
+  getInsightsDir,
+} from './sessionInsights.js'
+export {
+  resolveAutonomyForMessages,
+  extractUserTextFromMessages,
+  messagesHaveImage,
+} from './resolveForMessages.js'
