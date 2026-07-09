@@ -174,13 +174,13 @@ describe('parseXmlToolCalls', () => {
     expect(toolCallRanges).toEqual([])
   })
 
-  test('allows known zero-argument plan tools', () => {
+  test('allows zero-argument tools without a name allowlist', () => {
     const { calls } = parseXmlToolCalls(
-      '<tool_call:call_1>EnterPlanMode</tool_call:call_1>',
+      '<tool_call:call_1>CronList</tool_call:call_1>',
     )
 
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ name: 'EnterPlanMode', arguments: {} })
+    expect(calls[0]).toMatchObject({ name: 'CronList', arguments: {} })
   })
 
   test('dialect D: Tencent HY3 official tagged arguments', () => {
@@ -407,6 +407,21 @@ describe('GLM streaming — XML tool calls', () => {
       subject: 'Verify HY3',
       description: 'Run the live test',
     })
+  })
+
+  test('recovers zero-argument Tencent HY3 calls from streaming output', async () => {
+    const events = await run([
+      hy3Chunk('<tool_call:call_1>CronList</tool_call:call_1>'),
+      hy3Chunk('', 'stop'),
+    ])
+
+    expect(toolStarts(events)).toHaveLength(1)
+    expect((toolStarts(events)[0].content_block as Record<string, string>).name).toBe('CronList')
+    expect(textOf(events)).not.toContain('<tool_call')
+    const jsonDelta = events.find(
+      event => event.type === 'content_block_delta' && (event.delta as Record<string, string>)?.type === 'input_json_delta',
+    )
+    expect(JSON.parse((jsonDelta!.delta as Record<string, string>).partial_json)).toEqual({})
   })
 
   test('strips a complete Tencent HY3 wrapper from streaming output', async () => {

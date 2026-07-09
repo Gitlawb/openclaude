@@ -1849,11 +1849,6 @@ const XML_ARG_PAIR_RE = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<
 const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
 const HY3_NAMED_ARGUMENT_LINE_RE = /^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/gm
 const HY3_ARG_PAIR_RE = /<arg_key(?::[^>\s]+)?>([\s\S]*?)<\/arg_key(?::[^>\s]+)?>\s*<arg_value(?::[^>\s]+)?>([\s\S]*?)<\/arg_value(?::[^>\s]+)?>/g
-const HY3_ZERO_ARGUMENT_TOOL_NAMES = new Set([
-  'EnterPlanMode',
-  'ExitPlanMode',
-  'TaskList',
-])
 
 // Parameter/arg values arrive as untyped text. Try JSON first so numbers,
 // booleans, and nested objects round-trip; fall back to the raw string.
@@ -1902,11 +1897,12 @@ function parseHy3ToolCallInner(inner: string): {
   }
 
   // The provider's textual wrapper is not self-authenticating. Requiring a
-  // normal tool identifier and at least one named argument avoids executing or
-  // hiding documentation snippets that merely demonstrate `<tool_call:...>`.
+  // normal tool identifier avoids executing or hiding documentation snippets
+  // that merely demonstrate `<tool_call:...>`, while still allowing every
+  // valid zero-input tool instead of maintaining a stale name allowlist.
   return {
     name: name && /^[A-Za-z_][\w.-]*$/.test(name) &&
-      (hasStructuredArguments || HY3_ZERO_ARGUMENT_TOOL_NAMES.has(name))
+      (hasStructuredArguments || trimmed === name)
       ? name
       : undefined,
     args,

@@ -10145,6 +10145,49 @@ test('JSON fallback: recovers raw-text tool call into tool_use block', async () 
 
 })
 
+test('JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks', async () => {
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-hy3',
+    model: 'tencent/hy3',
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          content:
+            '<tool_call:call_hy3>TaskCreate\n subject: Verify HY3\n description: Run the live test\n</tool_call:call_hy3>',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  })
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    name: 'TaskCreate',
+  })
+  const jsonDelta = events.find(
+    event =>
+      event.type === 'content_block_delta' &&
+      typeof event.delta === 'object' &&
+      event.delta !== null &&
+      (event.delta as Record<string, unknown>).type === 'input_json_delta',
+  ) as { delta?: { partial_json?: string } } | undefined
+  expect(JSON.parse(jsonDelta?.delta?.partial_json ?? '')).toEqual({
+    subject: 'Verify HY3',
+    description: 'Run the live test',
+  })
+  const stopEvent = events.find(e => e.type === 'message_delta') as
+    | { delta?: { stop_reason?: string } }
+    | undefined
+  expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
+})
+
 test('JSON fallback: empty tool_calls array does not block raw-text recovery', async () => {
   // tool_calls: [] is truthy; it must be treated as "no structured tool calls"
   // so the raw "Tool calls requested" recovery still runs.
