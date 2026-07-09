@@ -350,15 +350,7 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 
   // --- Message helpers (DEFENSIVE — stub just enough) ---
   mock.module('../../utils/messages.js', () => ({
-    createUserMessage: mock(
-      (opts: { content: string; isCompactSummary?: boolean }) => ({
-        type: 'user' as const,
-        message: { role: 'user' as const, content: opts.content },
-        uuid: `msg-${Math.random()}`,
-        timestamp: new Date().toISOString(),
-        isCompactSummary: opts.isCompactSummary ?? false,
-      }),
-    ),
+    createUserMessage: _realMessagesModule.createUserMessage,
     createCompactBoundaryMessage: mock(() => ({
       type: 'system' as const,
       message: { role: 'system' as const, content: '' },
@@ -634,6 +626,13 @@ afterEach(() => {
   try {
     mock.restore()
     clearProviderEnv()
+    // mock.module() persists process-wide in bun:test. Restore the message
+    // helpers after each compact test so downstream test files do not import
+    // the compact-only createUserMessage stub.
+    mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
+    mock.module('../../utils/messages/systemFactories.js', () => ({
+      ..._realSystemFactoriesModule,
+    }))
   } finally {
     releaseSharedMutationLock()
   }
