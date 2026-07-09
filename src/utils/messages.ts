@@ -136,14 +136,18 @@ import { TASK_UPDATE_TOOL_NAME } from '../tools/TaskUpdateTool/constants.js'
 import type { PermissionMode } from '../types/permissions.js'
 import { normalizeToolInput, normalizeToolInputForAPI } from './api.js'
 import { logAntError, logForDebugging } from './debug.js'
-import { stripIdeContextTags } from './displayTags.js'
+import { hasEmbeddedSearchTools } from './embeddedTools.js'
 import { formatFileSize } from './format.js'
 import { validateImagesForAPI } from './imageValidation.js'
 import { safeParseJSON } from './json.js'
 import { logError, logMCPDebug } from './log.js'
 import { normalizeLegacyToolName } from './permissions/permissionRuleParser.js'
 import { isDangerousPermissionMode } from './permissions/PermissionMode.js'
-import { escapeRegExp } from './stringUtils.js'
+import {
+  getPlanModeV2AgentCount,
+  getPlanModeV2ExploreAgentCount,
+  isPlanModeInterviewPhaseEnabled,
+} from './planModeV2.js'
 import { isTodoV2Enabled } from './tasks.js'
 import {
   CANCEL_MESSAGE,
@@ -326,7 +330,7 @@ export {
   isEmptyMessageText,
   stripPromptXMLTags,
   textForResubmit,
-} from "./messages/content.js"
+} from './messages/content.js'
 
 export function isNotEmptyMessage(message: Message): boolean {
   if (

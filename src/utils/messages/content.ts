@@ -62,7 +62,6 @@ export function extractTag(html: string, tagName: string): string | null {
   return null
 }
 
-
 export function isEmptyMessageText(text: string): boolean {
   return (
     stripPromptXMLTags(text).trim() === '' || text.trim() === NO_CONTENT_MESSAGE
