@@ -399,9 +399,22 @@ export function getSnippetForTwoFileDiff(
   // Truncate at the last line boundary that fits within the cap.
   // Marker format matches BashTool/utils.ts.
   const cutoff = full.lastIndexOf('\n', DIFF_SNIPPET_MAX_BYTES)
-  const kept =
-    cutoff > 0 ? full.slice(0, cutoff) : full.slice(0, DIFF_SNIPPET_MAX_BYTES)
-  const remaining = countCharInString(full, '\n', kept.length) + 1
+  let kept: string
+  let remaining: number
+  if (cutoff > 0) {
+    kept = full.slice(0, cutoff)
+    // `full[cutoff]` is the newline that terminates the last kept line, so
+    // counting newlines from `cutoff` onward counts that boundary newline plus
+    // every later one — exactly the number of dropped lines. No `+1`: the
+    // boundary newline is not itself a dropped line, it stands in for the
+    // missing trailing newline of the final dropped line.
+    remaining = countCharInString(full, '\n', cutoff)
+  } else {
+    kept = full.slice(0, DIFF_SNIPPET_MAX_BYTES)
+    // Mid-line cut (no newline within the cap): the partial tail line and every
+    // following line are dropped, so add 1 for that partial line.
+    remaining = countCharInString(full, '\n', kept.length) + 1
+  }
   return `${kept}\n\n... [${remaining} lines truncated] ...`
 }
 
