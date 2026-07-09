@@ -35,6 +35,7 @@
     "doctor:autonomy": "bun run scripts/doctor-autonomy.ts",
     "doctor:autonomy:json": "bun run scripts/doctor-autonomy.ts --json",
     "doctor:autonomy:probe": "bun run scripts/doctor-autonomy.ts --probe",
+    "autonomy:ollama": "bun run scripts/apply-ollama-autonomy.ts",
     "start": "bun dist/cli.mjs",
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",

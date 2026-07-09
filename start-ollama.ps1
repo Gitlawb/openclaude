@@ -15,12 +15,12 @@
 # ============================================================
 
 param(
-    [ValidateSet("cloud", "local", "openai", "openrouter")]
-    [string]$Mode = "cloud",
+    [ValidateSet("cloud", "local", "openai", "openrouter", "smart")]
+    [string]$Mode = "smart",
     [string]$Project = "",
     [string]$Model = "",
     [ValidateSet("smart", "fast", "code", "quality", "fixed", "off")]
-    [string]$AutonomyMode = "off"
+    [string]$AutonomyMode = "smart"
 )
 
 # -----------------------------------------------------------
@@ -29,6 +29,16 @@ param(
 $env:CLAUDE_CODE_USE_OPENAI = "1"
 
 switch ($Mode) {
+    "smart" {
+        # Ollama-first hybrid: local 14b base + autonomy routes tiers across fleet
+        $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
+        $env:OPENAI_API_KEY = "ollama"
+        if (-not $Model) { $Model = "qwen2.5:14b" }
+        $env:OPENAI_MODEL = $Model
+        if ($AutonomyMode -eq "off") { $AutonomyMode = "smart" }
+        $label = "Ollama Smart (autonomy)"
+        $color = "Cyan"
+    }
     "cloud" {
         $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
         $env:OPENAI_API_KEY = "ollama"
@@ -97,9 +107,9 @@ OPENROUTER_DEFAULT_MODEL=$defaultModel
 }
 
 # -----------------------------------------------------------
-# Verificar Ollama (modos cloud e local)
+# Verificar Ollama (modos cloud, local e smart)
 # -----------------------------------------------------------
-if ($Mode -eq "cloud" -or $Mode -eq "local") {
+if ($Mode -eq "cloud" -or $Mode -eq "local" -or $Mode -eq "smart") {
     try {
         $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop
         Write-Host "Ollama OK - $($response.models.Count) modelo(s)" -ForegroundColor Green
