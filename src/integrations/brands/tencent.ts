@@ -5,7 +5,7 @@ export default defineBrand({
   label: 'Tencent',
   canonicalVendorId: 'openai',
   defaultCapabilities: {
-    supportsVision: true,
+    supportsVision: false,
     supportsStreaming: true,
     supportsFunctionCalling: true,
     supportsJsonMode: true,

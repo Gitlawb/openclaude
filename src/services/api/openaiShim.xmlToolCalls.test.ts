@@ -7,11 +7,12 @@
  * visible prose and never execute, so the turn ends with no tool_use block and
  * the agent appears to "forget" and stop mid-task (the reported bug).
  *
- * Covers the three dialects seen in the wild plus the streaming/non-streaming
+ * Covers the four dialects seen in the wild plus the streaming/non-streaming
  * pipeline integration:
  *   A. <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
  *   B. <tool_call>NAME<arg_key>KEY</arg_key><arg_value>VALUE</arg_value>…</tool_call>
  *   C. <tool_call>{"name":"NAME","arguments":{…}}</tool_call>
+ *   D. <tool_calls:ID><tool_call:ID>NAME<parameter name="KEY">VALUE</parameter>…</tool_calls:ID>
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createOpenAIShimClient, parseXmlToolCalls } from './openaiShim.js'
@@ -59,6 +60,13 @@ const glmToolChunk = (toolCalls: unknown[], finishReason?: string) => ({
   object: 'chat.completion.chunk',
   model: 'glm-5.2',
   choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: finishReason ?? null }],
+})
+
+const hy3Chunk = (content: string, finishReason?: string) => ({
+  id: 'chatcmpl-hy3',
+  object: 'chat.completion.chunk',
+  model: 'tencent/hy3',
+  choices: [{ index: 0, delta: { content }, finish_reason: finishReason ?? null }],
 })
 
 // ---------------------------------------------------------------------------
@@ -120,6 +128,59 @@ describe('parseXmlToolCalls', () => {
     const { calls } = parseXmlToolCalls(text)
     expect(calls[0].name).toBe('Bash')
     expect(calls[0].arguments).toEqual({ command: 'pwd' })
+  })
+
+  test('dialect D: Tencent HY3 wrapper with named parameters', () => {
+    const text =
+      '<tool_calls:call_1><tool_call:call_1>TaskCreate\n' +
+      '<parameter name="subject">Verify HY3</parameter>' +
+      '<parameter name="description">Run the live test</parameter>' +
+      '</invoke></tool_call:call_1></tool_calls:call_1>'
+    const { calls, toolCallRanges } = parseXmlToolCalls(text)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('TaskCreate')
+    expect(calls[0].arguments).toEqual({
+      subject: 'Verify HY3',
+      description: 'Run the live test',
+    })
+    expect(toolCallRanges).toEqual([[0, text.length]])
+  })
+
+  test('dialect D: Tencent HY3 inline named arguments', () => {
+    const text =
+      '<tool_call:call_1>TaskCreate\n' +
+      ' subject: Verify HY3\n' +
+      ' description: Run the live test\n' +
+      ' activeForm: Validating HY3\n' +
+      '</tool_call:call_1>'
+    const { calls } = parseXmlToolCalls(text)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('TaskCreate')
+    expect(calls[0].arguments).toEqual({
+      subject: 'Verify HY3',
+      description: 'Run the live test',
+      activeForm: 'Validating HY3',
+    })
+  })
+
+  test('does not treat a literal HY3 wrapper example as a tool call', () => {
+    const text =
+      'Documentation: <tool_call:example>Run this example</tool_call:example>'
+    const { calls, toolCallRanges } = parseXmlToolCalls(text)
+
+    expect(calls).toEqual([])
+    expect(toolCallRanges).toEqual([])
+  })
+
+  test('allows known zero-argument plan tools', () => {
+    const { calls } = parseXmlToolCalls(
+      '<tool_call:call_1>EnterPlanMode</tool_call:call_1>',
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ name: 'EnterPlanMode', arguments: {} })
   })
 
   test('multiple tool calls in one message', () => {
@@ -311,5 +372,36 @@ describe('GLM streaming — XML tool calls', () => {
     const starts = toolStarts(events)
     expect(starts).toHaveLength(1)
     expect((starts[0].content_block as Record<string, string>).name).toBe('Bash')
+  })
+
+  test('recovers Tencent HY3 XML calls without exposing wrapper text', async () => {
+    const events = await run([
+      hy3Chunk('<tool_call:call_1>TaskCreate\n subject: Verify HY3\n'),
+      hy3Chunk(' description: Run the live test\n</tool_call:call_1>'),
+      hy3Chunk('', 'stop'),
+    ])
+    const starts = toolStarts(events)
+    expect(starts).toHaveLength(1)
+    expect((starts[0].content_block as Record<string, string>).name).toBe('TaskCreate')
+    expect(textOf(events)).not.toContain('<tool_call')
+    const jsonDelta = events.find(
+      event => event.type === 'content_block_delta' && (event.delta as Record<string, string>)?.type === 'input_json_delta',
+    )
+    expect(JSON.parse((jsonDelta!.delta as Record<string, string>).partial_json)).toEqual({
+      subject: 'Verify HY3',
+      description: 'Run the live test',
+    })
+  })
+
+  test('strips a complete Tencent HY3 wrapper from streaming output', async () => {
+    const events = await run([
+      hy3Chunk('<tool_calls:call_1><tool_call:call_1>TaskCreate\n subject: Verify HY3\n'),
+      hy3Chunk(' description: Run the live test\n</tool_call:call_1></tool_calls:call_1>'),
+      hy3Chunk('', 'stop'),
+    ])
+
+    expect(toolStarts(events)).toHaveLength(1)
+    expect(textOf(events)).not.toContain('<tool_call')
+    expect(textOf(events)).not.toContain('</tool_calls')
   })
 })
