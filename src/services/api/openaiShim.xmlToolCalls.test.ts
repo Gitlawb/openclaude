@@ -264,20 +264,25 @@ describe('GLM streaming — XML tool calls', () => {
   })
 
   async function run(chunks: unknown[]): Promise<Record<string, unknown>[]> {
+    const previousFetch = globalThis.fetch
     globalThis.fetch = (async () =>
       makeSseResponse(makeChunks(chunks))) as unknown as FetchType
-    const client = createOpenAIShimClient({}) as OpenAIShimClient
-    const result = await client.beta.messages
-      .create({
-        model: 'glm-5.2',
-        messages: [{ role: 'user', content: 'do it' }],
-        max_tokens: 64,
-        stream: true,
-      })
-      .withResponse()
-    const events: Record<string, unknown>[] = []
-    for await (const event of result.data) events.push(event)
-    return events
+    try {
+      const client = createOpenAIShimClient({}) as OpenAIShimClient
+      const result = await client.beta.messages
+        .create({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'do it' }],
+          max_tokens: 64,
+          stream: true,
+        })
+        .withResponse()
+      const events: Record<string, unknown>[] = []
+      for await (const event of result.data) events.push(event)
+      return events
+    } finally {
+      globalThis.fetch = previousFetch
+    }
   }
 
   const textOf = (events: Record<string, unknown>[]) =>
