@@ -60,3 +60,9 @@ export {
   extractUserTextFromMessages,
   messagesHaveImage,
 } from './resolveForMessages.js'
+export {
+  circuitBreakersEnabled,
+  createToolCircuitSession,
+  extractToolObservation,
+  observeToolMessage,
+} from './circuitToolBridge.js'

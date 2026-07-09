@@ -697,7 +697,11 @@ async function* queryLoop(
                 c => c.type === 'pending',
               ),
               queryTracking,
-              effortValue: appState.effortValue,
+              // Autonomy task tier can suggest effort (low/medium/high) without
+              // mutating global AppState — keeps UI stable while improving API quality.
+              effortValue:
+                toolUseContext.options.providerOverride?.effort ??
+                appState.effortValue,
               advisorModel: appState.advisorModel,
               skipCacheWrite,
               agentId: toolUseContext.agentId,

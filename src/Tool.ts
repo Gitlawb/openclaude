@@ -176,8 +176,19 @@ export type ToolUseContext = {
     querySource?: QuerySource
     /** Optional callback to get the latest tools (e.g., after MCP servers connect mid-query) */
     refreshTools?: () => Tools
-    /** Per-agent provider override from agentRouting config */
-    providerOverride?: { model: string; baseURL: string; apiKey: string }
+    /** Per-agent provider override from agentRouting / autonomy task routing */
+    providerOverride?: {
+      model: string
+      baseURL: string
+      apiKey: string
+      effort?: 'low' | 'medium' | 'high' | 'max'
+      autonomy?: {
+        tier: 'trivial' | 'standard' | 'hard' | 'vision'
+        reason: string[]
+        fallbackChain: string[]
+        source: 'static' | 'policy' | 'health-override' | 'fallback'
+      }
+    }
   }
   abortController: AbortController
   readFileState: FileStateCache

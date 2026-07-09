@@ -9,6 +9,10 @@ import { findToolByName, type Tools, type ToolUseContext } from '../../Tool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
+import {
+  createToolCircuitSession,
+  observeToolMessage,
+} from '../autonomy/circuitToolBridge.js'
 import { runToolUse } from './toolExecution.js'
 
 type MessageUpdate = {
@@ -49,6 +53,11 @@ export class StreamingToolExecutor {
   private discarded = false
   // Signal to wake up getRemainingResults when progress is available
   private progressAvailableResolve?: () => void
+  /** Autonomy circuit breaker session for this streaming tool batch */
+  private readonly circuit = createToolCircuitSession()
+  private circuitTripped = false
+  private circuitTripMessage: string | null = null
+  private circuitMessageYielded = false
 
   constructor(
     private readonly toolDefinitions: Tools,
@@ -74,6 +83,10 @@ export class StreamingToolExecutor {
    * Add a tool to the execution queue. Will start executing immediately if conditions allow.
    */
   addTool(block: ToolUseBlock, assistantMessage: AssistantMessage): void {
+    // Do not queue new tools after circuit trip — stop runaway loops
+    if (this.circuitTripped || this.discarded) {
+      return
+    }
     const toolDefinition = findToolByName(this.toolDefinitions, block.name)
     if (!toolDefinition) {
       this.tools.push({
@@ -138,6 +151,30 @@ export class StreamingToolExecutor {
    * Process the queue, starting tools when concurrency conditions allow
    */
   private async processQueue(): Promise<void> {
+    if (this.circuitTripped || this.discarded) {
+      // Cancel any still-queued tools with a synthetic note
+      for (const tool of this.tools) {
+        if (tool.status === 'queued') {
+          tool.status = 'completed'
+          tool.results = [
+            createUserMessage({
+              content: [
+                {
+                  type: 'tool_result',
+                  content:
+                    '<tool_use_error>Cancelled: autonomy circuit breaker tripped</tool_use_error>',
+                  is_error: true,
+                  tool_use_id: tool.id,
+                },
+              ],
+              toolUseResult: 'Cancelled: autonomy circuit breaker',
+              sourceToolAssistantUUID: tool.assistantMessage.uuid,
+            }),
+          ]
+        }
+      }
+      return
+    }
     for (const tool of this.tools) {
       if (tool.status !== 'queued') continue
 
@@ -363,6 +400,26 @@ export class StreamingToolExecutor {
           }
         }
 
+        // Autonomy circuit breaker (same rules as serial runTools path)
+        if (
+          this.circuit &&
+          update.message &&
+          update.message.type !== 'progress'
+        ) {
+          const tripMsg = observeToolMessage(
+            this.circuit,
+            update.message,
+            tool.block.name,
+          )
+          if (tripMsg) {
+            this.circuitTripped = true
+            this.circuitTripMessage = tripMsg
+            this.hasErrored = true
+            this.erroredToolDescription = this.getToolDescription(tool)
+            this.siblingAbortController.abort('sibling_error')
+          }
+        }
+
         if (update.message) {
           // Progress messages go to pendingProgress for immediate yielding
           if (update.message.type === 'progress') {
@@ -435,6 +492,19 @@ export class StreamingToolExecutor {
         markToolUseAsComplete(this.toolUseContext, tool.id)
       } else if (tool.status === 'executing' && !tool.isConcurrencySafe) {
         break
+      }
+    }
+
+    // Emit circuit trip once after tool results so the model sees the stop reason
+    if (
+      this.circuitTripped &&
+      this.circuitTripMessage &&
+      !this.circuitMessageYielded
+    ) {
+      this.circuitMessageYielded = true
+      yield {
+        message: createUserMessage({ content: this.circuitTripMessage }),
+        newContext: this.toolUseContext,
       }
     }
   }

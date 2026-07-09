@@ -33,13 +33,16 @@
 
 ## Remaining (professional polish backlog)
 
-| Item | Priority |
-|------|----------|
-| Wire circuit breakers into `StreamingToolExecutor` (not only `runTools`) | High |
-| Apply `effort` from route decision to AppState when model supports it | Medium |
-| Virtual list / FPS: avoid status re-render thrash (route log is debug-only) | Medium |
-| Codex API tests 3 fail pre-existing (unrelated) | Low |
-| User settings still lack `taskRouting` until configured | **Ops** |
+| Item | Priority | Status |
+|------|----------|--------|
+| Wire circuit breakers into `StreamingToolExecutor` | High | **Done** (circuitToolBridge) |
+| Apply `effort` from route (API path, no AppState thrash) | Medium | **Done** (query.ts) |
+| Ollama-first settings | Ops | **Done** |
+| `bun run build` smoke | Ops | **Done** (0.1.7) |
+| Virtual list / FPS extras | Low | Optional |
+| Codex API tests 3 fail pre-existing | Low | Unrelated |
+| PR / merge to main | Ops | Pending user |
+| Phases 5–6 (context mask, draft model, RAG) | Optional | Not started |
 
 ## Performance notes (render / runtime)
 
