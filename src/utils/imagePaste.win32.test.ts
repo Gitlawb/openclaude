@@ -79,6 +79,7 @@ describe('Windows clipboard image handling', () => {
     expect(await imagePaste.hasImageInClipboard()).toBe(true)
     expect(execFileNoThrowWithCwd).toHaveBeenCalledWith('powershell', [
       '-NoProfile',
+      '-STA',
       '-Command',
       'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::ContainsImage()',
     ])
@@ -106,6 +107,7 @@ describe('Windows clipboard image handling', () => {
     expect(await getImageFromClipboard()).toBeNull()
     expect(execa).toHaveBeenCalledTimes(1)
     const checkCall = execa.mock.calls[0] as unknown as ExecaCall | undefined
+    expect(checkCall?.[0]).toContain('powershell -NoProfile -STA -Command')
     expect(checkCall?.[0]).toContain('Clipboard]::ContainsImage()')
   })
 
@@ -136,6 +138,7 @@ describe('Windows clipboard image handling', () => {
     const saveCommand = String(saveCall?.[0] ?? '')
     expect(saveCommand).toContain("C:\\Temp\\O''Brien")
     expect(saveCommand).not.toContain('C:\\\\Temp')
+    expect(saveCommand).toContain('powershell -NoProfile -STA -Command')
     expect(saveCommand).toContain(
       '[System.Windows.Forms.Clipboard]::GetImage()',
     )
