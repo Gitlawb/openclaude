@@ -158,18 +158,19 @@ test('persistent signature failures emit one advisory before the guard trips', (
     toolResult('a', 'Error writing file: failed to replace text'),
   ])
   expect(first.tripped).toBe(false)
-  expect(first).not.toHaveProperty('advisory')
+  expect(first).not.toHaveProperty('advisories')
 
   const advisory = update(state, [toolUse('b', 'Edit')], [
     toolResult('b', 'Error writing file: failed to replace text'),
   ])
-  if (advisory.tripped || !advisory.advisory) {
+  if (advisory.tripped || !advisory.advisories) {
     throw new Error('Expected the penultimate persistent failure to advise')
   }
-  expect(advisory.advisory.toolName).toBe('Edit')
-  expect(advisory.advisory.errorCategory).toBe('FileWriteError')
-  expect(advisory.advisory.message).toContain('2/3 times')
-  expect(advisory.advisory.message).toContain('One more matching failure')
+  expect(advisory.advisories).toHaveLength(1)
+  expect(advisory.advisories[0]?.toolName).toBe('Edit')
+  expect(advisory.advisories[0]?.errorCategory).toBe('FileWriteError')
+  expect(advisory.advisories[0]?.message).toContain('2/3 times')
+  expect(advisory.advisories[0]?.message).toContain('One more matching failure')
 
   const trip = update(state, [toolUse('c', 'Edit')], [
     toolResult('c', 'Error writing file: failed to replace text'),
@@ -192,12 +193,43 @@ test('a mixed success and persistent failure batch preserves its advisory', () =
     ],
   )
 
-  if (decision.tripped || !decision.advisory) {
+  if (decision.tripped || !decision.advisories) {
     throw new Error('Expected a mixed batch to preserve the advisory')
   }
-  expect(decision.advisory.toolName).toBe('Edit')
-  expect(decision.advisory.errorCategory).toBe('FileWriteError')
-  expect(decision.advisory.message).toContain('2/3 times')
+  expect(decision.advisories).toHaveLength(1)
+  expect(decision.advisories[0]?.toolName).toBe('Edit')
+  expect(decision.advisories[0]?.errorCategory).toBe('FileWriteError')
+  expect(decision.advisories[0]?.message).toContain('2/3 times')
+})
+
+test('simultaneous persistent signatures each emit an advisory', () => {
+  const state = createToolFailureLoopGuardState()
+
+  update(
+    state,
+    [toolUse('a', 'Edit'), toolUse('b', 'Bash')],
+    [
+      toolResult('a', 'Error writing file: failed to replace text'),
+      toolResult('b', 'InputValidationError: invalid command'),
+    ],
+  )
+  const decision = update(
+    state,
+    [toolUse('c', 'Edit'), toolUse('d', 'Bash')],
+    [
+      toolResult('c', 'Error writing file: failed to replace text'),
+      toolResult('d', 'InputValidationError: invalid command'),
+    ],
+  )
+
+  if (decision.tripped || !decision.advisories) {
+    throw new Error('Expected simultaneous persistent failures to advise')
+  }
+  expect(decision.advisories).toHaveLength(2)
+  expect(decision.advisories.map(advisory => advisory.toolName)).toEqual([
+    'Edit',
+    'Bash',
+  ])
 })
 
 test('advisories only use the persistent signature counter', () => {
@@ -214,7 +246,7 @@ test('advisories only use the persistent signature counter', () => {
   )
 
   expect(decision.tripped).toBe(false)
-  expect(decision).not.toHaveProperty('advisory')
+  expect(decision).not.toHaveProperty('advisories')
 })
 
 test('thresholds below two do not emit advisory messages', () => {
@@ -970,8 +1002,8 @@ test('query loop forwards an advisory to the next model turn', async () => {
       message.isMeta === true &&
       typeof message.message?.content === 'string' &&
       message.message.content.includes('Warning: repeated tool failures'),
-  ) as { message: { content: string } } | undefined
+  ) as { message: { content: string } | undefined } | undefined
 
   expect(modelRequests).toHaveLength(3)
-  expect(advisory?.message.content).toContain('`MissingTool` failed 2/3 times')
+  expect(advisory?.message?.content).toContain('`MissingTool` failed 2/3 times')
 })

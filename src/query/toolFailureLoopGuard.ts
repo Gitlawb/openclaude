@@ -34,10 +34,10 @@ type ToolFailureLoopGuardAdvisory = {
 }
 
 export type ToolFailureLoopGuardDecision =
-  | { tripped: false; advisory?: undefined }
+  | { tripped: false; advisories?: undefined }
   | {
       tripped: false
-      advisory: ToolFailureLoopGuardAdvisory
+      advisories: ToolFailureLoopGuardAdvisory[]
     }
   | {
       tripped: true
@@ -133,7 +133,7 @@ export function updateToolFailureLoopGuard(params: {
     resetPersistentToolSignatures(params.state, toolName)
   }
 
-  let advisory: ToolFailureLoopGuardAdvisory | undefined
+  const advisories: ToolFailureLoopGuardAdvisory[] = []
   for (const failure of failures) {
     const persistentSignatureCount = incrementCounter(
       params.state.persistentSignatureCounts,
@@ -157,7 +157,7 @@ export function updateToolFailureLoopGuard(params: {
     }
 
     if (threshold > 1 && persistentSignatureCount === threshold - 1) {
-      advisory = {
+      advisories.push({
         threshold,
         toolName: failure.toolName,
         errorCategory: failure.errorCategory,
@@ -166,7 +166,7 @@ export function updateToolFailureLoopGuard(params: {
           toolName: failure.toolName,
           errorCategory: failure.errorCategory,
         }),
-      }
+      })
     }
   }
 
@@ -193,7 +193,9 @@ export function updateToolFailureLoopGuard(params: {
 
   if (hasSuccess) {
     resetToolFailureLoopGuard(params.state, successfulMutationPaths)
-    return advisory ? { tripped: false, advisory } : { tripped: false }
+    return advisories.length > 0
+      ? { tripped: false, advisories }
+      : { tripped: false }
   }
 
   for (const failure of failures) {
@@ -236,7 +238,9 @@ export function updateToolFailureLoopGuard(params: {
     }
   }
 
-  return advisory ? { tripped: false, advisory } : { tripped: false }
+  return advisories.length > 0
+    ? { tripped: false, advisories }
+    : { tripped: false }
 }
 
 type ToolResultBlockLike = {

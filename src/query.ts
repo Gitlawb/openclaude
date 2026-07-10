@@ -2803,20 +2803,20 @@ async function* queryLoop(
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
 
-    if (toolFailureLoopDecision.advisory) {
+    for (const advisoryDecision of toolFailureLoopDecision.advisories ?? []) {
       const advisory = createUserMessage({
-        content: toolFailureLoopDecision.advisory.message,
+        content: advisoryDecision.message,
         isMeta: true,
       })
       yield advisory
       toolResults.push(advisory)
       logForDebugging(
-        `Tool failure loop guard advisory: threshold=${toolFailureLoopDecision.advisory.threshold} ` +
-          `hasToolName=${toolFailureLoopDecision.advisory.toolName !== undefined} ` +
-          `hasErrorCategory=${toolFailureLoopDecision.advisory.errorCategory !== undefined}`,
+        `Tool failure loop guard advisory: threshold=${advisoryDecision.threshold} ` +
+          `hasToolName=${advisoryDecision.toolName !== undefined} ` +
+          `hasErrorCategory=${advisoryDecision.errorCategory !== undefined}`,
       )
       logEvent('tengu_tool_failure_loop_guard_advisory', {
-        threshold: toolFailureLoopDecision.advisory.threshold,
+        threshold: advisoryDecision.threshold,
         hasToolName: true,
         hasErrorCategory: true,
         queryDepth: queryTracking.depth,
