@@ -10,6 +10,7 @@ import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { sanitizePath } from '../utils/path.js'
 import { getAutoMemPath } from './paths.js'
+import { redactSecretSubstringsForDisplay } from '../utils/providerSecrets.js'
 
 const FACTS_SUBDIR = '.facts'
 
@@ -100,17 +101,16 @@ export async function extractFactsIntoMemdir(
 
   // Build scrubbed content for downstream extractors so env values (which may
   // contain secrets, paths, or code) are not re-extracted as concept facts.
-  // Also redact known API key / token patterns so they are not captured by
-  // the backtick or technical-concept extractors.
-  const SECRET_PATTERN =
-    /(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-|AKIA|ASIA|glpat-|hf_)[A-Za-z0-9._-]{8,}/g
-
-  const scrubbedContent = content
-    .replace(
-      new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
-      match => `${match.split('=')[0]}=[REDACTED]`,
-    )
-    .replace(SECRET_PATTERN, '[REDACTED_SECRET]')
+  // Apply the repository's full secret redaction (known prefixes, JWTs, opaque
+  // tokens, provider-specific values) so no credential reaches any extractor.
+  const scrubbedContent = (
+    redactSecretSubstringsForDisplay(
+      content.replace(
+        new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
+        match => `${match.split('=')[0]}=[REDACTED]`,
+      ),
+    ) ?? content
+  )
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
@@ -172,10 +172,9 @@ export async function extractFactsIntoMemdir(
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      // Skip values that look like secrets: known credential prefixes,
-      // redacted placeholders, or long random-looking tokens (≥20 chars
-      // with mixed case + digits, no natural-word characters).
-      if (/(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-|AKIA|ASIA|glpat-|hf_)/.test(symbol)) continue
+      // Skip values that look like secrets or were redacted by the repo's
+      // full secret scanner (covers NPM tokens, JWTs, and all known formats).
+      if (redactSecretSubstringsForDisplay(symbol) !== symbol) continue
       if (/\[REDACTED/i.test(symbol)) continue
       if (symbol.length >= 20 && /[a-z]/.test(symbol) && /[A-Z]/.test(symbol) && /\d/.test(symbol)) continue
       cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })

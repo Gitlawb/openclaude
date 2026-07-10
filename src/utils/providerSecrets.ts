@@ -104,10 +104,15 @@ const SECRET_PREFIX_PATTERNS = [
   /^ghs_/,
   /^ghr_/,
   /^github_pat_/,
+  /^npm_/,
+  /^glpat-/,
+  /^AKIA/,
+  /^ASIA/,
+  /^xox[baprs]-/,
 ]
 
 const SECRET_PREFIX_SUBSTRING_PATTERN =
-  /(?:sk-ant-|sk-|AIza|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9._-]{8,}/g
+  /(?:sk-ant-|sk-|AIza|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|npm_|glpat-|AKIA|ASIA|xox[baprs]-)[A-Za-z0-9._-]{8,}/g
 const JWT_SUBSTRING_PATTERN =
   /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
 
