@@ -1119,7 +1119,11 @@ export function checkReadPermissionForTool(
       message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
-  const path = tool.getPath(input)
+  // Tool inputs may be relative to the session CWD, which can differ from the
+  // process CWD for bridged or scoped sessions. Resolve before gathering
+  // symlink variants so every permission check uses the same session-relative
+  // absolute path.
+  const path = expandPath(tool.getPath(input))
 
   // Get paths to check (includes both original and resolved symlinks).
   // Computed once here and threaded through checkWritePermissionForTool →
@@ -1278,10 +1282,10 @@ export function checkReadPermissionForTool(
  * Permission result for write permission for the specified tool & tool input.
  *
  * @param precomputedPathsToCheck - Optional cached result of
- *   `getPathsForPermissionCheck(tool.getPath(input))`. Callers MUST derive this
- *   from the same `tool` and `input` in the same synchronous frame — `path` is
- *   re-derived internally for error messages and internal-path checks, so a
- *   stale value would silently check deny rules for the wrong path.
+ *   `getPathsForPermissionCheck(expandPath(tool.getPath(input)))`. Callers MUST
+ *   derive this from the same `tool` and `input` in the same synchronous frame
+ *   — `path` is re-derived internally for error messages and internal-path
+ *   checks, so a stale value would silently check deny rules for the wrong path.
  */
 export function checkWritePermissionForTool<Input extends AnyObject>(
   tool: Tool<Input>,
@@ -1295,7 +1299,11 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
       message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
-  const path = tool.getPath(input)
+  // Tool inputs may be relative to the session CWD, which can differ from the
+  // process CWD for bridged or scoped sessions. Resolve before gathering
+  // symlink variants so every permission check uses the same session-relative
+  // absolute path.
+  const path = expandPath(tool.getPath(input))
 
   // 1. Check for deny rules - check both the original path and resolved symlink path
   const pathsToCheck =
