@@ -85,13 +85,19 @@ describe('autoExtractFacts', () => {
 
   it('does not extract backtick-wrapped secret-like values', async () => {
     await extractFactsIntoMemdir(
-      'use the key `sk-live-SUPERSECRET_123` for production and `ghp_abc123def456ghi789` for CI',
+      [
+        'use key `sk-live-SUPERSECRET_123` for prod, `ghp_abc123def456ghi789` for CI,',
+        'and `AKIAIOSFODNN7EXAMPLE` for AWS. The GitLab token is `glpat-abcdefghijklmnopqrstuvwxyz`.',
+      ].join(' '),
       memDir,
     )
     const files = readdirSync(factsDir())
     const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
-    expect(conceptFacts.some(f => f.includes('sk-live-SUPERSECRET_123'))).toBe(false)
-    expect(conceptFacts.some(f => f.includes('slack-webhook'))).toBe(false)
+    // None of the credentials should appear as concept facts
+    expect(conceptFacts.some(f => f.includes('sk-live'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('ghp_'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('AKIA'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('glpat-'))).toBe(false)
   })
 
   it('extracts technical terms with PascalCase', async () => {

@@ -93,32 +93,27 @@ ${body}`
   describe('symlink boundary (P1 regression)', () => {
     // CodeRabbit required: symlinked directories inside memory/ must not be
     // traversed, otherwise markdown files outside the auto-memory tree become
-    // searchable prompt memory. Symlinked .md files are still included.
+    // searchable prompt memory. Symlinked .md files are also rejected — a
+    // symlink could point outside the memory root and leak content.
 
     it('does not follow symlinked directories', async () => {
-      // Create an outside directory with a markdown file
       const outsideDir = mkdtempSync(join(tmpdir(), 'vector-index-outside-'))
       try {
         writeFileSync(join(outsideDir, 'secret.md'), '---\ntitle: Outside Secret\ntype: reference\ndescription: Outside content\n---\n\nUNIQUE_OUTSIDE_TRIGGER_TOKEN', 'utf-8')
 
-        // Create a symlink inside memory/ pointing outside
         try {
           symlinkSync(outsideDir, join(memDir, 'linked'), 'dir')
         } catch {
-          // Skip if symlinks are not supported on this platform/environment
           return
         }
 
-        // Create a legitimate file inside memory/
         writeMem('legit.md', 'Legit', 'user', 'Inside memory', 'Inside content')
 
         await initMemdirIndex(memDir)
 
-        // The symlinked directory's content must NOT be searchable
         const r = await searchMemdirIndex('UNIQUE_OUTSIDE_TRIGGER_TOKEN', memDir)
         expect(r.length).toBe(0)
 
-        // Legitimate files are still indexed
         const r2 = await searchMemdirIndex('Inside', memDir)
         expect(r2.length).toBeGreaterThan(0)
       } finally {
@@ -126,24 +121,28 @@ ${body}`
       }
     })
 
-    it('includes symlinked markdown files', async () => {
+    it('skips symlinked files', async () => {
       const outsideDir = mkdtempSync(join(tmpdir(), 'vector-index-outside-file-'))
       try {
-        const outsideFilePath = join(outsideDir, 'linked-file.md')
-        writeFileSync(outsideFilePath, '---\ntitle: Linked File\ntype: reference\ndescription: Symlinked md\n---\n\nSYMLINKED_FILE_CONTENT', 'utf-8')
+        const outsideFilePath = join(outsideDir, 'outside.md')
+        writeFileSync(outsideFilePath, '---\ntitle: Outside File\ntype: reference\ndescription: Outside file\n---\n\nOUTSIDE_FILE_CONTENT', 'utf-8')
 
         try {
-          symlinkSync(outsideFilePath, join(memDir, 'linked-file.md'), 'file')
+          symlinkSync(outsideFilePath, join(memDir, 'outside.md'), 'file')
         } catch {
-          // Skip if symlinks are not supported on this platform/environment
           return
         }
         writeMem('legit.md', 'Legit', 'user', 'Inside memory', 'Inside content')
 
         await initMemdirIndex(memDir)
 
-        const r = await searchMemdirIndex('SYMLINKED_FILE_CONTENT', memDir)
-        expect(r.length).toBeGreaterThan(0)
+        // The symlinked file must NOT be indexed
+        const r = await searchMemdirIndex('OUTSIDE_FILE_CONTENT', memDir)
+        expect(r.length).toBe(0)
+
+        // Legitimate files are still indexed
+        const r2 = await searchMemdirIndex('Inside', memDir)
+        expect(r2.length).toBeGreaterThan(0)
       } finally {
         rmSync(outsideDir, { recursive: true, force: true })
       }
@@ -157,13 +156,11 @@ ${body}`
         try {
           symlinkSync(outsideDir, join(memDir, 'linked-dir.md'), 'dir')
         } catch {
-          // Skip if symlinks are not supported on this platform/environment
           return
         }
 
         await initMemdirIndex(memDir)
 
-        // The symlinked dir with .md extension should be skipped and its contents not indexed
         const r = await searchMemdirIndex('DIR_LINK_CONTENT', memDir)
         expect(r.length).toBe(0)
       } finally {
