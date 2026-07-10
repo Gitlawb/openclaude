@@ -93,11 +93,31 @@ describe('autoExtractFacts', () => {
     )
     const files = readdirSync(factsDir())
     const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
-    // None of the credentials should appear as concept facts
     expect(conceptFacts.some(f => f.includes('sk-live'))).toBe(false)
     expect(conceptFacts.some(f => f.includes('ghp_'))).toBe(false)
     expect(conceptFacts.some(f => f.includes('AKIA'))).toBe(false)
     expect(conceptFacts.some(f => f.includes('glpat-'))).toBe(false)
+  })
+
+  it('does not extract npm tokens from backticks', async () => {
+    await extractFactsIntoMemdir(
+      'install with `npm_abcdefghijklmnopqrstuvwxyzabcdefghij`',
+      memDir,
+    )
+    const files = readdirSync(factsDir())
+    const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
+    expect(conceptFacts.some(f => f.includes('npm_'))).toBe(false)
+  })
+
+  it('does not extract JWT bearer values', async () => {
+    await extractFactsIntoMemdir(
+      'authorization: Bearer `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`',
+      memDir,
+    )
+    const files = readdirSync(factsDir())
+    const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
+    expect(conceptFacts.some(f => f.includes('eyJ'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('JWT') || f.includes('jwt'))).toBe(false)
   })
 
   it('extracts technical terms with PascalCase', async () => {
