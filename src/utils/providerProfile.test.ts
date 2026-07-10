@@ -508,7 +508,7 @@ test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env withou
 })
 
 test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stale profile', async () => {
-  const processEnv = {
+  const processEnv: NodeJS.ProcessEnv = {
     OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
     OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
     NVIDIA_API_KEY: 'nvapi-live',
@@ -1452,6 +1452,19 @@ test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer to
   assert.equal(env.ANTHROPIC_MODEL, 'claude-proxy-model')
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
   assert.equal(env.ANTHROPIC_API_KEY, undefined)
+})
+
+test('buildStartupEnvFromProfile preserves explicit custom Anthropic environment setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+    ANTHROPIC_MODEL: 'claude-proxy-model',
+    ANTHROPIC_AUTH_TOKEN: 'env-proxy-token',
+  }
+  const env = await buildStartupEnvFromProfile({ persisted: null, processEnv })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'env-proxy-token')
 })
 
 test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {

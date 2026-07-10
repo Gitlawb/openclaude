@@ -1320,6 +1320,20 @@ function hasConcreteProviderSelection(
     return true
   }
 
+  // Anthropic-native proxies are selected by their own endpoint, model, and
+  // Bearer token rather than a CLAUDE_CODE_USE_* flag. Treat that complete
+  // contract as explicit so fresh-install fallback cannot replace it with the
+  // default OpenAI-compatible provider.
+  if (
+    sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) !== undefined &&
+    normalizeProfileModel(
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+    ) !== undefined &&
+    sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) !== undefined
+  ) {
+    return true
+  }
+
   // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
