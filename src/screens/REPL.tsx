@@ -137,6 +137,7 @@ import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
+import { consumeInterruptionCorrectionReminder, shouldMarkInterruptionCorrection } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
@@ -975,6 +976,17 @@ export function REPL({
   // Ref for the synchronous restore callback — set after restoreMessageSync is
   // defined, read in the onQuery finally block for auto-restore on interrupt.
   const restoreMessageSyncRef = useRef<(m: UserMessage) => void>(() => { });
+
+  // A user-cancelled model turn arms one hidden reminder for the next normal
+  // local prompt. The query id prevents local command dispatch from being
+  // mistaken for an active assistant turn.
+  const pendingInterruptionCorrectionSessionRef = useRef<string | null>(null);
+  const modelBoundQueryIdRef = useRef<string | null>(null);
+  const takeInterruptionCorrectionReminder = useCallback(() => {
+    const result = consumeInterruptionCorrectionReminder(pendingInterruptionCorrectionSessionRef.current, getSessionId());
+    pendingInterruptionCorrectionSessionRef.current = result.pendingSessionId;
+    return result.reminder;
+  }, []);
 
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
@@ -2300,7 +2312,7 @@ export function REPL({
     if (was !== now) repinScroll();
     prevDialogRef.current = focusedInputDialog;
   }, [focusedInputDialog, repinScroll]);
-  function onCancel() {
+  function onCancel(isUserInitiated = false) {
     if (focusedInputDialog === 'elicitation') {
       // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
       return;
@@ -2313,6 +2325,17 @@ export function REPL({
       proactiveModule?.pauseProactive();
     }
     const cancelContext = queryGuard.activeContext;
+    if (shouldMarkInterruptionCorrection({
+      isUserInitiated,
+      activeQueryId: cancelContext?.queryId ?? null,
+      modelBoundQueryId: modelBoundQueryIdRef.current,
+      isRemoteMode: activeRemote.isRemoteMode
+    })) {
+      pendingInterruptionCorrectionSessionRef.current = getSessionId();
+    }
+    if (cancelContext?.queryId === modelBoundQueryIdRef.current) {
+      modelBoundQueryIdRef.current = null;
+    }
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
       ...cancelContext,
@@ -2407,7 +2430,7 @@ export function REPL({
   // CancelRequestHandler props - rendered inside KeybindingSetup
   const cancelRequestProps = {
     setToolUseConfirmQueue,
-    onCancel,
+    onCancel: () => onCancel(true),
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
     screen,
@@ -3160,11 +3183,17 @@ export function REPL({
           return;
         }
       }
+      if (shouldQuery && !abortController.signal.aborted && queryGuard.activeContext?.queryId === queryContext.queryId) {
+        modelBoundQueryIdRef.current = queryContext.queryId;
+      }
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
     } catch (error) {
       didThrow = true;
       throw error;
     } finally {
+      if (modelBoundQueryIdRef.current === queryContext.queryId) {
+        modelBoundQueryIdRef.current = null;
+      }
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();
@@ -3810,6 +3839,7 @@ export function REPL({
       addNotification,
       setMessages,
       slashCommandOverride: options?.slashCommandOverride,
+      takeInterruptionCorrectionReminder,
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
       streamMode: streamModeRef.current,
@@ -3840,7 +3870,7 @@ export function REPL({
     // messages array in downstream closures (PromptInput, handleAutoRunIssue).
     // Heap analysis showed ~9 REPL scopes and ~15 messages array versions
     // accumulating after #20174/#20175, all traced to this dep.
-    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll]);
+    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, takeInterruptionCorrectionReminder]);
 
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {
@@ -4175,9 +4205,10 @@ export function REPL({
       canUseTool,
       addNotification,
       setMessages,
+      takeInterruptionCorrectionReminder,
       queuedCommands
     });
-  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery]);
+  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery, takeInterruptionCorrectionReminder]);
   useQueueProcessor({
     executeQueuedInput,
     hasActiveLocalJsxUI: isShowingLocalJSXCommand,

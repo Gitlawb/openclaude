@@ -40,6 +40,21 @@ function exit(): void {
   gracefulShutdownSync(0)
 }
 
+export function isNormalLocalUserPrompt(command: QueuedCommand): boolean {
+  return (
+    command.mode === 'prompt' &&
+    typeof command.value === 'string' &&
+    !command.value.trimStart().startsWith('/') &&
+    typeof command.preExpansionValue === 'string' &&
+    !command.preExpansionValue.trimStart().startsWith('/') &&
+    command.skipSlashCommands !== true &&
+    command.bridgeOrigin !== true &&
+    command.isMeta !== true &&
+    command.origin === undefined &&
+    command.slashCommandOverride === undefined
+  )
+}
+
 type BaseExecutionParams = {
   queuedCommands?: QueuedCommand[]
   messages: Message[]
@@ -78,6 +93,7 @@ type BaseExecutionParams = {
   setAppState: (updater: (prev: AppState) => AppState) => void
   onBeforeQuery?: (input: string, newMessages: Message[]) => Promise<boolean>
   canUseTool?: CanUseToolFn
+  takeInterruptionCorrectionReminder?: () => Message | null
 }
 
 /**
@@ -145,6 +161,7 @@ export async function handlePromptSubmit(
     onBeforeQuery,
     canUseTool,
     queuedCommands,
+    takeInterruptionCorrectionReminder,
     uuid,
     skipSlashCommands,
     slashCommandOverride,
@@ -174,6 +191,7 @@ export async function handlePromptSubmit(
       resetHistory,
       canUseTool,
       onInputChange,
+      takeInterruptionCorrectionReminder,
     })
     return
   }
@@ -393,6 +411,7 @@ export async function handlePromptSubmit(
     resetHistory,
     canUseTool,
     onInputChange,
+    takeInterruptionCorrectionReminder,
   })
 }
 
@@ -420,6 +439,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     resetHistory,
     canUseTool,
     queuedCommands,
+    takeInterruptionCorrectionReminder,
   } = params
 
   // Note: paste references are already processed before calling this function
@@ -484,6 +504,10 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       for (let i = 0; i < commands.length; i++) {
         const cmd = commands[i]!
         const isFirst = i === 0
+        const interruptionCorrectionReminder =
+          isNormalLocalUserPrompt(cmd)
+            ? takeInterruptionCorrectionReminder?.()
+            : undefined
         const result = await processUserInput({
           input: cmd.value,
           preExpansionInput: cmd.preExpansionValue,
@@ -506,6 +530,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           isMeta: cmd.isMeta,
           skipAttachments: !isFirst,
         })
+        if (interruptionCorrectionReminder) {
+          newMessages.push(interruptionCorrectionReminder)
+        }
         // Stamp origin here rather than threading another arg through
         // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
         // Derive origin from mode for task-notifications — mirrors the origin
