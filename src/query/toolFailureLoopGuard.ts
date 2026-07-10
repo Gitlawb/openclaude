@@ -26,8 +26,19 @@ export type ToolFailureLoopGuardState = {
   pathCounts: Map<string, number>
 }
 
+type ToolFailureLoopGuardAdvisory = {
+  message: string
+  threshold: number
+  toolName: string
+  errorCategory: string
+}
+
 export type ToolFailureLoopGuardDecision =
-  | { tripped: false }
+  | { tripped: false; advisory?: undefined }
+  | {
+      tripped: false
+      advisory: ToolFailureLoopGuardAdvisory
+    }
   | {
       tripped: true
       message: string
@@ -122,6 +133,7 @@ export function updateToolFailureLoopGuard(params: {
     resetPersistentToolSignatures(params.state, toolName)
   }
 
+  let advisory: ToolFailureLoopGuardAdvisory | undefined
   for (const failure of failures) {
     const persistentSignatureCount = incrementCounter(
       params.state.persistentSignatureCounts,
@@ -137,6 +149,19 @@ export function updateToolFailureLoopGuard(params: {
         errorCategory: failure.errorCategory,
         message: createTripMessage({
           kind: 'signature',
+          threshold,
+          toolName: failure.toolName,
+          errorCategory: failure.errorCategory,
+        }),
+      }
+    }
+
+    if (threshold > 1 && persistentSignatureCount === threshold - 1) {
+      advisory = {
+        threshold,
+        toolName: failure.toolName,
+        errorCategory: failure.errorCategory,
+        message: createAdvisoryMessage({
           threshold,
           toolName: failure.toolName,
           errorCategory: failure.errorCategory,
@@ -211,7 +236,7 @@ export function updateToolFailureLoopGuard(params: {
     }
   }
 
-  return { tripped: false }
+  return advisory ? { tripped: false, advisory } : { tripped: false }
 }
 
 type ToolResultBlockLike = {
@@ -448,5 +473,22 @@ function createTripMessage(
     'Stopped: repeated tool failures detected.',
     '',
     `${reason} Please inspect permissions, path, or tool schema before retrying.`,
+  ].join('\n')
+}
+
+function createAdvisoryMessage({
+  threshold,
+  toolName,
+  errorCategory,
+}: {
+  threshold: number
+  toolName: string
+  errorCategory: string
+}): string {
+  return [
+    'Warning: repeated tool failures are close to stopping this query.',
+    '',
+    `\`${toolName}\` failed ${threshold - 1}/${threshold} times with \`${errorCategory}\`. ` +
+      'One more matching failure will stop the query. Try a different tool, or verify the path, permissions, and tool inputs before retrying.',
   ].join('\n')
 }

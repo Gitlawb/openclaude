@@ -91,6 +91,67 @@ test('three identical tool failures trip the guard', () => {
   expect(decision.message).toContain('`FileWriteError`')
 })
 
+test('persistent signature failures emit one advisory before the guard trips', () => {
+  const state = createToolFailureLoopGuardState()
+
+  const first = update(state, [toolUse('a', 'Edit')], [
+    toolResult('a', 'Error writing file: failed to replace text'),
+  ])
+  expect(first.tripped).toBe(false)
+  expect(first).not.toHaveProperty('advisory')
+
+  const advisory = update(state, [toolUse('b', 'Edit')], [
+    toolResult('b', 'Error writing file: failed to replace text'),
+  ])
+  if (advisory.tripped || !advisory.advisory) {
+    throw new Error('Expected the penultimate persistent failure to advise')
+  }
+  expect(advisory.advisory.toolName).toBe('Edit')
+  expect(advisory.advisory.errorCategory).toBe('FileWriteError')
+  expect(advisory.advisory.message).toContain('2/3 times')
+  expect(advisory.advisory.message).toContain('One more matching failure')
+
+  const trip = update(state, [toolUse('c', 'Edit')], [
+    toolResult('c', 'Error writing file: failed to replace text'),
+  ])
+  expect(trip.tripped).toBe(true)
+})
+
+test('advisories only use the persistent signature counter', () => {
+  const state = createToolFailureLoopGuardState()
+
+  const decision = update(
+    state,
+    [toolUse('a', 'Edit'), toolUse('b', 'Write')],
+    [
+      toolResult('a', 'Error writing file: failed to replace text'),
+      toolResult('b', 'Error writing file: failed to replace text'),
+    ],
+    3,
+  )
+
+  expect(decision.tripped).toBe(false)
+  expect(decision).not.toHaveProperty('advisory')
+})
+
+test('thresholds below two do not emit advisory messages', () => {
+  const disabledState = createToolFailureLoopGuardState()
+  expect(
+    update(disabledState, [toolUse('disabled', 'Edit')], [
+      toolResult('disabled', 'Error writing file: failed to replace text'),
+    ], 0),
+  ).toEqual({ tripped: false })
+
+  const immediateState = createToolFailureLoopGuardState()
+  const decision = update(
+    immediateState,
+    [toolUse('immediate', 'Edit')],
+    [toolResult('immediate', 'Error writing file: failed to replace text')],
+    1,
+  )
+  expect(decision.tripped).toBe(true)
+})
+
 test('multiple failures in the same batch each increment the counters', () => {
   const state = createToolFailureLoopGuardState()
 
@@ -789,4 +850,22 @@ test('query loop emits a path-safe diagnostic when the guard trips', async () =>
     'category=${toolFailureLoopDecision.errorCategory',
   )
   expect(source).not.toContain('${toolFailureLoopDecision.path}')
+})
+
+test('query loop forwards an advisory to the next model turn', async () => {
+  const source = await Bun.file(querySourceFile).text()
+  const advisoryIndex = source.indexOf('if (toolFailureLoopDecision.advisory)')
+  const maxTurnsIndex = source.indexOf("return { reason: 'max_turns'")
+  const recursiveCallIndex = source.indexOf("queryCheckpoint('query_recursive_call')")
+
+  expect(advisoryIndex).toBeGreaterThan(-1)
+  expect(maxTurnsIndex).toBeGreaterThan(-1)
+  expect(recursiveCallIndex).toBeGreaterThan(advisoryIndex)
+  expect(advisoryIndex).toBeGreaterThan(maxTurnsIndex)
+  expect(source.slice(advisoryIndex, recursiveCallIndex)).toContain(
+    'isMeta: true',
+  )
+  expect(source.slice(advisoryIndex, recursiveCallIndex)).toContain(
+    'toolResults.push(advisory)',
+  )
 })

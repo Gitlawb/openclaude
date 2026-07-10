@@ -2803,6 +2803,26 @@ async function* queryLoop(
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
 
+    if (toolFailureLoopDecision.advisory) {
+      const advisory = createUserMessage({
+        content: toolFailureLoopDecision.advisory.message,
+        isMeta: true,
+      })
+      yield advisory
+      toolResults.push(advisory)
+      logForDebugging(
+        `Tool failure loop guard advisory: threshold=${toolFailureLoopDecision.advisory.threshold} ` +
+          `hasToolName=${toolFailureLoopDecision.advisory.toolName !== undefined} ` +
+          `hasErrorCategory=${toolFailureLoopDecision.advisory.errorCategory !== undefined}`,
+      )
+      logEvent('tengu_tool_failure_loop_guard_advisory', {
+        threshold: toolFailureLoopDecision.advisory.threshold,
+        hasToolName: true,
+        hasErrorCategory: true,
+        queryDepth: queryTracking.depth,
+      })
+    }
+
     queryCheckpoint('query_recursive_call')
 
     const next: State = {
