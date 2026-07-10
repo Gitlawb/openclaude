@@ -1467,6 +1467,19 @@ test('buildStartupEnvFromProfile preserves explicit custom Anthropic environment
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'env-proxy-token')
 })
 
+test('buildStartupEnvFromProfile preserves custom Anthropic x-api-key setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+    ANTHROPIC_MODEL: 'claude-proxy-model',
+    ANTHROPIC_API_KEY: 'env-proxy-key',
+  }
+  const env = await buildStartupEnvFromProfile({ persisted: null, processEnv })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.ANTHROPIC_API_KEY, 'env-proxy-key')
+})
+
 test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {

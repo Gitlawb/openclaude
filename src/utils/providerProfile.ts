@@ -1329,7 +1329,8 @@ function hasConcreteProviderSelection(
     normalizeProfileModel(
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
     ) !== undefined &&
-    sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) !== undefined
+    (sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) !== undefined ||
+      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) !== undefined)
   ) {
     return true
   }
