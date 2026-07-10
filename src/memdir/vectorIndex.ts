@@ -54,22 +54,8 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
-          let st: ReturnType<typeof statSync>
-          try {
-            st = statSync(fullPath)
-            if (!st.isFile()) {
-              continue
-            }
-          } catch { continue }
-          count++
-          totalSize += st.size
-          hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
-          try {
-            hash.update(readFileSync(fullPath, 'utf-8'))
-          } catch { /* skip unreadable */ }
-          if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs
-        }
+        // Do not traverse or index any symlink — a symlinked file or directory
+        // could point outside the memory root and leak content into the prompt.
         continue
       }
 
@@ -113,25 +99,8 @@ async function scanMdFiles(
       const fullPath = join(dir, entry.name)
 
       if (entry.isSymbolicLink()) {
-        if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
-          try {
-            const st = statSync(fullPath)
-            if (!st.isFile()) {
-              continue
-            }
-            const raw = readFileSync(fullPath, 'utf-8')
-            const parsed = parseFrontmatter(raw)
-            const fm = parsed?.frontmatter
-            results.push({
-              filename: entry.name,
-              path: relative(memoryDir, fullPath),
-              title: typeof fm?.title === 'string' ? fm.title : entry.name.replace(/\.md$/, ''),
-              type: typeof fm?.type === 'string' ? fm.type : 'reference',
-              description: typeof fm?.description === 'string' ? fm.description : '',
-              content: parsed?.content ?? '',
-            })
-          } catch { /* skip unreadable */ }
-        }
+        // Do not traverse or index any symlink — a symlinked file or directory
+        // could point outside the memory root and leak content into the prompt.
         continue
       }
 
