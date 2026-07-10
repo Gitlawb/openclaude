@@ -1438,6 +1438,22 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
+test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer token', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('anthropic', {
+      ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+      ANTHROPIC_MODEL: 'claude-proxy-model',
+      ANTHROPIC_AUTH_TOKEN: 'persisted-proxy-token',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://anthropic-proxy.example/v1')
+  assert.equal(env.ANTHROPIC_MODEL, 'claude-proxy-model')
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
+  assert.equal(env.ANTHROPIC_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
