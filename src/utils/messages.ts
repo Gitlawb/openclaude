@@ -202,12 +202,6 @@ export function withMemoryCorrectionHint(message: string): string {
   return message
 }
 
-/**
- * Derive a short stable message ID (6-char base36 string) from a UUID.
- * Used for snip tool referencing — injected into API-bound messages as internal
- * system-reminder metadata.
- * Deterministic: same UUID always produces the same short ID.
- */
 export {
   appendMessageTagToUserMessage,
   deriveShortMessageId,
@@ -1209,11 +1203,6 @@ function stripUnavailableToolReferencesFromUserMessage(
   }
 }
 
-/**
- * Appends internal snip metadata to the last text block of a user message.
- * Only mutates the API-bound copy, not the stored message.
- * This lets Claude reference message IDs when calling the snip tool.
- */
 /**
  * Does the content array have a tool_result block whose inner content
  * contains tool_reference (ToolSearch loaded tools)?

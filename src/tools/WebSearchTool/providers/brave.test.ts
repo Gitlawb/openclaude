@@ -134,7 +134,7 @@ describe('braveProvider search', () => {
       /Brave search timed out/,
     )
     await expect(signalAborted).resolves.toBeUndefined()
-  }, { timeout: 10_000 })
+  })
 
   test('rejects when the response body stalls after headers arrive', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'

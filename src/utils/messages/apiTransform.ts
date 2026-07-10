@@ -2,6 +2,12 @@ import type { ContentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resour
 import type { AssistantMessage, UserMessage } from '../../types/message.js'
 import { isToolReferenceBlock } from '../toolSearch.js'
 
+/**
+ * Derive a short stable message ID (6-char base36 string) from a UUID.
+ * Used for snip tool referencing — injected into API-bound messages as internal
+ * system-reminder metadata.
+ * Deterministic: same UUID always produces the same short ID.
+ */
 export function deriveShortMessageId(uuid: string): string {
   // Take first 10 hex chars from the UUID (skipping dashes)
   const hex = uuid.replace(/-/g, '').slice(0, 10)
@@ -9,6 +15,11 @@ export function deriveShortMessageId(uuid: string): string {
   return parseInt(hex, 16).toString(36).slice(0, 6)
 }
 
+/**
+ * Appends internal snip metadata to the last text block of a user message.
+ * Only mutates the API-bound copy, not the stored message.
+ * This lets Claude reference message IDs when calling the snip tool.
+ */
 export function appendMessageTagToUserMessage(
   message: UserMessage,
 ): UserMessage {
