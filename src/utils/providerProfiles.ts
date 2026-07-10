@@ -591,7 +591,9 @@ function isProcessEnvAlignedWithProfile(
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       (!includeApiKey ||
-        sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
+        (profile.provider === 'custom-anthropic'
+          ? sameOptionalEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN, profile.apiKey)
+          : sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey)))
     )
   }
 
@@ -838,7 +840,11 @@ export function applyProviderProfileToProcessEnv(
       profileEnv = {
         ANTHROPIC_BASE_URL: profile.baseUrl,
         ANTHROPIC_MODEL: primaryModel,
-        ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
+        ...(profile.apiKey
+          ? profile.provider === 'custom-anthropic'
+            ? { ANTHROPIC_AUTH_TOKEN: profile.apiKey }
+            : { ANTHROPIC_API_KEY: profile.apiKey }
+          : {}),
       }
     }
   } else if (compatibilityMode === 'mistral') {
@@ -1399,7 +1405,9 @@ function buildStartupProfileFromActiveProfile(
           ANTHROPIC_BASE_URL: activeProfile.baseUrl,
           ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
           ...(activeProfile.apiKey
-            ? { ANTHROPIC_API_KEY: activeProfile.apiKey }
+            ? activeProfile.provider === 'custom-anthropic'
+              ? { ANTHROPIC_AUTH_TOKEN: activeProfile.apiKey }
+              : { ANTHROPIC_API_KEY: activeProfile.apiKey }
             : {}),
         }),
       }

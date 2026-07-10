@@ -123,6 +123,7 @@ const PRESET_ORDER = [
   'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'Custom Anthropic-compatible',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -221,6 +222,17 @@ function mockProviderProfilesModule(options?: {
           name: 'Custom OpenAI-compatible',
           baseUrl: 'http://localhost:11434/v1',
           model: 'custom-model',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
+      if (preset === 'custom-anthropic') {
+        return {
+          provider: 'custom-anthropic',
+          name: 'Custom Anthropic-compatible',
+          baseUrl: 'https://anthropic-proxy.example',
+          model: 'claude-sonnet-4-6',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -684,6 +696,44 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('API mode') && frame.includes('Chat Completions'),
     )
     expect(output).toContain('Responses')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager offers a token field for custom Anthropic-compatible providers', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+    await navigateToPreset(mounted.stdin, 'Custom Anthropic-compatible')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider name'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Base URL'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Default model'))
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Access token') && frame.includes('Anthropic-compatible API'),
+    )
+    expect(output).not.toContain('API mode')
+    mounted.stdin.write('\r')
+    const headersOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Custom headers'),
+    )
+    expect(headersOutput).toContain('Extra non-auth request headers')
   } finally {
     await mounted.dispose()
   }

@@ -6,16 +6,18 @@ import type {
 } from './descriptors.js'
 import {
   ensureIntegrationsLoaded,
+  getAllAnthropicProxies,
   getAllGateways,
   getAllVendors,
   getGateway,
+  getAnthropicProxy,
   getVendor,
   resolveProfileRoute,
 } from './index.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
-export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
+export type RouteDescriptor = GatewayDescriptor | VendorDescriptor | import('./descriptors.js').AnthropicProxyDescriptor
 
 const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
   Record<TransportKind, string>
@@ -93,7 +95,7 @@ function normalizeHost(
 
 function getAllRoutes(): RouteDescriptor[] {
   ensureIntegrationsLoaded()
-  return [...getAllGateways(), ...getAllVendors()]
+  return [...getAllGateways(), ...getAllVendors(), ...getAllAnthropicProxies()]
 }
 
 function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
@@ -129,7 +131,7 @@ export function getRouteDescriptor(
   routeId: string,
 ): RouteDescriptor | null {
   ensureIntegrationsLoaded()
-  return getGateway(routeId) ?? getVendor(routeId) ?? null
+  return getGateway(routeId) ?? getVendor(routeId) ?? getAnthropicProxy(routeId) ?? null
 }
 
 export function getRouteLabel(
@@ -829,7 +831,10 @@ export function routeSupportsCustomHeaders(
     return false
   }
 
-  return descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true
+  return (
+    descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true ||
+    descriptor.id === 'custom-anthropic'
+  )
 }
 
 export function routeShowsAuthHeaderValue(routeId: string): boolean {

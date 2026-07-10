@@ -45,6 +45,7 @@ const RESTORED_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_CUSTOM_HEADERS',
   'ANTHROPIC_VERTEX_BASE_URL',
   'GEMINI_BASE_URL',
@@ -3228,6 +3229,44 @@ describe('setActiveProviderProfile', () => {
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
         ANTHROPIC_MODEL: 'claude-sonnet-4-6',
         ANTHROPIC_API_KEY: 'sk-ant-live',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists custom Anthropic-compatible profiles with Bearer token auth', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } = await importFreshProviderProfileModules()
+      const profile = buildProfile({
+        id: 'custom_anthropic_prof',
+        name: 'Custom Anthropic',
+        provider: 'custom-anthropic',
+        baseUrl: 'https://anthropic-proxy.example',
+        model: 'claude-proxy-model',
+        apiKey: 'proxy-token',
+      })
+      saveMockGlobalConfig(current => ({ ...current, providerProfiles: [profile] }))
+
+      const result = setActiveProviderProfile('custom_anthropic_prof', { configDir })
+      const persisted = JSON.parse(readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'))
+
+      expect(result?.id).toBe('custom_anthropic_prof')
+      expect(process.env.ANTHROPIC_BASE_URL).toBe('https://anthropic-proxy.example')
+      expect(process.env.ANTHROPIC_MODEL).toBe('claude-proxy-model')
+      expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('proxy-token')
+      expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+      expect(persisted.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example',
+        ANTHROPIC_MODEL: 'claude-proxy-model',
+        ANTHROPIC_AUTH_TOKEN: 'proxy-token',
       })
     } finally {
       process.chdir(originalCwd)

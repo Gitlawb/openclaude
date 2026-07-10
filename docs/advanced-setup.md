@@ -424,7 +424,8 @@ openclaude
 
 `ANTHROPIC_AUTH_TOKEN` is sent as `Authorization: Bearer ...`; use
 `ANTHROPIC_API_KEY` instead when the endpoint expects Anthropic's `x-api-key`
-authentication.
+authentication. The `/provider` → `Add provider` menu exposes the same setup
+as **Custom Anthropic-compatible**, including optional extra request headers.
 
 | Variable | Required | Description |
 |----------|----------|-------------|

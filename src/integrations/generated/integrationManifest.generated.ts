@@ -91,6 +91,26 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "custom-anthropic",
+    "routeKind": "anthropic-proxy",
+    "routeId": "custom-anthropic",
+    "vendorId": "anthropic",
+    "description": "Any Anthropic Messages API-compatible provider",
+    "label": "Custom Anthropic-compatible",
+    "name": "Custom Anthropic-compatible",
+    "apiKeyEnvVars": [
+      "ANTHROPIC_AUTH_TOKEN"
+    ],
+    "baseUrlEnvVars": [
+      "ANTHROPIC_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "ANTHROPIC_MODEL"
+    ],
+    "fallbackBaseUrl": "https://anthropic-proxy.example",
+    "fallbackModel": "claude-sonnet-4-6"
+  },
+  {
     "preset": "atlas-cloud",
     "routeKind": "gateway",
     "routeId": "atlas-cloud",
@@ -491,6 +511,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "aimlapi",
   "dashscope-cn",
   "dashscope-intl",
+  "custom-anthropic",
   "atlas-cloud",
   "azure-openai",
   "bankr",

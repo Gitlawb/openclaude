@@ -1598,7 +1598,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    if (preset === 'custom' || !canUseStreamlinedPresetFlow(nextDraft)) {
+    if (
+      preset === 'custom' ||
+      preset === 'custom-anthropic' ||
+      !canUseStreamlinedPresetFlow(nextDraft)
+    ) {
       setScreen('form')
       return
     }
@@ -2154,12 +2158,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderForm(): React.ReactNode {
+    const isCustomAnthropic = draftProvider === 'custom-anthropic'
+    const displayStep =
+      isCustomAnthropic && currentStepKey === 'apiKey'
+        ? {
+            ...currentStep,
+            label: 'Access token',
+            placeholder: 'Bearer token for this endpoint',
+            helpText: 'Sent as Authorization: Bearer <token>.',
+          }
+        : currentStep
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
           {editingProfileId ? 'Edit provider profile' : 'Create provider profile'}
         </Text>
-        <Text dimColor>{currentStep.helpText}</Text>
+        <Text dimColor>{displayStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
           {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
@@ -2171,7 +2185,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           </Text>
         ) : null}
         <Text dimColor>
-          Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
+          Step {formStepIndex + 1} of {formSteps.length}: {displayStep.label}
         </Text>
         {currentStepKey === 'apiFormat' ? (
           <Select
@@ -2216,7 +2230,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               onSubmit={handleFormSubmit}
               focus={true}
               showCursor={true}
-              placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
+              placeholder={`${displayStep.placeholder}${figures.ellipsis}`}
               mask={
                 currentStepKey === 'apiKey' ||
                 currentStepKey === 'authHeaderValue'
