@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import {
   _clearRegistryForTesting,
@@ -6,7 +6,16 @@ import {
   registerGateway,
 } from '../../integrations/index.js'
 import { publicBuildVersion } from '../../utils/version.js'
-import { getAnthropicClient } from './client.js'
+
+// bun:test keeps mock.module() registrations process-global across test files.
+// Load and re-register the real module before importing the client so a prior
+// provider mock cannot make this suite validate the wrong route in CI.
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`,
+)
+mock.module('../../utils/model/providers.js', () => _realProvidersModule)
+mock.module('src/utils/model/providers.js', () => _realProvidersModule)
+const { getAnthropicClient } = await import('./client.js')
 
 type FetchType = typeof globalThis.fetch
 
