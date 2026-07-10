@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import {
   extractTag,
   extractTextContent,
+  getAssistantMessageText,
   getContentText,
   isEmptyMessageText,
   stripPromptXMLTags,
@@ -65,10 +66,7 @@ test('isEmptyMessageText treats stripped tag-only and sentinel text as empty', (
   expect(isEmptyMessageText('hello')).toBe(false)
 })
 
-test('getAssistantMessageText joins text blocks for assistant messages', async () => {
-  const { getAssistantMessageText } = await import(
-    `./content.js?getAssistantMessageText=${Date.now()}-${Math.random()}`,
-  )
+test('getAssistantMessageText joins text blocks for assistant messages', () => {
   const message = {
     type: 'assistant',
     message: {
