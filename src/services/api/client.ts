@@ -49,7 +49,8 @@ import {
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
-  shouldUseFirstPartyAnthropicAuth,
+  shouldUseCustomAnthropicBearerAuth,
+  shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
 import { AnthropicVertex } from './vertexClient.js'
@@ -465,8 +466,13 @@ export async function getAnthropicClient({
     applyAimlapiEnvOnlyDefaults()
   }
 
-  const shouldUseFirstPartyAuth =
-    shouldUseFirstPartyAnthropicAuth(providerOverride)
+  const apiProvider = getAPIProvider()
+  const isFirstPartyBaseUrl = isFirstPartyAnthropicBaseUrl()
+  const shouldUseFirstPartyAuth = shouldUseFirstPartyAnthropicAuthForProvider({
+    providerOverride,
+    apiProvider,
+    isFirstPartyBaseUrl,
+  })
   const useMiniMaxNativeProvider =
     useMiniMaxEnvOnlyProvider ||
     (getAPIProvider() === 'minimax' &&
@@ -481,11 +487,12 @@ export async function getAnthropicClient({
   const isClaudeAiSubscriber =
     shouldUseFirstPartyAuth && isClaudeAISubscriber()
   const anthropicAuthToken = process.env.ANTHROPIC_AUTH_TOKEN?.trim()
-  const usesCustomAnthropicAuthToken = Boolean(
-    anthropicAuthToken &&
-      getAPIProvider() === 'firstParty' &&
-      !isFirstPartyAnthropicBaseUrl(),
-  )
+  const usesCustomAnthropicAuthToken = shouldUseCustomAnthropicBearerAuth({
+    providerOverride,
+    apiProvider,
+    isFirstPartyBaseUrl,
+    authToken: anthropicAuthToken,
+  })
 
   if (
     (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) ||

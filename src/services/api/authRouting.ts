@@ -27,3 +27,22 @@ export function shouldUseFirstPartyAnthropicAuth(
     isFirstPartyBaseUrl: isFirstPartyAnthropicBaseUrl(),
   })
 }
+
+export function shouldUseCustomAnthropicBearerAuth({
+  providerOverride,
+  apiProvider,
+  isFirstPartyBaseUrl,
+  authToken,
+}: {
+  providerOverride?: ProviderOverride
+  apiProvider: APIProvider
+  isFirstPartyBaseUrl: boolean
+  authToken?: string
+}): boolean {
+  return Boolean(
+    !providerOverride &&
+      authToken?.trim() &&
+      apiProvider === 'firstParty' &&
+      !isFirstPartyBaseUrl,
+  )
+}

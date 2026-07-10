@@ -35,6 +35,7 @@ const EXPECTED_PRESETS = [
   'dashscope-cn',
   'dashscope-intl',
   'custom',
+  'custom-anthropic',
   'nvidia-nim',
   'minimax',
   'xai',
@@ -76,7 +77,9 @@ describe('compatibility mappings', () => {
 
       expect(route.vendorId).toBe(vendorId)
       expect(route.gatewayId).toBe(gatewayId)
-      expect(route.routeId).toBe(gatewayId ?? vendorId)
+      expect(route.routeId).toBe(
+        preset === 'custom-anthropic' ? 'custom-anthropic' : gatewayId ?? vendorId,
+      )
     }
   })
 
@@ -92,6 +95,17 @@ describe('compatibility mappings', () => {
       vendorId: 'openai',
       gatewayId: 'atlas-cloud',
       routeId: 'atlas-cloud',
+    })
+  })
+
+  test('Custom Anthropic is modeled as an Anthropic proxy', () => {
+    expect(routeForPreset('custom-anthropic')).toEqual({
+      vendorId: 'anthropic',
+      routeId: 'custom-anthropic',
+    })
+    expect(resolveProfileRoute('custom-anthropic')).toEqual({
+      vendorId: 'anthropic',
+      routeId: 'custom-anthropic',
     })
   })
 
