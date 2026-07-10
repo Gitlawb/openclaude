@@ -333,7 +333,7 @@ describe('conversationArc', () => {
 
         // Initialize arc - shouldn't write to disk
         initializeArc(autoMemDir)
-        
+
         // This simulates a full production turn that would normally write
         await updateArcPhase([createMessage('user', 'check the login flow')])
         const goal = addGoal('Fix bug')
@@ -375,7 +375,7 @@ describe('conversationArc', () => {
       expect(promptWithArc.join('\n')).toContain('PERSISTENT PROJECT MEMORY')
       expect(promptWithArc.join('\n')).toContain('Add JWT auth')
     })
-    
+
     it('query.ts path: does not append arc when auto-memory is disabled', async () => {
       process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
       try {
@@ -384,7 +384,7 @@ describe('conversationArc', () => {
         mkdirSync(autoMemDir, { recursive: true })
         initializeArc(autoMemDir)
         await updateArcPhase([createMessage('user', 'implement authentication system')])
-        
+
         const lastMessage = createMessage('user', 'add login endpoint')
         const mockSystemPrompt = ['# System Instructions', 'You are an assistant.']
 

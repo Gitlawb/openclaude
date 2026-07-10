@@ -83,6 +83,17 @@ describe('autoExtractFacts', () => {
     expect(countFactFiles()).toBeGreaterThan(0)
   })
 
+  it('does not extract backtick-wrapped secret-like values', async () => {
+    await extractFactsIntoMemdir(
+      'use the key `sk-live-SUPERSECRET_123` for production and `ghp_abc123def456ghi789` for CI',
+      memDir,
+    )
+    const files = readdirSync(factsDir())
+    const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
+    expect(conceptFacts.some(f => f.includes('sk-live-SUPERSECRET_123'))).toBe(false)
+    expect(conceptFacts.some(f => f.includes('slack-webhook'))).toBe(false)
+  })
+
   it('extracts technical terms with PascalCase', async () => {
     await extractFactsIntoMemdir('the UserAuthentication flow handles login', memDir)
     const files = readdirSync(factsDir())

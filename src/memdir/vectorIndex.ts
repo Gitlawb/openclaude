@@ -19,8 +19,12 @@ const ORAMA_SCHEMA = {
   content: 'string',
 } as const
 
-let indexDb: any = null
-let indexDir: string | null = null
+interface DirIndex {
+  db: any
+  pending: Promise<void> | null
+}
+
+const indices = new Map<string, DirIndex>()
 
 const INDEX_FILENAME = '.vector-index'
 const INDEX_META_FILENAME = '.vector-index-meta.json'
@@ -161,7 +165,22 @@ async function scanMdFiles(
 
 
 
+function getOrCreateDirState(memoryDir: string): DirIndex {
+  let state = indices.get(memoryDir)
+  if (!state) {
+    state = { db: null, pending: null }
+    indices.set(memoryDir, state)
+  }
+  return state
+}
+
 export async function initMemdirIndex(memoryDir: string): Promise<void> {
+  const state = getOrCreateDirState(memoryDir)
+  if (state.pending) {
+    await state.pending
+    return
+  }
+
   const indexPath = getIndexPath(memoryDir)
   const metaPath = getIndexMetaPath(memoryDir)
 
@@ -181,8 +200,7 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
     if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.contentHash === storedContentHash) {
       try {
         const data = readFileSync(indexPath)
-        indexDb = await restore('binary', data)
-        indexDir = memoryDir
+        state.db = await restore('binary', data)
         return
       } catch {
         // Corrupted index — rebuild
@@ -190,29 +208,35 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
     }
   }
 
-  indexDb = await create({ schema: ORAMA_SCHEMA })
-  indexDir = memoryDir
+  state.db = await create({ schema: ORAMA_SCHEMA })
   await rebuildIndex(memoryDir)
 }
 
 export async function rebuildIndex(memoryDir: string): Promise<void> {
-  indexDb = await create({ schema: ORAMA_SCHEMA })
-  indexDir = memoryDir
+  const state = getOrCreateDirState(memoryDir)
+  if (state.pending) await state.pending
 
-  const docs = await scanMdFiles(memoryDir)
+  state.pending = (async () => {
+    state.db = await create({ schema: ORAMA_SCHEMA })
 
-  for (const doc of docs) {
-    await insert(indexDb, {
-      filename: doc.filename,
-      path: doc.path,
-      title: doc.title,
-      type: doc.type,
-      description: doc.description,
-      content: doc.content,
-    })
-  }
+    const docs = await scanMdFiles(memoryDir)
 
-  await saveIndex(memoryDir)
+    for (const doc of docs) {
+      await insert(state.db, {
+        filename: doc.filename,
+        path: doc.path,
+        title: doc.title,
+        type: doc.type,
+        description: doc.description,
+        content: doc.content,
+      })
+    }
+
+    await saveIndex(memoryDir)
+  })()
+
+  await state.pending
+  state.pending = null
 }
 
 export async function searchMemdirIndex(
@@ -220,17 +244,13 @@ export async function searchMemdirIndex(
   memoryDir: string,
   limit = 10,
 ): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; content: string; score: number }>> {
-  // Refresh the index if it hasn't been loaded yet or if the directory changed.
-  if (!indexDb || indexDir !== memoryDir) {
+  const state = getOrCreateDirState(memoryDir)
+
+  if (!state.db) {
     await initMemdirIndex(memoryDir)
   }
 
-  // Even when the index is already loaded, check freshness so that files
-  // written by /remember, extract-memories, auto-dream, or direct edits
-  // are visible to the next search without an explicit rebuildIndex() call.
-  // Missing index or meta file is treated as stale — otherwise a failed
-  // saveIndex() would leave the stale in-memory DB active indefinitely.
-  if (indexDb && indexDir === memoryDir) {
+  if (state.db) {
     const indexPath = getIndexPath(memoryDir)
     const metaPath = getIndexMetaPath(memoryDir)
     if (!existsSync(indexPath) || !existsSync(metaPath)) {
@@ -253,10 +273,10 @@ export async function searchMemdirIndex(
     }
   }
 
-  if (!indexDb) return []
+  if (!state.db) return []
 
   try {
-    const results = await search(indexDb, { term: query, limit })
+    const results = await search(state.db, { term: query, limit })
     return results.hits.map(hit => {
       const doc = hit.document as any
       return {
@@ -275,11 +295,12 @@ export async function searchMemdirIndex(
 }
 
 export async function saveIndex(memoryDir: string): Promise<void> {
-  if (!indexDb) return
+  const state = indices.get(memoryDir)
+  if (!state?.db) return
   const indexPath = getIndexPath(memoryDir)
   const metaPath = getIndexMetaPath(memoryDir)
   try {
-    const data = await persist(indexDb, 'binary')
+    const data = await persist(state.db, 'binary')
     writeFileSync(indexPath, data as Buffer)
     const stats = getMdStats(memoryDir)
     const meta = { fileCount: stats.count, totalSize: stats.totalSize, contentHash: stats.contentHash }
@@ -290,6 +311,5 @@ export async function saveIndex(memoryDir: string): Promise<void> {
 }
 
 export function clearIndex(): void {
-  indexDb = null
-  indexDir = null
+  indices.clear()
 }
