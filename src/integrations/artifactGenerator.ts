@@ -250,12 +250,17 @@ function compareProviderPresetEntries(
     return 1
   }
 
-  if (leftPreset === 'custom') {
+  // Keep the generic custom endpoints together at the end of the picker,
+  // with the Anthropic-native option after the OpenAI-compatible one.
+  if (leftPreset === 'custom-anthropic') {
     return 1
   }
-  if (rightPreset === 'custom') {
+  if (rightPreset === 'custom-anthropic') {
     return -1
   }
+
+  if (leftPreset === 'custom') return 1
+  if (rightPreset === 'custom') return -1
 
   const descriptionDelta = PRESET_DESCRIPTION_COLLATOR.compare(
     String(left.description),

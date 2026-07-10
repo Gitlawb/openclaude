@@ -4,7 +4,7 @@ import { defineAnthropicProxy } from '../define.js'
 // first-party Anthropic preset, this route uses a provider-issued Bearer token.
 export default defineAnthropicProxy({
   id: 'custom-anthropic',
-  label: 'Custom Anthropic-compatible',
+  label: 'Custom (Anthropic-compatible)',
   classification: 'anthropic-proxy',
   defaultBaseUrl: 'https://anthropic-proxy.example',
   defaultModel: 'claude-sonnet-4-6',
@@ -29,8 +29,8 @@ export default defineAnthropicProxy({
   preset: {
     id: 'custom-anthropic',
     description: 'Any Anthropic Messages API-compatible provider',
-    label: 'Custom Anthropic-compatible',
-    name: 'Custom Anthropic-compatible',
+    label: 'Custom (Anthropic-compatible)',
+    name: 'Custom (Anthropic-compatible)',
     vendorId: 'anthropic',
     apiKeyEnvVars: ['ANTHROPIC_AUTH_TOKEN'],
     baseUrlEnvVars: ['ANTHROPIC_BASE_URL'],

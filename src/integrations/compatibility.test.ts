@@ -5,6 +5,7 @@ import {
   getGateway,
   getModelsForGateway,
   getVendor,
+  ORDERED_PROVIDER_PRESETS,
 } from './index.js'
 import {
   PRESET_VENDOR_MAP,
@@ -107,6 +108,13 @@ describe('compatibility mappings', () => {
       vendorId: 'anthropic',
       routeId: 'custom-anthropic',
     })
+  })
+
+  test('keeps custom provider presets at the bottom of the add-provider list', () => {
+    expect(ORDERED_PROVIDER_PRESETS.slice(-2)).toEqual([
+      'custom',
+      'custom-anthropic',
+    ])
   })
 
   test('Atlas Cloud gateway models do not resolve to NearAI-scoped descriptors', () => {

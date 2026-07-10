@@ -111,7 +111,7 @@ async function waitForCondition(
 
 // Provider list is sorted from generated preset metadata by description, with
 // Gitlawb Opengateway pinned first, Anthropic second, Codex OAuth injected
-// after DeepSeek, and Custom always pinned last. Keep the target-by-label
+// after DeepSeek, and the custom endpoints always pinned last. Keep the target-by-label
 // indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
 //
@@ -123,7 +123,6 @@ const PRESET_ORDER = [
   'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
-  'Custom Anthropic-compatible',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -155,7 +154,8 @@ const PRESET_ORDER = [
   'Xiaomi MiMo',
   'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
-  'Custom',
+  'Custom (OpenAI-compatible)',
+  'Custom (Anthropic-compatible)',
 ] as const
 
 async function navigateToPreset(
@@ -230,7 +230,7 @@ function mockProviderProfilesModule(options?: {
       if (preset === 'custom-anthropic') {
         return {
           provider: 'custom-anthropic',
-          name: 'Custom Anthropic-compatible',
+          name: 'Custom (Anthropic-compatible)',
           baseUrl: 'https://anthropic-proxy.example',
           model: 'claude-sonnet-4-6',
           apiKey: '',
@@ -675,7 +675,7 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'Custom')
+    await navigateToPreset(mounted.stdin, 'Custom (OpenAI-compatible)')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') &&
@@ -716,7 +716,7 @@ test('ProviderManager offers a token field for custom Anthropic-compatible provi
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Choose provider preset'),
     )
-    await navigateToPreset(mounted.stdin, 'Custom Anthropic-compatible')
+    await navigateToPreset(mounted.stdin, 'Custom (Anthropic-compatible)')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider name'))
     mounted.stdin.write('\r')
