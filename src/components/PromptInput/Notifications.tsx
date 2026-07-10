@@ -291,9 +291,12 @@ function NotificationContent({
   let notificationNode: ReactNode = null;
   if (notifications.current) {
     if ('jsx' in notifications.current) {
-      notificationNode = <Text wrap="truncate" key={notifications.current.key}>
-        {notifications.current.jsx}
-      </Text>;
+      const notificationJsx = notifications.current.jsx;
+      if (notificationJsx !== null && notificationJsx !== undefined && notificationJsx !== '' && typeof notificationJsx !== 'boolean') {
+        notificationNode = <Text wrap="truncate" key={notifications.current.key}>
+          {notificationJsx}
+        </Text>;
+      }
     } else if (notifications.current.text) {
       notificationNode = <Text color={notifications.current.color} dimColor={!notifications.current.color} wrap="truncate">
         {notifications.current.text}

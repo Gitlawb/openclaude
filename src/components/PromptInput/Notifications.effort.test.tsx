@@ -158,8 +158,7 @@ async function renderNotifications({
 test('renders effort as the stable footer fallback when no notification is active', async () => {
   const output = await renderNotifications({ effortValue: 'medium' })
 
-  expect(output).toContain('medium')
-  expect(output).toContain('/effort')
+  expect(output).toContain('medium · /effort')
 })
 
 test('updates the mounted effort footer when app state changes', async () => {
@@ -247,6 +246,19 @@ test('ignores empty text notifications when rendering the effort footer fallback
     currentNotification: {
       key: 'empty',
       text: '',
+      priority: 'low',
+    },
+  })
+
+  expect(output).toContain('medium · /effort')
+})
+
+test('ignores empty JSX notifications when rendering the effort footer fallback', async () => {
+  const output = await renderNotifications({
+    effortValue: 'medium',
+    currentNotification: {
+      key: 'empty-jsx',
+      jsx: null,
       priority: 'low',
     },
   })
