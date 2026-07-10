@@ -320,4 +320,36 @@ ${body}`
       expect(r2.every(r => !r.title.includes('Original ') || r.title.includes('Updated'))).toBe(true)
     })
   })
+
+  describe('per-directory isolation (P1 regression)', () => {
+    // CodeRabbit required: concurrent indexing of two distinct memory
+    // directories must not clobber each other's index state.
+
+    it('maintains separate index state for each memory directory', async () => {
+      const memDir2 = mkdtempSync(join(tmpdir(), 'vector-index-test-2-'))
+      try {
+        writeMem('dog.md', 'Dog', 'user', 'Dog info', 'Dogs are mammals')
+        writeFileSync(join(memDir2, 'cat.md'), '---\ntitle: Cat\ntype: user\ndescription: Cat info\n---\n\nCats are mammals', 'utf-8')
+
+        await initMemdirIndex(memDir)
+        await initMemdirIndex(memDir2)
+
+        const r1 = await searchMemdirIndex('Dog', memDir)
+        expect(r1.some(r => r.title === 'Dog')).toBe(true)
+        expect(r1.every(r => r.title !== 'Cat')).toBe(true)
+
+        const r2 = await searchMemdirIndex('Cat', memDir2)
+        expect(r2.some(r => r.title === 'Cat')).toBe(true)
+        expect(r2.every(r => r.title !== 'Dog')).toBe(true)
+
+        const r3 = await searchMemdirIndex('Cat', memDir)
+        expect(r3.length).toBe(0)
+
+        const r4 = await searchMemdirIndex('Dog', memDir2)
+        expect(r4.length).toBe(0)
+      } finally {
+        rmSync(memDir2, { recursive: true, force: true })
+      }
+    })
+  })
 })
