@@ -137,7 +137,7 @@ import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
-import { consumeInterruptionCorrectionReminder, shouldMarkInterruptionCorrection } from '../utils/interruptionCorrection.js';
+import { InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
@@ -980,12 +980,9 @@ export function REPL({
   // A user-cancelled model turn arms one hidden reminder for the next normal
   // local prompt. The query id prevents local command dispatch from being
   // mistaken for an active assistant turn.
-  const pendingInterruptionCorrectionSessionRef = useRef<string | null>(null);
-  const modelBoundQueryIdRef = useRef<string | null>(null);
+  const interruptionCorrectionTrackerRef = useRef(new InterruptionCorrectionTracker());
   const takeInterruptionCorrectionReminder = useCallback(() => {
-    const result = consumeInterruptionCorrectionReminder(pendingInterruptionCorrectionSessionRef.current, getSessionId());
-    pendingInterruptionCorrectionSessionRef.current = result.pendingSessionId;
-    return result.reminder;
+    return interruptionCorrectionTrackerRef.current.takeReminder(getSessionId());
   }, []);
 
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
@@ -2325,17 +2322,12 @@ export function REPL({
       proactiveModule?.pauseProactive();
     }
     const cancelContext = queryGuard.activeContext;
-    if (shouldMarkInterruptionCorrection({
+    interruptionCorrectionTrackerRef.current.handleCancellation({
       isUserInitiated,
       activeQueryId: cancelContext?.queryId ?? null,
-      modelBoundQueryId: modelBoundQueryIdRef.current,
-      isRemoteMode: activeRemote.isRemoteMode
-    })) {
-      pendingInterruptionCorrectionSessionRef.current = getSessionId();
-    }
-    if (cancelContext?.queryId === modelBoundQueryIdRef.current) {
-      modelBoundQueryIdRef.current = null;
-    }
+      isRemoteMode: activeRemote.isRemoteMode,
+      sessionId: getSessionId()
+    });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
       ...cancelContext,
@@ -3183,17 +3175,18 @@ export function REPL({
           return;
         }
       }
-      if (shouldQuery && !abortController.signal.aborted && queryGuard.activeContext?.queryId === queryContext.queryId) {
-        modelBoundQueryIdRef.current = queryContext.queryId;
-      }
+      interruptionCorrectionTrackerRef.current.bindModelTurn({
+        shouldQuery,
+        isAborted: abortController.signal.aborted,
+        activeQueryId: queryGuard.activeContext?.queryId ?? null,
+        queryId: queryContext.queryId
+      });
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
     } catch (error) {
       didThrow = true;
       throw error;
     } finally {
-      if (modelBoundQueryIdRef.current === queryContext.queryId) {
-        modelBoundQueryIdRef.current = null;
-      }
+      interruptionCorrectionTrackerRef.current.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();
