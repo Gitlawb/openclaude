@@ -13,9 +13,18 @@ import { publicBuildVersion } from '../../utils/version.js'
 const _realProvidersModule = await import(
   `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`,
 )
-mock.module('../../utils/model/providers.js', () => _realProvidersModule)
-mock.module('src/utils/model/providers.js', () => _realProvidersModule)
-const { getAnthropicClient } = await import('./client.js')
+const realProviders = {
+  getAPIProvider: _realProvidersModule.getAPIProvider,
+  usesAnthropicAccountFlow: _realProvidersModule.usesAnthropicAccountFlow,
+  isGithubNativeAnthropicMode: _realProvidersModule.isGithubNativeAnthropicMode,
+  getAPIProviderForStatsig: _realProvidersModule.getAPIProviderForStatsig,
+  isFirstPartyAnthropicBaseUrl: _realProvidersModule.isFirstPartyAnthropicBaseUrl,
+}
+mock.module('../../utils/model/providers.js', () => realProviders)
+mock.module('src/utils/model/providers.js', () => realProviders)
+const { getAnthropicClient } = await import(
+  `./client.js?real=${Date.now()}-${Math.random()}`,
+)
 
 type FetchType = typeof globalThis.fetch
 
