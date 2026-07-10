@@ -80,6 +80,19 @@ export function hasErrors(message: Message): boolean {
   return textContent.includes('error') || textContent.includes('fail') || textContent.includes('exception')
 }
 
+/**
+ * Chronological key for a message, in epoch milliseconds. Reads the envelope
+ * `timestamp` (an ISO-8601 string present on every Message variant), NOT
+ * `message.message.created_at` — that nested API-body field is never populated
+ * on our Message objects, so the old code always saw `undefined` and its
+ * recency scoring, tie-break and final chronological sort were all no-ops.
+ * Returns 0 for a missing/unparseable timestamp (sorts as oldest).
+ */
+function messageTimeMs(message: Message | undefined): number {
+  const parsed = message?.timestamp ? Date.parse(message.timestamp) : NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
 export function calculateRelevance(
   message: Message,
   options: PruningOptions,
@@ -104,7 +117,7 @@ export function calculateRelevance(
     score += 0.3
   }
 
-  const ageHours = (Date.now() - (message.message?.created_at ?? 0)) / (1000 * 60 * 60)
+  const ageHours = (Date.now() - messageTimeMs(message)) / (1000 * 60 * 60)
   if (ageHours < 1) {
     score += 0.15
   }
@@ -169,8 +182,8 @@ export function pruneByRelevance(
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    const aTime = a.group[0]?.message?.created_at ?? 0
-    const bTime = b.group[0]?.message?.created_at ?? 0
+    const aTime = messageTimeMs(a.group[0])
+    const bTime = messageTimeMs(b.group[0])
     return bTime - aTime
   })
 
@@ -191,7 +204,7 @@ export function pruneByRelevance(
     totalTokens += tokens
   }
 
-  return result.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
+  return result.sort((a, b) => messageTimeMs(a) - messageTimeMs(b))
 }
 
 export function getTopRelevantMessages(
