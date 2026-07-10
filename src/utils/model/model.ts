@@ -388,6 +388,13 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
+  // NVIDIA NIM uses OpenAI-compatible model ids. Keep this fallback aligned
+  // with the route descriptor so headless sessions never send a Claude model.
+  if (getAPIProvider() === 'nvidia-nim') {
+    return (
+      process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+    )
+  }
   // xAI provider: always use the configured Grok model (default grok-4.3)
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4.3'
