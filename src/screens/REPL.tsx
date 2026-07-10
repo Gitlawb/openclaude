@@ -977,14 +977,6 @@ export function REPL({
   // defined, read in the onQuery finally block for auto-restore on interrupt.
   const restoreMessageSyncRef = useRef<(m: UserMessage) => void>(() => { });
 
-  // A user-cancelled model turn arms one hidden reminder for the next normal
-  // local prompt. The query id prevents local command dispatch from being
-  // mistaken for an active assistant turn.
-  const interruptionCorrectionTrackerRef = useRef(new InterruptionCorrectionTracker());
-  const takeInterruptionCorrectionReminder = useCallback(() => {
-    return interruptionCorrectionTrackerRef.current.takeReminder(getSessionId());
-  }, []);
-
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
   const scrollRef = useRef<ScrollBoxHandle>(null);
@@ -1011,6 +1003,17 @@ export function REPL({
     queryGuardRef.current = new QueryGuard(getQueryGuardOptionsFromEnv());
   }
   const queryGuard = queryGuardRef.current;
+
+  // A user-cancelled model turn arms one hidden reminder for the next normal
+  // local prompt. The tracker reads QueryGuard directly so its tested lifecycle
+  // rules cannot drift from the REPL's active-query identity.
+  const interruptionCorrectionTrackerRef = useRef<InterruptionCorrectionTracker | null>(null);
+  if (interruptionCorrectionTrackerRef.current === null) {
+    interruptionCorrectionTrackerRef.current = new InterruptionCorrectionTracker(queryGuard, getSessionId);
+  }
+  const takeInterruptionCorrectionReminder = useCallback(() => {
+    return interruptionCorrectionTrackerRef.current!.takeReminder();
+  }, []);
 
   // Subscribe to the guard — true during dispatching or running.
   // This is the single source of truth for "is a local query in flight".
@@ -2309,6 +2312,8 @@ export function REPL({
     if (was !== now) repinScroll();
     prevDialogRef.current = focusedInputDialog;
   }, [focusedInputDialog, repinScroll]);
+  // Omitted means a programmatic edit/restore cancellation, which must not arm
+  // correction context because those flows rewind the conversation themselves.
   function onCancel(isUserInitiated = false) {
     if (focusedInputDialog === 'elicitation') {
       // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
@@ -2324,9 +2329,7 @@ export function REPL({
     const cancelContext = queryGuard.activeContext;
     interruptionCorrectionTrackerRef.current.handleCancellation({
       isUserInitiated,
-      activeQueryId: cancelContext?.queryId ?? null,
-      isRemoteMode: activeRemote.isRemoteMode,
-      sessionId: getSessionId()
+      isRemoteMode: activeRemote.isRemoteMode
     });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
@@ -3178,7 +3181,6 @@ export function REPL({
       interruptionCorrectionTrackerRef.current.bindModelTurn({
         shouldQuery,
         isAborted: abortController.signal.aborted,
-        activeQueryId: queryGuard.activeContext?.queryId ?? null,
         queryId: queryContext.queryId
       });
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);

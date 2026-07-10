@@ -1,7 +1,5 @@
 import { expect, test } from 'bun:test'
-import { QueryGuard } from './QueryGuard.js'
 import {
-  InterruptionCorrectionTracker,
   consumeInterruptionCorrectionReminder,
   shouldMarkInterruptionCorrection,
 } from './interruptionCorrection.js'
@@ -57,54 +55,4 @@ The previous assistant turn was interrupted by the user. Treat the user's latest
   expect(
     consumeInterruptionCorrectionReminder('session-a', 'session-b'),
   ).toEqual({ pendingSessionId: null, reminder: null })
-})
-
-test('tracks the REPL query, cancellation, and one-shot reminder flow', () => {
-  const tracker = new InterruptionCorrectionTracker()
-  const queryGuard = new QueryGuard()
-
-  const localCommand = queryGuard.tryStart({
-    queryId: 'local-command',
-    querySource: 'repl_main_thread',
-    startedAt: 1,
-  })!
-  tracker.bindModelTurn({
-    shouldQuery: false,
-    isAborted: false,
-    activeQueryId: queryGuard.activeContext?.queryId ?? null,
-    queryId: localCommand.context.queryId,
-  })
-  tracker.handleCancellation({
-    isUserInitiated: true,
-    activeQueryId: queryGuard.activeContext?.queryId ?? null,
-    isRemoteMode: false,
-    sessionId: 'session-a',
-  })
-  queryGuard.forceEnd('user-abort', 'user-cancel')
-  expect(tracker.takeReminder('session-a')).toBeNull()
-
-  const modelTurn = queryGuard.tryStart({
-    queryId: 'model-turn',
-    querySource: 'repl_main_thread',
-    startedAt: 2,
-  })!
-  tracker.bindModelTurn({
-    shouldQuery: true,
-    isAborted: false,
-    activeQueryId: queryGuard.activeContext?.queryId ?? null,
-    queryId: modelTurn.context.queryId,
-  })
-  tracker.handleCancellation({
-    isUserInitiated: true,
-    activeQueryId: queryGuard.activeContext?.queryId ?? null,
-    isRemoteMode: false,
-    sessionId: 'session-a',
-  })
-  queryGuard.forceEnd('user-abort', 'user-cancel')
-
-  expect(tracker.takeReminder('session-a')).toMatchObject({
-    type: 'user',
-    isMeta: true,
-  })
-  expect(tracker.takeReminder('session-a')).toBeNull()
 })

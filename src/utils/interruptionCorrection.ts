@@ -43,17 +43,23 @@ export class InterruptionCorrectionTracker {
   private pendingSessionId: string | null = null
   private modelBoundQueryId: string | null = null
 
+  constructor(
+    private readonly queryGuard: {
+      readonly activeContext: { queryId: string } | null
+    },
+    private readonly getSessionId: () => string,
+  ) {}
+
   bindModelTurn({
     shouldQuery,
     isAborted,
-    activeQueryId,
     queryId,
   }: {
     shouldQuery: boolean
     isAborted: boolean
-    activeQueryId: string | null
     queryId: string
   }): void {
+    const activeQueryId = this.queryGuard.activeContext?.queryId ?? null
     if (shouldQuery && !isAborted && activeQueryId === queryId) {
       this.modelBoundQueryId = queryId
     }
@@ -61,15 +67,12 @@ export class InterruptionCorrectionTracker {
 
   handleCancellation({
     isUserInitiated,
-    activeQueryId,
     isRemoteMode,
-    sessionId,
   }: {
     isUserInitiated: boolean
-    activeQueryId: string | null
     isRemoteMode: boolean
-    sessionId: string
   }): void {
+    const activeQueryId = this.queryGuard.activeContext?.queryId ?? null
     if (
       shouldMarkInterruptionCorrection({
         isUserInitiated,
@@ -78,7 +81,7 @@ export class InterruptionCorrectionTracker {
         isRemoteMode,
       })
     ) {
-      this.pendingSessionId = sessionId
+      this.pendingSessionId = this.getSessionId()
     }
     if (
       activeQueryId !== null &&
@@ -94,10 +97,10 @@ export class InterruptionCorrectionTracker {
     }
   }
 
-  takeReminder(sessionId: string): UserMessage | null {
+  takeReminder(): UserMessage | null {
     const result = consumeInterruptionCorrectionReminder(
       this.pendingSessionId,
-      sessionId,
+      this.getSessionId(),
     )
     this.pendingSessionId = result.pendingSessionId
     return result.reminder
