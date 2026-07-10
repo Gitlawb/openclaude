@@ -1011,8 +1011,9 @@ export function REPL({
   if (interruptionCorrectionTrackerRef.current === null) {
     interruptionCorrectionTrackerRef.current = new InterruptionCorrectionTracker(queryGuard, getSessionId);
   }
+  const interruptionCorrectionTracker = interruptionCorrectionTrackerRef.current;
   const takeInterruptionCorrectionReminder = useCallback(() => {
-    return interruptionCorrectionTrackerRef.current!.takeReminder();
+    return interruptionCorrectionTracker.takeReminder();
   }, []);
 
   // Subscribe to the guard — true during dispatching or running.
@@ -2327,7 +2328,7 @@ export function REPL({
       proactiveModule?.pauseProactive();
     }
     const cancelContext = queryGuard.activeContext;
-    interruptionCorrectionTrackerRef.current.handleCancellation({
+    interruptionCorrectionTracker.handleCancellation({
       isUserInitiated,
       isRemoteMode: activeRemote.isRemoteMode
     });
@@ -3178,7 +3179,7 @@ export function REPL({
           return;
         }
       }
-      interruptionCorrectionTrackerRef.current.bindModelTurn({
+      interruptionCorrectionTracker.bindModelTurn({
         shouldQuery,
         isAborted: abortController.signal.aborted,
         queryId: queryContext.queryId
@@ -3188,7 +3189,7 @@ export function REPL({
       didThrow = true;
       throw error;
     } finally {
-      interruptionCorrectionTrackerRef.current.finishModelTurn(queryContext.queryId);
+      interruptionCorrectionTracker.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();

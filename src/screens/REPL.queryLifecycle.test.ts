@@ -93,7 +93,7 @@ describe('REPL query lifecycle timeout logging', () => {
       onQueryStart,
     )
     const ownershipIndex = source.indexOf(
-      'interruptionCorrectionTrackerRef.current.bindModelTurn({',
+      'interruptionCorrectionTracker.bindModelTurn({',
       onQueryStart,
     )
     const modelExecutionIndex = source.indexOf(
@@ -105,7 +105,7 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(ownershipIndex).toBeGreaterThan(approvalIndex)
     expect(modelExecutionIndex).toBeGreaterThan(ownershipIndex)
     expect(source).toContain(
-      'interruptionCorrectionTrackerRef.current.finishModelTurn(queryContext.queryId)',
+      'interruptionCorrectionTracker.finishModelTurn(queryContext.queryId)',
     )
   })
 
