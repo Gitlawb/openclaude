@@ -21,7 +21,6 @@ import {
 import {
   firstPartyNameToCanonical,
   getCanonicalName,
-  getDefaultMainLoopModelSetting,
   type ModelShortName,
 } from './model/model.js'
 
@@ -166,10 +165,7 @@ export function getModelCosts(model: string, usage: Usage): ModelCosts {
   const costs = MODEL_COSTS[shortName]
   if (!costs) {
     trackUnknownModelCost(model, shortName)
-    return (
-      MODEL_COSTS[getCanonicalName(getDefaultMainLoopModelSetting())] ??
-      DEFAULT_UNKNOWN_MODEL_COST
-    )
+    return DEFAULT_UNKNOWN_MODEL_COST
   }
   return costs
 }
@@ -184,7 +180,8 @@ function trackUnknownModelCost(model: string, shortName: ModelShortName): void {
 }
 
 // Calculate the cost of a query in US dollars.
-// If the model's costs are not found, use the default model's costs.
+// Unknown models use the explicit unknown-model estimate and are marked in
+// session state; they must never inherit an unrelated configured default.
 export function calculateUSDCost(resolvedModel: string, usage: Usage): number {
   const modelCosts = getModelCosts(resolvedModel, usage)
   return tokensToUSDCost(modelCosts, usage)
