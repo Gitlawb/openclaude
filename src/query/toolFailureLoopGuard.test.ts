@@ -1,7 +1,14 @@
 import { expect, test } from 'bun:test'
 
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
+import { query, type QueryParams } from '../query.js'
+import type { QueryDeps } from './deps.js'
 import { getMissingToolResultAbortMessage } from '../utils/abortReasons.js'
+import {
+  createAssistantMessage,
+  createUserMessage,
+} from '../utils/messages.js'
+import { asSystemPrompt } from '../utils/systemPromptType.js'
 import {
   createToolFailureLoopGuardState,
   getToolFailureLoopThreshold,
@@ -66,6 +73,59 @@ function update(
   })
 }
 
+function makeQueryParams(callModel: QueryDeps['callModel']): QueryParams {
+  return {
+    messages: [createUserMessage({ content: 'inspect' })],
+    systemPrompt: asSystemPrompt([]),
+    userContext: {},
+    systemContext: {},
+    canUseTool: async () => ({ behavior: 'allow' }),
+    toolUseContext: {
+      abortController: new AbortController(),
+      getAppState: () => ({
+        fastMode: false,
+        mcp: { tools: [], clients: [] },
+        toolPermissionContext: { mode: 'default' },
+        sessionHooks: new Map(),
+        mainLoopModel: 'gpt-4o',
+        effortValue: undefined,
+        advisorModel: undefined,
+      }),
+      options: {
+        commands: [],
+        debug: false,
+        thinkingConfig: { type: 'disabled' },
+        tools: [],
+        verbose: false,
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: false,
+        agentDefinitions: { activeAgents: [], allAgents: [] },
+        appendSystemPrompt: undefined,
+        providerOverride: undefined,
+        mainLoopModel: 'gpt-4o',
+      },
+      addNotification: () => {},
+      messages: [],
+      setInProgressToolUseIDs: () => {},
+      setResponseLength: () => {},
+      updateFileHistoryState: () => {},
+      updateAttributionState: () => {},
+    } as unknown as QueryParams['toolUseContext'],
+    querySource: 'agent:builtin:general-purpose',
+    deps: {
+      callModel,
+      microcompact: async messages => ({ messages }),
+      autocompact: async () => ({
+        wasCompacted: false,
+        compactionResult: null,
+        consecutiveFailures: undefined,
+      }),
+      uuid: () => '00000000-0000-4000-8000-000000000000',
+    } as unknown as QueryDeps,
+  }
+}
+
 test('three identical tool failures trip the guard', () => {
   const state = createToolFailureLoopGuardState()
 
@@ -115,6 +175,29 @@ test('persistent signature failures emit one advisory before the guard trips', (
     toolResult('c', 'Error writing file: failed to replace text'),
   ])
   expect(trip.tripped).toBe(true)
+})
+
+test('a mixed success and persistent failure batch preserves its advisory', () => {
+  const state = createToolFailureLoopGuardState()
+
+  update(state, [toolUse('a', 'Edit')], [
+    toolResult('a', 'Error writing file: failed to replace text'),
+  ])
+  const decision = update(
+    state,
+    [toolUse('b', 'Edit'), toolUse('c', 'Read')],
+    [
+      toolResult('b', 'Error writing file: failed to replace text'),
+      toolResult('c', 'file contents', false),
+    ],
+  )
+
+  if (decision.tripped || !decision.advisory) {
+    throw new Error('Expected a mixed batch to preserve the advisory')
+  }
+  expect(decision.advisory.toolName).toBe('Edit')
+  expect(decision.advisory.errorCategory).toBe('FileWriteError')
+  expect(decision.advisory.message).toContain('2/3 times')
 })
 
 test('advisories only use the persistent signature counter', () => {
@@ -853,19 +936,42 @@ test('query loop emits a path-safe diagnostic when the guard trips', async () =>
 })
 
 test('query loop forwards an advisory to the next model turn', async () => {
-  const source = await Bun.file(querySourceFile).text()
-  const advisoryIndex = source.indexOf('if (toolFailureLoopDecision.advisory)')
-  const maxTurnsIndex = source.indexOf("return { reason: 'max_turns'")
-  const recursiveCallIndex = source.indexOf("queryCheckpoint('query_recursive_call')")
+  const modelRequests: unknown[][] = []
+  let modelCalls = 0
 
-  expect(advisoryIndex).toBeGreaterThan(-1)
-  expect(maxTurnsIndex).toBeGreaterThan(-1)
-  expect(recursiveCallIndex).toBeGreaterThan(advisoryIndex)
-  expect(advisoryIndex).toBeGreaterThan(maxTurnsIndex)
-  expect(source.slice(advisoryIndex, recursiveCallIndex)).toContain(
-    'isMeta: true',
-  )
-  expect(source.slice(advisoryIndex, recursiveCallIndex)).toContain(
-    'toolResults.push(advisory)',
-  )
+  for await (const _message of query(
+    makeQueryParams(
+      async function* ({ messages }) {
+        modelRequests.push(messages)
+        modelCalls++
+        if (modelCalls <= 2) {
+          yield createAssistantMessage({
+            content: [
+              {
+                type: 'tool_use',
+                id: `missing-${modelCalls}`,
+                name: 'MissingTool',
+                input: {},
+              },
+            ],
+          })
+          return
+        }
+        yield createAssistantMessage({ content: 'done' })
+      } as QueryDeps['callModel'],
+    ),
+  )) {
+    // Drain the generator so the third model call receives the second turn.
+  }
+
+  const advisory = modelRequests[2]?.find(
+    (message: any) =>
+      message?.type === 'user' &&
+      message.isMeta === true &&
+      typeof message.message?.content === 'string' &&
+      message.message.content.includes('Warning: repeated tool failures'),
+  ) as { message: { content: string } } | undefined
+
+  expect(modelRequests).toHaveLength(3)
+  expect(advisory?.message.content).toContain('`MissingTool` failed 2/3 times')
 })

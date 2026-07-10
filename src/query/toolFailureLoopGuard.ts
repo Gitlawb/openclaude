@@ -193,7 +193,7 @@ export function updateToolFailureLoopGuard(params: {
 
   if (hasSuccess) {
     resetToolFailureLoopGuard(params.state, successfulMutationPaths)
-    return { tripped: false }
+    return advisory ? { tripped: false, advisory } : { tripped: false }
   }
 
   for (const failure of failures) {
