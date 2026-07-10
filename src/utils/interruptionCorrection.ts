@@ -38,3 +38,68 @@ export function consumeInterruptionCorrectionReminder(
       : null,
   }
 }
+
+export class InterruptionCorrectionTracker {
+  private pendingSessionId: string | null = null
+  private modelBoundQueryId: string | null = null
+
+  bindModelTurn({
+    shouldQuery,
+    isAborted,
+    activeQueryId,
+    queryId,
+  }: {
+    shouldQuery: boolean
+    isAborted: boolean
+    activeQueryId: string | null
+    queryId: string
+  }): void {
+    if (shouldQuery && !isAborted && activeQueryId === queryId) {
+      this.modelBoundQueryId = queryId
+    }
+  }
+
+  handleCancellation({
+    isUserInitiated,
+    activeQueryId,
+    isRemoteMode,
+    sessionId,
+  }: {
+    isUserInitiated: boolean
+    activeQueryId: string | null
+    isRemoteMode: boolean
+    sessionId: string
+  }): void {
+    if (
+      shouldMarkInterruptionCorrection({
+        isUserInitiated,
+        activeQueryId,
+        modelBoundQueryId: this.modelBoundQueryId,
+        isRemoteMode,
+      })
+    ) {
+      this.pendingSessionId = sessionId
+    }
+    if (
+      activeQueryId !== null &&
+      activeQueryId === this.modelBoundQueryId
+    ) {
+      this.modelBoundQueryId = null
+    }
+  }
+
+  finishModelTurn(queryId: string): void {
+    if (this.modelBoundQueryId === queryId) {
+      this.modelBoundQueryId = null
+    }
+  }
+
+  takeReminder(sessionId: string): UserMessage | null {
+    const result = consumeInterruptionCorrectionReminder(
+      this.pendingSessionId,
+      sessionId,
+    )
+    this.pendingSessionId = result.pendingSessionId
+    return result.reminder
+  }
+}

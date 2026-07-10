@@ -3,8 +3,13 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realAnalyticsModule from '../services/analytics/index.js'
 import { getCommandQueue, resetCommandQueue } from './messageQueueManager.js'
 import { createUserMessage } from './messages.js'
+import * as realProcessUserInputModule from './processUserInput/processUserInput.js'
+
+const realAnalytics = { ...realAnalyticsModule }
+const realProcessUserInput = { ...realProcessUserInputModule }
 
 describe('handlePromptSubmit', () => {
   beforeEach(async () => {
@@ -19,6 +24,11 @@ describe('handlePromptSubmit', () => {
     try {
       resetCommandQueue()
       mock.restore()
+      mock.module('src/services/analytics/index.js', () => realAnalytics)
+      mock.module(
+        './processUserInput/processUserInput.js',
+        () => realProcessUserInput,
+      )
     } finally {
       releaseSharedMutationLock()
     }

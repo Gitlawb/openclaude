@@ -65,19 +65,13 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(body).toContain('logCompletedLifecycle(guardCompletedContext)')
   })
 
-  test('wires one-shot correction state to exact local model-turn cancellation', () => {
+  test('wires the correction tracker to local model-turn cancellation', () => {
     expect(source).toContain(
-      'const pendingInterruptionCorrectionSessionRef = useRef<string | null>(null)',
-    )
-    expect(source).toContain(
-      'const modelBoundQueryIdRef = useRef<string | null>(null)',
-    )
-    expect(source).toContain(
-      'modelBoundQueryIdRef.current = queryContext.queryId',
+      'const interruptionCorrectionTrackerRef = useRef(new InterruptionCorrectionTracker())',
     )
 
     const onCancelBody = getOnCancelBody()
-    expect(onCancelBody).toContain('shouldMarkInterruptionCorrection({')
+    expect(onCancelBody).toContain('.handleCancellation({')
     expect(onCancelBody).toContain('isUserInitiated')
     expect(onCancelBody).toContain('activeRemote.isRemoteMode')
     expect(source).toContain('onCancel: () => onCancel(true)')
@@ -94,7 +88,7 @@ describe('REPL query lifecycle timeout logging', () => {
       onQueryStart,
     )
     const ownershipIndex = source.indexOf(
-      'modelBoundQueryIdRef.current = queryContext.queryId',
+      'interruptionCorrectionTrackerRef.current.bindModelTurn({',
       onQueryStart,
     )
     const modelExecutionIndex = source.indexOf(
@@ -105,5 +99,8 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(approvalIndex).toBeGreaterThan(onQueryStart)
     expect(ownershipIndex).toBeGreaterThan(approvalIndex)
     expect(modelExecutionIndex).toBeGreaterThan(ownershipIndex)
+    expect(source).toContain(
+      'interruptionCorrectionTrackerRef.current.finishModelTurn(queryContext.queryId)',
+    )
   })
 })
