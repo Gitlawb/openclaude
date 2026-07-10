@@ -103,7 +103,7 @@ export async function extractFactsIntoMemdir(
   // Also redact known API key / token patterns so they are not captured by
   // the backtick or technical-concept extractors.
   const SECRET_PATTERN =
-    /(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-)[A-Za-z0-9._-]{8,}/g
+    /(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-|AKIA|ASIA|glpat-|hf_)[A-Za-z0-9._-]{8,}/g
 
   const scrubbedContent = content
     .replace(
@@ -172,6 +172,12 @@ export async function extractFactsIntoMemdir(
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
+      // Skip values that look like secrets: known credential prefixes,
+      // redacted placeholders, or long random-looking tokens (≥20 chars
+      // with mixed case + digits, no natural-word characters).
+      if (/(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-|AKIA|ASIA|glpat-|hf_)/.test(symbol)) continue
+      if (/\[REDACTED/i.test(symbol)) continue
+      if (symbol.length >= 20 && /[a-z]/.test(symbol) && /[A-Z]/.test(symbol) && /\d/.test(symbol)) continue
       cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
     }
   }
