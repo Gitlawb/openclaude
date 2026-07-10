@@ -278,10 +278,68 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   expect(capturedHeaders).toBeDefined()
 })
 
+test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requiring an API key', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
+  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+
+  const fetchOverride = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_custom_anthropic',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+    fetchOverride,
+  })
+
+  await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+  })
+
+  expect(capturedUrl).toBe('https://anthropic.example/api/v1/messages')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer custom-anthropic-token')
+  expect(capturedHeaders?.get('x-api-key')).toBeNull()
+})
+
 test('routes Gemini provider requests through the OpenAI-compatible shim', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined
   let capturedBody: Record<string, unknown> | undefined
+
+  process.env.ANTHROPIC_AUTH_TOKEN = 'must-not-reach-gemini'
 
   globalThis.fetch = (async (input, init) => {
     capturedUrl =

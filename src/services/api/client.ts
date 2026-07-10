@@ -480,8 +480,17 @@ export async function getAnthropicClient({
 
   const isClaudeAiSubscriber =
     shouldUseFirstPartyAuth && isClaudeAISubscriber()
+  const anthropicAuthToken = process.env.ANTHROPIC_AUTH_TOKEN?.trim()
+  const usesCustomAnthropicAuthToken = Boolean(
+    anthropicAuthToken &&
+      getAPIProvider() === 'firstParty' &&
+      !isFirstPartyAnthropicBaseUrl(),
+  )
 
-  if (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) {
+  if (
+    (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) ||
+    usesCustomAnthropicAuthToken
+  ) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
@@ -733,7 +742,7 @@ export async function getAnthropicClient({
 
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAiSubscriber
+    apiKey: isClaudeAiSubscriber || usesCustomAnthropicAuthToken
       ? null
       : useMiniMaxNativeProvider
         ? process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
