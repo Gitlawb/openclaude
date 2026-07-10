@@ -57,6 +57,17 @@ test('custom Anthropic bearer tokens use native custom authentication', () => {
   ).toBe(true)
 })
 
+test('providerOverride routing does not use custom Anthropic bearer auth', () => {
+  expect(
+    shouldUseCustomAnthropicBearerAuth({
+      providerOverride,
+      apiProvider: 'firstParty',
+      isFirstPartyBaseUrl: false,
+      authToken: 'custom-token',
+    }),
+  ).toBe(false)
+})
+
 test('custom Anthropic bearer tokens are never forwarded to shim routes', () => {
   expect(
     shouldUseCustomAnthropicBearerAuth({

@@ -905,6 +905,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
   const currentValue = draft[currentStepKey]
+  const displayStep =
+    draftProvider === 'custom-anthropic' && currentStepKey === 'apiKey'
+      ? {
+          ...currentStep,
+          label: 'Access token',
+          placeholder: 'Bearer token for this endpoint',
+          helpText: 'Sent as Authorization: Bearer <token>.',
+        }
+      : currentStep
 
   // Memoize menu options to prevent unnecessary re-renders when navigating
   // the select menu. Without this, each arrow key press creates a new options
@@ -1912,8 +1921,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function handleFormSubmit(value: string): void {
     const trimmed = value.trim()
 
-    if (!currentStep.optional && trimmed.length === 0) {
-      setErrorMessage(`${currentStep.label} is required.`)
+    if (!displayStep.optional && trimmed.length === 0) {
+      setErrorMessage(`${displayStep.label} is required.`)
       return
     }
 
@@ -2158,16 +2167,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderForm(): React.ReactNode {
-    const isCustomAnthropic = draftProvider === 'custom-anthropic'
-    const displayStep =
-      isCustomAnthropic && currentStepKey === 'apiKey'
-        ? {
-            ...currentStep,
-            label: 'Access token',
-            placeholder: 'Bearer token for this endpoint',
-            helpText: 'Sent as Authorization: Bearer <token>.',
-          }
-        : currentStep
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
