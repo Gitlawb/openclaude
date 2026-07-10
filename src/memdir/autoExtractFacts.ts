@@ -100,10 +100,17 @@ export async function extractFactsIntoMemdir(
 
   // Build scrubbed content for downstream extractors so env values (which may
   // contain secrets, paths, or code) are not re-extracted as concept facts.
-  const scrubbedContent = content.replace(
-    new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
-    match => `${match.split('=')[0]}=[REDACTED]`,
-  )
+  // Also redact known API key / token patterns so they are not captured by
+  // the backtick or technical-concept extractors.
+  const SECRET_PATTERN =
+    /(?:sk-(?:ant-)?|AIza|gh[opusr]_|github_pat_|xox[baprs]-)[A-Za-z0-9._-]{8,}/g
+
+  const scrubbedContent = content
+    .replace(
+      new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
+      match => `${match.split('=')[0]}=[REDACTED]`,
+    )
+    .replace(SECRET_PATTERN, '[REDACTED_SECRET]')
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
