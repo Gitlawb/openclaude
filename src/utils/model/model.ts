@@ -30,6 +30,7 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
+import { getRouteDefaultModel } from '../../integrations/routeMetadata.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -392,7 +393,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // with the route descriptor so headless sessions never send a Claude model.
   if (getAPIProvider() === 'nvidia-nim') {
     return (
-      process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+      process.env.OPENAI_MODEL ||
+      getRouteDefaultModel('nvidia-nim') ||
+      'nvidia/llama-3.1-nemotron-70b-instruct'
     )
   }
   // xAI provider: always use the configured Grok model (default grok-4.3)

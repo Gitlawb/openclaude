@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 test('unknown models do not inherit the configured default model price', async () => {
-  mock.module('./model.js', () => ({
+  mock.module('./model/model.js', () => ({
     firstPartyNameToCanonical: (model: string) => {
       if (model.includes('claude-haiku-4-5')) return 'claude-haiku-4-5'
       return model

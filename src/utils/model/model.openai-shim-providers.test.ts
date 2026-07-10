@@ -14,6 +14,7 @@ import {
   clearPluginSettingsBase,
   resetSettingsCache,
 } from '../settings/settingsCache.js'
+import { getRouteDefaultModel } from '../../integrations/routeMetadata.js'
 async function importFreshModelModule() {
   mock.restore()
   mock.module('./providers.js', () => ({
@@ -325,7 +326,7 @@ test('getDefaultMainLoopModelSetting falls back to the NVIDIA NIM descriptor def
 
   const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe(
-    'nvidia/llama-3.1-nemotron-70b-instruct',
+    getRouteDefaultModel('nvidia-nim'),
   )
 })
 
