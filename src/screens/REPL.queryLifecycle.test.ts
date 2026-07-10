@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js'
+import { QueryGuard } from '../utils/QueryGuard.js'
 
 const source = readFileSync(join(import.meta.dirname, 'REPL.tsx'), 'utf8')
 
@@ -67,7 +69,10 @@ describe('REPL query lifecycle timeout logging', () => {
 
   test('wires the correction tracker to local model-turn cancellation', () => {
     expect(source).toContain(
-      'const interruptionCorrectionTrackerRef = useRef(new InterruptionCorrectionTracker())',
+      'const interruptionCorrectionTrackerRef = useRef<InterruptionCorrectionTracker | null>(null)',
+    )
+    expect(source).toContain(
+      'new InterruptionCorrectionTracker(queryGuard, getSessionId)',
     )
 
     const onCancelBody = getOnCancelBody()
@@ -102,5 +107,56 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(source).toContain(
       'interruptionCorrectionTrackerRef.current.finishModelTurn(queryContext.queryId)',
     )
+  })
+
+  test('executes correction arming and consumption through QueryGuard', () => {
+    const queryGuard = new QueryGuard()
+    let sessionId = 'session-a'
+    const tracker = new InterruptionCorrectionTracker(
+      queryGuard,
+      () => sessionId,
+    )
+
+    const localCommand = queryGuard.tryStart({
+      queryId: 'local-command',
+      querySource: 'repl_main_thread',
+      startedAt: 1,
+    })!
+    tracker.bindModelTurn({
+      shouldQuery: false,
+      isAborted: false,
+      queryId: localCommand.context.queryId,
+    })
+    tracker.handleCancellation({
+      isUserInitiated: true,
+      isRemoteMode: false,
+    })
+    queryGuard.forceEnd('user-abort', 'user-cancel')
+    expect(tracker.takeReminder()).toBeNull()
+
+    const modelTurn = queryGuard.tryStart({
+      queryId: 'model-turn',
+      querySource: 'repl_main_thread',
+      startedAt: 2,
+    })!
+    tracker.bindModelTurn({
+      shouldQuery: true,
+      isAborted: false,
+      queryId: modelTurn.context.queryId,
+    })
+    tracker.handleCancellation({
+      isUserInitiated: true,
+      isRemoteMode: false,
+    })
+    queryGuard.forceEnd('user-abort', 'user-cancel')
+
+    expect(tracker.takeReminder()).toMatchObject({
+      type: 'user',
+      isMeta: true,
+    })
+    expect(tracker.takeReminder()).toBeNull()
+
+    sessionId = 'session-b'
+    expect(tracker.takeReminder()).toBeNull()
   })
 })

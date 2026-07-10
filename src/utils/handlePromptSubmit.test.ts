@@ -3,7 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import * as realAnalyticsModule from '../services/analytics/index.js'
+import * as realAnalyticsModule from 'src/services/analytics/index.js'
 import { getCommandQueue, resetCommandQueue } from './messageQueueManager.js'
 import { createUserMessage } from './messages.js'
 import * as realProcessUserInputModule from './processUserInput/processUserInput.js'
