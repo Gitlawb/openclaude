@@ -467,6 +467,43 @@ describe('applyProviderFlag - ollama', () => {
   })
 })
 
+describe('applyProviderFlag - explicit provider base URL defaults', () => {
+  const providers = [
+    { provider: 'ollama', baseUrl: 'http://localhost:11434/v1' },
+    {
+      provider: 'nvidia-nim',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+    },
+    { provider: 'bankr', baseUrl: 'https://llm.bankr.bot/v1' },
+    { provider: 'xai', baseUrl: 'https://api.x.ai/v1' },
+    {
+      provider: 'xiaomi-mimo',
+      baseUrl: 'https://api.xiaomimimo.com/v1',
+    },
+    { provider: 'venice', baseUrl: 'https://api.venice.ai/api/v1' },
+  ] as const
+
+  for (const { provider, baseUrl } of providers) {
+    test(`${provider} replaces a stale known provider base URL`, () => {
+      process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+      const result = applyProviderFlag(provider, [])
+
+      expect(result.error).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+    })
+
+    test(`${provider} preserves a custom unknown base URL`, () => {
+      process.env.OPENAI_BASE_URL = 'https://proxy.example.com/v1'
+
+      const result = applyProviderFlag(provider, [])
+
+      expect(result.error).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
+    })
+  }
+})
+
 describe('applyProviderFlag - descriptor-backed openai-compatible routes', () => {
   test('deepseek applies generic openai-compatible routing with descriptor defaults', () => {
     const result = applyProviderFlag('deepseek', [])

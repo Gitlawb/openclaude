@@ -426,7 +426,10 @@ export function applyProviderFlag(
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'http://localhost:11434/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'http://localhost:11434/v1',
+      )
       if (!process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = 'ollama'
       }
@@ -435,7 +438,10 @@ export function applyProviderFlag(
 
     case 'nvidia-nim':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1',
+      )
       process.env.NVIDIA_NIM = '1'
       if (process.env.NVIDIA_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.NVIDIA_API_KEY
@@ -446,7 +452,10 @@ export function applyProviderFlag(
 
     case 'bankr':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://llm.bankr.bot/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://llm.bankr.bot/v1',
+      )
       process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -506,7 +515,10 @@ export function applyProviderFlag(
 
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.x.ai/v1',
+      )
       process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -516,7 +528,10 @@ export function applyProviderFlag(
 
     case 'xiaomi-mimo':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1',
+      )
       process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -539,7 +554,10 @@ export function applyProviderFlag(
 
     case 'venice':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.venice.ai/api/v1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.venice.ai/api/v1',
+      )
       process.env.OPENAI_MODEL ??= defaultModel ?? 'venice-uncensored'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {

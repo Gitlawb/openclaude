@@ -879,7 +879,16 @@ function routeSupportsOpenAIShimOption(
   option: 'supportsApiFormatSelection' | 'supportsAuthHeaders',
 ): boolean {
   const descriptor = getRouteDescriptor(routeId)
-  if (!descriptor || descriptor.transportConfig.kind !== 'openai-compatible') {
+  if (!descriptor) {
+    return false
+  }
+
+  const transportKind = descriptor.transportConfig.kind
+  const supportsOptionForTransport =
+    transportKind === 'openai-compatible' ||
+    (option === 'supportsAuthHeaders' && transportKind === 'local')
+
+  if (!supportsOptionForTransport) {
     return false
   }
 

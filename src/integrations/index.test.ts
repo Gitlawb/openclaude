@@ -40,6 +40,13 @@ describe('loaded registry validation', () => {
     expect(routeSupportsCustomHeaders('custom-anthropic')).toBe(true)
   })
 
+  test('local gateways support auth headers without API-format selection', () => {
+    for (const routeId of ['ollama', 'lmstudio']) {
+      expect(routeSupportsApiFormatSelection(routeId)).toBe(false)
+      expect(routeSupportsAuthHeaders(routeId)).toBe(true)
+    }
+  })
+
   test('route catalogs do not duplicate defaultModel with catalog default flags', () => {
     const routes = [...getAllVendors(), ...getAllGateways()]
     expect(

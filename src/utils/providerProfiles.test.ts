@@ -694,6 +694,44 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('local profiles apply auth-header env without API-format selection', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const localProfiles = [
+      {
+        name: 'Ollama',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'llama3.1:8b',
+      },
+      {
+        name: 'LM Studio',
+        baseUrl: 'http://localhost:1234/v1',
+        model: 'local-model',
+      },
+    ]
+
+    for (const localProfile of localProfiles) {
+      applyProviderProfileToProcessEnv(
+        buildProfile({
+          ...localProfile,
+          provider: 'openai',
+          apiFormat: 'responses',
+          authHeader: 'X-API-Key',
+          authScheme: 'raw',
+          authHeaderValue: `${localProfile.name}-secret`,
+        }),
+      )
+
+      expect(process.env.OPENAI_BASE_URL).toBe(localProfile.baseUrl)
+      expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+      expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+      expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+        `${localProfile.name}-secret`,
+      )
+      expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    }
+  })
+
   test('minimax profile ignores advanced OpenAI-compatible auth settings', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -2589,6 +2627,76 @@ describe('setActiveProviderProfile', () => {
         OPENAI_BASE_URL: 'http://localhost:11434/v1',
         OPENAI_MODEL: 'llama3.1:8b',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists local profile auth headers without API-format selection', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const localProfiles = [
+        {
+          id: 'ollama_auth',
+          name: 'Ollama',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'llama3.1:8b',
+        },
+        {
+          id: 'lmstudio_auth',
+          name: 'LM Studio',
+          baseUrl: 'http://localhost:1234/v1',
+          model: 'local-model',
+        },
+      ]
+
+      for (const localProfile of localProfiles) {
+        const profile = buildProfile({
+          ...localProfile,
+          provider: 'openai',
+          apiKey: '',
+          apiFormat: 'responses',
+          authHeader: 'X-API-Key',
+          authScheme: 'raw',
+          authHeaderValue: `${localProfile.name}-secret`,
+        })
+        saveMockGlobalConfig(current => ({
+          ...current,
+          providerProfiles: [profile],
+        }))
+
+        const result = setActiveProviderProfile(localProfile.id, { configDir })
+        const persisted = JSON.parse(
+          readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+        )
+
+        expect(result?.authHeader).toBe('X-API-Key')
+        expect(result?.authScheme).toBe('raw')
+        expect(result?.authHeaderValue).toBe(`${localProfile.name}-secret`)
+        expect(result?.apiFormat).toBeUndefined()
+        expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+        expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+        expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+          `${localProfile.name}-secret`,
+        )
+        expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+        expect(persisted.profile).toBe('openai')
+        expect(persisted.env).toEqual({
+          OPENAI_BASE_URL: localProfile.baseUrl,
+          OPENAI_MODEL: localProfile.model,
+          OPENAI_AUTH_HEADER: 'X-API-Key',
+          OPENAI_AUTH_SCHEME: 'raw',
+          OPENAI_AUTH_HEADER_VALUE: `${localProfile.name}-secret`,
+        })
+      }
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
