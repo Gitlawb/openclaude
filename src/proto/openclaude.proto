@@ -31,6 +31,11 @@ message ChatRequest {
   reserved 3;                   // Reserved to prevent accidental reuse
   optional string model = 4;
   string session_id = 5;        // Non-empty = cross-stream session persistence
+  reserved 6;                   // Held for a pending bypass_permissions proposal
+  optional string system_prompt = 7; // Replaces the default system prompt entirely
+                                     // (QueryEngine customSystemPrompt). Lets callers
+                                     // repurpose the agent (personas, structured-output
+                                     // responders) instead of the built-in identity.
 }
 
 message UserInput {
