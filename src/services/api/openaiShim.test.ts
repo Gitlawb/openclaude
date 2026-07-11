@@ -406,6 +406,33 @@ function makeChatCompletionResponse(model: string): Response {
   )
 }
 
+function makeGithubChatFallbackResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      error: { message: '/chat/completions is not accessible for this model' },
+    }),
+    { status: 400, headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
+function makeResponsesApiResponse(model: string): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'resp-fallback-test',
+      model,
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'ok' }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }),
+    { headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
 function pendingFetchUntilAbort(
   init: RequestInit | undefined,
 ): Promise<Response> {
@@ -9730,6 +9757,110 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   const data = JSON.stringify(responseData)
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
+
+test('GitHub Copilot responses fallback retries after a pre-header timeout', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'test-token'
+  process.env.API_TIMEOUT_MS = '20'
+  const requestUrls: string[] = []
+
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    requestUrls.push(url)
+    if (url.endsWith('/chat/completions')) {
+      return makeGithubChatFallbackResponse()
+    }
+    if (requestUrls.length === 2) {
+      return pendingFetchUntilAbort(init)
+    }
+    return makeResponsesApiResponse('gpt-4')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const response = await waitForPromise(
+    client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+    500,
+    'GitHub responses fallback timeout retry did not settle',
+  )
+
+  expect(response).toBeDefined()
+  expect(requestUrls).toEqual([
+    'https://api.githubcopilot.com/chat/completions',
+    'https://api.githubcopilot.com/responses',
+    'https://api.githubcopilot.com/chat/completions',
+    'https://api.githubcopilot.com/responses',
+  ])
+})
+
+test('GitHub Copilot responses fallback preserves caller abort without retrying', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'test-token'
+  process.env.API_TIMEOUT_MS = '200'
+  let fetchCalls = 0
+
+  globalThis.fetch = (async (input, init) => {
+    fetchCalls++
+    if (String(input).endsWith('/chat/completions')) {
+      return makeGithubChatFallbackResponse()
+    }
+    return pendingFetchUntilAbort(init)
+  }) as unknown as FetchType
+
+  const caller = new AbortController()
+  const callerReason = new DOMException('Cancelled by user', 'AbortError')
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const request = client.beta.messages.create(
+    {
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    },
+    { signal: caller.signal },
+  )
+  setTimeout(() => caller.abort(callerReason), 10)
+
+  await expect(
+    waitForPromise(request, 500, 'GitHub responses fallback abort did not settle'),
+  ).rejects.toBe(callerReason)
+  expect(fetchCalls).toBe(2)
+})
+
+test('GitHub Copilot responses fallback does not retry non-retryable HTTP failures', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'test-token'
+  let fetchCalls = 0
+
+  globalThis.fetch = (async input => {
+    fetchCalls++
+    if (String(input).endsWith('/chat/completions')) {
+      return makeGithubChatFallbackResponse()
+    }
+    return new Response(
+      JSON.stringify({ error: { message: 'invalid token' } }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toMatchObject({ status: 401 })
+  expect(fetchCalls).toBe(2)
+})
 
 test('GitHub Copilot 401 chat_completions retries with refreshed token', async () => {
   const realModule = realGithubModelsCredentials
