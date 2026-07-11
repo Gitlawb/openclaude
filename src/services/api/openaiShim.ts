@@ -125,6 +125,7 @@ const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
+const DEFAULT_API_TIMEOUT_MS = 600_000
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
@@ -145,6 +146,24 @@ class StreamIdleTimeoutError extends Error {
     super(`Stream idle timeout - no chunks received for ${timeoutMs}ms`)
     this.name = 'StreamIdleTimeoutError'
   }
+}
+
+class ResponseHeadersTimeoutError extends Error {
+  constructor(timeoutMs: number, url: string) {
+    super(
+      `OpenAI-compatible request received no response headers within ${timeoutMs}ms (API_TIMEOUT_MS) from ${url}`,
+    )
+    this.name = 'ResponseHeadersTimeoutError'
+  }
+}
+
+function preserveCallerAbortError(
+  error: unknown,
+  callerSignal: AbortSignal,
+): unknown {
+  return error instanceof ResponseHeadersTimeoutError
+    ? callerSignal.reason ?? error
+    : error
 }
 
 function createStreamAbortError(): DOMException {
@@ -194,6 +213,67 @@ export function getStreamIdleTimeoutMs(): number {
   return Number.isSafeInteger(parsed) && parsed > 0
     ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
     : DEFAULT_STREAM_IDLE_TIMEOUT_MS
+}
+
+export function getApiTimeoutMs(): number {
+  const raw = process.env.API_TIMEOUT_MS?.trim()
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_API_TIMEOUT_MS
+  const parsed = Number(raw)
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
+    : DEFAULT_API_TIMEOUT_MS
+}
+
+function combineRequestSignals(
+  callerSignal: AbortSignal | undefined,
+  deadlineSignal: AbortSignal,
+): {
+  signal: AbortSignal
+  cleanupAfterHeaders: () => void
+  cleanup: () => void
+} {
+  if (!callerSignal) {
+    return {
+      signal: deadlineSignal,
+      cleanupAfterHeaders: () => {},
+      cleanup: () => {},
+    }
+  }
+
+  if (typeof AbortSignal.any === 'function') {
+    return {
+      signal: AbortSignal.any([callerSignal, deadlineSignal]),
+      cleanupAfterHeaders: () => {},
+      cleanup: () => {},
+    }
+  }
+
+  const combined = new AbortController()
+  const abortFromCaller = () => {
+    deadlineSignal.removeEventListener('abort', abortFromDeadline)
+    combined.abort(callerSignal.reason)
+  }
+  const abortFromDeadline = () => {
+    callerSignal.removeEventListener('abort', abortFromCaller)
+    combined.abort(deadlineSignal.reason)
+  }
+  const cleanupAfterHeaders = () => {
+    deadlineSignal.removeEventListener('abort', abortFromDeadline)
+  }
+  const cleanup = () => {
+    callerSignal.removeEventListener('abort', abortFromCaller)
+    cleanupAfterHeaders()
+  }
+
+  callerSignal.addEventListener('abort', abortFromCaller, { once: true })
+  deadlineSignal.addEventListener('abort', abortFromDeadline, { once: true })
+  if (callerSignal.aborted) {
+    abortFromCaller()
+  } else if (deadlineSignal.aborted) {
+    abortFromDeadline()
+  }
+
+  return { signal: combined.signal, cleanupAfterHeaders, cleanup }
 }
 
 async function readWithIdleTimeout(
@@ -3784,6 +3864,7 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
+    const apiTimeoutMs = getApiTimeoutMs()
     // Local backends (llama.cpp, vLLM, Ollama, LM Studio, …) do not implement
     // the cloud-side caching/strict-validation behaviours that several of our
     // pre-send transforms target. Computing the fast-path config once here
@@ -4585,16 +4666,62 @@ class OpenAIShimMessages {
       method: 'POST' as const,
       headers,
       body: serializedBody,
-      signal: options?.signal,
     })
+
+    const fetchWithHeadersDeadline = async (
+      url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const deadlineController = new AbortController()
+      const timeoutReason = new ResponseHeadersTimeoutError(
+        apiTimeoutMs,
+        redactUrlForDiagnostics(url),
+      )
+      const { signal, cleanupAfterHeaders, cleanup } = combineRequestSignals(
+        options?.signal,
+        deadlineController.signal,
+      )
+      const timer = setTimeout(
+        () => deadlineController.abort(timeoutReason),
+        apiTimeoutMs,
+      )
+      timer.unref?.()
+
+      let headersReceived = false
+      try {
+        const response = await fetchWithProxyRetry(url, { ...init, signal })
+        headersReceived = true
+        return response
+      } catch (error) {
+        if (options?.signal?.aborted) {
+          throw preserveCallerAbortError(error, options.signal)
+        }
+        if (
+          deadlineController.signal.aborted &&
+          deadlineController.signal.reason === timeoutReason
+        ) {
+          throw timeoutReason
+        }
+        throw error
+      } finally {
+        clearTimeout(timer)
+        if (headersReceived) {
+          cleanupAfterHeaders()
+        } else {
+          cleanup()
+        }
+      }
+    }
 
     const maxSelfHealAttempts = isLocal
       ? localRetryBaseUrls.length + 1
       : 0
     const credentialPoolAttempts = credentialPool?.size ?? 1
-    const maxAttempts =
+    const maxAttempts = Math.max(
+      2,
       Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
-      maxSelfHealAttempts
+        maxSelfHealAttempts,
+    )
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -4602,7 +4729,7 @@ class OpenAIShimMessages {
       preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
     ): never => {
       if (options?.signal?.aborted) {
-        throw error
+        throw preserveCallerAbortError(error, options.signal)
       }
 
       const failure =
@@ -4695,11 +4822,16 @@ class OpenAIShimMessages {
       }
       const headers = await buildHeadersForAttempt(credentialLease)
       try {
-        response = await fetchWithProxyRetry(
+        response = await fetchWithHeadersDeadline(
           requestUrl,
           buildFetchInit(headers),
         )
       } catch (error) {
+        if (options?.signal?.aborted) {
+          throw preserveCallerAbortError(error, options.signal)
+        }
+        const isResponseHeadersTimeout =
+          error instanceof ResponseHeadersTimeoutError
         const isAbortError =
           options?.signal?.aborted === true ||
           (typeof DOMException !== 'undefined' &&
@@ -4710,13 +4842,21 @@ class OpenAIShimMessages {
             'name' in error &&
             error.name === 'AbortError')
 
-        if (isAbortError) {
+        if (!isResponseHeadersTimeout && isAbortError) {
           throw error
         }
 
         const failure = classifyOpenAINetworkFailure(error, {
           url: requestUrl,
         })
+
+        if (
+          isResponseHeadersTimeout &&
+          failure.retryable &&
+          attempt < maxAttempts - 1
+        ) {
+          continue
+        }
 
         if (
           isLocal &&
@@ -4822,14 +4962,26 @@ class OpenAIShimMessages {
 
           let responsesResponse!: Response
           try {
-            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
+            responsesResponse = await fetchWithHeadersDeadline(responsesUrl, {
               method: 'POST',
               headers,
               body: stableStringifyJson(responsesBody),
-              signal: options?.signal,
             })
           } catch (error) {
-            throwClassifiedTransportError(error, responsesUrl)
+            if (options?.signal?.aborted) {
+              throw preserveCallerAbortError(error, options.signal)
+            }
+            const failure = classifyOpenAINetworkFailure(error, {
+              url: responsesUrl,
+            })
+            if (
+              error instanceof ResponseHeadersTimeoutError &&
+              failure.retryable &&
+              attempt < maxAttempts - 1
+            ) {
+              continue
+            }
+            throwClassifiedTransportError(error, responsesUrl, failure)
           }
 
           if (responsesResponse.ok) {
@@ -5060,6 +5212,7 @@ export function createOpenAIShimClient(options: {
 // Test-only surface (same pattern as WebSearchTool's __test export).
 export const __test = {
   convertMessages,
+  getApiTimeoutMs,
   getStreamIdleTimeoutMs,
   readWithIdleTimeout,
   StreamIdleTimeoutError,
