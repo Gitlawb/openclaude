@@ -24,6 +24,7 @@ import {
 import { logError } from '../../utils/log.js'
 import {
   getRuleBehaviorDescription,
+  type PermissionAskDecision,
   type PermissionDecisionReason,
   type PermissionResult,
 } from '../../utils/permissions/PermissionResult.js'
@@ -420,7 +421,7 @@ export async function resolveHookPermissionDecision(
   const requireCanUseTool = toolUseContext.requireCanUseTool
   const callCanUseToolWithPlanGuard = async (
     candidateInput: Record<string, unknown>,
-    forceDecision?: PermissionResult,
+    forceDecision?: PermissionAskDecision,
   ): Promise<{ decision: PermissionDecision; input: Record<string, unknown> }> => {
     const candidatePlanModeDecision = await checkPlanModePermissions(
       tool,
@@ -438,7 +439,10 @@ export async function resolveHookPermissionDecision(
       toolUseID,
       forceDecision,
     )
-    const finalInput = decision.updatedInput ?? candidateInput
+    const finalInput =
+      decision.behavior === 'deny'
+        ? candidateInput
+        : (decision.updatedInput ?? candidateInput)
     if (decision.behavior === 'allow') {
       const planModeDecision = await checkPlanModePermissions(
         tool,
