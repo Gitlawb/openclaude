@@ -28,6 +28,7 @@ import {
   type PermissionResult,
 } from '../../utils/permissions/PermissionResult.js'
 import {
+  checkPlanModePermissions,
   checkRuleBasedPermissions,
   hasPermissionsToUseTool,
 } from '../../utils/permissions/permissions.js'
@@ -417,6 +418,39 @@ export async function resolveHookPermissionDecision(
 }> {
   const requiresInteraction = tool.requiresUserInteraction?.()
   const requireCanUseTool = toolUseContext.requireCanUseTool
+  const callCanUseToolWithPlanGuard = async (
+    candidateInput: Record<string, unknown>,
+    forceDecision?: PermissionResult,
+  ): Promise<{ decision: PermissionDecision; input: Record<string, unknown> }> => {
+    const candidatePlanModeDecision = await checkPlanModePermissions(
+      tool,
+      candidateInput,
+      toolUseContext,
+    )
+    if (candidatePlanModeDecision) {
+      return { decision: candidatePlanModeDecision, input: candidateInput }
+    }
+    const decision = await canUseTool(
+      tool,
+      candidateInput,
+      toolUseContext,
+      assistantMessage,
+      toolUseID,
+      forceDecision,
+    )
+    const finalInput = decision.updatedInput ?? candidateInput
+    if (decision.behavior === 'allow') {
+      const planModeDecision = await checkPlanModePermissions(
+        tool,
+        finalInput,
+        toolUseContext,
+      )
+      if (planModeDecision) {
+        return { decision: planModeDecision, input: finalInput }
+      }
+    }
+    return { decision, input: finalInput }
+  }
 
   if (hookPermissionResult?.behavior === 'allow') {
     const hookInput = hookPermissionResult.updatedInput ?? input
@@ -431,16 +465,7 @@ export async function resolveHookPermissionDecision(
       logForDebugging(
         `Hook approved tool use for ${tool.name}, but canUseTool is required`,
       )
-      return {
-        decision: await canUseTool(
-          tool,
-          hookInput,
-          toolUseContext,
-          assistantMessage,
-          toolUseID,
-        ),
-        input: hookInput,
-      }
+      return callCanUseToolWithPlanGuard(hookInput)
     }
 
     // Hook allow skips the interactive prompt, but deny/ask rules still apply.
@@ -449,6 +474,23 @@ export async function resolveHookPermissionDecision(
       hookInput,
       toolUseContext,
     )
+    if (ruleCheck?.behavior === 'deny') {
+      logForDebugging(
+        `Hook approved tool use for ${tool.name}, but deny rule overrides: ${ruleCheck.message}`,
+      )
+      return { decision: ruleCheck, input: hookInput }
+    }
+    const planModeDecision = await checkPlanModePermissions(
+      tool,
+      hookInput,
+      toolUseContext,
+    )
+    if (planModeDecision) {
+      logForDebugging(
+        `Hook approved tool use for ${tool.name}, but plan mode denied it`,
+      )
+      return { decision: planModeDecision, input: hookInput }
+    }
     if (ruleCheck === null) {
       logForDebugging(
         interactionSatisfied
@@ -457,26 +499,11 @@ export async function resolveHookPermissionDecision(
       )
       return { decision: hookPermissionResult, input: hookInput }
     }
-    if (ruleCheck.behavior === 'deny') {
-      logForDebugging(
-        `Hook approved tool use for ${tool.name}, but deny rule overrides: ${ruleCheck.message}`,
-      )
-      return { decision: ruleCheck, input: hookInput }
-    }
     // ask rule — dialog required despite hook approval
     logForDebugging(
       `Hook approved tool use for ${tool.name}, but ask rule requires prompt`,
     )
-    return {
-      decision: await canUseTool(
-        tool,
-        hookInput,
-        toolUseContext,
-        assistantMessage,
-        toolUseID,
-      ),
-      input: hookInput,
-    }
+    return callCanUseToolWithPlanGuard(hookInput)
   }
 
   if (hookPermissionResult?.behavior === 'deny') {
@@ -513,17 +540,15 @@ export async function resolveHookPermissionDecision(
   }
   const forceDecision =
     hookPermissionResult?.behavior === 'ask' ? hookPermissionResult : undefined
-  return {
-    decision: await canUseTool(
-      tool,
-      askInput,
-      toolUseContext,
-      assistantMessage,
-      toolUseID,
-      forceDecision,
-    ),
-    input: askInput,
+  const planModeDecision = await checkPlanModePermissions(
+    tool,
+    askInput,
+    toolUseContext,
+  )
+  if (planModeDecision) {
+    return { decision: planModeDecision, input: askInput }
   }
+  return callCanUseToolWithPlanGuard(askInput, forceDecision)
 }
 
 export async function* runPreToolUseHooks(

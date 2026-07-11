@@ -7,11 +7,19 @@ import {
   mcpInfoFromString,
 } from '../../services/mcp/mcpStringUtils.js'
 import type { Tool, ToolPermissionContext, ToolUseContext } from '../../Tool.js'
-import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
+import {
+  AGENT_TOOL_NAME,
+  ONE_SHOT_BUILTIN_AGENT_TYPES,
+} from '../../tools/AgentTool/constants.js'
 import { shouldUseSandbox } from '../../tools/BashTool/shouldUseSandbox.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
+import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../../tools/ExitPlanModeTool/constants.js'
+import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
+import { isPowerShellCommandReadOnly } from '../../tools/PowerShellTool/readOnlyValidation.js'
 import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
 import { REPL_TOOL_NAME } from '../../tools/REPLTool/constants.js'
+import { SEND_MESSAGE_TOOL_NAME } from '../../tools/SendMessageTool/constants.js'
 import type { AssistantMessage } from '../../types/message.js'
 import { extractOutputRedirections } from '../bash/commands.js'
 import { logForDebugging } from '../debug.js'
@@ -74,6 +82,15 @@ function applyPermissionUpdatesToLiveContext(
   const { applyPermissionUpdatesToLiveContext: applyLiveUpdates } =
     require('./permissionSetup.js') as typeof import('./permissionSetup.js')
   return applyLiveUpdates(context, updates)
+}
+
+function isActivePlanFileForContext(
+  path: string,
+  agentId: ToolUseContext['agentId'],
+): boolean {
+  const { isActiveSessionPlanFile } =
+    require('./filesystem.js') as typeof import('./filesystem.js')
+  return isActiveSessionPlanFile(path, agentId)
 }
 
 import {
@@ -434,6 +451,14 @@ async function runPermissionRequestHooksForHeadlessAgent(
       const decision = hookResult.permissionRequestResult
       if (decision.behavior === 'allow') {
         const finalInput = decision.updatedInput ?? input
+        const planModeDecision = await checkPlanModePermissions(
+          tool,
+          finalInput,
+          context,
+        )
+        if (planModeDecision) {
+          return planModeDecision
+        }
         // Persist permission updates if provided
         if (decision.updatedPermissions?.length) {
           // Capture so the narrowing survives into the setAppState callback
@@ -1182,6 +1207,118 @@ export async function checkRuleBasedPermissions(
   return null
 }
 
+function planModeDenial(toolName: string): PermissionDenyDecision {
+  return {
+    behavior: 'deny',
+    decisionReason: { type: 'mode', mode: 'plan' },
+    message: `Plan mode is read-only. Exit plan mode before using ${toolName}.`,
+  }
+}
+
+/**
+ * Mechanical plan-mode invariant. A null result means the invocation is
+ * demonstrably read-only (or is the exact active-plan-file exception) and
+ * should continue through the ordinary permission flow.
+ */
+export async function checkPlanModePermissions(
+  tool: Tool,
+  input: { [key: string]: unknown },
+  context: ToolUseContext,
+): Promise<PermissionDenyDecision | null> {
+  if (context.getAppState().toolPermissionContext.mode !== 'plan') {
+    return null
+  }
+
+  let parsed: ReturnType<Tool['inputSchema']['safeParse']>
+  try {
+    parsed = tool.inputSchema.safeParse(input)
+  } catch (error) {
+    logError(error)
+    return planModeDenial(tool.name)
+  }
+  if (!parsed.success) {
+    return planModeDenial(tool.name)
+  }
+
+  // MCP tools are classified only by their readOnlyHint-backed isReadOnly().
+  // Their server-provided names must never enter trusted built-in exceptions.
+  if (tool.isMcp || tool.mcpInfo !== undefined) {
+    try {
+      return tool.isReadOnly(parsed.data) ? null : planModeDenial(tool.name)
+    } catch (error) {
+      logError(error)
+      return planModeDenial(tool.name)
+    }
+  }
+
+  if (tool.name === EXIT_PLAN_MODE_V2_TOOL_NAME) {
+    return null
+  }
+
+  if (tool.name === SEND_MESSAGE_TOOL_NAME) {
+    return planModeDenial(tool.name)
+  }
+
+  if (tool.name === AGENT_TOOL_NAME) {
+    const agentInput = parsed.data as Record<string, unknown>
+    const agentType = agentInput.subagent_type
+    const definition =
+      typeof agentType === 'string'
+        ? context.options.agentDefinitions?.activeAgents.find(
+            candidate => candidate.agentType === agentType,
+          )
+        : undefined
+    const isSafeOneShot =
+      typeof agentType === 'string' &&
+      ONE_SHOT_BUILTIN_AGENT_TYPES.has(agentType) &&
+      definition?.source === 'built-in'
+    const hasUnsafeWrapperOptions =
+      agentInput.name !== undefined ||
+      agentInput.team_name !== undefined ||
+      agentInput.mode !== undefined ||
+      agentInput.isolation !== undefined ||
+      agentInput.cwd !== undefined
+
+    return isSafeOneShot && !hasUnsafeWrapperOptions
+      ? null
+      : planModeDenial(tool.name)
+  }
+
+  if (
+    (tool.name === FILE_EDIT_TOOL_NAME || tool.name === FILE_WRITE_TOOL_NAME) &&
+    typeof (parsed.data as Record<string, unknown>).file_path === 'string' &&
+    isActivePlanFileForContext(
+      (parsed.data as Record<string, string>).file_path,
+      context.agentId,
+    )
+  ) {
+    return null
+  }
+
+  // Transparent wrappers execute operations other than the action described
+  // by their own input. Their inner calls remain guarded separately, but the
+  // wrapper itself is not proof of a read-only invocation.
+  if (tool.isTransparentWrapper?.()) {
+    return planModeDenial(tool.name)
+  }
+
+  let isReadOnly = false
+  try {
+    if (tool.name === POWERSHELL_TOOL_NAME) {
+      const command = (parsed.data as Record<string, unknown>).command
+      isReadOnly =
+        typeof command === 'string' &&
+        (await isPowerShellCommandReadOnly(command))
+    } else {
+      isReadOnly = tool.isReadOnly(parsed.data)
+    }
+  } catch (error) {
+    logError(error)
+  }
+
+  return isReadOnly ? null : planModeDenial(tool.name)
+}
+
 async function hasPermissionsToUseToolInner(
   tool: Tool,
   input: { [key: string]: unknown },
@@ -1210,17 +1347,22 @@ async function hasPermissionsToUseToolInner(
 
   // 1b. Check if the entire tool should always ask for permission
   const askRule = getAskRuleForTool(appState.toolPermissionContext, tool)
+  let canSandboxAutoAllowAskRule = false
   if (askRule) {
     // When autoAllowBashIfSandboxed is on, sandboxed commands skip the ask rule and
     // auto-allow via Bash's checkPermissions. Commands that won't be sandboxed (excluded
     // commands, dangerouslyDisableSandbox) still need to respect the ask rule.
-    const canSandboxAutoAllow =
+    canSandboxAutoAllowAskRule =
       tool.name === BASH_TOOL_NAME &&
       SandboxManager.isSandboxingEnabled() &&
       SandboxManager.isAutoAllowBashIfSandboxedEnabled() &&
       shouldUseSandbox(input)
 
-    if (!canSandboxAutoAllow && !isFullAccessMode) {
+    if (
+      !canSandboxAutoAllowAskRule &&
+      !isFullAccessMode &&
+      appState.toolPermissionContext.mode !== 'plan'
+    ) {
       return {
         behavior: 'ask',
         decisionReason: {
@@ -1253,6 +1395,31 @@ async function hasPermissionsToUseToolInner(
   // 1d. Tool implementation denied permission
   if (toolPermissionResult?.behavior === 'deny') {
     return toolPermissionResult
+  }
+
+  const permissionInput = getUpdatedInputOrFallback(toolPermissionResult, input)
+  const planModeDecision = await checkPlanModePermissions(
+    tool,
+    permissionInput,
+    context,
+  )
+  if (planModeDecision) {
+    return planModeDecision
+  }
+
+  // In plan mode, defer an entire-tool ask rule until after the mechanical
+  // policy has rejected mutations. Read-only invocations still preserve it.
+  if (
+    askRule &&
+    !isFullAccessMode &&
+    (context.getAppState().toolPermissionContext.mode === 'plan' ||
+      !canSandboxAutoAllowAskRule)
+  ) {
+    return {
+      behavior: 'ask',
+      decisionReason: { type: 'rule', rule: askRule },
+      message: createPermissionRequestMessage(tool.name),
+    }
   }
 
   // 1e. Tool requires user interaction even in bypass mode
@@ -1307,12 +1474,9 @@ async function hasPermissionsToUseToolInner(
   appState = context.getAppState()
   // Check if permissions should be bypassed:
   // - Direct bypassPermissions mode
-  // - Plan mode when the user originally started with bypass mode (isBypassPermissionsModeAvailable)
   const shouldBypassPermissions =
     appState.toolPermissionContext.mode === 'bypassPermissions' ||
-    appState.toolPermissionContext.mode === 'fullAccess' ||
-    (appState.toolPermissionContext.mode === 'plan' &&
-      appState.toolPermissionContext.isBypassPermissionsModeAvailable)
+    appState.toolPermissionContext.mode === 'fullAccess'
   if (shouldBypassPermissions) {
     return {
       behavior: 'allow',

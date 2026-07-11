@@ -18,6 +18,7 @@ import {
   getPipelineSegments,
   isNullRedirectionTarget,
   isPowerShellParameter,
+  parsePowerShellCommand,
 } from '../../utils/powershell/parser.js'
 import type { ExternalCommandConfig } from '../../utils/shell/readOnlyCommandValidation.js'
 import {
@@ -1302,6 +1303,13 @@ export function isReadOnlyCommand(
   }
 
   return true
+}
+
+/** Parse with the existing PowerShell AST analyzer before classifying. */
+export async function isPowerShellCommandReadOnly(
+  command: string,
+): Promise<boolean> {
+  return isReadOnlyCommand(command, await parsePowerShellCommand(command))
 }
 
 /**
