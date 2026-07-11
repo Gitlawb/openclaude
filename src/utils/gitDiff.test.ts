@@ -72,6 +72,22 @@ describe('parseGitDiff', () => {
     expect(lines).toContain('+const b = 3')
     expect(lines).toContain(' const a = 1')
   })
+
+  it('skips a file whose diff exceeds the 1MB cap in bytes, not UTF-16 units', () => {
+    // A per-file diff that is under the cap in UTF-16 code units but well over
+    // it in real UTF-8 bytes (each `一` is 1 code unit but 3 bytes). Before the
+    // fix the char-length check let this multi-MB diff through.
+    const cjkLine = '+' + '一'.repeat(100)
+    const body = ['a/big.txt b/big.txt', '@@ -1,1 +1,5000 @@']
+    for (let i = 0; i < 5000; i++) body.push(cjkLine)
+    const fileChunk = body.join('\n')
+    const stdout = 'diff --git ' + fileChunk
+
+    expect(fileChunk.length).toBeLessThan(1_000_000)
+    expect(Buffer.byteLength(fileChunk, 'utf8')).toBeGreaterThan(1_000_000)
+
+    expect(parseGitDiff(stdout).has('big.txt')).toBe(false)
+  })
 })
 
 describe('parseRawDiffToToolUseDiff', () => {

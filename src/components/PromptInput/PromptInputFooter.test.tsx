@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { DEFAULT_GLOBAL_CONFIG } from '../../utils/config.js'
 import {
+  resolveConfiguredFooterStatusLine,
   resolveFooterStatusLine,
   SHORTCUTS_HINT_STARTUP_GRACE,
   shouldSuppressShortcutsHint,
@@ -58,6 +59,18 @@ describe('resolveFooterStatusLine', () => {
       expect(resolveFooterStatusLine(customSettings, guards)).toBeNull()
     })
   }
+})
+
+describe('resolveConfiguredFooterStatusLine', () => {
+  it('keeps a custom statusline configured while transient UI hides its row', () => {
+    expect(resolveConfiguredFooterStatusLine(customSettings)).toBe('custom')
+    expect(
+      resolveFooterStatusLine(customSettings, {
+        ...guardsPass,
+        exitMessageShown: true,
+      }),
+    ).toBeNull()
+  })
 })
 
 describe('shouldSuppressShortcutsHint', () => {

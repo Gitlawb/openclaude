@@ -21,6 +21,7 @@ import { BuiltinStatusLine, builtinStatusLineShouldDisplay } from '../BuiltinSta
 import { useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
 import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
 import { Notifications } from './Notifications.js';
+import { KeepMounted } from './KeepMounted.js';
 import { PromptInputFooterLeftSide } from './PromptInputFooterLeftSide.js';
 import { PromptInputFooterSuggestions, type SuggestionItem } from './PromptInputFooterSuggestions.js';
 import { PromptInputHelpMenu } from './PromptInputHelpMenu.js';
@@ -42,6 +43,15 @@ export function resolveFooterStatusLine(settings: ReadonlySettings, guards: {
   if (statusLineShouldDisplay(settings)) return 'custom';
   if (builtinStatusLineShouldDisplay(settings, config)) return 'builtin';
   return null;
+}
+
+export function resolveConfiguredFooterStatusLine(settings: ReadonlySettings): 'custom' | 'builtin' | null {
+  return resolveFooterStatusLine(settings, {
+    isPromptMode: true,
+    isShort: false,
+    exitMessageShown: false,
+    isPasting: false
+  });
 }
 
 /**
@@ -165,6 +175,7 @@ function PromptInputFooter({
     exitMessageShown: exitMessage.show,
     isPasting
   });
+  const configuredFooterStatusLine = resolveConfiguredFooterStatusLine(settings);
   // Hide `? for shortcuts` during ctrl-r search, or — for established users
   // only — when a status line actually renders below (display setting AND
   // render guards). See shouldSuppressShortcutsHint.
@@ -181,25 +192,26 @@ function PromptInputFooter({
     maxColumnWidth
   } : null, [isFullscreen, suggestions, selectedSuggestion, maxColumnWidth]);
   useSetPromptOverlay(overlayData);
-  if (suggestions.length && !isFullscreen) {
-    return <Box paddingX={2} paddingY={0}>
-        <PromptInputFooterSuggestions suggestions={suggestions} selectedSuggestion={selectedSuggestion} maxColumnWidth={maxColumnWidth} />
-      </Box>;
-  }
-  if (helpOpen) {
-    return <PromptInputHelpMenu dimColor={true} fixedWidth={true} paddingX={2} />;
-  }
+  const showInlineSuggestions = suggestions.length > 0 && !isFullscreen;
+  const hideRegularFooter = showInlineSuggestions || helpOpen;
   return <>
-      <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent={isNarrow ? 'flex-start' : 'space-between'} paddingX={2} gap={isNarrow ? 0 : 1}>
-        <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
-          {footerStatusLine === 'custom' ? <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} /> : footerStatusLine === 'builtin' ? <BuiltinStatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} /> : null}
+      <KeepMounted hidden={hideRegularFooter}>
+        <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent={isNarrow ? 'flex-start' : 'space-between'} paddingX={2} gap={isNarrow ? 0 : 1}>
+          <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
+          <KeepMounted hidden={footerStatusLine === null}>
+            {configuredFooterStatusLine === 'custom' ? <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} /> : configuredFooterStatusLine === 'builtin' ? <BuiltinStatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} /> : null}
+          </KeepMounted>
           <PromptInputFooterLeftSide exitMessage={exitMessage} vimMode={vimMode} mode={mode} toolPermissionContext={toolPermissionContext} suppressHint={suppressHint} isLoading={isLoading} tasksSelected={pillSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} tmuxSelected={tmuxSelected} isPasting={isPasting} isSearching={isSearching} historyQuery={historyQuery} setHistoryQuery={setHistoryQuery} historyFailedMatch={historyFailedMatch} onOpenTasksDialog={onOpenTasksDialog} />
-        </Box>
-        <Box flexShrink={1} gap={1}>
+          </Box>
+          <Box flexShrink={1} gap={1}>
           {isFullscreen ? null : <Notifications apiKeyStatus={apiKeyStatus} autoUpdaterResult={autoUpdaterResult} debug={debug} isAutoUpdating={isAutoUpdating} verbose={verbose} messages={messages} onAutoUpdaterResult={onAutoUpdaterResult} onChangeIsUpdating={onChangeIsUpdating} ideSelection={ideSelection} mcpClients={mcpClients} isInputWrapped={isInputWrapped} isNarrow={isNarrow} />}
           <BridgeStatusIndicator bridgeSelected={bridgeSelected} />
+          </Box>
         </Box>
-      </Box>
+      </KeepMounted>
+      {showInlineSuggestions ? <Box paddingX={2} paddingY={0}>
+          <PromptInputFooterSuggestions suggestions={suggestions} selectedSuggestion={selectedSuggestion} maxColumnWidth={maxColumnWidth} />
+        </Box> : helpOpen ? <PromptInputHelpMenu dimColor={true} fixedWidth={true} paddingX={2} /> : null}
     </>;
 }
 export default memo(PromptInputFooter);

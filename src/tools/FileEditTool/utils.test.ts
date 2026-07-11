@@ -210,3 +210,26 @@ describe('getSnippetForTwoFileDiff truncation notice', () => {
     expect(keptLines + reportedTruncated).toBe(800)
   })
 })
+
+describe('getSnippetForTwoFileDiff line numbering', () => {
+  test('numbers later hunks by their new-file position', () => {
+    const a = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n')
+    // First hunk inserts 3 lines near the top; second hunk changes a line near
+    // the bottom, so the second hunk's new-file start is 3 greater than its
+    // old-file start.
+    const bLines = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`)
+    bLines.splice(3, 0, 'INSERTED A', 'INSERTED B', 'INSERTED C')
+    bLines[57] = 'CHANGED near bottom' // original line 55, now at new-file line 58
+    const b = bLines.join('\n')
+
+    const snippet = getSnippetForTwoFileDiff(a, b)
+
+    // The changed line sits at line 58 in the new file. Before the fix it was
+    // labeled 55 (its old-file number), off by the net +3 of the first hunk.
+    const changedLine = snippet
+      .split('\n')
+      .find(l => l.includes('CHANGED near bottom'))
+    expect(changedLine).toBeDefined()
+    expect(changedLine!.trim()).toStartWith('58→')
+  })
+})
