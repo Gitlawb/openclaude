@@ -697,6 +697,16 @@ describe('applyProviderProfileToProcessEnv', () => {
   test('local profiles apply auth-header env without API-format selection', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
+    const envKeys = [
+      'OPENAI_BASE_URL',
+      'OPENAI_AUTH_HEADER',
+      'OPENAI_AUTH_SCHEME',
+      'OPENAI_AUTH_HEADER_VALUE',
+      'OPENAI_API_FORMAT',
+    ] as const
+    const savedEnv = Object.fromEntries(
+      envKeys.map(key => [key, process.env[key]]),
+    ) as Record<(typeof envKeys)[number], string | undefined>
     const localProfiles = [
       {
         name: 'Ollama',
@@ -710,25 +720,35 @@ describe('applyProviderProfileToProcessEnv', () => {
       },
     ]
 
-    for (const localProfile of localProfiles) {
-      applyProviderProfileToProcessEnv(
-        buildProfile({
-          ...localProfile,
-          provider: 'openai',
-          apiFormat: 'responses',
-          authHeader: 'X-API-Key',
-          authScheme: 'raw',
-          authHeaderValue: `${localProfile.name}-secret`,
-        }),
-      )
+    try {
+      for (const localProfile of localProfiles) {
+        applyProviderProfileToProcessEnv(
+          buildProfile({
+            ...localProfile,
+            provider: 'openai',
+            apiFormat: 'responses',
+            authHeader: 'X-API-Key',
+            authScheme: 'raw',
+            authHeaderValue: `${localProfile.name}-secret`,
+          }),
+        )
 
-      expect(process.env.OPENAI_BASE_URL).toBe(localProfile.baseUrl)
-      expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
-      expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
-      expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
-        `${localProfile.name}-secret`,
-      )
-      expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+        expect(process.env.OPENAI_BASE_URL).toBe(localProfile.baseUrl)
+        expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+        expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+        expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+          `${localProfile.name}-secret`,
+        )
+        expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+      }
+    } finally {
+      for (const key of envKeys) {
+        if (savedEnv[key] === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = savedEnv[key]
+        }
+      }
     }
   })
 
@@ -2699,6 +2719,7 @@ describe('setActiveProviderProfile', () => {
       }
     } finally {
       process.chdir(originalCwd)
+      delete process.env.CLAUDE_CONFIG_DIR
       rmSync(tempDir, { recursive: true, force: true })
       rmSync(configDir, { recursive: true, force: true })
     }
