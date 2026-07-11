@@ -10,6 +10,7 @@ import {
 const guardsPass = {
   isPromptMode: true,
   isShort: false,
+  hideRegularFooter: false,
   exitMessageShown: false,
   isPasting: false,
 }
@@ -51,6 +52,7 @@ describe('resolveFooterStatusLine', () => {
   for (const [name, guards] of [
     ['non-prompt mode', { ...guardsPass, isPromptMode: false }],
     ['short fullscreen', { ...guardsPass, isShort: true }],
+    ['inline suggestions or help', { ...guardsPass, hideRegularFooter: true }],
     ['exit message showing', { ...guardsPass, exitMessageShown: true }],
     ['paste in progress', { ...guardsPass, isPasting: true }],
   ] as const) {

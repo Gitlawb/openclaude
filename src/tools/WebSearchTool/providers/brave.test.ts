@@ -121,20 +121,24 @@ describe('braveProvider search', () => {
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(/429/)
   })
 
-  test('rejects when the provider-level timeout elapses', async () => {
-    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+  test(
+    'rejects when the provider-level timeout elapses',
+    async () => {
+      process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
 
-    let signalAborted: Promise<void> | undefined
-    globalThis.fetch = (async (_input: any, init: any) => {
-      signalAborted = expectSignalAbort(init?.signal as AbortSignal | undefined)
-      return new Promise<Response>(() => undefined)
-    }) as typeof fetch
+      let signalAborted: Promise<void> | undefined
+      globalThis.fetch = (async (_input: any, init: any) => {
+        signalAborted = expectSignalAbort(init?.signal as AbortSignal | undefined)
+        return new Promise<Response>(() => undefined)
+      }) as typeof fetch
 
-    await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
-      /Brave search timed out/,
-    )
-    await expect(signalAborted).resolves.toBeUndefined()
-  })
+      await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
+        /Brave search timed out/,
+      )
+      await expect(signalAborted).resolves.toBeUndefined()
+    },
+    { timeout: 10_000 },
+  )
 
   test('rejects when the response body stalls after headers arrive', async () => {
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'

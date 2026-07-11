@@ -11,9 +11,23 @@ function createTestStdout(): NodeJS.WriteStream {
   return stdout as unknown as NodeJS.WriteStream
 }
 
+async function waitFor(
+  condition: () => boolean,
+  description: string,
+  timeoutMs = 1000,
+): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (condition()) return
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting for ${description}`)
+}
+
 test('keeps children mounted while visibility changes', async () => {
   let mounts = 0
   let unmounts = 0
+  let committedToken = 0
   const stdout = createTestStdout() as unknown as PassThrough
   let output = ''
   stdout.on('data', chunk => {
@@ -30,32 +44,55 @@ test('keeps children mounted while visibility changes', async () => {
     return <Text>persistent child</Text>
   }
 
+  function CommitProbe({ token }: { token: number }): null {
+    useEffect(() => {
+      committedToken = token
+    }, [token])
+    return null
+  }
+
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
     patchConsole: false,
   })
-  const render = (hidden: boolean) =>
+  const render = (hidden: boolean, token: number) =>
     root.render(
-      <KeepMounted hidden={hidden}>
-        <Probe />
-      </KeepMounted>,
+      <>
+        <KeepMounted hidden={hidden}>
+          <Probe />
+        </KeepMounted>
+        <CommitProbe token={token} />
+      </>,
     )
 
-  render(false)
-  await Bun.sleep(10)
+  render(false, 1)
+  await waitFor(
+    () =>
+      committedToken === 1 &&
+      mounts === 1 &&
+      stripAnsi(output).includes('persistent child'),
+    'initial mount',
+  )
   expect(stripAnsi(output)).toContain('persistent child')
 
   output = ''
-  render(true)
-  await Bun.sleep(10)
+  render(true, 2)
+  await waitFor(() => committedToken === 2, 'hidden commit')
   const hiddenFrame = stripAnsi(output).replaceAll('\r', '').replaceAll('\n', '')
   expect(hiddenFrame).toBe('')
 
-  render(false)
+  render(false, 3)
+  await waitFor(
+    () =>
+      committedToken === 3 && stripAnsi(output).includes('persistent child'),
+    'visible commit',
+  )
+  expect(stripAnsi(output)).toContain('persistent child')
 
   expect(mounts).toBe(1)
   expect(unmounts).toBe(0)
 
   root.unmount()
+  await waitFor(() => unmounts === 1, 'unmount cleanup')
   expect(unmounts).toBe(1)
 })
