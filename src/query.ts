@@ -940,7 +940,7 @@ async function* queryLoop(
           .filter(
             advisory =>
               !messagesAfterCompact.some(
-                message => message.uuid === advisory.uuid,
+                message => message.uuid === advisory.message.uuid,
               ),
           ),
       ]
