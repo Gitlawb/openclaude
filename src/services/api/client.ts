@@ -753,7 +753,10 @@ export async function getAnthropicClient({
       ? null
       : useMiniMaxNativeProvider
         ? process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
-        : apiKey || getAnthropicApiKey(),
+        : apiKey ||
+          (!isFirstPartyBaseUrl
+            ? process.env.ANTHROPIC_API_KEY?.trim()
+            : getAnthropicApiKey()),
     authToken: isClaudeAiSubscriber
       ? getClaudeAIOAuthTokens()?.accessToken
       : undefined,
