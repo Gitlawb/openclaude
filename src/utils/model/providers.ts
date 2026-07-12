@@ -82,7 +82,7 @@ export function getAPIProvider(): LegacyAPIProvider {
 }
 
 export function usesAnthropicAccountFlow(): boolean {
-  return getAPIProvider() === 'firstParty'
+  return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
 }
 
 /**

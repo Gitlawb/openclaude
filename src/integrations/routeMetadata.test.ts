@@ -137,6 +137,14 @@ test('custom Anthropic credentials stay native and resolve to their proxy route'
       ANTHROPIC_AUTH_TOKEN: 'tenant-token',
     }),
   ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_API_KEY: 'tenant-key',
+    }),
+  ).toBe('custom-anthropic')
 })
 
 test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {

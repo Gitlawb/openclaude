@@ -93,6 +93,23 @@ function normalizeHost(
   }
 }
 
+function isFirstPartyAnthropicBaseUrl(
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  const baseUrl = processEnv.ANTHROPIC_BASE_URL
+  if (!baseUrl) return true
+
+  try {
+    const allowedHosts = ['api.anthropic.com']
+    if (processEnv.USER_TYPE === 'ant') {
+      allowedHosts.push('api-staging.anthropic.com')
+    }
+    return allowedHosts.includes(new URL(baseUrl).host)
+  } catch {
+    return false
+  }
+}
+
 function getAllRoutes(): RouteDescriptor[] {
   ensureIntegrationsLoaded()
   return [...getAllGateways(), ...getAllVendors(), ...getAllAnthropicProxies()]
@@ -1010,6 +1027,18 @@ export function resolveActiveRouteIdFromEnv(
 
   const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
   if (envOnlyRouteId) return envOnlyRouteId
+
+  // Native x-api-key custom endpoints use the same proxy transport as Bearer
+  // endpoints. Check this after dedicated env-only providers (such as
+  // MiniMax) have claimed their own credentials.
+  if (
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY) &&
+    !isFirstPartyAnthropicBaseUrl(processEnv)
+  ) {
+    return 'custom-anthropic'
+  }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
     const baseUrl =

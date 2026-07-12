@@ -45,6 +45,7 @@ const PROVIDER_ENV_KEYS = [
   'FIREWORKS_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BETAS',
   'OPENAI_BASE_URL',
@@ -206,6 +207,16 @@ test('getMergedBetas returns [] for GitHub with a non-Claude model', async () =>
 test('isAnthropicProvider is true for firstParty', async () => {
   const { isAnthropicProvider } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(true)
+})
+
+test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+
+  const { getMergedBetas, isAnthropicProvider } = await importFreshBetas()
+  expect(isAnthropicProvider()).toBe(false)
+  expect(getMergedBetas('tenant-model')).toEqual([])
 })
 
 test('isAnthropicProvider is true for bedrock', async () => {
