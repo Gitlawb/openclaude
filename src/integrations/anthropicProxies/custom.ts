@@ -24,7 +24,10 @@ export default defineAnthropicProxy({
     supportsFunctionCalling: true,
     supportsVision: true,
   },
-  transportConfig: { kind: 'anthropic-proxy' },
+  transportConfig: {
+    kind: 'anthropic-proxy',
+    anthropicProxy: { supportsCustomHeaders: true },
+  },
   usage: { supported: false },
   preset: {
     id: 'custom-anthropic',

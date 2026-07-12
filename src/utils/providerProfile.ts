@@ -1537,6 +1537,12 @@ export async function buildLaunchEnv(options: {
         ...(anthropicAuthToken
           ? { ANTHROPIC_AUTH_TOKEN: anthropicAuthToken }
           : {}),
+        ...(shellCustomHeaders || persistedCustomHeaders
+          ? {
+              ANTHROPIC_CUSTOM_HEADERS:
+                shellCustomHeaders || persistedCustomHeaders,
+            }
+          : {}),
       },
     })
   }

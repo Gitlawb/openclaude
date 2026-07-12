@@ -833,7 +833,7 @@ export function routeSupportsCustomHeaders(
 
   return (
     descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true ||
-    descriptor.id === 'custom-anthropic'
+    descriptor.transportConfig.anthropicProxy?.supportsCustomHeaders === true
   )
 }
 

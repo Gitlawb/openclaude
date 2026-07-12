@@ -85,6 +85,9 @@ export interface TransportConfig {
   kind: TransportKind
   headers?: Record<string, string>
   openaiShim?: OpenAIShimTransportConfig
+  anthropicProxy?: {
+    supportsCustomHeaders?: boolean
+  }
 }
 
 export interface CatalogTransportOverrides {

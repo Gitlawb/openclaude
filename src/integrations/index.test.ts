@@ -37,6 +37,7 @@ describe('loaded registry validation', () => {
     expect(routeSupportsApiFormatSelection('minimax')).toBe(false)
     expect(routeSupportsAuthHeaders('minimax')).toBe(false)
     expect(routeSupportsCustomHeaders('minimax')).toBe(false)
+    expect(routeSupportsCustomHeaders('custom-anthropic')).toBe(true)
   })
 
   test('route catalogs do not duplicate defaultModel with catalog default flags', () => {

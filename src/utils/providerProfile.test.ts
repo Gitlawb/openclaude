@@ -1444,6 +1444,7 @@ test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer to
       ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
       ANTHROPIC_MODEL: 'claude-proxy-model',
       ANTHROPIC_AUTH_TOKEN: 'persisted-proxy-token',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Tenant: example',
     }),
     processEnv: {},
   })
@@ -1452,6 +1453,7 @@ test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer to
   assert.equal(env.ANTHROPIC_MODEL, 'claude-proxy-model')
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
   assert.equal(env.ANTHROPIC_API_KEY, undefined)
+  assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, 'X-Tenant: example')
 })
 
 test('buildStartupEnvFromProfile preserves explicit custom Anthropic environment setup', async () => {
