@@ -1072,6 +1072,7 @@ async function maybe<A>(
 ): Promise<A[]> {
   const startTime = Date.now()
   try {
+    signal?.throwIfAborted()
     const result = await raceAbort(f(), signal, `Attachment ${label} timed out`)
     const duration = Date.now() - startTime
     // Log only 5% of events to reduce volume

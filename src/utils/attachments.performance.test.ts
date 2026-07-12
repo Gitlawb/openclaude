@@ -39,6 +39,24 @@ describe('attachment perf contracts', () => {
     await expect(resultPromise).resolves.toEqual([])
   })
 
+  test('maybe does not invoke producer when signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    let started = false
+
+    await expect(
+      __test.maybe(
+        'pre_aborted_attachment',
+        async () => {
+          started = true
+          return []
+        },
+        controller.signal,
+      ),
+    ).resolves.toEqual([])
+    expect(started).toBe(false)
+  })
+
   test('processAtMentionedFiles bounds scheduled file work', async () => {
     const gate = deferred()
     let activeStats = 0

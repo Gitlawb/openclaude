@@ -62,16 +62,25 @@ export async function mapWithConcurrency<T, R>(
 
   const results = new Array<R>(items.length)
   let nextIndex = 0
+  let failed = false
 
   async function worker(): Promise<void> {
     while (true) {
+      if (failed) {
+        return
+      }
       signal?.throwIfAborted()
       const index = nextIndex
       nextIndex++
       if (index >= items.length) {
         return
       }
-      results[index] = await mapper(items[index]!, index)
+      try {
+        results[index] = await mapper(items[index]!, index)
+      } catch (error) {
+        failed = true
+        throw error
+      }
     }
   }
 

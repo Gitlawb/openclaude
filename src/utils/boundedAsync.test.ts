@@ -80,6 +80,35 @@ describe('mapWithConcurrency', () => {
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(started).toBe(false)
   })
+
+  test('stops scheduling queued items after the first mapper rejection', async () => {
+    const failFirst = deferred()
+    const holdSecond = deferred()
+    const error = new Error('mapper failed')
+    const started: number[] = []
+
+    const promise = mapWithConcurrency([0, 1, 2, 3], 2, async value => {
+      started.push(value)
+      if (value === 0) {
+        await failFirst.promise
+        throw error
+      }
+      if (value === 1) {
+        await holdSecond.promise
+      }
+      return value
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(started).toEqual([0, 1])
+
+    failFirst.resolve()
+    await expect(promise).rejects.toBe(error)
+
+    holdSecond.resolve()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(started).toEqual([0, 1])
+  })
 })
 
 describe('raceAbort', () => {
