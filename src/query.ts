@@ -935,7 +935,14 @@ async function* queryLoop(
       // Continue on with the current query call using the post compact messages
       messagesForQuery = [
         ...messagesAfterCompact,
-        ...pendingToolFailureAdvisories.map(advisory => advisory.message),
+        ...pendingToolFailureAdvisories
+          .map(advisory => advisory.message)
+          .filter(
+            advisory =>
+              !messagesAfterCompact.some(
+                message => message.uuid === advisory.uuid,
+              ),
+          ),
       ]
     } else if (
       consecutiveFailures !== undefined ||
