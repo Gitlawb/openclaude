@@ -186,22 +186,27 @@ export async function rebuildIndex(memoryDir: string): Promise<void> {
   if (state.pending) await state.pending
 
   state.pending = (async () => {
-  state.db = await create({ schema: ORAMA_SCHEMA }) as OramaDb<any>
+    try {
+      state.db = await create({ schema: ORAMA_SCHEMA }) as OramaDb<any>
 
-    const docs = await scanMdFiles(memoryDir)
+      const docs = await scanMdFiles(memoryDir)
 
-    for (const doc of docs) {
-      await insert(state.db, {
-        filename: doc.filename,
-        path: doc.path,
-        title: doc.title,
-        type: doc.type,
-        description: doc.description,
-        content: doc.content,
-      })
+      for (const doc of docs) {
+        await insert(state.db, {
+          filename: doc.filename,
+          path: doc.path,
+          title: doc.title,
+          type: doc.type,
+          description: doc.description,
+          content: doc.content,
+        })
+      }
+
+      await saveIndex(memoryDir)
+    } catch (e) {
+      state.db = null
+      console.error(`[vectorIndex] rebuildIndex failed for ${memoryDir}:`, e)
     }
-
-    await saveIndex(memoryDir)
   })()
 
   await state.pending
