@@ -1544,6 +1544,7 @@ async function* queryModel(
       !cacheEditingHeaderLatched &&
       cachedMCEnabled &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread'
     ) {
       cacheEditingHeaderLatched = true
@@ -1783,10 +1784,12 @@ async function* queryModel(
     const useCachedMC =
       cachedMCEnabled &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread'
     if (
       cacheEditingHeaderLatched &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread' &&
       !betasParams.includes(cacheEditingBetaHeader)
     ) {
