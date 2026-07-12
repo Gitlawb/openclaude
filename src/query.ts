@@ -568,6 +568,10 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  let pendingToolFailureAdvisories: {
+    message: ReturnType<typeof createUserMessage>
+    threshold: number
+  }[] = []
   // Smart-routing decision, pinned once per user turn (transition===undefined)
   // and reused on every continuation pass. Loop-local (not on State) so it
   // survives the State rebuilds at the continue sites for free — mirrors
@@ -663,6 +667,11 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
+    if (pendingToolFailureAdvisories.length > 0) {
+      messagesForQuery.push(
+        ...pendingToolFailureAdvisories.map(advisory => advisory.message),
+      )
+    }
 
     // Extract facts and update phase from the latest message (user input or tool result)
     if (
@@ -1206,6 +1215,19 @@ async function* queryLoop(
     const toolsForModel = agentStepLimit?.summaryRequested
       ? []
       : toolUseContext.options.tools
+    for (const advisory of pendingToolFailureAdvisories) {
+      yield advisory.message
+      logForDebugging(
+        `Tool failure loop guard advisory: threshold=${advisory.threshold} hasToolName=true hasErrorCategory=true`,
+      )
+      logEvent('tengu_tool_failure_loop_guard_advisory', {
+        threshold: advisory.threshold,
+        hasToolName: true,
+        hasErrorCategory: true,
+        queryDepth: queryTracking.depth,
+      })
+    }
+    pendingToolFailureAdvisories = []
     // Once-only guard for the smart-routing routed-error fallback (U4): a
     // simple-routed call that errors retries once on the strong model; a second
     // failure propagates normally rather than re-routing. Intentionally scoped
@@ -2803,24 +2825,16 @@ async function* queryLoop(
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
 
-    for (const advisoryDecision of toolFailureLoopDecision.advisories ?? []) {
-      const advisory = createUserMessage({
-        content: advisoryDecision.message,
-        isMeta: true,
-      })
-      yield advisory
-      toolResults.push(advisory)
-      logForDebugging(
-        `Tool failure loop guard advisory: threshold=${advisoryDecision.threshold} ` +
-          `hasToolName=${advisoryDecision.toolName !== undefined} ` +
-          `hasErrorCategory=${advisoryDecision.errorCategory !== undefined}`,
-      )
-      logEvent('tengu_tool_failure_loop_guard_advisory', {
+    if (!nextAgentStepLimit?.summaryRequested) {
+      pendingToolFailureAdvisories = (
+        toolFailureLoopDecision.advisories ?? []
+      ).map(advisoryDecision => ({
+        message: createUserMessage({
+          content: advisoryDecision.message,
+          isMeta: true,
+        }),
         threshold: advisoryDecision.threshold,
-        hasToolName: true,
-        hasErrorCategory: true,
-        queryDepth: queryTracking.depth,
-      })
+      }))
     }
 
     queryCheckpoint('query_recursive_call')

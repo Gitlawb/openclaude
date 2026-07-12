@@ -492,7 +492,23 @@ function createAdvisoryMessage({
   return [
     'Warning: repeated tool failures are close to stopping this query.',
     '',
-    `\`${toolName}\` failed ${threshold - 1}/${threshold} times with \`${errorCategory}\`. ` +
+    `\`${getAdvisoryToolName(toolName)}\` failed ${threshold - 1}/${threshold} times with \`${getAdvisoryErrorCategory(errorCategory)}\`. ` +
       'One more matching failure will stop the query. Try a different tool, or verify the path, permissions, and tool inputs before retrying.',
   ].join('\n')
+}
+
+function getAdvisoryToolName(toolName: string): string {
+  return /^[A-Za-z0-9_.:-]+$/.test(toolName) ? toolName : 'unknown tool'
+}
+
+function getAdvisoryErrorCategory(errorCategory: string): string {
+  return [
+    'InputValidationError',
+    'NoSuchTool',
+    'PermissionError',
+    'NotFound',
+    'FileWriteError',
+  ].includes(errorCategory)
+    ? errorCategory
+    : 'unknown error'
 }
