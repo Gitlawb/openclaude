@@ -1509,12 +1509,13 @@ export async function buildLaunchEnv(options: {
     const anthropicBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BASE_URL)
-    const anthropicApiKey =
-      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
-      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
     const anthropicAuthToken =
       sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) ||
       sanitizeApiKey(persistedEnv.ANTHROPIC_AUTH_TOKEN)
+    const anthropicApiKey = anthropicAuthToken
+      ? undefined
+      : sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
+        sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
 
     return buildCompatibilityProcessEnv({
       processEnv,

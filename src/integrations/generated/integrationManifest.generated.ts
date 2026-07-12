@@ -492,7 +492,8 @@ export const PROVIDER_PRESET_MANIFEST = [
     "label": "Custom (Anthropic-compatible)",
     "name": "Custom (Anthropic-compatible)",
     "apiKeyEnvVars": [
-      "ANTHROPIC_AUTH_TOKEN"
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_API_KEY"
     ],
     "baseUrlEnvVars": [
       "ANTHROPIC_BASE_URL"

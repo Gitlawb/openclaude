@@ -422,10 +422,12 @@ export ANTHROPIC_MODEL=your-model-name
 openclaude
 ```
 
-`ANTHROPIC_AUTH_TOKEN` is sent as `Authorization: Bearer ...`; use
-`ANTHROPIC_API_KEY` instead when the endpoint expects Anthropic's `x-api-key`
-authentication. The `/provider` → `Add provider` menu exposes the same setup
-as **Custom (Anthropic-compatible)**, including optional extra request headers.
+`ANTHROPIC_AUTH_TOKEN` is sent as `Authorization: Bearer ...`. The
+`/provider` → `Add provider` menu uses that Bearer-token setup as **Custom
+(Anthropic-compatible)**, including optional extra request headers. For a
+directly configured endpoint that instead requires Anthropic's native
+`x-api-key` authentication, set `ANTHROPIC_API_KEY` in place of the Bearer
+token; do not set both credentials.
 
 | Variable | Required | Description |
 |----------|----------|-------------|

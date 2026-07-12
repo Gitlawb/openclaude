@@ -1456,6 +1456,20 @@ test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer to
   assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, 'X-Tenant: example')
 })
 
+test('buildStartupEnvFromProfile does not leak a stray API key into a persisted custom Anthropic Bearer profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('anthropic', {
+      ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+      ANTHROPIC_MODEL: 'claude-proxy-model',
+      ANTHROPIC_AUTH_TOKEN: 'persisted-proxy-token',
+    }),
+    processEnv: { ANTHROPIC_API_KEY: 'sk-ant-stray-shell-key' },
+  })
+
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
+  assert.equal(env.ANTHROPIC_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile preserves explicit custom Anthropic environment setup', async () => {
   const processEnv: NodeJS.ProcessEnv = {
     ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',

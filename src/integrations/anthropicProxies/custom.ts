@@ -1,7 +1,8 @@
 import { defineAnthropicProxy } from '../define.js'
 
 // A generic user-configured Anthropic Messages API endpoint. Unlike the
-// first-party Anthropic preset, this route uses a provider-issued Bearer token.
+// first-party Anthropic preset, this route can use a provider-issued Bearer
+// token or native x-api-key authentication.
 export default defineAnthropicProxy({
   id: 'custom-anthropic',
   label: 'Custom (Anthropic-compatible)',
@@ -11,7 +12,7 @@ export default defineAnthropicProxy({
   setup: {
     requiresAuth: true,
     authMode: 'token',
-    credentialEnvVars: ['ANTHROPIC_AUTH_TOKEN'],
+    credentialEnvVars: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'],
     setupPrompt: 'Paste the Bearer token for your Anthropic-compatible endpoint.',
   },
   envVarConfig: {
@@ -35,7 +36,7 @@ export default defineAnthropicProxy({
     label: 'Custom (Anthropic-compatible)',
     name: 'Custom (Anthropic-compatible)',
     vendorId: 'anthropic',
-    apiKeyEnvVars: ['ANTHROPIC_AUTH_TOKEN'],
+    apiKeyEnvVars: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'],
     baseUrlEnvVars: ['ANTHROPIC_BASE_URL'],
     modelEnvVars: ['ANTHROPIC_MODEL'],
     fallbackBaseUrl: 'https://anthropic-proxy.example',
