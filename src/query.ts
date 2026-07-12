@@ -2848,10 +2848,7 @@ async function* queryLoop(
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
 
-    if (
-      !nextAgentStepLimit?.summaryRequested &&
-      updatedToolUseContext.options.tools.length > 0
-    ) {
+    if (!nextAgentStepLimit?.summaryRequested) {
       pendingToolFailureAdvisories = (
         toolFailureLoopDecision.advisories ?? []
       ).map(advisoryDecision => ({
