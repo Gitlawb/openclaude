@@ -140,6 +140,17 @@ test('custom Anthropic credentials stay native and resolve to their proxy route'
 
   expect(
     resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'openai-key',
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('openai')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
       ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
       ANTHROPIC_MODEL: 'tenant-model',
       ANTHROPIC_API_KEY: 'tenant-key',

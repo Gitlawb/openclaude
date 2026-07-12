@@ -1,7 +1,10 @@
 import axios from 'axios'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from '../../utils/model/providers.js'
 
 type RegistryServer = {
   server: {
@@ -37,7 +40,7 @@ export async function prefetchOfficialMcpUrls(): Promise<void> {
   }
 
   // The official first-party MCP registry is only relevant for first-party mode.
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     return
   }
 

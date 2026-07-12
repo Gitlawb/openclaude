@@ -1018,6 +1018,7 @@ export function resolveActiveRouteIdFromEnv(
   // resolve it before heuristic env-only vendor detection can reinterpret a
   // provider-controlled host as a first-party gateway.
   if (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN)
@@ -1029,6 +1030,7 @@ export function resolveActiveRouteIdFromEnv(
   // endpoints. A dedicated provider's own known base URL retains its route,
   // but an unrelated ambient credential must not replace an explicit endpoint.
   if (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY) &&
