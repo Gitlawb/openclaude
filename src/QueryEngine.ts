@@ -785,7 +785,7 @@ export class QueryEngine {
         }
       }
 
-      if (message.type === 'user' && !message.isMeta) {
+      if (message.type === 'user') {
         turnCount++
       }
 
