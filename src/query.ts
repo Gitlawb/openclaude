@@ -936,13 +936,13 @@ async function* queryLoop(
       messagesForQuery = [
         ...messagesAfterCompact,
         ...pendingToolFailureAdvisories
-          .map(advisory => advisory.message)
           .filter(
             advisory =>
               !messagesAfterCompact.some(
                 message => message.uuid === advisory.message.uuid,
               ),
-          ),
+          )
+          .map(advisory => advisory.message),
       ]
     } else if (
       consecutiveFailures !== undefined ||
@@ -1225,7 +1225,10 @@ async function* queryLoop(
     const toolsForModel = agentStepLimit?.summaryRequested
       ? []
       : toolUseContext.options.tools
-    for (const advisory of pendingToolFailureAdvisories) {
+    // The blocking-limit returns above are terminal, so an advisory cannot be
+    // surfaced or retained for a later model turn on those paths.
+    const advisoriesForCurrentRequest = pendingToolFailureAdvisories
+    for (const advisory of advisoriesForCurrentRequest) {
       logForDebugging(
         `Tool failure loop guard advisory: threshold=${advisory.threshold} hasToolName=true hasErrorCategory=true`,
       )
@@ -1842,12 +1845,23 @@ async function* queryLoop(
           }
 
           const postCompactMessages = buildPostCompactMessages(compacted)
+          const messagesAfterCompact = [
+            ...postCompactMessages,
+            ...advisoriesForCurrentRequest
+              .filter(
+                advisory =>
+                  !postCompactMessages.some(
+                    message => message.uuid === advisory.message.uuid,
+                  ),
+              )
+              .map(advisory => advisory.message),
+          ]
           for (const msg of postCompactMessages) {
             yield msg
           }
           updateAutoCompactTracking(undefined)
           const next: State = {
-            messages: postCompactMessages,
+            messages: messagesAfterCompact,
             toolUseContext,
             autoCompactTracking: undefined,
             maxOutputTokensRecoveryCount,

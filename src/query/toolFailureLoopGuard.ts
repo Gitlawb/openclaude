@@ -466,11 +466,11 @@ function createTripMessage(
 ): string {
   let reason: string
   if (detail.kind === 'path') {
-    reason = `The path \`${detail.path}\` failed ${detail.threshold} times.`
+    reason = `The path \`${getTripPath(detail.path)}\` failed ${detail.threshold} times.`
   } else if (detail.kind === 'signature') {
-    reason = `\`${detail.toolName}\` failed ${detail.threshold} times with \`${detail.errorCategory}\`.`
+    reason = `\`${getAdvisoryToolName(detail.toolName)}\` failed ${detail.threshold} times with \`${getAdvisoryErrorCategory(detail.errorCategory)}\`.`
   } else {
-    reason = `Tool calls failed ${detail.threshold} times with \`${detail.errorCategory}\`.`
+    reason = `Tool calls failed ${detail.threshold} times with \`${getAdvisoryErrorCategory(detail.errorCategory)}\`.`
   }
 
   return [
@@ -511,4 +511,9 @@ function getAdvisoryErrorCategory(errorCategory: string): string {
   ].includes(errorCategory)
     ? errorCategory
     : 'unknown error'
+}
+
+function getTripPath(path: string): string {
+  const sanitized = path.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}`]/gu, '')
+  return sanitized === '' ? 'unknown path' : sanitized
 }
