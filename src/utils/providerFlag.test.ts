@@ -25,6 +25,10 @@ const ENV_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -145,12 +149,24 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
   test('keeps native Anthropic routing and applies --model', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+    process.env.OPENAI_BASE_URL = 'https://stale.example/v1'
+    process.env.OPENAI_API_BASE = 'https://stale.example/v1'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'Authorization'
+    process.env.OPENAI_AUTH_SCHEME = 'bearer'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-token'
 
     const result = applyProviderFlag('custom-anthropic', ['--model', 'proxy-model'])
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_BASE).toBeUndefined()
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://proxy.example/v1')
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })

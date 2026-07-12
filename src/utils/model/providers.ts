@@ -124,12 +124,12 @@ export function isFirstPartyAnthropicBaseUrl(): boolean {
     return true
   }
   try {
-    const host = new URL(baseUrl).host
+    const url = new URL(baseUrl)
     const allowedHosts = ['api.anthropic.com']
     if (process.env.USER_TYPE === 'ant') {
       allowedHosts.push('api-staging.anthropic.com')
     }
-    return allowedHosts.includes(host)
+    return url.protocol === 'https:' && allowedHosts.includes(url.host)
   } catch {
     return false
   }

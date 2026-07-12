@@ -9,6 +9,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { logError } from '../../utils/log.js'
 import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
+import { isFirstPartyAnthropicBaseUrl } from '../../utils/model/providers.js'
 import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
 import type {
   ReferralCampaign,
@@ -70,6 +71,7 @@ export async function fetchReferralRedemptions(
  */
 function shouldCheckForPasses(): boolean {
   return !!(
+    isFirstPartyAnthropicBaseUrl() &&
     getOauthAccountInfo()?.organizationUuid &&
     isClaudeAISubscriber() &&
     getSubscriptionType() === 'max'

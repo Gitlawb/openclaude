@@ -576,6 +576,23 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     return [defaultOption, ...inactiveProfileOptions]
   }
 
+  const activeProfile = getActiveProviderProfile()
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env, {
+    activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
+  })
+  if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
+    const directEnvOption =
+      profileModelOptions.length === 0 && process.env.ANTHROPIC_MODEL
+        ? [{
+            value: process.env.ANTHROPIC_MODEL,
+            label: process.env.ANTHROPIC_MODEL,
+            description: 'Custom Anthropic-compatible endpoint',
+          }]
+        : []
+    return [...profileModelOptions, ...directEnvOption, ...inactiveProfileOptions]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({
@@ -638,22 +655,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // other configured profile while a local/route profile is active (#1119).
   const activeRouteCatalogOptions = getActiveOpenAIRouteCatalogOptions()
   const openAIModelOptionsScope = getAdditionalModelOptionsCacheScope()
-  const activeProfile = getActiveProviderProfile()
-  const activeRouteId = resolveActiveRouteIdFromEnv(process.env, {
-    activeProfileProvider: activeProfile?.provider,
-    activeProfileBaseUrl: activeProfile?.baseUrl,
-  })
-  if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
-    const directEnvOption =
-      profileModelOptions.length === 0 && process.env.ANTHROPIC_MODEL
-        ? [{
-            value: process.env.ANTHROPIC_MODEL,
-            label: process.env.ANTHROPIC_MODEL,
-            description: 'Custom Anthropic-compatible endpoint',
-          }]
-        : []
-    return [...profileModelOptions, ...directEnvOption, ...inactiveProfileOptions]
-  }
   if (
     activeRouteCatalogOptions.length > 0 ||
     openAIModelOptionsScope?.startsWith('openai:')
@@ -1026,12 +1027,12 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])
-  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty') {
+  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMaxOpusOption(fastMode),
     ])
-  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty') {
+  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMergedOpus1MOption(fastMode),

@@ -41,6 +41,7 @@ export async function prefetchOfficialMcpUrls(): Promise<void> {
 
   // The official first-party MCP registry is only relevant for first-party mode.
   if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
+    officialUrls = undefined
     return
   }
 
@@ -73,7 +74,11 @@ export async function prefetchOfficialMcpUrls(): Promise<void> {
  * URL is in the official MCP registry. Undefined registry → false (fail-closed).
  */
 export function isOfficialMcpUrl(normalizedUrl: string): boolean {
-  return officialUrls?.has(normalizedUrl) ?? false
+  return (
+    getAPIProvider() === 'firstParty' &&
+    isFirstPartyAnthropicBaseUrl() &&
+    (officialUrls?.has(normalizedUrl) ?? false)
+  )
 }
 
 export function resetOfficialMcpUrlsForTesting(): void {

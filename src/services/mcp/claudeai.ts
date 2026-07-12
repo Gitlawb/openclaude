@@ -43,14 +43,19 @@ const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 export const fetchClaudeAIMcpConfigsIfEligible = memoize(
   async (): Promise<Record<string, ScopedMcpServerConfig>> => {
     try {
-      if (
-        getAPIProvider() !== 'firstParty' ||
-        !isFirstPartyAnthropicBaseUrl()
-      ) {
+      if (getAPIProvider() !== 'firstParty') {
         logForDebugging('[claudeai-mcp] Skipped: non-first-party provider')
         logEvent('tengu_claudeai_mcp_eligibility', {
           state:
             'non_first_party_provider' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        })
+        return {}
+      }
+      if (!isFirstPartyAnthropicBaseUrl()) {
+        logForDebugging('[claudeai-mcp] Skipped: non-first-party base URL')
+        logEvent('tengu_claudeai_mcp_eligibility', {
+          state:
+            'non_first_party_base_url' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         })
         return {}
       }

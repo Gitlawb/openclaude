@@ -95,6 +95,16 @@ test('custom Anthropic endpoints do not start the first-party account flow', asy
   expect(usesAnthropicAccountFlow()).toBe(false)
 })
 
+test('HTTP Anthropic URLs do not enable the first-party account flow', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'http://api.anthropic.com'
+
+  const { isFirstPartyAnthropicBaseUrl, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(isFirstPartyAnthropicBaseUrl()).toBe(false)
+  expect(usesAnthropicAccountFlow()).toBe(false)
+})
+
 test.each([
   ['CLAUDE_CODE_USE_OPENAI', 'openai'],
   ['CLAUDE_CODE_USE_GITHUB', 'github'],
