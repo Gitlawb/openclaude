@@ -730,6 +730,12 @@ test('ProviderManager offers a token field for custom Anthropic-compatible provi
     )
     expect(output).not.toContain('API mode')
     mounted.stdin.write('\r')
+    const requiredOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Access token is required.'),
+    )
+    expect(requiredOutput).toContain('Access token is required.')
+    mounted.stdin.write('proxy-token')
+    mounted.stdin.write('\r')
     const headersOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Custom headers'),
     )

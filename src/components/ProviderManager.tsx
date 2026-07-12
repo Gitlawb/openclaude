@@ -912,6 +912,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           label: 'Access token',
           placeholder: 'Bearer token for this endpoint',
           helpText: 'Sent as Authorization: Bearer <token>.',
+          optional: false,
         }
       : currentStep
 
