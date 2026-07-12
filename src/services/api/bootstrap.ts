@@ -28,7 +28,10 @@ import { logForDebugging } from '../../utils/debug.js'
 import { withOAuth401Retry } from '../../utils/http.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from '../../utils/model/providers.js'
 import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import {
@@ -133,7 +136,7 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
     return null
   }
 
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     logForDebugging('[Bootstrap] Skipped: 3P provider')
     return null
   }
