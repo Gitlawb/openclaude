@@ -445,17 +445,10 @@ export async function appendArcToSystemPrompt(
       const parts: string[] = []
       if (arcSummary) parts.push(arcSummary)
       if (orchMem) parts.push(orchMem)
-      // Append retrieved memory to the user's own query text rather than the
-      // system prompt so it is treated as untrusted user context, not system
-      // instructions.  This prevents extracted conversation text (including
-      // any injected content) from being promoted to instruction level.
-      const userMsg = messagesForQuery[messagesForQuery.length - 1]
-      if (userMsg?.type === 'user' && userMsg.message?.content) {
-        const existing = typeof userMsg.message.content === 'string'
-          ? userMsg.message.content
-          : userMsg.message.content.map(p => ('text' in p ? p.text : '')).join('\n')
-        userMsg.message.content = existing + '\n\n[Retrieved Context]\n' + parts.join('\n') + '\n'
-      }
+      // Append retrieved memory to the system prompt as an untrusted-data
+      // block rather than mutating the caller's message objects, which are
+      // shared references to the persisted message store.
+      return [...systemPrompt, '\n--- [Retrieved Context] ---\n' + parts.join('\n') + '\n---\n']
     }
   }
   return systemPrompt

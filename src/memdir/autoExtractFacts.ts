@@ -8,7 +8,6 @@
 
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
-import { sanitizePath } from '../utils/path.js'
 import { getAutoMemPath } from './paths.js'
 import { redactSecretSubstringsForDisplay } from '../utils/providerSecrets.js'
 
@@ -68,7 +67,11 @@ ${description}
 ${Object.entries(attributes).length > 0 ? `**Details:**\n${Object.entries(attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 `
 
-  writeFileSync(filePath, content, 'utf-8')
+  try {
+    writeFileSync(filePath, content, 'utf-8')
+  } catch {
+    // Fact write failures are non-fatal — continue without this fact.
+  }
 }
 
 const MAX_FACTS_PER_CALL = 20

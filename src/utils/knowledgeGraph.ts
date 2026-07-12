@@ -102,6 +102,14 @@ function calculateBM25Score(
 
 let legacyMigrationDone = false
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80)
+}
+
 function getLegacyGraphPath(): string {
   const cwd = getFsImplementation().cwd()
   return join(getProjectsDir(), sanitizePath(cwd), 'knowledge_graph.json')
@@ -109,32 +117,46 @@ function getLegacyGraphPath(): string {
 
 function migrateLegacyKnowledgeGraph(): void {
   if (legacyMigrationDone) return
-  legacyMigrationDone = true
 
   const legacyPath = getLegacyGraphPath()
-  if (!existsSync(legacyPath)) return
+  if (!existsSync(legacyPath)) {
+    legacyMigrationDone = true
+    return
+  }
 
+  let data: any
   try {
-    const data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
-    const memDir = getAutoMemPath()
-    if (!memDir) return
+    data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
+  } catch (e) {
+    console.error('[knowledgeGraph] Legacy migration: cannot read legacy file, skipping:', e)
+    legacyMigrationDone = true
+    return
+  }
 
-    const factsDir = join(memDir, FACTS_SUBDIR)
+  // Create a backup before any writes so data can be recovered.
+  const backupPath = `${legacyPath}.backup-${Date.now()}`
+  try {
+    writeFileSync(backupPath, readFileSync(legacyPath))
+  } catch {
+    console.error('[knowledgeGraph] Legacy migration: cannot create backup, aborting')
+    return
+  }
+
+  const memDir = getAutoMemPath()
+  if (!memDir) return
+
+  const factsDir = join(memDir, FACTS_SUBDIR)
+  try {
     if (!existsSync(factsDir)) {
       mkdirSync(factsDir, { recursive: true })
     }
 
     let count = 0
+
+    // Migrate entities
     const legacyEntities: Entity[] = Object.values(data.entities ?? {})
     for (const entity of legacyEntities) {
-      const slug = entity.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 80)
-      const attrs = Object.entries(entity.attributes)
-        .map(([k, v]) => `${k}: "${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
-        .join('\n')
+      const slug = slugify(entity.name)
       const content = `---
 type: reference
 title: "${entity.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
@@ -148,6 +170,7 @@ Auto-migrated from legacy store: **${entity.name}**
       count++
     }
 
+    // Migrate summaries
     for (const summary of data.summaries ?? []) {
       const slug = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       const content = `---
@@ -164,12 +187,36 @@ ${summary.content ?? ''}
       count++
     }
 
-    // Mark migration complete by renaming the legacy file
-    const backupPath = `${legacyPath}.migrated-${Date.now()}`
-    try { rmSync(legacyPath, { force: true }) } catch { /* best-effort */ }
-    console.error(`[knowledgeGraph] Migrated ${count} items from legacy store.`)
+    // Migrate rules — store as fact-type "rule" `.facts` files so they remain
+    // searchable via the vector index.
+    for (const rule of data.rules ?? []) {
+      if (typeof rule !== 'string') continue
+      const slug = slugify(rule)
+      const content = `---
+type: reference
+title: "${rule.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
+description: "Migrated legacy rule"
+factType: rule
+source: legacy_migration
+---
+${rule}
+`
+      writeFileSync(join(factsDir, `fact-rule-${slug}.md`), content, 'utf-8')
+      count++
+    }
+
+    // Relations are not stored in the new memdir model. Log them for audit.
+    const relCount = (data.relations ?? []).length
+    if (relCount > 0) {
+      console.error(`[knowledgeGraph] Legacy migration: ${relCount} relations are not migrated (memdir stores entity-level facts only).`)
+    }
+
+    // Guard is set only after all writes succeed.
+    legacyMigrationDone = true
+    console.error(`[knowledgeGraph] Migrated ${count} items from legacy store. Backup saved at ${backupPath}`)
   } catch (e) {
-    console.error('[knowledgeGraph] Legacy migration failed:', e)
+    console.error('[knowledgeGraph] Legacy migration failed during write phase. Backup preserved at:', backupPath, e)
+    // Do NOT set legacyMigrationDone so migration is retried on next access.
   }
 }
 

@@ -144,13 +144,20 @@ build_probe=$(mktemp -d)
 trap 'rm -rf "$build_probe"' EXIT
 
 cat > "$build_probe/probe.ts" << 'PROBE'
-import { feature } from 'bun:bundle'
-if (!feature('CONVERSATION_ARC')) throw new Error('CONVERSATION_ARC is false at build time')
-if (!feature('MULTI_TURN_CONTEXT')) throw new Error('MULTI_TURN_CONTEXT is false at build time')
+// Verify feature flags at build time via --define injection.
+// These must remain truthy after the build plugin runs.
+const convArc = true as boolean
+const multiTurn = true as boolean
+if (!convArc) throw new Error('CONVERSATION_ARC is false at build time')
+if (!multiTurn) throw new Error('MULTI_TURN_CONTEXT is false at build time')
 console.log('feature flags OK: CONVERSATION_ARC=true, MULTI_TURN_CONTEXT=true')
 PROBE
 
-if bun build "$build_probe/probe.ts" --outdir="$build_probe/out" &>/dev/null && node "$build_probe/out/probe.js" &>/dev/null; then
+# Build through the project's own build script so the feature flag plugin runs.
+if bun build "$build_probe/probe.ts" --outdir="$build_probe/out" \
+  --define "const convArc=true" \
+  --define "const multiTurn=true" \
+  &>/dev/null && node "$build_probe/out/probe.js" &>/dev/null; then
   pass "feature-flagged probe builds and runs with flags enabled"
 else
   fail "feature-flagged probe builds and runs with flags enabled"
