@@ -15,6 +15,7 @@
 import '../integrations/index.js'
 import {
   ensureIntegrationsLoaded,
+  getAnthropicProxy,
   getAllGateways,
   getAllVendors,
   getGateway,
@@ -150,11 +151,12 @@ function getRouteDefaults(provider: string): {
   const gateway =
     (route.gatewayId ? getGateway(route.gatewayId) : undefined) ??
     getGateway(route.routeId)
+  const anthropicProxy = getAnthropicProxy(route.routeId)
 
-  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel
+  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel ?? anthropicProxy?.defaultModel
 
   return {
-    defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
+    defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl ?? anthropicProxy?.defaultBaseUrl,
     defaultModel,
   }
 }
@@ -341,6 +343,17 @@ export function applyProviderFlag(
   switch (provider) {
     case 'anthropic':
       // Default — no env vars needed
+      break
+
+    case 'custom-anthropic':
+      delete process.env.OPENAI_BASE_URL
+      delete process.env.OPENAI_API_BASE
+      delete process.env.OPENAI_MODEL
+      delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AUTH_HEADER
+      delete process.env.OPENAI_AUTH_SCHEME
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+      if (model) process.env.ANTHROPIC_MODEL = model
       break
 
     case 'openai':

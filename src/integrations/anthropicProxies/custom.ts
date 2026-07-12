@@ -13,7 +13,7 @@ export default defineAnthropicProxy({
     requiresAuth: true,
     authMode: 'token',
     credentialEnvVars: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'],
-    setupPrompt: 'Paste the Bearer token for your Anthropic-compatible endpoint.',
+    setupPrompt: 'Paste the credential for your Anthropic-compatible endpoint.',
   },
   envVarConfig: {
     authTokenEnvVar: 'ANTHROPIC_AUTH_TOKEN',

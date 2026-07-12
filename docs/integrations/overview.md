@@ -199,5 +199,5 @@ Contributor docs should describe these as compatibility bridges, not as the
 primary architecture.
 
 Preset ordering pins `anthropic` first, derives the middle entries from preset
-descriptions with standard alphanumeric sorting, and pins `custom` last
-automatically.
+descriptions with standard alphanumeric sorting, and pins the custom presets
+last: `custom` followed by `custom-anthropic`.

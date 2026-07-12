@@ -310,6 +310,7 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   delete process.env.ANTHROPIC_API_KEY
   process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
   process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a'
 
   const fetchOverride = (async (input, init) => {
     capturedUrl =
@@ -350,6 +351,43 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   expect(capturedUrl).toBe('https://anthropic.example/api/v1/messages')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer custom-anthropic-token')
   expect(capturedHeaders?.get('x-api-key')).toBeNull()
+  expect(capturedHeaders?.get('x-tenant')).toBe('tenant-a')
+})
+
+test('routes a custom Anthropic endpoint with native x-api-key authentication', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  process.env.ANTHROPIC_API_KEY = 'custom-anthropic-api-key'
+  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+
+  const fetchOverride = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_custom_anthropic_key', type: 'message', role: 'assistant',
+        model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn', stop_sequence: null, container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({ maxRetries: 0, model: 'claude-sonnet-4-6', fetchOverride })
+  await client.messages.create({
+    model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64,
+  })
+
+  expect(capturedHeaders?.get('x-api-key')).toBe('custom-anthropic-api-key')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
 test('routes Gemini provider requests through the OpenAI-compatible shim', async () => {

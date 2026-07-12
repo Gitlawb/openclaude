@@ -997,6 +997,17 @@ export function resolveActiveRouteIdFromEnv(
     return 'vertex'
   }
 
+  // A Bearer-token Anthropic endpoint is explicitly the custom proxy contract;
+  // resolve it before heuristic env-only vendor detection can reinterpret a
+  // provider-controlled host as a first-party gateway.
+  if (
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN)
+  ) {
+    return 'custom-anthropic'
+  }
+
   const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
   if (envOnlyRouteId) return envOnlyRouteId
 

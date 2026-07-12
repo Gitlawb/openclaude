@@ -913,9 +913,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     draftProvider === 'custom-anthropic' && currentStepKey === 'apiKey'
       ? {
           ...currentStep,
-          label: 'Access token',
-          placeholder: 'Bearer token for this endpoint',
-          helpText: 'Sent as Authorization: Bearer <token>.',
+          label: 'Credential',
+          placeholder: 'Credential for this endpoint',
+          helpText: 'The custom profile stores this as an Authorization Bearer token.',
           optional: false,
         }
       : currentStep

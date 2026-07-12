@@ -125,6 +125,20 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
   ])
 })
 
+test('custom Anthropic credentials stay native and resolve to their proxy route', () => {
+  expect(getRouteCredentialEnvVars('custom-anthropic')).toEqual([
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+  ])
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('custom-anthropic')
+})
+
 test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {
   expect(getRouteCredentialEnvVars('atlas-cloud')).toEqual([
     'ATLAS_CLOUD_API_KEY',

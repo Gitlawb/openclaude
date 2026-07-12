@@ -39,6 +39,8 @@ const ENV_KEYS = [
   'CLOUDFLARE_API_TOKEN',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -136,6 +138,21 @@ describe('applyProviderFlag - anthropic', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+  })
+})
+
+describe('applyProviderFlag - custom Anthropic-compatible', () => {
+  test('keeps native Anthropic routing and applies --model', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+
+    const result = applyProviderFlag('custom-anthropic', ['--model', 'proxy-model'])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 })
 

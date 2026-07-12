@@ -726,14 +726,14 @@ test('ProviderManager offers a token field for custom Anthropic-compatible provi
     mounted.stdin.write('\r')
 
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Access token') && frame.includes('Anthropic-compatible API'),
+      frame.includes('Credential') && frame.includes('Anthropic-compatible API'),
     )
     expect(output).not.toContain('API mode')
     mounted.stdin.write('\r')
     const requiredOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Access token is required.'),
+      frame.includes('Credential is required.'),
     )
-    expect(requiredOutput).toContain('Access token is required.')
+    expect(requiredOutput).toContain('Credential is required.')
     mounted.stdin.write('proxy-token')
     mounted.stdin.write('\r')
     const headersOutput = await waitForFrameOutput(mounted.getOutput, frame =>
