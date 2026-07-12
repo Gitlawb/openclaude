@@ -444,7 +444,7 @@ export function getProviderPresetDefaults(
   // Keep preset-pinned endpoints/models even when generic OpenAI env values
   // are present, but still read provider-specific credential env vars above.
   const routeDefaults =
-    preset === 'custom'
+    preset === 'custom' || preset === 'custom-anthropic'
       ? metadata
       : getProviderPresetUiMetadata(preset, {})
   return {
@@ -452,7 +452,13 @@ export function getProviderPresetDefaults(
     name: metadata.name,
     baseUrl: routeDefaults.baseUrl,
     model: routeDefaults.model,
-    apiKey: metadata.apiKey,
+    // The /provider custom Anthropic flow always saves a Bearer token. Keep
+    // direct ANTHROPIC_API_KEY/x-api-key setups out of that field so opening
+    // the preset cannot silently change their authentication scheme.
+    apiKey:
+      preset === 'custom-anthropic'
+        ? process.env.ANTHROPIC_AUTH_TOKEN?.trim() || undefined
+        : metadata.apiKey,
     requiresApiKey: metadata.requiresApiKey,
   }
 }

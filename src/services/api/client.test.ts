@@ -158,7 +158,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL

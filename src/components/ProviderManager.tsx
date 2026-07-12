@@ -293,7 +293,11 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
 }
 
 function isSetupPlaceholder(value: string): boolean {
-  return /\bYOUR[-_\s]/i.test(value) || /<[^>]+>/.test(value)
+  return (
+    /\bYOUR[-_\s]/i.test(value) ||
+    /<[^>]+>/.test(value) ||
+    /:\/\/[^/]+\.example(?:\/|$)/i.test(value)
+  )
 }
 
 function canUseStreamlinedPresetFlow(draft: ProviderDraft): boolean {
@@ -1643,6 +1647,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'] = draftProvider,
     profileId: string | null = editingProfileId,
   ): void {
+    if (
+      provider === 'custom-anthropic' &&
+      isSetupPlaceholder(nextDraft.baseUrl)
+    ) {
+      setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
+      return
+    }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const showsAuthHeader = routeShowsAuthHeader(routeId)

@@ -2255,6 +2255,20 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.apiKey).toBe('key-a,key-b')
   })
+
+  test('custom Anthropic preserves direct endpoint settings but only hydrates a Bearer token', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.ANTHROPIC_BASE_URL = 'https://tenant.example/v1'
+    process.env.ANTHROPIC_MODEL = 'tenant-model'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'bearer-token'
+    process.env.ANTHROPIC_API_KEY = 'native-api-key'
+
+    const defaults = getProviderPresetDefaults('custom-anthropic')
+
+    expect(defaults.baseUrl).toBe('https://tenant.example/v1')
+    expect(defaults.model).toBe('tenant-model')
+    expect(defaults.apiKey).toBe('bearer-token')
+  })
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL

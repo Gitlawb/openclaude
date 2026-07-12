@@ -740,6 +740,13 @@ test('ProviderManager offers a token field for custom Anthropic-compatible provi
       frame.includes('Custom headers'),
     )
     expect(headersOutput).toContain('Extra non-auth request headers')
+    mounted.stdin.write('\r')
+    const placeholderError = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL must be a real Anthropic-compatible endpoint.'),
+    )
+    expect(placeholderError).toContain(
+      'Base URL must be a real Anthropic-compatible endpoint.',
+    )
   } finally {
     await mounted.dispose()
   }
