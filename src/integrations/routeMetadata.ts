@@ -1021,7 +1021,8 @@ export function resolveActiveRouteIdFromEnv(
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
-    hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN)
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) &&
+    !isFirstPartyAnthropicBaseUrl(processEnv)
   ) {
     return 'custom-anthropic'
   }

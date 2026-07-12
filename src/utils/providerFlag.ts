@@ -353,6 +353,7 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
+      process.env.ANTHROPIC_MODEL ??= defaultModel
       if (model) process.env.ANTHROPIC_MODEL = model
       break
 

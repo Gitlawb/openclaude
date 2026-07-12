@@ -244,7 +244,7 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   delete process.env.XAI_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
@@ -307,7 +307,7 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_MISTRAL
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
   process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a'
