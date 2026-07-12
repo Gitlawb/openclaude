@@ -134,15 +134,37 @@ else
   fail "query.ts builds (verifies full import chain)"
 fi
 
-# ── 11. TypeScript type check ────────────────────────────────────────
+# ── 11. Feature-flag entry path regression ──────────────────────────
 echo ""
-echo "── 11. TypeScript type check ──"
+echo "── 11. Feature-flag entry path regression ──"
+
+# Build a small probe that exercises the feature-flagged entry path
+# at runtime, proving the flags are injected and take effect.
+build_probe=$(mktemp -d)
+trap 'rm -rf "$build_probe"' EXIT
+
+cat > "$build_probe/probe.ts" << 'PROBE'
+import { feature } from 'bun:bundle'
+if (!feature('CONVERSATION_ARC')) throw new Error('CONVERSATION_ARC is false at build time')
+if (!feature('MULTI_TURN_CONTEXT')) throw new Error('MULTI_TURN_CONTEXT is false at build time')
+console.log('feature flags OK: CONVERSATION_ARC=true, MULTI_TURN_CONTEXT=true')
+PROBE
+
+if bun build "$build_probe/probe.ts" --outdir="$build_probe/out" &>/dev/null && node "$build_probe/out/probe.js" &>/dev/null; then
+  pass "feature-flagged probe builds and runs with flags enabled"
+else
+  fail "feature-flagged probe builds and runs with flags enabled"
+fi
+
+# ── 12. TypeScript type check ────────────────────────────────────────
+echo ""
+echo "── 12. TypeScript type check ──"
 
 check "bun run typecheck passes" bun run typecheck
 
-# ── 12. Test suite ──────────────────────────────────────────────────
+# ── 13. Test suite ──────────────────────────────────────────────────
 echo ""
-echo "── 12. Test suite ──"
+echo "── 13. Test suite ──"
 
 check "All focused tests pass" bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/utils/multiTurnContext.test.ts src/commands/knowledge/knowledge.test.ts
 

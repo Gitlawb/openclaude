@@ -367,13 +367,16 @@ describe('conversationArc', () => {
 
       // Test helper logic directly
       const { appendArcToSystemPrompt } = await import('./conversationArc.js')
-      const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
+      const messages = [lastMessage]
+      const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, messages)
 
-      // Verify arc content is in the final prompt
-      expect(promptWithArc.length).toBe(mockSystemPrompt.length + 2)
-      expect(promptWithArc.join('\n')).toContain('Phase:')
-      expect(promptWithArc.join('\n')).toContain('PERSISTENT PROJECT MEMORY')
-      expect(promptWithArc.join('\n')).toContain('Add JWT auth')
+      // Arc content is now appended to the user message (not system prompt)
+      // to keep a strict untrusted-data boundary.
+      expect(promptWithArc).toEqual(mockSystemPrompt)
+      expect(promptWithArc.length).toBe(mockSystemPrompt.length)
+      expect(messages[0].message?.content).toContain('Phase:')
+      expect(messages[0].message?.content).toContain('PERSISTENT PROJECT MEMORY')
+      expect(messages[0].message?.content).toContain('Add JWT auth')
     })
 
     it('query.ts path: does not append arc when auto-memory is disabled', async () => {

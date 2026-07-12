@@ -6,7 +6,7 @@
 import { createHash } from 'crypto'
 import { readFileSync, existsSync, writeFileSync, readdirSync, statSync, Dirent } from 'fs'
 import { join, relative } from 'path'
-import { create, insert, search } from '@orama/orama'
+import { create, insert, search, type Orama as OramaDb } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
 import { parseFrontmatter } from '../utils/frontmatterParser.js'
 
@@ -20,7 +20,7 @@ const ORAMA_SCHEMA = {
 } as const
 
 interface DirIndex {
-  db: any
+  db: OramaDb<any> | null
   pending: Promise<void> | null
 }
 
@@ -169,7 +169,7 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
     if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.contentHash === storedContentHash) {
       try {
         const data = readFileSync(indexPath)
-        state.db = await restore('binary', data)
+        state.db = await restore('binary', data) as OramaDb<any>
         return
       } catch {
         // Corrupted index — rebuild
@@ -186,7 +186,7 @@ export async function rebuildIndex(memoryDir: string): Promise<void> {
   if (state.pending) await state.pending
 
   state.pending = (async () => {
-    state.db = await create({ schema: ORAMA_SCHEMA })
+  state.db = await create({ schema: ORAMA_SCHEMA }) as OramaDb<any>
 
     const docs = await scanMdFiles(memoryDir)
 
