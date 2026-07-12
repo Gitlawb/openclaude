@@ -167,15 +167,20 @@ export async function extractFactsIntoMemdir(
     cappedWrite(dir, 'ip', ip, `Server IP: ${ip}`, tags)
   }
 
-  // 6. Detect backtick symbols
+  // 6. Detect backtick symbols — treat content as untrusted.
+  // Only write backtick values that reliably look like technical identifiers.
   const backtickMatches = scrubbedContent.matchAll(/`([^`]+)`/g)
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      // Skip values that look like secrets or were redacted by the repo's
-      // full secret scanner (covers NPM tokens, JWTs, and all known formats).
       if (redactSecretSubstringsForDisplay(symbol) !== symbol) continue
       if (/\[REDACTED/i.test(symbol)) continue
+      // Skip long strings that look like tokens or passphrases:
+      //   - long (≥24) all-lowercase with separators → Diceware passphrase
+      //   - long (≥32) bare hex tokens
+      //   - opaque token heuristic (mixed-case + digits, ≥20)
+      if (symbol.length >= 24 && /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(symbol)) continue
+      if (symbol.length >= 32 && /^[a-f0-9]+$/.test(symbol)) continue
       if (symbol.length >= 20 && /[a-z]/.test(symbol) && /[A-Z]/.test(symbol) && /\d/.test(symbol)) continue
       cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
     }
