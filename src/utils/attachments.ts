@@ -119,6 +119,7 @@ import {
   createAbortController,
   createChildAbortController,
 } from './abortController.js'
+import { mapWithConcurrency, raceAbort } from './boundedAsync.js'
 import { isAbortError } from './errors.js'
 import {
   getFileModificationTimeAsync,
@@ -764,6 +765,8 @@ export type TeamContextAttachment = {
   taskListPath: string
 }
 
+const ATTACHMENT_FILE_IO_CONCURRENCY = 8
+
 /**
  * This is janky
  * TODO: Generate attachments when we create messages
@@ -794,19 +797,27 @@ export async function getAttachments(
   const abortController = createAbortController()
   const timeoutId = setTimeout(ac => ac.abort(), 1000, abortController)
   const context = { ...toolUseContext, abortController }
+  const maybeAttachment = <A>(
+    label: string,
+    f: () => Promise<A[]>,
+  ): Promise<A[]> => maybe(label, f)
+  const maybeTimedAttachment = <A>(
+    label: string,
+    f: () => Promise<A[]>,
+  ): Promise<A[]> => maybe(label, f, context.abortController.signal)
 
   const isMainThread = !toolUseContext.agentId
 
   // Attachments which are added in response to on user input
   const userInputAttachments = input
     ? [
-        maybe('at_mentioned_files', () =>
+        maybeTimedAttachment('at_mentioned_files', () =>
           processAtMentionedFiles(input, context),
         ),
-        maybe('mcp_resources', () =>
+        maybeTimedAttachment('mcp_resources', () =>
           processMcpResourceAttachments(input, context),
         ),
-        maybe('agent_mentions', () =>
+        maybeAttachment('agent_mentions', () =>
           Promise.resolve(
             processAgentMentions(
               input,
@@ -830,7 +841,7 @@ export async function getAttachments(
         skillSearchModules &&
         !options?.skipSkillDiscovery
           ? [
-              maybe('skill_discovery', () =>
+              maybeTimedAttachment('skill_discovery', () =>
                 skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
                   input,
                   messages ?? [],
@@ -854,17 +865,19 @@ export async function getAttachments(
     // main thread gets agentId===undefined, subagents get their own agentId.
     // Must run for all threads or subagent notifications drain into the void
     // (removed from queue by removeFromQueue but never attached).
-    maybe('queued_commands', () => getQueuedCommandAttachments(queuedCommands)),
-    maybe('date_change', () =>
+    maybeAttachment('queued_commands', () =>
+      getQueuedCommandAttachments(queuedCommands),
+    ),
+    maybeAttachment('date_change', () =>
       Promise.resolve(getDateChangeAttachments(messages)),
     ),
-    maybe('ultrathink_effort', () =>
+    maybeAttachment('ultrathink_effort', () =>
       Promise.resolve(getUltrathinkEffortAttachment(input)),
     ),
-    maybe('ultracode_mode', () =>
+    maybeAttachment('ultracode_mode', () =>
       Promise.resolve(getUltracodePermissionAttachment(toolUseContext)),
     ),
-    maybe('deferred_tools_delta', () =>
+    maybeAttachment('deferred_tools_delta', () =>
       Promise.resolve(
         getDeferredToolsDeltaAttachment(
           toolUseContext.options.tools,
@@ -879,10 +892,10 @@ export async function getAttachments(
         ),
       ),
     ),
-    maybe('agent_listing_delta', () =>
+    maybeAttachment('agent_listing_delta', () =>
       Promise.resolve(getAgentListingDeltaAttachment(toolUseContext, messages)),
     ),
-    maybe('mcp_instructions_delta', () =>
+    maybeAttachment('mcp_instructions_delta', () =>
       Promise.resolve(
         getMcpInstructionsDeltaAttachment(
           toolUseContext.options.mcpClients,
@@ -894,36 +907,48 @@ export async function getAttachments(
     ),
     ...(isBuddyEnabled()
         ? [
-            maybe('companion_intro', () =>
+            maybeAttachment('companion_intro', () =>
               Promise.resolve(getCompanionIntroAttachment(messages)),
           ),
         ]
       : []),
-    maybe('changed_files', () => getChangedFiles(context)),
-    maybe('nested_memory', () => getNestedMemoryAttachments(context)),
+    maybeTimedAttachment('changed_files', () => getChangedFiles(context)),
+    maybeTimedAttachment('nested_memory', () =>
+      getNestedMemoryAttachments(context),
+    ),
     // relevant_memories moved to async prefetch (startRelevantMemoryPrefetch)
-    maybe('dynamic_skill', () => getDynamicSkillAttachments(context)),
+    maybeTimedAttachment('dynamic_skill', () =>
+      getDynamicSkillAttachments(context),
+    ),
     ...(shouldIncludeSkillListingAttachment(querySource)
-      ? [maybe('skill_listing', () => getSkillListingAttachments(context))]
+      ? [
+          maybeTimedAttachment('skill_listing', () =>
+            getSkillListingAttachments(context),
+          ),
+        ]
       : []),
     // Inter-turn skill discovery now runs via startSkillDiscoveryPrefetch
     // (query.ts, concurrent with the main turn). The blocking call that
     // previously lived here was the assistant_turn signal — 97% of those
     // Haiku calls found nothing in prod. Prefetch + await-at-collection
     // replaces it; see src/services/skillSearch/prefetch.ts.
-    maybe('plan_mode', () => getPlanModeAttachments(messages, toolUseContext)),
-    maybe('plan_mode_exit', () => getPlanModeExitAttachment(toolUseContext)),
+    maybeAttachment('plan_mode', () =>
+      getPlanModeAttachments(messages, toolUseContext),
+    ),
+    maybeAttachment('plan_mode_exit', () =>
+      getPlanModeExitAttachment(toolUseContext),
+    ),
     ...(feature('TRANSCRIPT_CLASSIFIER')
       ? [
-          maybe('auto_mode', () =>
+          maybeAttachment('auto_mode', () =>
             getAutoModeAttachments(messages, toolUseContext),
           ),
-          maybe('auto_mode_exit', () =>
+          maybeAttachment('auto_mode_exit', () =>
             getAutoModeExitAttachment(toolUseContext),
           ),
         ]
       : []),
-    maybe('todo_reminders', () =>
+    maybeAttachment('todo_reminders', () =>
       isTodoV2Enabled()
         ? getTaskReminderAttachments(messages, toolUseContext)
         : getTodoReminderAttachments(messages, toolUseContext),
@@ -937,24 +962,24 @@ export async function getAttachments(
           ...(querySource === 'session_memory'
             ? []
             : [
-                maybe('teammate_mailbox', async () =>
+                maybeAttachment('teammate_mailbox', async () =>
                   getTeammateMailboxAttachments(toolUseContext),
                 ),
               ]),
-          maybe('team_context', async () =>
+          maybeAttachment('team_context', async () =>
             getTeamContextAttachment(messages ?? []),
           ),
         ]
       : []),
-    maybe('agent_pending_messages', async () =>
+    maybeAttachment('agent_pending_messages', async () =>
       getAgentPendingMessageAttachments(toolUseContext),
     ),
-    maybe('critical_system_reminder', () =>
+    maybeAttachment('critical_system_reminder', () =>
       Promise.resolve(getCriticalSystemReminderAttachment(toolUseContext)),
     ),
     ...(feature('COMPACTION_REMINDERS')
       ? [
-          maybe('compaction_reminder', () =>
+          maybeAttachment('compaction_reminder', () =>
             Promise.resolve(
               getCompactionReminderAttachment(
                 messages ?? [],
@@ -966,7 +991,7 @@ export async function getAttachments(
       : []),
     ...(feature('HISTORY_SNIP')
       ? [
-          maybe('context_efficiency', () =>
+          maybeAttachment('context_efficiency', () =>
             Promise.resolve(
               getContextEfficiencyAttachment(
                 messages ?? [],
@@ -981,28 +1006,28 @@ export async function getAttachments(
   // Attachments which are semantically only for the main conversation or don't have concurrency-safe implementations
   const mainThreadAttachments = isMainThread
     ? [
-        maybe('ide_selection', async () =>
+        maybeAttachment('ide_selection', async () =>
           getSelectedLinesFromIDE(ideSelection, toolUseContext),
         ),
-        maybe('ide_opened_file', async () =>
+        maybeAttachment('ide_opened_file', async () =>
           getOpenedFileFromIDE(ideSelection, toolUseContext),
         ),
-        maybe('output_style', async () =>
+        maybeAttachment('output_style', async () =>
           Promise.resolve(getOutputStyleAttachment()),
         ),
-        maybe('diagnostics', async () =>
+        maybeAttachment('diagnostics', async () =>
           getDiagnosticAttachments(toolUseContext),
         ),
-        maybe('lsp_diagnostics', async () =>
+        maybeAttachment('lsp_diagnostics', async () =>
           getLSPDiagnosticAttachments(toolUseContext),
         ),
-        maybe('unified_tasks', async () =>
+        maybeAttachment('unified_tasks', async () =>
           getUnifiedTaskAttachments(toolUseContext),
         ),
-        maybe('async_hook_responses', async () =>
+        maybeAttachment('async_hook_responses', async () =>
           getAsyncHookResponseAttachments(),
         ),
-        maybe('token_usage', async () =>
+        maybeAttachment('token_usage', async () =>
           Promise.resolve(
             getTokenUsageAttachment(
               messages ?? [],
@@ -1010,15 +1035,15 @@ export async function getAttachments(
             ),
           ),
         ),
-        maybe('budget_usd', async () =>
+        maybeAttachment('budget_usd', async () =>
           Promise.resolve(
             getMaxBudgetUsdAttachment(toolUseContext.options.maxBudgetUsd),
           ),
         ),
-        maybe('output_token_usage', async () =>
+        maybeAttachment('output_token_usage', async () =>
           Promise.resolve(getOutputTokenUsageAttachment()),
         ),
-        maybe('verify_plan_reminder', async () =>
+        maybeAttachment('verify_plan_reminder', async () =>
           getVerifyPlanReminderAttachment(messages, toolUseContext),
         ),
       ]
@@ -1040,10 +1065,14 @@ export async function getAttachments(
   ].filter(a => a !== undefined && a !== null)
 }
 
-async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
+async function maybe<A>(
+  label: string,
+  f: () => Promise<A[]>,
+  signal?: AbortSignal,
+): Promise<A[]> {
   const startTime = Date.now()
   try {
-    const result = await f()
+    const result = await raceAbort(f(), signal, `Attachment ${label} timed out`)
     const duration = Date.now() - startTime
     // Log only 5% of events to reduce volume
     if (Math.random() < 0.05) {
@@ -1071,9 +1100,11 @@ async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
         error: true,
       } as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
     }
-    logError(e)
-    // For Ant users, log the full error to help with debugging
-    logAntError(`Attachment error in ${label}`, e)
+    if (!isAbortError(e)) {
+      logError(e)
+      // For Ant users, log the full error to help with debugging
+      logAntError(`Attachment error in ${label}`, e)
+    }
 
     return []
   }
@@ -1961,16 +1992,84 @@ async function getOpenedFileFromIDE(
   ]
 }
 
+type AttachmentFileContext = {
+  abortController: AbortController
+  getAppState: () => { toolPermissionContext: ToolPermissionContext }
+}
+
+type AtMentionedFileStat = {
+  isDirectory: () => boolean
+}
+
+type AtMentionedFileDirent = {
+  name: string
+}
+
+type AtMentionedFileDeps = {
+  stat: (path: string) => Promise<AtMentionedFileStat>
+  readdir: (
+    path: string,
+    options: { withFileTypes: true },
+  ) => Promise<AtMentionedFileDirent[]>
+  generateFileAttachment: (
+    filename: string,
+    toolUseContext: AttachmentFileContext,
+    successEventName: string,
+    errorEventName: string,
+    mode: 'compact' | 'at-mention',
+    options?: {
+      offset?: number
+      limit?: number
+    },
+  ) => ReturnType<typeof generateFileAttachment>
+}
+
+const defaultAtMentionedFileDeps: AtMentionedFileDeps = {
+  stat,
+  readdir,
+  generateFileAttachment: (
+    filename,
+    toolUseContext,
+    successEventName,
+    errorEventName,
+    mode,
+    options,
+  ) =>
+    generateFileAttachment(
+      filename,
+      toolUseContext as ToolUseContext,
+      successEventName,
+      errorEventName,
+      mode,
+      options,
+    ),
+}
+
 async function processAtMentionedFiles(
   input: string,
   toolUseContext: ToolUseContext,
+): Promise<Attachment[]> {
+  return processAtMentionedFilesWithDependencies(
+    input,
+    toolUseContext,
+    defaultAtMentionedFileDeps,
+  )
+}
+
+async function processAtMentionedFilesWithDependencies(
+  input: string,
+  toolUseContext: AttachmentFileContext,
+  deps: AtMentionedFileDeps,
 ): Promise<Attachment[]> {
   const files = extractAtMentionedFiles(input)
   if (files.length === 0) return []
 
   const appState = toolUseContext.getAppState()
-  const results = await Promise.all(
-    files.map(async file => {
+  const results = await mapWithConcurrency(
+    files,
+    ATTACHMENT_FILE_IO_CONCURRENCY,
+    async file => {
+      toolUseContext.abortController.signal.throwIfAborted()
       try {
         const { filename, lineStart, lineEnd } = parseAtMentionedFileLines(file)
         const absoluteFilename = expandPath(filename)
@@ -1983,10 +2082,11 @@ async function processAtMentionedFiles(
 
         // Check if it's a directory
         try {
-          const stats = await stat(absoluteFilename)
+          const stats = await deps.stat(absoluteFilename)
+          toolUseContext.abortController.signal.throwIfAborted()
           if (stats.isDirectory()) {
             try {
-              const entries = await readdir(absoluteFilename, {
+              const entries = await deps.readdir(absoluteFilename, {
                 withFileTypes: true,
               })
               const MAX_DIR_ENTRIES = 1000
@@ -2014,7 +2114,7 @@ async function processAtMentionedFiles(
           // If stat fails, continue with file logic
         }
 
-        return await generateFileAttachment(
+        return await deps.generateFileAttachment(
           absoluteFilename,
           toolUseContext,
           'tengu_at_mention_extracting_filename_success',
@@ -2025,10 +2125,13 @@ async function processAtMentionedFiles(
             limit: lineEnd && lineStart ? lineEnd - lineStart + 1 : undefined,
           },
         )
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) throw err
         logEvent('tengu_at_mention_extracting_filename_error', {})
       }
-    }),
+      return null
+    },
+    { signal: toolUseContext.abortController.signal },
   )
   return results.filter(Boolean) as Attachment[]
 }
@@ -2185,8 +2288,10 @@ export async function getChangedFiles(
   if (filePaths.length === 0) return []
 
   const appState = toolUseContext.getAppState()
-  const results = await Promise.all(
-    filePaths.map(async filePath => {
+  const results = await mapWithConcurrency(
+    filePaths,
+    ATTACHMENT_FILE_IO_CONCURRENCY,
+    async filePath => {
       const fileState = toolUseContext.readFileState.get(filePath)
       if (!fileState) return null
 
@@ -2203,6 +2308,7 @@ export async function getChangedFiles(
       }
 
       try {
+        toolUseContext.abortController.signal.throwIfAborted()
         const mtime = await getFileModificationTimeAsync(normalizedPath)
         if (mtime <= fileState.timestamp) {
           return null
@@ -2219,6 +2325,7 @@ export async function getChangedFiles(
           return null
         }
 
+        toolUseContext.abortController.signal.throwIfAborted()
         const result = await FileReadTool.call(fileInput, toolUseContext)
         // Extract only the changed section
         if (result.data.type === 'text') {
@@ -2249,6 +2356,9 @@ export async function getChangedFiles(
         // null so the map callback has no implicit-undefined path.
         return null
       } catch (err) {
+        if (isAbortError(err)) {
+          throw err
+        }
         // Evict ONLY on ENOENT (file truly deleted). Transient stat
         // failures — atomic-save races (editor writes tmp→rename and
         // stat hits the gap), EACCES churn, network-FS hiccups — must
@@ -2261,7 +2371,8 @@ export async function getChangedFiles(
         }
         return null
       }
-    }),
+    },
+    { signal: toolUseContext.abortController.signal },
   )
   return results.filter(result => result != null) as Attachment[]
 }
@@ -3129,7 +3240,10 @@ async function getLSPDiagnosticAttachments(
 }
 
 export const __test = {
+  ATTACHMENT_FILE_IO_CONCURRENCY,
   getLSPDiagnosticAttachments,
+  maybe,
+  processAtMentionedFilesWithDependencies,
 }
 
 export async function* getAttachmentMessages(
