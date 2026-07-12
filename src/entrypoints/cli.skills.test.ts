@@ -15,7 +15,7 @@ async function readStream(
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let text = ''
-  const cancel = () => void reader.cancel()
+  const cancel = () => void reader.cancel().catch(() => {})
   signal.addEventListener('abort', cancel, { once: true })
   try {
     while (true) {
