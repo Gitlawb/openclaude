@@ -644,7 +644,15 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     activeProfileBaseUrl: activeProfile?.baseUrl,
   })
   if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
-    return [...profileModelOptions, ...inactiveProfileOptions]
+    const directEnvOption =
+      profileModelOptions.length === 0 && process.env.ANTHROPIC_MODEL
+        ? [{
+            value: process.env.ANTHROPIC_MODEL,
+            label: process.env.ANTHROPIC_MODEL,
+            description: 'Custom Anthropic-compatible endpoint',
+          }]
+        : []
+    return [...profileModelOptions, ...directEnvOption, ...inactiveProfileOptions]
   }
   if (
     activeRouteCatalogOptions.length > 0 ||
