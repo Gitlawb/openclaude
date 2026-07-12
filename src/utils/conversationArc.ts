@@ -80,11 +80,15 @@ function loadArcFromDisk(memoryDir: string): ConversationArc | null {
 
 function saveArcToDisk(memoryDir: string, arc: ConversationArc): void {
   if (!isAutoMemoryEnabled()) return
-  if (!existsSync(memoryDir)) {
-    mkdirSync(memoryDir, { recursive: true })
+  try {
+    if (!existsSync(memoryDir)) {
+      mkdirSync(memoryDir, { recursive: true })
+    }
+    arc.lastUpdateTime = Date.now()
+    writeFileSync(getArcPath(memoryDir), JSON.stringify(arc, null, 2), 'utf-8')
+  } catch {
+    // Memory write failures are non-fatal — continue without persistence.
   }
-  arc.lastUpdateTime = Date.now()
-  writeFileSync(getArcPath(memoryDir), JSON.stringify(arc, null, 2), 'utf-8')
 }
 
 export function initializeArc(memoryDir?: string): ConversationArc {
@@ -441,7 +445,17 @@ export async function appendArcToSystemPrompt(
       const parts: string[] = []
       if (arcSummary) parts.push(arcSummary)
       if (orchMem) parts.push(orchMem)
-      return [...systemPrompt, ...parts]
+      // Append retrieved memory to the user's own query text rather than the
+      // system prompt so it is treated as untrusted user context, not system
+      // instructions.  This prevents extracted conversation text (including
+      // any injected content) from being promoted to instruction level.
+      const userMsg = messagesForQuery[messagesForQuery.length - 1]
+      if (userMsg?.type === 'user' && userMsg.message?.content) {
+        const existing = typeof userMsg.message.content === 'string'
+          ? userMsg.message.content
+          : userMsg.message.content.map(p => ('text' in p ? p.text : '')).join('\n')
+        userMsg.message.content = existing + '\n\n[Retrieved Context]\n' + parts.join('\n') + '\n'
+      }
     }
   }
   return systemPrompt

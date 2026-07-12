@@ -7,11 +7,14 @@
  * structured .md files in the auto-memory directory.
  */
 
-import { readFileSync, existsSync, readdirSync, rmSync } from 'fs'
+import { readFileSync, existsSync, readdirSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { getAutoMemPath } from '../memdir/paths.js'
 import { initMemdirIndex, searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
 import { parseFrontmatter } from './frontmatterParser.js'
+import { getProjectsDir } from './envUtils.js'
+import { sanitizePath } from './sessionStoragePortable.js'
+import { getFsImplementation } from './fsOperations.js'
 
 export interface Entity {
   id: string
@@ -97,7 +100,81 @@ function calculateBM25Score(
   return totalScore
 }
 
+let legacyMigrationDone = false
+
+function getLegacyGraphPath(): string {
+  const cwd = getFsImplementation().cwd()
+  return join(getProjectsDir(), sanitizePath(cwd), 'knowledge_graph.json')
+}
+
+function migrateLegacyKnowledgeGraph(): void {
+  if (legacyMigrationDone) return
+  legacyMigrationDone = true
+
+  const legacyPath = getLegacyGraphPath()
+  if (!existsSync(legacyPath)) return
+
+  try {
+    const data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
+    const memDir = getAutoMemPath()
+    if (!memDir) return
+
+    const factsDir = join(memDir, FACTS_SUBDIR)
+    if (!existsSync(factsDir)) {
+      mkdirSync(factsDir, { recursive: true })
+    }
+
+    let count = 0
+    const legacyEntities: Entity[] = Object.values(data.entities ?? {})
+    for (const entity of legacyEntities) {
+      const slug = entity.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 80)
+      const attrs = Object.entries(entity.attributes)
+        .map(([k, v]) => `${k}: "${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+        .join('\n')
+      const content = `---
+type: reference
+title: "${entity.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
+description: "Migrated from legacy knowledge graph: ${entity.type}"
+factType: ${entity.type}
+source: legacy_migration
+---
+Auto-migrated from legacy store: **${entity.name}**
+`
+      writeFileSync(join(factsDir, `fact-${entity.type}-${slug}.md`), content, 'utf-8')
+      count++
+    }
+
+    for (const summary of data.summaries ?? []) {
+      const slug = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const content = `---
+type: reference
+title: "Knowledge Summary"
+description: "${(summary.content ?? '').slice(0, 200).replace(/"/g, '\\"')}"
+factType: summary
+keywords: "${(summary.keywords ?? []).join(', ')}"
+source: legacy_migration
+---
+${summary.content ?? ''}
+`
+      writeFileSync(join(factsDir, `fact-summary-${slug}.md`), content, 'utf-8')
+      count++
+    }
+
+    // Mark migration complete by renaming the legacy file
+    const backupPath = `${legacyPath}.migrated-${Date.now()}`
+    try { rmSync(legacyPath, { force: true }) } catch { /* best-effort */ }
+    console.error(`[knowledgeGraph] Migrated ${count} items from legacy store.`)
+  } catch (e) {
+    console.error('[knowledgeGraph] Legacy migration failed:', e)
+  }
+}
+
 export function getGlobalGraph(): KnowledgeGraph {
+  migrateLegacyKnowledgeGraph()
   const factsDir = getFactsDir()
   const entities: Record<string, Entity> = {}
 
