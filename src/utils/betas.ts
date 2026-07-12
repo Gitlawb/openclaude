@@ -234,6 +234,7 @@ export function shouldIncludeFirstPartyOnlyBetas(): boolean {
 export function shouldUseGlobalCacheScope(): boolean {
   return (
     getAPIProvider() === 'firstParty' &&
+    isFirstPartyAnthropicBaseUrl() &&
     !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)
   )
 }

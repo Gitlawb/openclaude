@@ -214,9 +214,14 @@ test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', a
   process.env.ANTHROPIC_MODEL = 'tenant-model'
   process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
 
-  const { getMergedBetas, isAnthropicProvider } = await importFreshBetas()
+  const {
+    getMergedBetas,
+    isAnthropicProvider,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(false)
   expect(getMergedBetas('tenant-model')).toEqual([])
+  expect(shouldUseGlobalCacheScope()).toBe(false)
 })
 
 test('isAnthropicProvider is true for bedrock', async () => {
