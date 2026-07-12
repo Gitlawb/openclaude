@@ -1025,20 +1025,21 @@ export function resolveActiveRouteIdFromEnv(
     return 'custom-anthropic'
   }
 
-  const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
-  if (envOnlyRouteId) return envOnlyRouteId
-
   // Native x-api-key custom endpoints use the same proxy transport as Bearer
-  // endpoints. Check this after dedicated env-only providers (such as
-  // MiniMax) have claimed their own credentials.
+  // endpoints. A dedicated provider's own known base URL retains its route,
+  // but an unrelated ambient credential must not replace an explicit endpoint.
   if (
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY) &&
-    !isFirstPartyAnthropicBaseUrl(processEnv)
+    !isFirstPartyAnthropicBaseUrl(processEnv) &&
+    resolveRouteIdFromBaseUrl(processEnv.ANTHROPIC_BASE_URL) !== 'minimax'
   ) {
     return 'custom-anthropic'
   }
+
+  const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
+  if (envOnlyRouteId) return envOnlyRouteId
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
     const baseUrl =

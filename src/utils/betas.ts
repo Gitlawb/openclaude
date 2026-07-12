@@ -107,7 +107,7 @@ export function modelSupportsISP(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
-  if (provider === 'firstParty') {
+  if (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return !canonical.includes('claude-3-')
   }
   return (
@@ -132,7 +132,7 @@ export function modelSupportsContextManagement(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
-  if (provider === 'firstParty') {
+  if (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return !canonical.includes('claude-3-')
   }
   return (
@@ -147,7 +147,10 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
   const canonical = getCanonicalName(model)
   const provider = getAPIProvider()
   // Structured outputs only supported on firstParty and Foundry (not Bedrock/Vertex yet)
-  if (provider !== 'firstParty' && provider !== 'foundry') {
+  if (
+    (provider !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) &&
+    provider !== 'foundry'
+  ) {
     return false
   }
   return (
@@ -169,7 +172,10 @@ export function modelSupportsAutoMode(model: string): boolean {
     // External: firstParty-only at launch (PI probes not wired for
     // Bedrock/Vertex/Foundry yet). Checked before allowModels so the GB
     // override can't enable auto mode on unsupported providers.
-    if (process.env.USER_TYPE !== 'ant' && getAPIProvider() !== 'firstParty') {
+    if (
+      getAPIProvider() !== 'firstParty' ||
+      !isFirstPartyAnthropicBaseUrl()
+    ) {
       return false
     }
     // GrowthBook override: tengu_auto_mode_config.allowModels force-enables

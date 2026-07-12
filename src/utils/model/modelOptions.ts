@@ -1,7 +1,11 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
 import { getCatalogEntriesForRoute } from '../../integrations/index.js'
-import { resolveRouteIdFromBaseUrl } from '../../integrations/routeMetadata.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../../integrations/routeMetadata.js'
 import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
@@ -20,7 +24,7 @@ import {
 } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
@@ -635,6 +639,13 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   const activeRouteCatalogOptions = getActiveOpenAIRouteCatalogOptions()
   const openAIModelOptionsScope = getAdditionalModelOptionsCacheScope()
   const activeProfile = getActiveProviderProfile()
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env, {
+    activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
+  })
+  if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
+    return [...profileModelOptions, ...inactiveProfileOptions]
+  }
   if (
     activeRouteCatalogOptions.length > 0 ||
     openAIModelOptionsScope?.startsWith('openai:')
@@ -659,7 +670,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   }
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
-  if (getAPIProvider() === 'firstParty') {
+  if (getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
       payg1POptions.push(getSonnet46_1MOption())
