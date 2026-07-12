@@ -98,7 +98,13 @@ function makeQueryParams(
         commands: [],
         debug: false,
         thinkingConfig: { type: 'disabled' },
-        tools: [],
+        tools: [
+          {
+            name: 'AvailableTool',
+            description: 'test tool',
+            input_schema: { type: 'object', properties: {} },
+          },
+        ] as unknown as QueryParams['toolUseContext']['options']['tools'],
         verbose: false,
         mcpClients: [],
         mcpResources: {},
@@ -1118,7 +1124,7 @@ test('query loop does not emit an advisory before a no-tools step-limit summary'
   }
 
   expect(modelRequests).toHaveLength(3)
-  expect(toolCounts).toEqual([0, 0, 0])
+  expect(toolCounts).toEqual([1, 1, 0])
   expect(
     modelRequests[2]?.some(
       (message: any) =>

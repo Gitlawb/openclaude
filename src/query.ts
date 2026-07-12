@@ -667,11 +667,6 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
-    if (pendingToolFailureAdvisories.length > 0) {
-      messagesForQuery.push(
-        ...pendingToolFailureAdvisories.map(advisory => advisory.message),
-      )
-    }
 
     // Extract facts and update phase from the latest message (user input or tool result)
     if (
@@ -1215,6 +1210,11 @@ async function* queryLoop(
     const toolsForModel = agentStepLimit?.summaryRequested
       ? []
       : toolUseContext.options.tools
+    if (pendingToolFailureAdvisories.length > 0) {
+      messagesForQuery.push(
+        ...pendingToolFailureAdvisories.map(advisory => advisory.message),
+      )
+    }
     for (const advisory of pendingToolFailureAdvisories) {
       yield advisory.message
       logForDebugging(
@@ -2825,7 +2825,10 @@ async function* queryLoop(
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
 
-    if (!nextAgentStepLimit?.summaryRequested) {
+    if (
+      !nextAgentStepLimit?.summaryRequested &&
+      updatedToolUseContext.options.tools.length > 0
+    ) {
       pendingToolFailureAdvisories = (
         toolFailureLoopDecision.advisories ?? []
       ).map(advisoryDecision => ({
