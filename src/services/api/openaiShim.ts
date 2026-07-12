@@ -97,6 +97,7 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
+import { redactSecretSubstringsForDisplay } from '../../utils/providerSecrets.js'
 import {
   redactUrlForDisplay,
   shouldRedactUrlQueryParam,
@@ -491,10 +492,32 @@ function formatRetryAfterHint(response: Response): string {
 }
 
 function redactUrlForDiagnostics(url: string): string {
-  const redacted = redactUrlForDisplay(url)
+  let redacted = redactUrlForDisplay(url)
+  try {
+    const parsed = new URL(redacted)
+    const decodedPathname = decodeURIComponent(parsed.pathname)
+    const redactedPathname =
+      redactSecretSubstringsForDisplay(
+        decodedPathname,
+        process.env as SecretValueSource,
+      ) ?? decodedPathname
+    if (redactedPathname !== decodedPathname) {
+      parsed.pathname = redactedPathname
+      redacted = parsed.toString()
+    }
+  } catch {
+    // Keep the URL-level redaction when the pathname is not decodable.
+  }
+  const redactedSubstrings =
+    redactSecretSubstringsForDisplay(
+      redacted,
+      process.env as SecretValueSource,
+    ) ?? redacted
   return (
-    redactSecretValueForDisplay(redacted, process.env as SecretValueSource) ??
-    redacted
+    redactSecretValueForDisplay(
+      redactedSubstrings,
+      process.env as SecretValueSource,
+    ) ?? redactedSubstrings
   )
 }
 

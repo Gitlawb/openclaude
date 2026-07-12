@@ -6899,8 +6899,11 @@ test('propagates AbortError without wrapping it as transport failure', async () 
 
 test('classifies a pre-header API timeout as a retryable transport failure', async () => {
   process.env.API_TIMEOUT_MS = '20'
+  const pathSecret = 'route/key+AbC123'
+  const encodedPathSecret = encodeURIComponent(pathSecret)
+  process.env.OPENAI_API_KEY = pathSecret
   process.env.OPENAI_BASE_URL =
-    'https://user:password@slow.example.test/v1?token=secret'
+    `https://user:password@slow.example.test/v1/${encodedPathSecret}?token=secret`
   let fetchCalls = 0
   globalThis.fetch = (async (_input, init) => {
     fetchCalls++
@@ -6940,6 +6943,8 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   expect(error.message).toContain('openai_category=request_timeout')
   expect(error.message).not.toContain('password')
   expect(error.message).not.toContain('token=secret')
+  expect(error.message).not.toContain(pathSecret)
+  expect(error.message).not.toContain(encodedPathSecret)
   expect(fetchCalls).toBe(2)
 })
 
