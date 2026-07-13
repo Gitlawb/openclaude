@@ -19,6 +19,8 @@ async function importFreshModelOptionsModule(
     isFirstPartyAnthropicBaseUrl: () => isFirstPartyAnthropicBaseUrl,
     isFirstPartyAnthropicProvider: () =>
       provider === 'firstParty' && isFirstPartyAnthropicBaseUrl,
+    isCustomAnthropicProvider: () =>
+      provider === 'firstParty' && !isFirstPartyAnthropicBaseUrl,
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => false,
   }))

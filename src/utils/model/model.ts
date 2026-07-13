@@ -27,6 +27,7 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
   isFirstPartyAnthropicProvider,
+  isCustomAnthropicProvider,
 } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
@@ -52,7 +53,7 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
 
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
-  if (getAPIProvider() === 'firstParty' && !isFirstPartyAnthropicBaseUrl()) {
+  if (isCustomAnthropicProvider()) {
     return process.env.ANTHROPIC_MODEL || getDefaultHaikuModel()
   }
   // For Gemini provider, use a fast model
@@ -375,7 +376,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // Custom Anthropic-compatible endpoints intentionally retain the legacy
   // firstParty provider category, so prefer their explicitly configured model
   // before the subscription and PAYG defaults below.
-  if (getAPIProvider() === 'firstParty' && !isFirstPartyAnthropicBaseUrl()) {
+  if (isCustomAnthropicProvider()) {
     return process.env.ANTHROPIC_MODEL || getDefaultSonnetModel()
   }
   // GitHub Copilot provider: check settings.model first, then env, then default

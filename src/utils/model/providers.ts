@@ -90,6 +90,10 @@ export function isFirstPartyAnthropicProvider(): boolean {
   return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
 }
 
+export function isCustomAnthropicProvider(): boolean {
+  return getAPIProvider() === 'firstParty' && !isFirstPartyAnthropicBaseUrl()
+}
+
 /**
  * Returns true when the GitHub provider should use Anthropic's native API
  * format instead of the OpenAI-compatible shim.

@@ -30,6 +30,7 @@ import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  isCustomAnthropicProvider,
   isGithubNativeAnthropicMode,
 } from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
@@ -393,7 +394,7 @@ export const getAllModelBetas = memoize((model: string): string[] => {
 }, getBetaCacheKey)
 
 export const getModelBetas = memoize((model: string): string[] => {
-  if (!isAnthropicProvider() && !isGithubNativeAnthropicMode(model)) {
+  if (!shouldUseAnthropicBetaHeaders(model)) {
     return []
   }
   const modelBetas = getAllModelBetas(model)
@@ -438,8 +439,9 @@ export function getMergedBetas(
 ): string[] {
   // Beta headers are Anthropic-specific. Non-Anthropic providers (OpenAI,
   // Gemini, Codex, etc.) do not understand them and may reject requests
-  // containing unknown headers. GitHub Native Anthropic mode is an exception.
-  if (!isAnthropicProvider() && !isGithubNativeAnthropicMode(model)) {
+  // containing unknown headers. Custom Anthropic proxies and GitHub Native
+  // Anthropic mode are exceptions because both use Anthropic wire format.
+  if (!shouldUseAnthropicBetaHeaders(model)) {
     return []
   }
 
@@ -470,6 +472,14 @@ export function getMergedBetas(
 
   // Merge SDK betas without duplicates (already filtered by filterAllowedSdkBetas)
   return [...baseBetas, ...sdkBetas.filter(b => !baseBetas.includes(b))]
+}
+
+function shouldUseAnthropicBetaHeaders(model: string): boolean {
+  return (
+    isAnthropicProvider() ||
+    isCustomAnthropicProvider() ||
+    isGithubNativeAnthropicMode(model)
+  )
 }
 
 export function clearBetasCaches(): void {
