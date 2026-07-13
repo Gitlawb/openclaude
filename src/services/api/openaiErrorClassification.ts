@@ -159,6 +159,8 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     lower.includes('tool_stream') &&
     (lower.includes('unsupported') ||
       lower.includes('unknown parameter') ||
+      lower.includes('unrecognized request argument') ||
+      lower.includes('unrecognized parameter') ||
       lower.includes('not supported') ||
       lower.includes('invalid'))
   )
