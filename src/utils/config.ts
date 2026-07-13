@@ -1154,9 +1154,14 @@ registerCleanup(async () => {
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
   const { maxMessagesCompactionThreshold, ...restConfig } = config
+  const hasValidMaxMessagesCompactionThreshold =
+    maxMessagesCompactionThreshold !== undefined &&
+    MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
+      maxMessagesCompactionThreshold as MaxMessagesCompactionThreshold,
+    )
   const normalizedConfig = {
     ...restConfig,
-    ...(maxMessagesCompactionThreshold === undefined
+    ...(!hasValidMaxMessagesCompactionThreshold
       ? {}
       : {
           maxMessagesCompactionThreshold:

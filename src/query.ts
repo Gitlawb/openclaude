@@ -76,6 +76,7 @@ import {
 import {
   getMaxActiveMessagesHardCap,
   isAboveMaxActiveMessagesLimit,
+  parseMaxActiveMessagesLimit,
   resolveMaxActiveMessagesLimit,
 } from './utils/maxActiveMessages.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -126,6 +127,7 @@ import {
 import { AGENT_STEP_LIMIT_TOOL_RESULT_PREFIX } from './query/agentStepLimit.js'
 import { buildQueryConfig } from './query/config.js'
 import {
+  MAX_MESSAGES_COMPACTION_THRESHOLDS,
   getGlobalConfig,
   normalizeMaxMessagesCompactionThreshold,
 } from './utils/config.js'
@@ -816,14 +818,24 @@ async function* queryLoop(
       querySource !== 'compact' && querySource !== 'session_memory'
     // An unset UI setting keeps the legacy environment override. Without that
     // override, enforce the new effective 200-message default.
+    const hasValidLegacyActiveMessageLimit =
+      parseMaxActiveMessagesLimit(process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES) > 0
     const maxMessagesLimitSetting =
       configuredMaxMessagesCompactionThreshold === undefined &&
-      process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES !== undefined
+      hasValidLegacyActiveMessageLimit
         ? undefined
         : maxMessagesCompactionThreshold
     const hasExplicitMessageCountThreshold =
       configuredMaxMessagesCompactionThreshold !== undefined &&
+      MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
+        configuredMaxMessagesCompactionThreshold,
+      ) &&
       configuredMaxMessagesCompactionThreshold !== 'off'
+    const hasActiveMessageLimitOverride =
+      hasExplicitMessageCountThreshold ||
+      ((configuredMaxMessagesCompactionThreshold === undefined ||
+        configuredMaxMessagesCompactionThreshold === 'off') &&
+        hasValidLegacyActiveMessageLimit)
     const activeMessageLimit = canForceCompact
       ? resolveMaxActiveMessagesLimit(
           maxMessagesLimitSetting,
@@ -834,7 +846,7 @@ async function* queryLoop(
       if (
         isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit) &&
         (isAutoCompactEnabled() ||
-          hasExplicitMessageCountThreshold ||
+          hasActiveMessageLimitOverride ||
           isAboveMaxActiveMessagesLimit(
             messagesForQuery.length,
             getMaxActiveMessagesHardCap(),
@@ -1181,6 +1193,14 @@ async function* queryLoop(
     // cooling down or otherwise exhausted and context or message count is still
     // over the safety threshold, block immediately with a clear message instead
     // of burning an oversized API call.
+    const isAboveActiveMessageHardCap = isAboveMaxActiveMessagesLimit(
+      messagesForQuery.length,
+      getMaxActiveMessagesHardCap(),
+    )
+    const shouldEnforceActiveMessageLimit =
+      (!collapseOwnsIt && isAutoCompactEnabled()) ||
+      hasActiveMessageLimitOverride ||
+      isAboveActiveMessageHardCap
     if (
       tracking?.consecutiveFailures !== undefined &&
       tracking.consecutiveFailures >=
@@ -1199,13 +1219,7 @@ async function* queryLoop(
         isAboveMaxActiveMessagesLimit(
           messagesForQuery.length,
           activeMessageLimit,
-        ) &&
-        (isAutoCompactEnabled() ||
-          hasExplicitMessageCountThreshold ||
-          isAboveMaxActiveMessagesLimit(
-            messagesForQuery.length,
-            getMaxActiveMessagesHardCap(),
-          ))
+        ) && shouldEnforceActiveMessageLimit
       const isAboveBreakerThreshold =
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
@@ -1233,16 +1247,11 @@ async function* queryLoop(
     }
 
     if (
+      shouldEnforceActiveMessageLimit &&
       isAboveMaxActiveMessagesLimit(
         messagesForQuery.length,
         activeMessageLimit,
-      ) &&
-      (isAutoCompactEnabled() ||
-        hasExplicitMessageCountThreshold ||
-        isAboveMaxActiveMessagesLimit(
-          messagesForQuery.length,
-          getMaxActiveMessagesHardCap(),
-        ))
+      )
     ) {
       yield createAssistantAPIErrorMessage({
         content:
