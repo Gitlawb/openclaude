@@ -262,6 +262,76 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     ])
   })
 
+  test('interactive PermissionRequest hooks cannot rewrite a read into a mutation', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'InteractiveConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-input-rewrite',
+      state.setPermissionContext,
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedInput: { operation: 'write' },
+    }
+
+    const result = await permissionContext.runHooks(undefined, undefined)
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('entering plan mode while an interactive hook runs guards its rewritten input', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'TransitionConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext({ mode: 'default' })
+    const permissionContext = createPermissionContext(
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'enter-plan-input-rewrite',
+      state.setPermissionContext,
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedInput: { operation: 'write' },
+    }
+    beforeHookDecision = () => {
+      state.setPermissionContext({
+        ...state.getPermissionContext(),
+        mode: 'plan',
+      })
+    }
+
+    try {
+      const result = await permissionContext.runHooks(undefined, undefined)
+
+      expect(result).toMatchObject({
+        behavior: 'deny',
+        decisionReason: { type: 'mode', mode: 'plan' },
+      })
+    } finally {
+      beforeHookDecision = undefined
+    }
+  })
+
   test.each(['headless', 'interactive'] as const)(
     'entering plan mode while a %s hook runs blocks its permission updates',
     async executionPath => {

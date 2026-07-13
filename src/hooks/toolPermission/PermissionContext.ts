@@ -31,6 +31,7 @@ import {
   withMemoryCorrectionHint,
 } from '../../utils/messages.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
+import { checkPlanModePermissions } from '../../utils/permissions/permissions.js'
 import {
   applyPermissionUpdate,
   filterPermissionRequestHookUpdates,
@@ -271,6 +272,15 @@ function createPermissionContext(
           const decision = hookResult.permissionRequestResult
           if (decision.behavior === 'allow') {
             const finalInput = decision.updatedInput ?? updatedInput ?? input
+            const planModeDecision = await checkPlanModePermissions(
+              tool,
+              finalInput,
+              toolUseContext,
+              enforcePlanMode,
+            )
+            if (planModeDecision) {
+              return planModeDecision
+            }
             return await this.handleHookAllow(
               finalInput,
               filterPermissionRequestHookUpdates(
