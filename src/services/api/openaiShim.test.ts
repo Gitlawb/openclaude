@@ -6901,9 +6901,17 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   process.env.API_TIMEOUT_MS = '20'
   const pathSecret = 'route/key+AbC123'
   const encodedPathSecret = encodeURIComponent(pathSecret)
+  const doubleEncodedPathSecret = encodeURIComponent(encodedPathSecret)
+  const escapeLookingSecret = 'abc%2FdefLONG'
+  const encodedEscapeLookingSecret = encodeURIComponent(escapeLookingSecret)
+  const decodedEscapeLookingSecret = decodeURIComponent(escapeLookingSecret)
+  const malformedUtf8Secret = 'éSECRET_VALUE_123'
+  const encodedMalformedUtf8Secret = encodeURIComponent(malformedUtf8Secret)
   process.env.OPENAI_API_KEY = pathSecret
+  process.env.OPENROUTER_API_KEY = escapeLookingSecret
+  process.env.DEEPSEEK_API_KEY = malformedUtf8Secret
   process.env.OPENAI_BASE_URL =
-    `https://user:password@slow.example.test/v1/${encodedPathSecret}?token=secret`
+    `https://user:password@slow.example.test/v1/invalid%ZZ/${doubleEncodedPathSecret}/${encodedEscapeLookingSecret}/%E0%A4${encodedMalformedUtf8Secret}?token=secret`
   let fetchCalls = 0
   globalThis.fetch = (async (_input, init) => {
     fetchCalls++
@@ -6945,6 +6953,12 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   expect(error.message).not.toContain('token=secret')
   expect(error.message).not.toContain(pathSecret)
   expect(error.message).not.toContain(encodedPathSecret)
+  expect(error.message).not.toContain(doubleEncodedPathSecret)
+  expect(error.message).not.toContain(escapeLookingSecret)
+  expect(error.message).not.toContain(encodedEscapeLookingSecret)
+  expect(error.message).not.toContain(decodedEscapeLookingSecret)
+  expect(error.message).not.toContain(malformedUtf8Secret)
+  expect(error.message).not.toContain(encodedMalformedUtf8Secret)
   expect(fetchCalls).toBe(2)
 })
 
@@ -9763,6 +9777,62 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
+test('GitHub Copilot codex responses transport retries after a pre-header timeout', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'test-token'
+  process.env.API_TIMEOUT_MS = '20'
+  let fetchCalls = 0
+  const requestUrls: string[] = []
+
+  globalThis.fetch = (async (input, init) => {
+    fetchCalls++
+    requestUrls.push(String(input))
+    if (fetchCalls === 1) return pendingFetchUntilAbort(init)
+    return makeCodexSseResponse({
+      response: {
+        id: 'resp_timeout_retry',
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        model: 'gpt-5',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      },
+    })
+  }) as unknown as FetchType
+
+  const safety = new AbortController()
+  const safetyTimer = setTimeout(() => safety.abort(), 500)
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  try {
+    const response = await waitForPromise(
+      client.beta.messages.create(
+        {
+          model: 'gpt-5',
+          messages: [{ role: 'user', content: 'hello' }],
+          max_tokens: 32,
+          stream: false,
+        },
+        { signal: safety.signal },
+      ),
+      750,
+      'GitHub codex responses timeout retry did not settle',
+    )
+
+    expect(response).toBeDefined()
+    expect(fetchCalls).toBe(2)
+    expect(requestUrls).toEqual([
+      'https://api.githubcopilot.com/responses',
+      'https://api.githubcopilot.com/responses',
+    ])
+  } finally {
+    clearTimeout(safetyTimer)
+  }
+})
+
 test('GitHub Copilot responses fallback retries after a pre-header timeout', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
@@ -9835,6 +9905,33 @@ test('GitHub Copilot responses fallback preserves caller abort without retrying'
   await expect(
     waitForPromise(request, 500, 'GitHub responses fallback abort did not settle'),
   ).rejects.toBe(callerReason)
+  expect(fetchCalls).toBe(2)
+})
+
+test('GitHub Copilot responses fallback preserves non-caller transport aborts', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'test-token'
+  let fetchCalls = 0
+  const transportAbort = new DOMException('Proxy aborted request', 'AbortError')
+
+  globalThis.fetch = (async input => {
+    fetchCalls++
+    if (String(input).endsWith('/chat/completions')) {
+      return makeGithubChatFallbackResponse()
+    }
+    throw transportAbort
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toBe(transportAbort)
   expect(fetchCalls).toBe(2)
 })
 
