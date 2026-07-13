@@ -25,6 +25,8 @@ async function importFreshModelOptionsModule(
     usesAnthropicAccountFlow: () => false,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
+  const modelModule = await import(`./model.js?modelOptionsTest=${nonce}`)
+  mock.module('./model.js', () => modelModule)
   return import(`./modelOptions.js?ts=${nonce}`)
 }
 
