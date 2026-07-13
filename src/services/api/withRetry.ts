@@ -53,6 +53,7 @@ import { REPEATED_529_ERROR_MESSAGE, isOpenCodeGoQuotaError } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
 import {
   extractOpenAICategoryMarker,
+  isOpenAIRequestNonReplayable,
   isRetryableOpenAICompatibilityFailureCategory,
 } from './openaiErrorClassification.js'
 
@@ -853,6 +854,10 @@ function handleGcpCredentialError(error: unknown): boolean {
 function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean {
   // Never retry mock errors - they're from /mock-limits command for testing
   if (isMockRateLimitError(error)) {
+    return false
+  }
+
+  if (isOpenAIRequestNonReplayable(error)) {
     return false
   }
 

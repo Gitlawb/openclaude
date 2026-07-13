@@ -94,6 +94,7 @@ import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
+  markOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
@@ -654,7 +655,7 @@ function createClassifiedTransportError(
     { level: 'warn' },
   )
 
-  return APIError.generate(
+  const apiError = APIError.generate(
     0,
     undefined,
     buildOpenAICompatibilityErrorMessage(
@@ -663,6 +664,9 @@ function createClassifiedTransportError(
     ),
     new Headers(),
   )
+  return failure.retryable
+    ? apiError
+    : markOpenAIRequestNonReplayable(apiError)
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -3935,54 +3939,52 @@ class OpenAIShimMessages {
         }
 
         try {
-          for (let timeoutAttempt = 0; timeoutAttempt < 2; timeoutAttempt++) {
-            try {
-              return await performCodexRequest({
-                request,
-                credentials: {
-                  apiKey,
-                  source: 'env',
-                },
-                params,
-                defaultHeaders: {
-                  ...this.defaultHeaders,
-                  ...filterAnthropicHeaders(options?.headers),
-                  ...COPILOT_HEADERS,
-                },
-                signal: options?.signal,
-                fetcher: (input, init) => {
-                  const url =
-                    typeof input === 'string'
-                      ? input
-                      : input instanceof URL
-                        ? input.toString()
-                        : input.url
-                  return fetchWithHeadersDeadline(url, init ?? {}, {
-                    callerSignal: options?.signal,
-                    timeoutMs: apiTimeoutMs,
-                  })
-                },
-              })
-            } catch (error) {
-              if (options?.signal?.aborted) {
-                throw preserveCallerAbortError(error, options.signal)
-              }
-              if (error instanceof ResponseHeadersTimeoutError) {
-                const failure = classifyOpenAINetworkFailure(error, {
-                  url: responsesUrl,
+          try {
+            return await performCodexRequest({
+              request,
+              credentials: {
+                apiKey,
+                source: 'env',
+              },
+              params,
+              defaultHeaders: {
+                ...this.defaultHeaders,
+                ...filterAnthropicHeaders(options?.headers),
+                ...COPILOT_HEADERS,
+              },
+              signal: options?.signal,
+              fetcher: (input, init) => {
+                const url =
+                  typeof input === 'string'
+                    ? input
+                    : input instanceof URL
+                      ? input.toString()
+                      : input.url
+                return fetchWithHeadersDeadline(url, init ?? {}, {
+                  callerSignal: options?.signal,
+                  timeoutMs: apiTimeoutMs,
                 })
-                if (failure.retryable && timeoutAttempt === 0) {
-                  continue
-                }
-                throw createClassifiedTransportError(
-                  error,
-                  responsesUrl,
-                  request.resolvedModel,
-                  failure,
-                )
-              }
-              throw error
+              },
+            })
+          } catch (error) {
+            if (options?.signal?.aborted) {
+              throw preserveCallerAbortError(error, options.signal)
             }
+            if (error instanceof ResponseHeadersTimeoutError) {
+              const failure = {
+                ...classifyOpenAINetworkFailure(error, {
+                  url: responsesUrl,
+                }),
+                retryable: false,
+              }
+              throw createClassifiedTransportError(
+                error,
+                responsesUrl,
+                request.resolvedModel,
+                failure,
+              )
+            }
+            throw error
           }
         } catch (error) {
           if (
@@ -4980,27 +4982,26 @@ class OpenAIShimMessages {
           throw error
         }
 
-        const failure = classifyOpenAINetworkFailure(error, {
+        const classifiedFailure = classifyOpenAINetworkFailure(error, {
           url: requestUrl,
         })
 
-        if (
-          isResponseHeadersTimeout &&
-          failure.retryable &&
-          attempt < maxAttempts - 1
-        ) {
-          continue
+        if (isResponseHeadersTimeout) {
+          throwClassifiedTransportError(error, requestUrl, {
+            ...classifiedFailure,
+            retryable: false,
+          })
         }
 
         if (
           isLocal &&
-          failure.category === 'localhost_resolution_failed' &&
+          classifiedFailure.category === 'localhost_resolution_failed' &&
           promoteNextLocalBaseUrl('localhost_resolution_failed')
         ) {
           continue
         }
 
-        throwClassifiedTransportError(error, requestUrl, failure)
+        throwClassifiedTransportError(error, requestUrl, classifiedFailure)
       }
 
       // After the try/catch, response is guaranteed to be defined — the catch
@@ -5114,17 +5115,20 @@ class OpenAIShimMessages {
             ) {
               throw error
             }
-            const failure = classifyOpenAINetworkFailure(error, {
+            const classifiedFailure = classifyOpenAINetworkFailure(error, {
               url: responsesUrl,
             })
-            if (
-              error instanceof ResponseHeadersTimeoutError &&
-              failure.retryable &&
-              attempt < maxAttempts - 1
-            ) {
-              continue
+            if (error instanceof ResponseHeadersTimeoutError) {
+              throwClassifiedTransportError(error, responsesUrl, {
+                ...classifiedFailure,
+                retryable: false,
+              })
             }
-            throwClassifiedTransportError(error, responsesUrl, failure)
+            throwClassifiedTransportError(
+              error,
+              responsesUrl,
+              classifiedFailure,
+            )
           }
 
           if (responsesResponse.ok) {

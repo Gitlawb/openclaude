@@ -9,6 +9,7 @@ import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
+import { isOpenAIRequestNonReplayable } from './openaiErrorClassification.ts'
 import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
@@ -6897,7 +6898,7 @@ test('propagates AbortError without wrapping it as transport failure', async () 
   ).rejects.toBe(abortError)
 })
 
-test('classifies a pre-header API timeout as a retryable transport failure', async () => {
+test('classifies a pre-header API timeout without replaying the request', async () => {
   process.env.API_TIMEOUT_MS = '20'
   const pathSecret = 'route/key+AbC123'
   const encodedPathSecret = encodeURIComponent(pathSecret)
@@ -6913,9 +6914,24 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   process.env.OPENAI_BASE_URL =
     `https://user:password@slow.example.test/v1/invalid%ZZ/${doubleEncodedPathSecret}/${encodedEscapeLookingSecret}/%E0%A4${encodedMalformedUtf8Secret}?token=secret`
   let fetchCalls = 0
+  let completedGenerations = 0
+  const receivedBodies: string[] = []
   globalThis.fetch = (async (_input, init) => {
     fetchCalls++
-    return pendingFetchUntilAbort(init)
+    receivedBodies.push(String(init?.body))
+    return new Promise<Response>((resolve, reject) => {
+      setTimeout(() => {
+        completedGenerations++
+        resolve(makeChatCompletionResponse('gpt-4o-mini'))
+      }, 50)
+      const signal = init?.signal
+      if (!signal) return
+      const rejectFromAbort = () => {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+      }
+      signal.addEventListener('abort', rejectFromAbort, { once: true })
+      if (signal.aborted) rejectFromAbort()
+    })
   }) as unknown as FetchType
 
   const safety = new AbortController()
@@ -6942,10 +6958,12 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   } finally {
     clearTimeout(safetyTimer)
   }
+  await new Promise(resolve => setTimeout(resolve, 60))
 
   expect(caught).toBeDefined()
   const error = caught as Error & { constructor: { name: string } }
   expect(error.constructor.name).toBe('APIConnectionError')
+  expect(isOpenAIRequestNonReplayable(error)).toBe(true)
   expect(error.message).toContain('no response headers within 20ms (API_TIMEOUT_MS)')
   expect(error.message).toContain('slow.example.test')
   expect(error.message).toContain('openai_category=request_timeout')
@@ -6959,7 +6977,9 @@ test('classifies a pre-header API timeout as a retryable transport failure', asy
   expect(error.message).not.toContain(decodedEscapeLookingSecret)
   expect(error.message).not.toContain(malformedUtf8Secret)
   expect(error.message).not.toContain(encodedMalformedUtf8Secret)
-  expect(fetchCalls).toBe(2)
+  expect(fetchCalls).toBe(1)
+  expect(receivedBodies).toHaveLength(1)
+  expect(completedGenerations).toBe(1)
 })
 
 test('preserves caller cancellation while waiting for response headers without retrying', async () => {
@@ -7136,40 +7156,6 @@ test('disarms the API timeout after headers arrive while the body keeps streamin
   expect(events.length).toBeGreaterThan(0)
   expect(fetchSignals).toHaveLength(1)
   expect(fetchSignals[0].aborted).toBe(false)
-})
-
-test('retries after a pre-header timeout and succeeds on the next attempt', async () => {
-  process.env.API_TIMEOUT_MS = '20'
-  let fetchCalls = 0
-  globalThis.fetch = (async (_input, init) => {
-    fetchCalls++
-    if (fetchCalls === 1) return pendingFetchUntilAbort(init)
-    return makeChatCompletionResponse('gpt-4o-mini')
-  }) as unknown as FetchType
-
-  const safety = new AbortController()
-  const safetyTimer = setTimeout(() => safety.abort(), 500)
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  try {
-    const response = await waitForPromise(
-      client.beta.messages.create(
-        {
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: 'hello' }],
-          max_tokens: 64,
-          stream: false,
-        },
-        { signal: safety.signal },
-      ),
-      750,
-      'timeout retry did not settle',
-    )
-
-    expect(response).toBeDefined()
-    expect(fetchCalls).toBe(2)
-  } finally {
-    clearTimeout(safetyTimer)
-  }
 })
 
 test('classifies chat-completions endpoint 404 failures with endpoint_not_found marker', async () => {
@@ -9777,7 +9763,7 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
-test('GitHub Copilot codex responses transport retries after a pre-header timeout', async () => {
+test('GitHub Copilot codex responses transport does not replay after a pre-header timeout', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
   process.env.OPENAI_API_KEY = 'test-token'
@@ -9788,27 +9774,15 @@ test('GitHub Copilot codex responses transport retries after a pre-header timeou
   globalThis.fetch = (async (input, init) => {
     fetchCalls++
     requestUrls.push(String(input))
-    if (fetchCalls === 1) return pendingFetchUntilAbort(init)
-    return makeCodexSseResponse({
-      response: {
-        id: 'resp_timeout_retry',
-        output: [
-          {
-            type: 'message',
-            content: [{ type: 'output_text', text: 'ok' }],
-          },
-        ],
-        model: 'gpt-5',
-        usage: { input_tokens: 10, output_tokens: 5 },
-      },
-    })
+    return pendingFetchUntilAbort(init)
   }) as unknown as FetchType
 
   const safety = new AbortController()
   const safetyTimer = setTimeout(() => safety.abort(), 500)
   const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let caught: unknown
   try {
-    const response = await waitForPromise(
+    await waitForPromise(
       client.beta.messages.create(
         {
           model: 'gpt-5',
@@ -9819,21 +9793,25 @@ test('GitHub Copilot codex responses transport retries after a pre-header timeou
         { signal: safety.signal },
       ),
       750,
-      'GitHub codex responses timeout retry did not settle',
+      'GitHub codex responses timeout did not settle',
     )
-
-    expect(response).toBeDefined()
-    expect(fetchCalls).toBe(2)
-    expect(requestUrls).toEqual([
-      'https://api.githubcopilot.com/responses',
-      'https://api.githubcopilot.com/responses',
-    ])
+  } catch (error) {
+    caught = error
   } finally {
     clearTimeout(safetyTimer)
   }
+
+  expect(caught).toBeDefined()
+  const error = caught as Error & { constructor: { name: string } }
+  expect(error.constructor.name).toBe('APIConnectionError')
+  expect(isOpenAIRequestNonReplayable(error)).toBe(true)
+  expect(fetchCalls).toBe(1)
+  expect(requestUrls).toEqual([
+    'https://api.githubcopilot.com/responses',
+  ])
 })
 
-test('GitHub Copilot responses fallback retries after a pre-header timeout', async () => {
+test('GitHub Copilot responses fallback does not replay after a pre-header timeout', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
   process.env.OPENAI_API_KEY = 'test-token'
@@ -9846,28 +9824,38 @@ test('GitHub Copilot responses fallback retries after a pre-header timeout', asy
     if (url.endsWith('/chat/completions')) {
       return makeGithubChatFallbackResponse()
     }
-    if (requestUrls.length === 2) {
-      return pendingFetchUntilAbort(init)
-    }
-    return makeResponsesApiResponse('gpt-4')
+    return pendingFetchUntilAbort(init)
   }) as unknown as FetchType
 
+  const safety = new AbortController()
+  const safetyTimer = setTimeout(() => safety.abort(), 500)
   const client = createOpenAIShimClient({}) as OpenAIShimClient
-  const response = await waitForPromise(
-    client.beta.messages.create({
-      model: 'gpt-4',
-      messages: [{ role: 'user', content: 'hello' }],
-      max_tokens: 32,
-      stream: false,
-    }),
-    500,
-    'GitHub responses fallback timeout retry did not settle',
-  )
+  let caught: unknown
+  try {
+    await waitForPromise(
+      client.beta.messages.create(
+        {
+          model: 'gpt-4',
+          messages: [{ role: 'user', content: 'hello' }],
+          max_tokens: 32,
+          stream: false,
+        },
+        { signal: safety.signal },
+      ),
+      750,
+      'GitHub responses fallback timeout did not settle',
+    )
+  } catch (error) {
+    caught = error
+  } finally {
+    clearTimeout(safetyTimer)
+  }
 
-  expect(response).toBeDefined()
+  expect(caught).toBeDefined()
+  const error = caught as Error & { constructor: { name: string } }
+  expect(error.constructor.name).toBe('APIConnectionError')
+  expect(isOpenAIRequestNonReplayable(error)).toBe(true)
   expect(requestUrls).toEqual([
-    'https://api.githubcopilot.com/chat/completions',
-    'https://api.githubcopilot.com/responses',
     'https://api.githubcopilot.com/chat/completions',
     'https://api.githubcopilot.com/responses',
   ])
