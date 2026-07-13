@@ -580,11 +580,7 @@ function cacheToStats(
 
   const totalDays =
     firstSessionDate && lastSessionDate
-      ? Math.ceil(
-          (new Date(lastSessionDate).getTime() -
-            new Date(firstSessionDate).getTime()) /
-            (1000 * 60 * 60 * 24),
-        ) + 1
+      ? inclusiveCalendarDaySpan(firstSessionDate, lastSessionDate)
       : 0
 
   const totalSpeculationTimeSavedMs =
@@ -803,11 +799,7 @@ function processedStatsToClaudeCodeStats(
   // Total days in range
   const totalDays =
     firstSessionDate && lastSessionDate
-      ? Math.ceil(
-          (new Date(lastSessionDate).getTime() -
-            new Date(firstSessionDate).getTime()) /
-            (1000 * 60 * 60 * 24),
-        ) + 1
+      ? inclusiveCalendarDaySpan(firstSessionDate, lastSessionDate)
       : 0
 
   const result: ClaudeCodeStats = {
@@ -849,6 +841,23 @@ function getNextDay(dateStr: string): string {
   const date = new Date(dateStr)
   date.setDate(date.getDate() + 1)
   return toDateString(date)
+}
+
+/**
+ * Inclusive count of calendar days spanned by two ISO timestamps, on the same
+ * UTC-date basis as activeDays/dailyActivity (via toDateString). The endpoints
+ * are full timestamps, so diffing them raw and Math.ceil-ing rounds any partial
+ * day up to a whole one; adding 1 for inclusivity then double-counts it (a
+ * single active day would report 2). Snap both ends to their date first so the
+ * gap is an exact multiple of 24h before adding the inclusive +1.
+ */
+export function inclusiveCalendarDaySpan(
+  firstIso: string,
+  lastIso: string,
+): number {
+  const firstDay = new Date(toDateString(new Date(firstIso))).getTime()
+  const lastDay = new Date(toDateString(new Date(lastIso))).getTime()
+  return Math.round((lastDay - firstDay) / (1000 * 60 * 60 * 24)) + 1
 }
 
 function calculateStreaks(dailyActivity: DailyActivity[]): StreakInfo {
