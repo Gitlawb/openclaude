@@ -17,6 +17,7 @@ import {
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
   getBackgroundSessionProcessLiveness,
+  isTerminalBackgroundSession,
   verifyBackgroundSessionProcessIdentity,
   type BackgroundSession,
   type BackgroundSessionProcessIdentity,
@@ -866,15 +867,19 @@ export async function killBackgroundSession(
     markKilled?: (session: BackgroundSession) => Promise<BackgroundSession>
   } = {},
 ): Promise<BackgroundSession> {
+  const markKilled =
+    options.markKilled ??
+    (async (selected: BackgroundSession) =>
+      await markBackgroundSessionKilled(selected.id))
+
+  if (isTerminalBackgroundSession(session)) return await markKilled(session)
+
   const identity = verifySelectedBackgroundSessionIdentity(session, options)
   if (authorizeBackgroundSessionSignal(session, identity) === 'matches') {
     await terminateBackgroundSessionProcessTree(session, options)
   }
 
-  return await (
-    options.markKilled ??
-    (selected => markBackgroundSessionKilled(selected.id))
-  )(session)
+  return await markKilled(session)
 }
 
 export async function psHandler(_args: string[]): Promise<void> {

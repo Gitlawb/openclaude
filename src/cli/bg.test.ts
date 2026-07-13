@@ -563,7 +563,7 @@ describe('background session process termination safety', () => {
       await killBackgroundSession(
         {
           ...session,
-          status: 'stale',
+          status: 'running',
           command: [...session.command, 'private prompt value'],
         },
         {
@@ -585,6 +585,32 @@ describe('background session process termination safety', () => {
     expect(String(refusal)).toContain('refused to signal an unverified process')
     expect(String(refusal)).not.toContain('private prompt value')
     expect(calls).toEqual([])
+  })
+
+  it('does not verify or signal terminal records when a reused PID would match', async () => {
+    for (const status of ['stale', 'killed', 'exited', 'failed'] as const) {
+      const calls: string[] = []
+
+      const killed = await killBackgroundSession(
+        { ...session, status },
+        {
+          verifySessionIdentity: () => {
+            calls.push('verify')
+            return identity('matches')
+          },
+          killTree: async (_pid, signal) => {
+            calls.push(`signal:${signal}`)
+          },
+          markKilled: async selected => {
+            calls.push(`mark:${selected.id}`)
+            return { ...selected, status: 'killed' }
+          },
+        },
+      )
+
+      expect(killed.status).toBe('killed')
+      expect(calls).toEqual(['mark:bg-safety'])
+    }
   })
 
   it('freshly verifies an unknown session that becomes readable before killing', async () => {
