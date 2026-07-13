@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { setToolHistoryCompressionEnabledOverrideForTest } from './compressToolHistory.js'
-import { createOpenAIShimClient } from './openaiShim.js'
+import { __test, createOpenAIShimClient } from './openaiShim.js'
 
 type FetchType = typeof globalThis.fetch
 const originalFetch = globalThis.fetch
@@ -14,7 +14,12 @@ const originalEnv = {
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  OPENCLAUDE_LOCAL_FAST_PATH: process.env.OPENCLAUDE_LOCAL_FAST_PATH,
+  OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
 }
 
 const originalConfig = {
@@ -126,6 +131,24 @@ function makeFakeResponse(): Response {
   )
 }
 
+function makeFakeResponsesResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'resp-1',
+      model: 'gpt-5.4',
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'done' }],
+        },
+      ],
+      usage: { input_tokens: 8, output_tokens: 2, total_tokens: 10 },
+    }),
+    { headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.compression.test.ts')
   setCompressionEnabledForTest(true)
@@ -133,6 +156,11 @@ beforeEach(async () => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.OPENCLAUDE_LOCAL_FAST_PATH
+  delete process.env.OPENCODE_API_KEY
 })
 
 afterEach(() => {
@@ -177,6 +205,36 @@ async function captureRequestBody(
   return captured
 }
 
+async function captureResponsesRequestBody(
+  messages: Array<{ role: string; content: unknown }>,
+  model: string,
+  options: {
+    apiFormat?: 'responses' | 'responses_compat'
+    baseUrl?: string
+  } = {},
+): Promise<Record<string, unknown>> {
+  setCompressionEnabledForTest(mockState.enabled)
+  setEffectiveWindowForTest(mockState.effectiveWindow)
+  process.env.OPENAI_API_FORMAT = options.apiFormat ?? 'responses'
+  process.env.OPENAI_BASE_URL = options.baseUrl ?? 'http://example.test/v1'
+  let captured: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    captured = JSON.parse(String(init?.body))
+    return makeFakeResponsesResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    system: 'system prompt',
+    messages,
+  })
+
+  if (!captured) throw new Error('Responses request not captured')
+  return captured
+}
+
 function getToolMessages(body: Record<string, unknown>): Array<{ content: string }> {
   const messages = body.messages as Array<{ role: string; content: string }>
   return messages.filter(m => m.role === 'tool')
@@ -190,6 +248,89 @@ function getAssistantToolCalls(body: Record<string, unknown>): unknown[] {
   return messages
     .filter(m => m.role === 'assistant' && Array.isArray(m.tool_calls))
     .flatMap(m => m.tool_calls ?? [])
+}
+
+type ResponsesInputItem = {
+  type: string
+  role?: string
+  id?: string
+  call_id?: string
+  name?: string
+  output?: string
+  content?: Array<{ type?: string; text?: string; image_url?: string }>
+}
+
+function getResponsesInput(body: Record<string, unknown>): ResponsesInputItem[] {
+  return body.input as ResponsesInputItem[]
+}
+
+function getResponsesFunctionCalls(body: Record<string, unknown>): ResponsesInputItem[] {
+  return getResponsesInput(body).filter(item => item.type === 'function_call')
+}
+
+function getResponsesFunctionOutputs(body: Record<string, unknown>): ResponsesInputItem[] {
+  return getResponsesInput(body).filter(item => item.type === 'function_call_output')
+}
+
+function buildStructuredLongConversation(resultLength = 5_000) {
+  const messages = buildLongConversation(30, resultLength)
+
+  messages[2] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_0',
+        content: '[Old tool result content cleared]',
+      },
+    ],
+  }
+
+  messages[33] = {
+    role: 'assistant',
+    content: [
+      { type: 'text', text: 'Checking both files.' },
+      {
+        type: 'tool_use',
+        id: 'toolu_16',
+        name: 'Read',
+        input: { file_path: '/path/to/file16.ts' },
+      },
+      { type: 'text', text: 'The second file is related.' },
+      {
+        type: 'tool_use',
+        id: 'toolu_16_extra',
+        name: 'Read',
+        input: { file_path: '/path/to/extra16.ts' },
+      },
+    ],
+  }
+  messages[34] = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Keep the screenshot with the results.' },
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_16',
+        content: bigText(resultLength),
+      },
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'aGVsbG8=',
+        },
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_16_extra',
+        content: bigText(resultLength),
+      },
+    ],
+  }
+
+  return messages
 }
 
 // ============================================================================
@@ -356,4 +497,351 @@ test('FIX: 32k window tier → recent=3 keeps last 3 only', async () => {
   for (let i = 12; i <= 14; i++) {
     expect(toolMessages[i].content.length).toBe(3_000)
   }
+})
+
+test('Responses compression preserves structured history and materially reduces the payload', async () => {
+  mockState.effectiveWindow = 100_000
+  const messages = buildStructuredLongConversation()
+
+  mockState.enabled = false
+  const uncompressedBody = await captureResponsesRequestBody(messages, MID_TIER_MODEL)
+  const uncompressedOutputs = getResponsesFunctionOutputs(uncompressedBody)
+  const uncompressedByCallId = new Map(
+    uncompressedOutputs.map(item => [item.call_id, item.output ?? '']),
+  )
+  const uncompressedSize = JSON.stringify(uncompressedBody).length
+
+  expect(uncompressedBody).toHaveProperty('input')
+  expect(uncompressedBody).not.toHaveProperty('messages')
+  expect(uncompressedByCallId.get('toolu_1')).toHaveLength(5_000)
+  expect(uncompressedByCallId.get('toolu_1')).not.toContain('[…truncated')
+  expect(uncompressedByCallId.get('toolu_1')).not.toContain('chars omitted')
+
+  mockState.enabled = true
+  const compressedBody = await captureResponsesRequestBody(messages, MID_TIER_MODEL)
+  const functionCalls = getResponsesFunctionCalls(compressedBody)
+  const functionOutputs = getResponsesFunctionOutputs(compressedBody)
+  const compressedByCallId = new Map(
+    functionOutputs.map(item => [item.call_id, item.output ?? '']),
+  )
+  const compressedSize = JSON.stringify(compressedBody).length
+
+  expect(compressedBody).toHaveProperty('input')
+  expect(compressedBody).not.toHaveProperty('messages')
+  expect(functionCalls).toHaveLength(31)
+  expect(functionOutputs).toHaveLength(31)
+  expect(functionCalls.map(item => item.call_id)).toEqual(
+    functionOutputs.map(item => item.call_id),
+  )
+
+  expect(compressedByCallId.get('toolu_0')).toBe(
+    '[Old tool result content cleared]',
+  )
+  for (let i = 1; i <= 14; i++) {
+    expect(compressedByCallId.get(`toolu_${i}`)).toMatch(
+      /^\[Read args=.*chars omitted\]$/,
+    )
+  }
+  for (let i = 15; i <= 24; i++) {
+    expect(compressedByCallId.get(`toolu_${i}`)).toContain('[…truncated')
+  }
+  expect(compressedByCallId.get('toolu_16_extra')).toContain('[…truncated')
+  for (let i = 25; i <= 29; i++) {
+    expect(compressedByCallId.get(`toolu_${i}`)).toHaveLength(5_000)
+    expect(compressedByCallId.get(`toolu_${i}`)).not.toContain('[…truncated')
+    expect(compressedByCallId.get(`toolu_${i}`)).not.toContain('chars omitted')
+  }
+
+  const inputParts = getResponsesInput(compressedBody).flatMap(
+    item => item.content ?? [],
+  )
+  expect(inputParts).toContainEqual({
+    type: 'input_image',
+    image_url: 'data:image/png;base64,aGVsbG8=',
+  })
+  expect(inputParts).toContainEqual({
+    type: 'input_text',
+    text: 'Keep the screenshot with the results.',
+  })
+  expect(inputParts).toContainEqual({
+    type: 'output_text',
+    text: 'Checking both files.',
+  })
+
+  expect(compressedSize).toBeLessThan(uncompressedSize * 0.5)
+})
+
+test('Responses local fast path preserves the uncompressed request', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const body = await captureResponsesRequestBody(
+    buildLongConversation(30, 5_000),
+    MID_TIER_MODEL,
+    { baseUrl: 'http://localhost:8000/v1' },
+  )
+  const outputs = getResponsesFunctionOutputs(body)
+
+  expect(body).toHaveProperty('input')
+  expect(body).not.toHaveProperty('messages')
+  expect(outputs).toHaveLength(30)
+  expect(outputs[0]?.output).toHaveLength(5_000)
+  expect(outputs[0]?.output).not.toContain('[…truncated')
+  expect(outputs[0]?.output).not.toContain('chars omitted')
+  expect(JSON.stringify(body).length).toBeGreaterThan(150_000)
+})
+
+test('responses_compat keeps text content types while compressing tool outputs', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const body = await captureResponsesRequestBody(
+    buildStructuredLongConversation(),
+    MID_TIER_MODEL,
+    { apiFormat: 'responses_compat' },
+  )
+  const outputs = getResponsesFunctionOutputs(body)
+  const contentParts = getResponsesInput(body).flatMap(item => item.content ?? [])
+
+  expect(outputs.find(item => item.call_id === 'toolu_1')?.output).toContain(
+    'chars omitted',
+  )
+  expect(contentParts.some(part => part.type === 'text')).toBe(true)
+  expect(contentParts.some(part => part.type === 'input_text')).toBe(false)
+  expect(contentParts.some(part => part.type === 'output_text')).toBe(false)
+})
+
+test('Responses compression leaves histories without tool results unchanged', async () => {
+  mockState.enabled = true
+  const body = await captureResponsesRequestBody(
+    [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ],
+    MID_TIER_MODEL,
+  )
+
+  expect(getResponsesFunctionCalls(body)).toHaveLength(0)
+  expect(getResponsesFunctionOutputs(body)).toHaveLength(0)
+  expect(getResponsesInput(body)).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'hello' }],
+    },
+    {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'hi' }],
+    },
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'continue' }],
+    },
+  ])
+})
+
+test('GitHub chat fallback compresses the retried Responses request', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  setCompressionEnabledForTest(true)
+  setEffectiveWindowForTest(100_000)
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_API_FORMAT
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'github-test-key'
+  process.env.GITHUB_TOKEN = 'github-test-key'
+
+  const urls: string[] = []
+  let fallbackBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (input, init) => {
+    urls.push(String(input))
+    if (urls.length === 1) {
+      return new Response(
+        JSON.stringify({ error: { message: '/chat/completions not accessible' } }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    fallbackBody = JSON.parse(String(init?.body))
+    return makeFakeResponsesResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: buildLongConversation(30, 5_000),
+  })
+
+  expect(urls).toEqual([
+    'https://api.githubcopilot.com/chat/completions',
+    'https://api.githubcopilot.com/responses',
+  ])
+  expect(fallbackBody).toBeDefined()
+  const outputs = getResponsesFunctionOutputs(fallbackBody!)
+  expect(outputs[0]?.output).toContain('chars omitted')
+  expect(outputs[29]?.output).toHaveLength(5_000)
+})
+
+test('non-chat transports do not invoke the Chat message converter', () => {
+  const selectMessages = __test.getChatMessagesForTransport
+  const unexpectedConversion = () => {
+    throw new Error('Chat converter must stay lazy')
+  }
+
+  expect(selectMessages('responses', unexpectedConversion)).toBeUndefined()
+  expect(selectMessages('responses_compat', unexpectedConversion)).toBeUndefined()
+  expect(selectMessages('anthropic_messages', unexpectedConversion)).toBeUndefined()
+  expect(selectMessages('gemini', unexpectedConversion)).toBeUndefined()
+
+  const chatMessages = [{ role: 'user', content: 'hello' }]
+  expect(selectMessages('chat_completions', () => chatMessages)).toBe(chatMessages)
+})
+
+test('Responses conversion stays single-pass when error classification inspects images', async () => {
+  mockState.enabled = false
+  setCompressionEnabledForTest(false)
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let contentReads = 0
+  let fetchCalls = 0
+  const message = {
+    role: 'user',
+    get content() {
+      contentReads++
+      if (contentReads > 1) {
+        throw new Error('Responses input was converted more than once')
+      }
+      return 'hello'
+    },
+  }
+
+  globalThis.fetch = (async () => {
+    fetchCalls++
+    return new Response('server error', { status: 500 })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let rejection: unknown
+  try {
+    await client.beta.messages.create({
+      model: MID_TIER_MODEL,
+      messages: [message],
+    })
+  } catch (error) {
+    rejection = error
+  }
+
+  expect(rejection).toBeDefined()
+  expect(fetchCalls).toBe(1)
+  expect(contentReads).toBe(1)
+})
+
+test('image error classification follows the serialized body for local self-healing', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:8000'
+  const requestUrls: string[] = []
+
+  globalThis.fetch = (async (input) => {
+    requestUrls.push(String(input))
+    if (requestUrls.length === 1) {
+      return new Response('Not Found', { status: 404 })
+    }
+    return makeFakeResponse()
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: MID_TIER_MODEL,
+    messages: [
+      { role: 'user', content: 'inspect the attachment' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'aGVsbG8=',
+            },
+          },
+        ],
+      },
+      { role: 'user', content: 'continue' },
+    ],
+  })
+
+  expect(requestUrls).toEqual([
+    'http://localhost:8000/chat/completions',
+    'http://localhost:8000/v1/chat/completions',
+  ])
+})
+
+test('image error classification follows JSON-normalized Anthropic content', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  process.env.OPENAI_MODEL = 'minimax-m3'
+  process.env.OPENCODE_API_KEY = 'test-opencode-key'
+
+  globalThis.fetch = (async (_input, init) => {
+    expect(String(init?.body)).toContain('"type":"image"')
+    return new Response('Not Found', { status: 404 })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(client.beta.messages.create({
+    model: 'minimax-m3',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'placeholder',
+            toJSON() {
+              return {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'aGVsbG8=',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ],
+  })).rejects.toThrow('openai_category=vision_not_supported')
+})
+
+test('Responses requests preserve an abort that happened before fetch', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  const controller = new AbortController()
+  const abortError = new DOMException('cancelled before request', 'AbortError')
+  controller.abort(abortError)
+  let fetchCalls = 0
+
+  globalThis.fetch = (async (_input, init) => {
+    fetchCalls++
+    expect(init?.signal).toBe(controller.signal)
+    expect(init?.signal?.aborted).toBe(true)
+    throw init?.signal?.reason
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let rejection: unknown
+  try {
+    await client.beta.messages.create(
+      {
+        model: MID_TIER_MODEL,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+      { signal: controller.signal },
+    )
+  } catch (error) {
+    rejection = error
+  }
+
+  expect(rejection).toBe(abortError)
+  expect(fetchCalls).toBe(1)
 })

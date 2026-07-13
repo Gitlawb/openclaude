@@ -1269,6 +1269,67 @@ function ensureTextPartForImageContent(
   return [{ type: 'text', text: 'Image attached.' }, ...parts]
 }
 
+function contentBlocksContainImages(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+
+  return content.some(block => {
+    if (!block || typeof block !== 'object') return false
+    const record = block as Record<string, unknown>
+    if (
+      record.type === 'image' ||
+      record.type === 'image_url' ||
+      record.type === 'input_image'
+    ) {
+      return true
+    }
+    return record.type === 'tool_result' && contentBlocksContainImages(record.content)
+  })
+}
+
+function requestBodyContainsImages(
+  payload: Record<string, unknown> | undefined,
+): boolean {
+  if (!payload) return false
+
+  const messages = payload.messages
+  if (
+    Array.isArray(messages) &&
+    messages.some(message => {
+      if (!message || typeof message !== 'object') return false
+      const record = message as Record<string, unknown>
+      return (
+        contentBlocksContainImages(record.content) ||
+        (Array.isArray(record.images) && record.images.length > 0)
+      )
+    })
+  ) {
+    return true
+  }
+
+  const input = payload.input
+  if (
+    Array.isArray(input) &&
+    input.some(item =>
+      item &&
+      typeof item === 'object' &&
+      contentBlocksContainImages((item as Record<string, unknown>).content),
+    )
+  ) {
+    return true
+  }
+
+  const contents = payload.contents
+  return Array.isArray(contents) && contents.some(item => {
+    if (!item || typeof item !== 'object') return false
+    const parts = (item as Record<string, unknown>).parts
+    return Array.isArray(parts) && parts.some(part =>
+      part &&
+      typeof part === 'object' &&
+      ('inlineData' in part || 'fileData' in part),
+    )
+  })
+}
+
 function joinTextContentParts(parts: OpenAIContentPart[]): string {
   return parts.map(part => part.type === 'text' ? part.text : '').join('')
 }
@@ -1789,6 +1850,13 @@ function convertMessages(
   }
 
   return coalesced
+}
+
+function getChatMessagesForTransport<T>(
+  transport: string,
+  convert: () => T,
+): T | undefined {
+  return transport === 'chat_completions' ? convert() : undefined
 }
 
 /**
@@ -4243,14 +4311,17 @@ class OpenAIShimMessages {
       !shimConfig.endpointPath &&
       isDirectLocalOllamaEndpoint(request.baseUrl) &&
       isLikelyOllamaEndpoint(request.baseUrl)
-    const openaiMessages = convertMessages(compressedMessages, params.system, {
-      preserveReasoningContent: shimConfig.preserveReasoningContent,
-      reasoningContentFallback: shimConfig.reasoningContentFallback,
-      preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
-        request.resolvedModel,
-        request.baseUrl,
-      ),
-    })
+    const openaiMessages = getChatMessagesForTransport(
+      effectiveTransport,
+      () => convertMessages(compressedMessages, params.system, {
+        preserveReasoningContent: shimConfig.preserveReasoningContent,
+        reasoningContentFallback: shimConfig.reasoningContentFallback,
+        preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
+          request.resolvedModel,
+          request.baseUrl,
+        ),
+      }),
+    )
 
     const reasoningControl = resolveModelReasoningControl(request.resolvedModel, {
       routeId: runtimeShimContext.routeId,
@@ -4281,7 +4352,7 @@ class OpenAIShimMessages {
 
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
-      messages: openaiMessages,
+      ...(openaiMessages ? { messages: openaiMessages } : {}),
       stream: params.stream ?? false,
       store: false,
     }
@@ -4417,17 +4488,20 @@ class OpenAIShimMessages {
     }
 
     let omitResponsesTools = false
+    let responsesInput: ReturnType<
+      typeof convertAnthropicMessagesToResponsesInput
+    > | undefined
+    const getResponsesInput = () => {
+      responsesInput ??= convertAnthropicMessagesToResponsesInput(
+        compressedMessages,
+        effectiveTransport === 'responses_compat',
+      )
+      return responsesInput
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
-        input: convertAnthropicMessagesToResponsesInput(
-          params.messages as Array<{
-            role?: string
-            message?: { role?: string; content?: unknown }
-            content?: unknown
-          }>,
-          effectiveTransport === 'responses_compat',
-        ),
+        input: getResponsesInput(),
         stream: params.stream ?? false,
         store: false,
       }
@@ -4960,23 +5034,34 @@ class OpenAIShimMessages {
       return false
     }
 
-    const bodyContainsImages = (): boolean => {
-      if (request.transport === 'responses') {
-        const responsesBody = buildResponsesBody()
-        const input = responsesBody.input as Array<Record<string, unknown>> | undefined
-        if (!Array.isArray(input)) return false
-        return input.some(item => {
-          const content = item.content as Array<Record<string, unknown>> | undefined
-          return Array.isArray(content) && content.some(part => part.type === 'input_image')
-        })
+    let serializedBody = ''
+    let imageClassificationCache:
+      | { serializedBody: string; hasImages: boolean }
+      | undefined
+    const bodyContainsImages = (
+      bodyToInspect = serializedBody,
+    ): boolean => {
+      if (imageClassificationCache?.serializedBody === bodyToInspect) {
+        return imageClassificationCache.hasImages
       }
-      const messages = body.messages as Array<Record<string, unknown>> | undefined
-      if (!Array.isArray(messages)) return false
-      return messages.some(msg => {
-        const content = msg.content
-        if (!Array.isArray(content)) return false
-        return content.some((part: Record<string, unknown>) => part.type === 'image_url')
-      })
+
+      let hasImages = false
+      try {
+        const payload = JSON.parse(bodyToInspect)
+        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+          hasImages = requestBodyContainsImages(
+            payload as Record<string, unknown>,
+          )
+        }
+      } catch {
+        // Request serialization already succeeded before this error path.
+      }
+
+      imageClassificationCache = {
+        serializedBody: bodyToInspect,
+        hasImages,
+      }
+      return hasImages
     }
 
     // WHY: byte-identity required for implicit prefix caching in
@@ -5020,7 +5105,7 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
-    let serializedBody = serializeBody()
+    serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
       serializedBody = serializeBody()
@@ -5257,6 +5342,7 @@ class OpenAIShimMessages {
         if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
           const responsesUrl = `${request.baseUrl}/responses`
           const responsesBody = buildResponsesBody()
+          const responsesSerializedBody = stableStringifyJson(responsesBody)
 
           let responsesResponse!: Response
           try {
@@ -5265,7 +5351,7 @@ class OpenAIShimMessages {
               {
                 method: 'POST',
                 headers,
-                body: stableStringifyJson(responsesBody),
+                body: responsesSerializedBody,
               },
             )
           } catch (error) {
@@ -5301,7 +5387,7 @@ class OpenAIShimMessages {
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
-            hasImages: bodyContainsImages(),
+            hasImages: bodyContainsImages(responsesSerializedBody),
           })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
@@ -5553,6 +5639,7 @@ export function createOpenAIShimClient(options: {
 export const __test = {
   convertMessages,
   getApiTimeoutMs,
+  getChatMessagesForTransport,
   getStreamIdleTimeoutMs,
   readWithIdleTimeout,
   StreamIdleTimeoutError,
