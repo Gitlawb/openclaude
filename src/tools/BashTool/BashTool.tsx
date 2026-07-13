@@ -39,7 +39,7 @@ import { EndTruncatingAccumulator } from '../../utils/stringUtils.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { TaskOutput } from '../../utils/task/TaskOutput.js';
 import { isOutputLineTruncated } from '../../utils/terminal.js';
-import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES } from '../../utils/toolResultStorage.js';
+import { buildLargeToolResultMessage, ensureToolResultsDir, generateFilePreview, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES, type PreviewStrategy } from '../../utils/toolResultStorage.js';
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
@@ -304,6 +304,8 @@ const outputSchema = lazySchema(() => z.object({
   structuredContent: z.array(z.any()).optional().describe('Structured content blocks'),
   persistedOutputPath: z.string().optional().describe('Path to the persisted full output in tool-results dir (set when output is too large for inline)'),
   persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)'),
+  persistedOutputPreview: z.string().optional().describe('UTF-8-safe head/tail preview read from the complete rolled-output source'),
+  persistedOutputPreviewStrategy: z.enum(['complete', 'head-tail', 'head-only']).optional().describe('How the persisted output preview was selected'),
   persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)')
 }));
 type OutputSchema = ReturnType<typeof outputSchema>;
@@ -324,6 +326,7 @@ import type { BashProgress } from '../../types/tools.js';
  * command does not blow up disk usage in the user's home dir.
  */
 export const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+const MAX_SANDBOX_DIAGNOSTIC_PREVIEW_BYTES = 512;
 
 /**
  * Copy the shell's rolled-output file into the tool-results dir so the model
@@ -341,7 +344,7 @@ export async function persistShellOutputFile(
   sourcePath: string,
   taskId: string,
   maxSize: number = MAX_PERSISTED_SHELL_OUTPUT_SIZE,
-): Promise<{ path: string; size: number; truncated: boolean } | null> {
+): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
@@ -379,7 +382,18 @@ export async function persistShellOutputFile(
     // reports as the output total. `truncated` tells the error path that the
     // saved file is capped at MAX_PERSISTED_SHELL_OUTPUT_SIZE so it does not
     // describe a partial file as the full output.
-    return { path: dest, size, truncated };
+    const previewResult = await generateFilePreview(
+      sourcePath,
+      size,
+      PREVIEW_SIZE_BYTES,
+    ).catch(() => undefined);
+    return {
+      path: dest,
+      size,
+      truncated,
+      preview: previewResult?.preview,
+      previewStrategy: previewResult?.strategy,
+    };
   } catch {
     // File may already be gone — caller's stdout preview is sufficient.
     return null;
@@ -401,13 +415,26 @@ export function appendPersistedOutputHint(
   persistedPath: string,
   persistedSize: number,
   truncated: boolean,
+  preview?: string,
+  sandboxDiagnostics?: string,
 ): string {
   const hint = truncated
     ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
-  if (!stdout) return hint;
-  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
-  return `${trimmed}\n\n${hint}`;
+  const previewBlock = preview
+    ? `Persisted output preview (UTF-8-safe head and tail, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
+    : '';
+  const boundedSandboxDiagnostics = preview && sandboxDiagnostics
+    ? generatePreview(
+      sandboxDiagnostics,
+      MAX_SANDBOX_DIAGNOSTIC_PREVIEW_BYTES,
+    ).preview
+    : '';
+  const capturedFallback = preview
+    ? ''
+    : stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  const parts = [capturedFallback, previewBlock, boundedSandboxDiagnostics, hint].filter(Boolean);
+  return parts.join('\n\n');
 }
 
 function isAutobackgroundingAllowed(command: string): boolean {
@@ -671,6 +698,8 @@ export const BashTool = buildTool({
     structuredContent,
     persistedOutputPath,
     persistedOutputSize,
+    persistedOutputPreview,
+    persistedOutputPreviewStrategy,
     persistedOutputTruncated
   }, toolUseID): ToolResultBlockParam {
     // Handle structured content
@@ -700,13 +729,22 @@ export const BashTool = buildTool({
     // For large output that was persisted to disk, build <persisted-output>
     // message for the model. The UI never sees this — it uses data.stdout.
     if (persistedOutputPath) {
-      const preview = generatePreview(processedStdout, PREVIEW_SIZE_BYTES);
+      // Prefer the bounded preview read from the full rolled-output source.
+      // If that read failed, the in-memory value is only a captured head.
+      const preview = persistedOutputPreview ?? generatePreview(
+        processedStdout,
+        PREVIEW_SIZE_BYTES,
+        'head-only',
+      ).preview;
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
-        preview: preview.preview,
-        hasMore: preview.hasMore,
+        preview,
+        hasMore: true,
+        strategy: persistedOutputPreviewStrategy ?? (
+          persistedOutputPreview ? 'head-tail' : 'head-only'
+        ),
         truncated: persistedOutputTruncated
       });
     }
@@ -847,6 +885,9 @@ export const BashTool = buildTool({
         lastProgressFullOutput,
       );
       const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, failureOutput);
+      const sandboxDiagnostics = outputWithSbFailures.startsWith(failureOutput)
+        ? outputWithSbFailures.slice(failureOutput.length).trim()
+        : '';
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
@@ -877,6 +918,8 @@ export const BashTool = buildTool({
               persistedForError.path,
               persistedForError.size,
               persistedForError.truncated,
+              persistedForError.preview,
+              sandboxDiagnostics,
             )
           }
         }
@@ -900,6 +943,8 @@ export const BashTool = buildTool({
     // FileRead. If > 64 MB, truncate after copying.
     let persistedOutputPath: string | undefined;
     let persistedOutputSize: number | undefined;
+    let persistedOutputPreview: string | undefined;
+    let persistedOutputPreviewStrategy: PreviewStrategy | undefined;
     let persistedOutputTruncated: boolean | undefined;
     if (result.outputFilePath && result.outputTaskId) {
       const persisted = await persistShellOutputFile(
@@ -909,6 +954,8 @@ export const BashTool = buildTool({
       if (persisted) {
         persistedOutputPath = persisted.path;
         persistedOutputSize = persisted.size;
+        persistedOutputPreview = persisted.preview;
+        persistedOutputPreviewStrategy = persisted.previewStrategy;
         persistedOutputTruncated = persisted.truncated;
       }
     }
@@ -984,6 +1031,8 @@ export const BashTool = buildTool({
       dangerouslyDisableSandbox: 'dangerouslyDisableSandbox' in input ? input.dangerouslyDisableSandbox as boolean | undefined : undefined,
       persistedOutputPath,
       persistedOutputSize,
+      persistedOutputPreview,
+      persistedOutputPreviewStrategy,
       persistedOutputTruncated
     };
     return {

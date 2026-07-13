@@ -35,7 +35,7 @@ import { EndTruncatingAccumulator } from '../../utils/stringUtils.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { TaskOutput } from '../../utils/task/TaskOutput.js';
 import { isOutputLineTruncated } from '../../utils/terminal.js';
-import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES } from '../../utils/toolResultStorage.js';
+import { buildLargeToolResultMessage, ensureToolResultsDir, generateFilePreview, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES, type PreviewStrategy } from '../../utils/toolResultStorage.js';
 import { shouldUseSandbox } from '../BashTool/shouldUseSandbox.js';
 import { BackgroundHint } from '../BashTool/UI.js';
 import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, stdErrAppendShellResetMessage, stripEmptyLines } from '../BashTool/utils.js';
@@ -55,7 +55,7 @@ export async function persistPowerShellOutputFile(
   sourcePath: string,
   taskId: string,
   maxSize: number = MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
-): Promise<{ path: string; size: number; truncated: boolean } | null> {
+): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
@@ -79,7 +79,18 @@ export async function persistPowerShellOutputFile(
         await copyFile(sourcePath, dest);
       }
     }
-    return { path: dest, size, truncated };
+    const previewResult = await generateFilePreview(
+      sourcePath,
+      size,
+      PREVIEW_SIZE_BYTES,
+    ).catch(() => undefined);
+    return {
+      path: dest,
+      size,
+      truncated,
+      preview: previewResult?.preview,
+      previewStrategy: previewResult?.strategy,
+    };
   } catch {
     return null;
   }
@@ -90,13 +101,19 @@ export function appendPersistedPowerShellOutputHint(
   persistedPath: string,
   persistedSize: number,
   truncated: boolean,
+  preview?: string,
 ): string {
   const hint = truncated
     ? `[output truncated above — first ${MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
-  if (!stdout) return hint;
-  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
-  return `${trimmed}\n\n${hint}`;
+  const previewBlock = preview
+    ? `Persisted output preview (UTF-8-safe head and tail, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
+    : '';
+  const capturedFallback = preview
+    ? ''
+    : stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  const parts = [capturedFallback, previewBlock, hint].filter(Boolean);
+  return parts.join('\n\n');
 }
 
 /**
@@ -512,6 +529,8 @@ const outputSchema = lazySchema(() => z.object({
   isImage: z.boolean().optional().describe('Flag to indicate if stdout contains image data'),
   persistedOutputPath: z.string().optional().describe('Path to persisted full output when too large for inline'),
   persistedOutputSize: z.number().optional().describe('Total output size in bytes when persisted'),
+  persistedOutputPreview: z.string().optional().describe('UTF-8-safe head/tail preview read from the complete rolled-output source'),
+  persistedOutputPreviewStrategy: z.enum(['complete', 'head-tail', 'head-only']).optional().describe('How the persisted output preview was selected'),
   persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)'),
   backgroundTaskId: z.string().optional().describe('ID of the background task if command is running in background'),
   backgroundedByUser: z.boolean().optional().describe('True if the user manually backgrounded the command with Ctrl+B'),
@@ -652,6 +671,8 @@ export const PowerShellTool = buildTool({
     isImage,
     persistedOutputPath,
     persistedOutputSize,
+    persistedOutputPreview,
+    persistedOutputPreviewStrategy,
     persistedOutputTruncated,
     backgroundTaskId,
     backgroundedByUser,
@@ -670,13 +691,22 @@ export const PowerShellTool = buildTool({
       const trimmed = normalizedStdout
         ? normalizedStdout.replace(/^(\s*\n)+/, '').trimEnd()
         : '';
-      const preview = generatePreview(trimmed, PREVIEW_SIZE_BYTES);
+      // Prefer the bounded preview read from the full rolled-output source.
+      // If that read failed, the in-memory value is only a captured head.
+      const preview = persistedOutputPreview ?? generatePreview(
+        trimmed,
+        PREVIEW_SIZE_BYTES,
+        'head-only',
+      ).preview;
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
-        preview: preview.preview,
-        hasMore: preview.hasMore,
+        preview,
+        hasMore: true,
+        strategy: persistedOutputPreviewStrategy ?? (
+          persistedOutputPreview ? 'head-tail' : 'head-only'
+        ),
         truncated: persistedOutputTruncated
       });
     } else if (normalizedStdout) {
@@ -865,6 +895,7 @@ export const PowerShellTool = buildTool({
               persistedForError.path,
               persistedForError.size,
               persistedForError.truncated,
+              persistedForError.preview,
             );
           }
         }
@@ -880,6 +911,8 @@ export const PowerShellTool = buildTool({
       // tool-results dir so the model can read it via FileRead.
       let persistedOutputPath: string | undefined;
       let persistedOutputSize: number | undefined;
+      let persistedOutputPreview: string | undefined;
+      let persistedOutputPreviewStrategy: PreviewStrategy | undefined;
       let persistedOutputTruncated: boolean | undefined;
       if (result.outputFilePath && result.outputTaskId) {
         const persisted = await persistPowerShellOutputFile(
@@ -889,6 +922,8 @@ export const PowerShellTool = buildTool({
         if (persisted) {
           persistedOutputPath = persisted.path;
           persistedOutputSize = persisted.size;
+          persistedOutputPreview = persisted.preview;
+          persistedOutputPreviewStrategy = persisted.previewStrategy;
           persistedOutputTruncated = persisted.truncated;
         }
       }
@@ -937,6 +972,8 @@ export const PowerShellTool = buildTool({
           isImage,
           persistedOutputPath,
           persistedOutputSize,
+          persistedOutputPreview,
+          persistedOutputPreviewStrategy,
           persistedOutputTruncated
         }
       };

@@ -51,6 +51,42 @@ async function expectShellError(command: string): Promise<ShellError> {
 }
 
 describe('BashTool error output (#1231)', () => {
+  test('uses the persisted file preview for the model-facing success result', () => {
+    const preview = 'COMMAND CONTEXT\n… 42,000 bytes omitted …\nFAILURE ROOT'
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'captured head only',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+        persistedOutputPreview: preview,
+        persistedOutputPreviewStrategy: 'head-tail',
+      } as never,
+      'toolu_persisted_preview',
+    )
+
+    expect(String(mapped.content)).toContain(preview)
+    expect(String(mapped.content)).toContain('UTF-8-safe head and tail')
+    expect(String(mapped.content)).not.toContain('complete available inline output')
+  })
+
+  test('labels a small captured-only fallback as partial, not complete', () => {
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'small captured head',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+      } as never,
+      'toolu_captured_fallback',
+    )
+
+    expect(String(mapped.content)).toContain('UTF-8-safe head-only partial output')
+    expect(String(mapped.content)).not.toContain('complete available inline output')
+  })
+
   test('captured stdout/stderr appear in formatted error on non-zero exit', async () => {
     const err = await expectShellError(
       'echo stdout-line; echo stderr-line >&2; exit 1',
@@ -150,7 +186,7 @@ describe('BashTool error output (#1231)', () => {
     let persistedPath: string | undefined
     try {
       const err = await expectShellError(
-        `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; exit 1`,
+        `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; printf 'FAILURE ROOT: src/index.ts:42\\n'; exit 1`,
       )
       expect(err.code).toBe(1)
       const formatted = formatError(err)
@@ -165,6 +201,9 @@ describe('BashTool error output (#1231)', () => {
       expect(match).not.toBeNull()
       persistedPath = match?.[1]
       expect(persistedPath).toBeDefined()
+      expect(formatted).toContain('FAILURE ROOT: src/index.ts:42')
+      expect(formatted).toMatch(/… \d+ bytes omitted …/)
+      expect(formatted).not.toContain('line 0200')
 
       // The saved file must actually be readable and contain the late output
       // that #1359 needs the model to recover — i.e. the tail line, which the
@@ -197,6 +236,29 @@ describe('BashTool error output (#1231)', () => {
   test('hint keeps "full output" wording when the roll file fit under the cap', () => {
     const hint = appendPersistedOutputHint('preview', '/tmp/out', 1234, false)
     expect(hint).toMatch(/full output \(1234 bytes\) saved to \/tmp\/out; read with the Read tool/)
+  })
+
+  test('bounded error preview replaces the captured head but preserves sandbox diagnostics', () => {
+    const captured = `${'captured duplicate\n'.repeat(2_000)}<sandbox_violations>${'literal command output'.repeat(2_000)}</sandbox_violations>`
+    const preview = 'COMMAND CONTEXT\n… 42,000 bytes omitted …\nFAILURE ROOT'
+    const sandboxDiagnostics =
+      '<sandbox_violations>actual denied write</sandbox_violations>'
+    const hint = appendPersistedOutputHint(
+      captured,
+      '/tmp/out',
+      42_100,
+      false,
+      preview,
+      sandboxDiagnostics,
+    )
+
+    expect(hint).toContain(preview)
+    expect(hint).not.toContain('captured duplicate')
+    expect(hint).not.toContain('literal command output')
+    expect(hint).toContain(
+      '<sandbox_violations>actual denied write</sandbox_violations>',
+    )
+    expect(Buffer.byteLength(hint, 'utf8')).toBeLessThan(3_000)
   })
 
   // Follow-up to #1359 — when the roll file exceeds the cap, the cap must be
@@ -246,6 +308,9 @@ describe('BashTool error output (#1231)', () => {
       expect(persisted).not.toBeNull()
       dest = persisted!.path
       expect(persisted!.truncated).toBe(true)
+      expect(persisted!.preview).toStartWith('A')
+      expect(persisted!.preview).toEndWith('B'.repeat(790))
+      expect(persisted!.preview).toMatch(/… \d+ bytes omitted …/)
       const saved = readFileSync(dest, 'utf8')
       expect(saved.length).toBe(cap)
       expect(saved).toBe(head) // exactly the head, no tail byte leaked in
