@@ -147,11 +147,15 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
   const is3P =
     getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()
+  const currentDefaultModel =
+    getAPIProvider() === 'firstParty' &&
+    !isFirstPartyAnthropicBaseUrl() &&
+    process.env.ANTHROPIC_MODEL
+      ? process.env.ANTHROPIC_MODEL
+      : getDefaultMainLoopModelSetting()
 
   if (process.env.USER_TYPE === 'ant') {
-    const currentModel = renderDefaultModelSetting(
-      getDefaultMainLoopModelSetting(),
-    )
+    const currentModel = renderDefaultModelSetting(currentDefaultModel)
     return {
       value: null,
       label: 'Default (recommended)',
@@ -164,7 +168,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
     return {
       value: null,
       label: 'Default (recommended)',
-      description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`,
+      description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})`,
     }
   }
 
@@ -181,7 +185,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
   }
 }
 
