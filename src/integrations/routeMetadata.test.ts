@@ -88,6 +88,41 @@ test('getRouteProviderTypeLabel falls back safely for unknown routes', () => {
   )
 })
 
+test('resolveRouteIdFromBaseUrl only treats loopback local ports as known local routes', () => {
+  expect(resolveRouteIdFromBaseUrl('http://localhost:11434/v1')).toBe('ollama')
+  expect(resolveRouteIdFromBaseUrl('http://127.0.0.1:11434/v1')).toBe(
+    'ollama',
+  )
+  expect(resolveRouteIdFromBaseUrl('http://[::1]:11434/v1')).toBe('ollama')
+  expect(resolveRouteIdFromBaseUrl('http://localhost:1234/v1')).toBe(
+    'lmstudio',
+  )
+  expect(resolveRouteIdFromBaseUrl('http://127.0.0.1:1234/v1')).toBe(
+    'lmstudio',
+  )
+  expect(resolveRouteIdFromBaseUrl('http://[::1]:1234/v1')).toBe('lmstudio')
+})
+
+test('resolveRouteIdFromBaseUrl preserves custom URLs that resemble local routes', () => {
+  expect(resolveRouteIdFromBaseUrl('https://proxy.example.com:11434/v1')).toBe(
+    null,
+  )
+  expect(resolveRouteIdFromBaseUrl('https://proxy.example.com:1234/v1')).toBe(
+    null,
+  )
+  expect(resolveRouteIdFromBaseUrl('https://myollama.example.com/v1')).toBe(
+    null,
+  )
+  expect(resolveRouteIdFromBaseUrl('https://lmstudio.example.com/v1')).toBe(
+    null,
+  )
+  expect(resolveRouteIdFromBaseUrl('https://example.com/ollama/v1')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://example.com/lm-studio/v1')).toBe(
+    null,
+  )
+  expect(resolveRouteIdFromBaseUrl('https://localhost:11434/v1')).toBe(null)
+})
+
 test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback for openai-compatible routes', () => {
   expect(getRouteCredentialEnvVars('custom')).toEqual([
     'OPENAI_API_KEYS',

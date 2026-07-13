@@ -99,6 +99,17 @@ function getAllRoutes(): RouteDescriptor[] {
   return [...getAllGateways(), ...getAllVendors(), ...getAllAnthropicProxies()]
 }
 
+// Route inference is intentionally narrower than local-network detection: only
+// built-in local defaults are known enough to replace as stale provider URLs.
+function isDefaultLocalRouteHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]'
+  )
+}
+
 function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
   if (!baseUrl) {
     return null
@@ -106,19 +117,16 @@ function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
 
   try {
     const parsed = new URL(baseUrl)
-    const host = parsed.host.toLowerCase()
     const hostname = parsed.hostname.toLowerCase()
-    const path = parsed.pathname.toLowerCase()
-    const haystack = `${hostname} ${path}`
 
-    if (host.endsWith(':11434') || haystack.includes('ollama')) {
+    if (parsed.protocol !== 'http:' || !isDefaultLocalRouteHostname(hostname)) {
+      return null
+    }
+
+    if (parsed.port === '11434') {
       return 'ollama'
     }
-    if (
-      host.endsWith(':1234') ||
-      haystack.includes('lmstudio') ||
-      haystack.includes('lm-studio')
-    ) {
+    if (parsed.port === '1234') {
       return 'lmstudio'
     }
   } catch {

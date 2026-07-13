@@ -39,6 +39,8 @@ const ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
+  'FIREWORKS_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -86,6 +88,8 @@ const RESET_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
+  'FIREWORKS_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -481,6 +485,11 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
       baseUrl: 'https://api.xiaomimimo.com/v1',
     },
     { provider: 'venice', baseUrl: 'https://api.venice.ai/api/v1' },
+    { provider: 'nearai', baseUrl: 'https://cloud-api.near.ai/v1' },
+    {
+      provider: 'fireworks',
+      baseUrl: 'https://api.fireworks.ai/inference/v1',
+    },
   ] as const
 
   for (const { provider, baseUrl } of providers) {
@@ -500,6 +509,38 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
 
       expect(result.error).toBeUndefined()
       expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
+    })
+
+    test(`${provider} preserves custom URLs that resemble local providers`, () => {
+      const customBaseUrls = [
+        'https://proxy.example.com:11434/v1',
+        'https://proxy.example.com:1234/v1',
+        'https://myollama.example.com/v1',
+        'https://lmstudio.example.com/v1',
+        'https://example.com/lm-studio/v1',
+      ]
+
+      for (const customBaseUrl of customBaseUrls) {
+        process.env.OPENAI_BASE_URL = customBaseUrl
+
+        const result = applyProviderFlag(provider, [])
+
+        expect(result.error).toBeUndefined()
+        expect(process.env.OPENAI_BASE_URL).toBe(customBaseUrl)
+      }
+    })
+
+    test(`${provider} preserves a custom OPENAI_API_BASE alias`, () => {
+      process.env.OPENAI_API_BASE =
+        'https://my-custom-gateway.example.com/v1'
+
+      const result = applyProviderFlag(provider, [])
+
+      expect(result.error).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+      expect(process.env.OPENAI_API_BASE).toBe(
+        'https://my-custom-gateway.example.com/v1',
+      )
     })
   }
 })
