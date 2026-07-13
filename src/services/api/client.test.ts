@@ -367,6 +367,8 @@ test('routes a custom Anthropic endpoint with native x-api-key authentication', 
   delete process.env.ANTHROPIC_AUTH_TOKEN
   process.env.ANTHROPIC_API_KEY = 'custom-anthropic-api-key'
   process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+  process.env.ANTHROPIC_CUSTOM_HEADERS =
+    'X-Tenant: tenant-a\nauthorization: stale-value\nx-api-key: stale-key'
 
   const fetchOverride = (async (_input, init) => {
     capturedHeaders = new Headers(init?.headers)
@@ -388,6 +390,7 @@ test('routes a custom Anthropic endpoint with native x-api-key authentication', 
 
   expect(capturedHeaders?.get('x-api-key')).toBe('custom-anthropic-api-key')
   expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedHeaders?.get('x-tenant')).toBe('tenant-a')
 })
 
 test('routes Gemini provider requests through the OpenAI-compatible shim', async () => {

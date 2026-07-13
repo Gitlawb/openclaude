@@ -344,7 +344,7 @@ export function applyProviderFlag(
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
   switch (provider) {
-    case 'anthropic':
+    case 'anthropic': {
       // Default — clear any custom native proxy contract so this explicit
       // provider flag cannot keep routing requests to a prior endpoint.
       // Preserve a first-party API key: it is the normal credential for this
@@ -359,6 +359,7 @@ export function applyProviderFlag(
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
+    }
 
     case 'custom-anthropic':
       if (!process.env.ANTHROPIC_BASE_URL?.trim()) {

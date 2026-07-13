@@ -499,6 +499,12 @@ export async function getAnthropicClient({
     usesCustomAnthropicAuthToken
   ) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
+  } else if (apiProvider === 'firstParty' && !isFirstPartyBaseUrl) {
+    removeManagedAnthropicAuthHeaders(defaultHeaders)
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim()
+    if (anthropicApiKey) {
+      defaultHeaders['X-Api-Key'] = anthropicApiKey
+    }
   }
 
   const resolvedFetch = buildFetch(fetchOverride, source)
@@ -782,13 +788,23 @@ async function configureApiKeyHeaders(
     process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
     (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
   if (token) {
-    for (const name of Object.keys(headers)) {
-      if (name.toLowerCase() === 'authorization' || name.toLowerCase() === 'x-api-key') {
-        delete headers[name]
-      }
-    }
+    removeManagedAnthropicAuthHeaders(headers)
     headers['Authorization'] = `Bearer ${token}`
   }
+}
+
+function removeManagedAnthropicAuthHeaders(headers: Record<string, string>): void {
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase()
+    if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') {
+      delete headers[name]
+    }
+  }
+  // The Anthropic SDK also reads ANTHROPIC_CUSTOM_HEADERS. Null sentinels clear
+  // those env-parsed managed auth headers before the supported credential wins.
+  headers.Authorization = null as unknown as string
+  headers['X-Api-Key'] = null as unknown as string
+  headers['api-key'] = null as unknown as string
 }
 
 function getCustomHeaders(): Record<string, string> {
@@ -808,7 +824,13 @@ function getCustomHeaders(): Record<string, string> {
     if (colonIdx === -1) continue
     const name = headerString.slice(0, colonIdx).trim()
     const value = headerString.slice(colonIdx + 1).trim()
-    if (name) {
+    const lowerName = name.toLowerCase()
+    if (
+      name &&
+      lowerName !== 'authorization' &&
+      lowerName !== 'x-api-key' &&
+      lowerName !== 'api-key'
+    ) {
       customHeaders[name] = value
     }
   }
