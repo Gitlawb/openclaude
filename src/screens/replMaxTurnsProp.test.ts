@@ -8,15 +8,11 @@ function readSource(filename: string): string {
   return readFileSync(join(testDir, filename), 'utf8')
 }
 
-function readMainSource(): string {
-  return readFileSync(join(testDir, '..', 'main.tsx'), 'utf8')
-}
-
 describe('interactive REPL max-turn cap', () => {
-  test('main session config supplies the REPL-only default', () => {
-    const source = readMainSource()
-    expect(source).toContain('const DEFAULT_REPL_MAX_TURNS = 49')
-    expect(source).toContain('maxTurns: DEFAULT_REPL_MAX_TURNS')
+  test('REPL supplies the local interactive default', () => {
+    const source = readSource('REPL.tsx')
+    expect(source).toContain('const DEFAULT_REPL_MAX_TURNS = 50')
+    expect(source).toContain('maxTurns = DEFAULT_REPL_MAX_TURNS')
   })
 
   test('REPL forwards maxTurns to its foreground query', () => {
@@ -34,5 +30,12 @@ describe('interactive REPL max-turn cap', () => {
     const replIdx = source.indexOf('<REPL')
     const replEnd = source.indexOf('/>', replIdx)
     expect(source.slice(replIdx, replEnd)).toContain('maxTurns={maxTurns}')
+  })
+
+  test('backgrounded REPL queries retain maxTurns', () => {
+    const source = readSource('REPL.tsx')
+    const backgroundIdx = source.indexOf('startBackgroundSession({')
+    const backgroundEnd = source.indexOf('description: terminalTitle', backgroundIdx)
+    expect(source.slice(backgroundIdx, backgroundEnd)).toContain('maxTurns,')
   })
 })

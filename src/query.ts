@@ -1191,14 +1191,21 @@ async function* queryLoop(
         tokenUsage,
         model,
       )
+      const isAboveActiveMessageSafetyLimit =
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          activeMessageLimit,
+        ) &&
+        (isAutoCompactEnabled() ||
+          isAboveMaxActiveMessagesLimit(
+            messagesForQuery.length,
+            getMaxActiveMessagesHardCap(),
+          ))
       const isAboveBreakerThreshold =
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
           tokenUsage >= getAutoCompactThreshold(model)) ||
-        isAboveMaxActiveMessagesLimit(
-          messagesForQuery.length,
-          activeMessageLimit,
-        )
+        isAboveActiveMessageSafetyLimit
       if (isAboveBreakerThreshold) {
         const nowMs = Date.now()
         const retryDelayMs =
@@ -1221,7 +1228,15 @@ async function* queryLoop(
     }
 
     if (
-      isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit)
+      isAboveMaxActiveMessagesLimit(
+        messagesForQuery.length,
+        activeMessageLimit,
+      ) &&
+      (isAutoCompactEnabled() ||
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          getMaxActiveMessagesHardCap(),
+        ))
     ) {
       yield createAssistantAPIErrorMessage({
         content:

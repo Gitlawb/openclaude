@@ -568,6 +568,9 @@ function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): stri
 function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras = ''): void {
   logForDebugging(formatQueryLifecycleLogMessage(event, context, extras));
 }
+// Default per-prompt cap for every local interactive REPL entrypoint. Headless
+// and SDK callers retain their explicit maxTurns contracts.
+const DEFAULT_REPL_MAX_TURNS = 50
 export type Props = {
   commands: Command[];
   debug: boolean;
@@ -648,7 +651,7 @@ export function REPL({
   sshSession,
   thinkingConfig,
   fallbackModel,
-  maxTurns
+  maxTurns = DEFAULT_REPL_MAX_TURNS
 }: Props): React.ReactNode {
   const isRemoteSession = !!remoteSessionConfig;
 
@@ -2811,6 +2814,7 @@ export function REPL({
           canUseTool,
           toolUseContext,
           fallbackModel,
+          maxTurns,
           querySource: getQuerySourceForREPL(),
           autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
           onAutoCompactTrackingChange: tracking => {
@@ -2822,7 +2826,7 @@ export function REPL({
         agentDefinition: mainThreadAgentDefinition
       });
     })();
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel]);
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, maxTurns]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({

@@ -853,11 +853,6 @@ async function getInputPrompt(prompt: string, inputFormat: 'text' | 'stream-json
   }
   return prompt;
 }
-// query() enforces its limit after completing a tool-use turn (`>` rather than
-// `>=`), so 49 permits exactly 50 interactive tool-use turns. Headless and SDK
-// callers keep their existing explicit maxTurns contracts.
-const DEFAULT_REPL_MAX_TURNS = 49
-
 async function run(): Promise<CommanderCommand> {
   profileCheckpoint('run_function_start');
 
@@ -3051,7 +3046,6 @@ async function run(): Promise<CommanderCommand> {
       systemPrompt,
       appendSystemPrompt,
       thinkingConfig,
-      maxTurns: DEFAULT_REPL_MAX_TURNS,
     };
 
     // Shared context for processResumedConversation calls
