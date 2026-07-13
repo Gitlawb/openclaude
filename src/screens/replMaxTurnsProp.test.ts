@@ -15,7 +15,7 @@ function readMainSource(): string {
 describe('interactive REPL max-turn cap', () => {
   test('main session config supplies the REPL-only default', () => {
     const source = readMainSource()
-    expect(source).toContain('const DEFAULT_REPL_MAX_TURNS = 50')
+    expect(source).toContain('const DEFAULT_REPL_MAX_TURNS = 49')
     expect(source).toContain('maxTurns: DEFAULT_REPL_MAX_TURNS')
   })
 
@@ -26,5 +26,13 @@ describe('interactive REPL max-turn cap', () => {
       /query\(\s*\{[\s\S]*?maxTurns,[\s\S]*?\}\s*\)/,
     )
     expect(match).not.toBeNull()
+  })
+
+  test('resume picker forwards maxTurns to the REPL', () => {
+    const source = readSource('ResumeConversation.tsx')
+    expect(source).toContain('maxTurns?: number')
+    const replIdx = source.indexOf('<REPL')
+    const replEnd = source.indexOf('/>', replIdx)
+    expect(source.slice(replIdx, replEnd)).toContain('maxTurns={maxTurns}')
   })
 })

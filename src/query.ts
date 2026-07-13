@@ -814,9 +814,16 @@ async function* queryLoop(
     // compaction and forcing would deadlock via recursive autocompaction.
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
+    // An unset UI setting keeps the legacy environment override. Without that
+    // override, enforce the new effective 200-message default.
+    const maxMessagesLimitSetting =
+      configuredMaxMessagesCompactionThreshold === undefined &&
+      process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES !== undefined
+        ? undefined
+        : maxMessagesCompactionThreshold
     const activeMessageLimit = canForceCompact
       ? resolveMaxActiveMessagesLimit(
-          configuredMaxMessagesCompactionThreshold,
+          maxMessagesLimitSetting,
           process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
         )
       : 0
