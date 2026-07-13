@@ -821,6 +821,9 @@ async function* queryLoop(
       process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES !== undefined
         ? undefined
         : maxMessagesCompactionThreshold
+    const hasExplicitMessageCountThreshold =
+      configuredMaxMessagesCompactionThreshold !== undefined &&
+      configuredMaxMessagesCompactionThreshold !== 'off'
     const activeMessageLimit = canForceCompact
       ? resolveMaxActiveMessagesLimit(
           maxMessagesLimitSetting,
@@ -831,6 +834,7 @@ async function* queryLoop(
       if (
         isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit) &&
         (isAutoCompactEnabled() ||
+          hasExplicitMessageCountThreshold ||
           isAboveMaxActiveMessagesLimit(
             messagesForQuery.length,
             getMaxActiveMessagesHardCap(),
@@ -1233,6 +1237,7 @@ async function* queryLoop(
         activeMessageLimit,
       ) &&
       (isAutoCompactEnabled() ||
+        hasExplicitMessageCountThreshold ||
         isAboveMaxActiveMessagesLimit(
           messagesForQuery.length,
           getMaxActiveMessagesHardCap(),

@@ -388,6 +388,21 @@ test('disabled auto-compact leaves the default message threshold inactive', asyn
   expect(seenTracking[0]?.forceReason).toBeUndefined()
 })
 
+test('disabled auto-compact preserves an explicit message threshold', async () => {
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: '100',
+  }))
+  process.env.DISABLE_AUTO_COMPACT = '1'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(101))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
 test('long-session smoke keeps repeated over-cap turns bounded before provider calls', async () => {
   const seenProviderMessageCounts: number[] = []
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
