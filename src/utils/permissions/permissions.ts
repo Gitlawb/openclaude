@@ -1264,7 +1264,7 @@ export async function checkPlanModePermissions(
     const agentType = agentInput.subagent_type
     const definition =
       typeof agentType === 'string'
-        ? context.options.agentDefinitions?.activeAgents.find(
+        ? context.options.agentDefinitions?.activeAgents?.find(
             candidate => candidate.agentType === agentType,
           )
         : undefined

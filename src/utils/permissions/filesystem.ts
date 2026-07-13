@@ -485,6 +485,11 @@ function isScratchpadPath(absolutePath: string): boolean {
 }
 
 function pathsEqualForPermission(a: string, b: string): boolean {
+  return normalizeCaseForComparison(normalize(a)) ===
+    normalizeCaseForComparison(normalize(b))
+}
+
+function pathsEqualForActivePlan(a: string, b: string): boolean {
   const normalizedA = normalize(a)
   const normalizedB = normalize(b)
   const platform = getPlatform()
@@ -521,7 +526,7 @@ export function isActiveSessionPlanFile(
     return (
       targetForms.length > 0 &&
       targetForms.every(target =>
-        expectedForms.some(expected => pathsEqualForPermission(target, expected)),
+        expectedForms.some(expected => pathsEqualForActivePlan(target, expected)),
       )
     )
   } catch {

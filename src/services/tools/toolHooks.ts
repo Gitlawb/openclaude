@@ -405,6 +405,34 @@ export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
  * Shared by toolExecution.ts (main query loop) and REPLTool/toolWrappers.ts
  * (REPL inner calls) so the permission semantics stay in lockstep.
  */
+function samePermissionAskConstraint(
+  candidate: Awaited<ReturnType<typeof checkRuleBasedPermissions>>,
+  final: PermissionAskDecision,
+): boolean {
+  if (candidate?.behavior !== 'ask') {
+    return false
+  }
+
+  const candidateReason = candidate.decisionReason
+  const finalReason = final.decisionReason
+  if (candidateReason?.type === 'rule' && finalReason?.type === 'rule') {
+    return (
+      candidateReason.rule.source === finalReason.rule.source &&
+      candidateReason.rule.ruleBehavior === finalReason.rule.ruleBehavior &&
+      candidateReason.rule.ruleValue.toolName ===
+        finalReason.rule.ruleValue.toolName &&
+      candidateReason.rule.ruleValue.ruleContent ===
+        finalReason.rule.ruleValue.ruleContent
+    )
+  }
+
+  return (
+    candidateReason?.type === finalReason?.type &&
+    candidate.message === final.message &&
+    candidate.blockedPath === final.blockedPath
+  )
+}
+
 export async function resolveHookPermissionDecision(
   hookPermissionResult: PermissionResult | undefined,
   tool: Tool,
@@ -422,7 +450,23 @@ export async function resolveHookPermissionDecision(
   const callCanUseToolWithPlanGuard = async (
     candidateInput: Record<string, unknown>,
     forceDecision?: PermissionAskDecision,
+    remainingRuleApprovalReplays = 1,
   ): Promise<{ decision: PermissionDecision; input: Record<string, unknown> }> => {
+    const isPlanMode =
+      toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+    let candidateRuleDecision: Awaited<
+      ReturnType<typeof checkRuleBasedPermissions>
+    > = null
+    if (isPlanMode) {
+      candidateRuleDecision = await checkRuleBasedPermissions(
+        tool,
+        candidateInput,
+        toolUseContext,
+      )
+      if (candidateRuleDecision?.behavior === 'deny') {
+        return { decision: candidateRuleDecision, input: candidateInput }
+      }
+    }
     const candidatePlanModeDecision = await checkPlanModePermissions(
       tool,
       candidateInput,
@@ -443,7 +487,13 @@ export async function resolveHookPermissionDecision(
       decision.behavior === 'deny'
         ? candidateInput
         : (decision.updatedInput ?? candidateInput)
-    if (decision.behavior === 'allow') {
+    if (decision.behavior !== 'deny') {
+      const finalRuleDecision = isPlanMode
+        ? await checkRuleBasedPermissions(tool, finalInput, toolUseContext)
+        : null
+      if (finalRuleDecision?.behavior === 'deny') {
+        return { decision: finalRuleDecision, input: finalInput }
+      }
       const planModeDecision = await checkPlanModePermissions(
         tool,
         finalInput,
@@ -451,6 +501,20 @@ export async function resolveHookPermissionDecision(
       )
       if (planModeDecision) {
         return { decision: planModeDecision, input: finalInput }
+      }
+      if (
+        finalRuleDecision?.behavior === 'ask' &&
+        decision.behavior === 'allow' &&
+        !samePermissionAskConstraint(candidateRuleDecision, finalRuleDecision)
+      ) {
+        if (remainingRuleApprovalReplays === 0) {
+          return { decision: finalRuleDecision, input: finalInput }
+        }
+        return callCanUseToolWithPlanGuard(
+          finalInput,
+          undefined,
+          remainingRuleApprovalReplays - 1,
+        )
       }
     }
     return { decision, input: finalInput }

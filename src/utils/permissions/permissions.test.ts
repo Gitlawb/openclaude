@@ -512,6 +512,20 @@ describe('plan mode mechanical read-only policy', () => {
     expect(result.behavior).toBe('ask')
   })
 
+  test('preserves explicit ask rules for the active plan-file exception', async () => {
+    const result = await hasPermissionsToUseTool(
+      fileWriteTool,
+      { file_path: getActiveSessionPlanFilePath(), content: 'plan' },
+      contextFor('plan', {
+        alwaysAskRules: { session: [FILE_WRITE_TOOL_NAME] },
+      }),
+      assistantMessage,
+      'tool-use-id',
+    )
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({ type: 'rule' })
+  })
+
   test('does not turn a mutating action into an ask prompt', async () => {
     const result = await hasPermissionsToUseTool(
       fileWriteTool,
@@ -540,6 +554,18 @@ describe('plan mode mechanical read-only policy', () => {
     expect(
       (await hasPermissionsToUseTool(unclassified, {}, context, assistantMessage, 'unknown')).behavior,
     ).toBe('deny')
+  })
+
+  test('keeps a true MCP read-only hint on the normal permission path', async () => {
+    const result = await hasPermissionsToUseTool(
+      mcpTool('mcp__test__read', true),
+      {},
+      contextFor('plan'),
+      assistantMessage,
+      'tool-use-id',
+    )
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toBeUndefined()
   })
 
   test.each([
@@ -647,6 +673,29 @@ describe('plan mode mechanical read-only policy', () => {
       expect(result.behavior).toBe('allow')
     },
   )
+
+  test('fails closed when active agent definitions are unavailable', async () => {
+    const context = contextFor('plan')
+    context.options.agentDefinitions = {} as NonNullable<
+      ToolUseContext['options']['agentDefinitions']
+    >
+
+    const result = await hasPermissionsToUseTool(
+      AgentTool,
+      {
+        description: 'Inspect code',
+        prompt: 'Read only',
+        subagent_type: 'Explore',
+      },
+      context,
+      assistantMessage,
+      'tool-use-id',
+    )
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
 
   test.each([
     { description: 'General', prompt: 'Work', subagent_type: 'general-purpose' },
