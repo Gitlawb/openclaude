@@ -102,11 +102,15 @@ function getAllRoutes(): RouteDescriptor[] {
 // Route inference is intentionally narrower than local-network detection: only
 // built-in local defaults are known enough to replace as stale provider URLs.
 function isDefaultLocalRouteHostname(hostname: string): boolean {
+  const normalizedHostname =
+    hostname.startsWith('[') && hostname.endsWith(']')
+      ? hostname.slice(1, -1)
+      : hostname
+
   return (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname === '[::1]'
+    normalizedHostname === 'localhost' ||
+    normalizedHostname === '127.0.0.1' ||
+    normalizedHostname === '::1'
   )
 }
 
@@ -174,7 +178,6 @@ export function resolveLocalCompatibleRouteIdFromBaseUrl(
 ): string | null {
   return (
     resolveRouteIdFromBaseUrl(baseUrl) ??
-    resolveKnownLocalRouteIdFromBaseUrl(baseUrl) ??
     resolveRemoteOllamaRouteIdFromBaseUrl(baseUrl)
   )
 }

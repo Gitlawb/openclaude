@@ -759,37 +759,58 @@ describe('applyProviderProfileToProcessEnv', () => {
   ])(
     'remote Ollama profile %s applies auth headers without API-format selection',
     async baseUrl => {
-      const { applyProviderProfileToProcessEnv } =
-        await importFreshProviderProfileModules()
+      const envKeys = [
+        'OPENAI_BASE_URL',
+        'OPENAI_AUTH_HEADER',
+        'OPENAI_AUTH_SCHEME',
+        'OPENAI_AUTH_HEADER_VALUE',
+        'OPENAI_API_FORMAT',
+      ] as const
+      const savedEnv = Object.fromEntries(
+        envKeys.map(key => [key, process.env[key]]),
+      ) as Record<(typeof envKeys)[number], string | undefined>
 
-      applyProviderProfileToProcessEnv(
-        buildProfile({
-          name: 'Remote Ollama',
-          provider: 'openai',
+      try {
+        const { applyProviderProfileToProcessEnv } =
+          await importFreshProviderProfileModules()
+
+        applyProviderProfileToProcessEnv(
+          buildProfile({
+            name: 'Remote Ollama',
+            provider: 'openai',
+            baseUrl,
+            model: 'llama3.1:8b',
+            apiFormat: 'responses',
+            authHeader: 'X-API-Key',
+            authScheme: 'raw',
+            authHeaderValue: 'remote-ollama-secret',
+          }),
+        )
+
+        const { resolveProviderRequest } = await import(
+          `../services/api/providerConfig.ts?ts=${Date.now()}-${Math.random()}`
+        )
+
+        expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+        expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+        expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+        expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+          'remote-ollama-secret',
+        )
+        expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+        expect(resolveProviderRequest()).toMatchObject({
+          transport: 'chat_completions',
           baseUrl,
-          model: 'llama3.1:8b',
-          apiFormat: 'responses',
-          authHeader: 'X-API-Key',
-          authScheme: 'raw',
-          authHeaderValue: 'remote-ollama-secret',
-        }),
-      )
-
-      const { resolveProviderRequest } = await import(
-        `../services/api/providerConfig.ts?ts=${Date.now()}-${Math.random()}`
-      )
-
-      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
-      expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
-      expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
-      expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
-        'remote-ollama-secret',
-      )
-      expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
-      expect(resolveProviderRequest()).toMatchObject({
-        transport: 'chat_completions',
-        baseUrl,
-      })
+        })
+      } finally {
+        for (const key of envKeys) {
+          if (savedEnv[key] === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = savedEnv[key]
+          }
+        }
+      }
     },
   )
 

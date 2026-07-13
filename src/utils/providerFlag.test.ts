@@ -499,6 +499,11 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
       defaultModel: 'mimo-v2.5-pro',
     },
     {
+      provider: 'xiaomi-mimo-token',
+      baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      defaultModel: 'mimo-v2.5-pro',
+    },
+    {
       provider: 'venice',
       baseUrl: 'https://api.venice.ai/api/v1',
       defaultModel: 'venice-uncensored',

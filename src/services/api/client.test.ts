@@ -22,9 +22,6 @@ const realProviders = {
 }
 mock.module('../../utils/model/providers.js', () => realProviders)
 mock.module('src/utils/model/providers.js', () => realProviders)
-const { getAnthropicClient } = await import(
-  `./client.js?real=${Date.now()}-${Math.random()}`,
-)
 
 type FetchType = typeof globalThis.fetch
 
@@ -38,6 +35,8 @@ type ShimClient = {
 
 const originalFetch = globalThis.fetch
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
+let clientImportCounter = 0
+let getAnthropicClient: typeof import('./client.js').getAnthropicClient
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
@@ -131,6 +130,9 @@ function clearEnvForMiniMaxOnlyTest(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('client.test.ts')
+  ;({ getAnthropicClient } = await import(
+    `./client.js?client-test-${clientImportCounter++}`
+  ))
   ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.GEMINI_API_KEY = 'gemini-test-key'
