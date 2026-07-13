@@ -7,7 +7,7 @@
  * structured .md files in the auto-memory directory.
  */
 
-import { readFileSync, existsSync, readdirSync, rmSync, mkdirSync, writeFileSync } from 'fs'
+import { readFileSync, existsSync, readdirSync, rmSync, mkdirSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { getAutoMemPath } from '../memdir/paths.js'
 import { initMemdirIndex, searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
@@ -15,6 +15,8 @@ import { parseFrontmatter } from './frontmatterParser.js'
 import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
+import { createRequire } from 'module'
+const _require = createRequire(import.meta.url)
 
 export interface Entity {
   id: string
@@ -115,31 +117,108 @@ function getLegacyGraphPath(): string {
   return join(getProjectsDir(), sanitizePath(cwd), 'knowledge_graph.json')
 }
 
+function getLegacySqlitePath(): string {
+  const cwd = getFsImplementation().cwd()
+  return join(getProjectsDir(), sanitizePath(cwd), 'knowledge.db')
+}
+
 function migrateLegacyKnowledgeGraph(): void {
   if (legacyMigrationDone) return
 
   const legacyPath = getLegacyGraphPath()
-  if (!existsSync(legacyPath)) {
-    legacyMigrationDone = true
-    return
-  }
+  const sqlitePath = getLegacySqlitePath()
 
+  // Prefer SQLite when available and newer than JSON (or JSON absent)
   let data: any
-  try {
-    data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
-  } catch (e) {
-    console.error('[knowledgeGraph] Legacy migration: cannot read legacy file, skipping:', e)
+  let sourcePath = ''
+
+  if (existsSync(sqlitePath)) {
+    const sqliteMtime = statSync(sqlitePath).mtimeMs
+    const jsonExists = existsSync(legacyPath)
+    const jsonMtime = jsonExists ? statSync(legacyPath).mtimeMs : 0
+    if (!jsonExists || sqliteMtime >= jsonMtime) {
+      sourcePath = sqlitePath
+      data = readLegacySqliteStore()
+    }
+  }
+
+  if (!data && existsSync(legacyPath)) {
+    sourcePath = legacyPath
+    try {
+      data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
+    } catch (e) {
+      console.error('[knowledgeGraph] Legacy migration: cannot read legacy file, skipping:', e)
+      legacyMigrationDone = true
+      return
+    }
+  }
+
+  if (!data) {
     legacyMigrationDone = true
     return
   }
 
-  // Create a backup before any writes so data can be recovered.
-  const backupPath = `${legacyPath}.backup-${Date.now()}`
+  doMigration(data, sourcePath)
+}
+
+function readLegacySqliteStore(): any | null {
+  const dbPath = getLegacySqlitePath()
+  if (!existsSync(dbPath)) return null
+
+  let Database: any
   try {
-    writeFileSync(backupPath, readFileSync(legacyPath))
+    Database = _require('bun:sqlite').Database
   } catch {
-    console.error('[knowledgeGraph] Legacy migration: cannot create backup, aborting')
-    return
+    console.error('[knowledgeGraph] bun:sqlite not available; cannot migrate SQLite store.')
+    return null
+  }
+
+  try {
+    const db = new Database(dbPath)
+    const data: any = { entities: {}, relations: [], summaries: [], rules: [] }
+
+    const entityRows = db.query('SELECT id, type, name, attributes FROM entities').all() as any[]
+    for (const row of entityRows) {
+      data.entities[row.id] = {
+        id: row.id,
+        type: row.type ?? '',
+        name: row.name ?? '',
+        attributes: row.attributes ? JSON.parse(row.attributes) : {},
+      }
+    }
+
+    data.relations = (db.query('SELECT source_id, target_id, type FROM relations').all() as any[]).map(
+      (r: any) => ({ sourceId: r.source_id, targetId: r.target_id, type: r.type }),
+    )
+
+    const summaryRows = db.query('SELECT id, content, keywords, timestamp FROM summaries').all() as any[]
+    data.summaries = summaryRows.map((r: any) => ({
+      id: r.id,
+      content: r.content ?? '',
+      keywords: r.keywords ? JSON.parse(r.keywords) : [],
+      timestamp: r.timestamp ?? 0,
+    }))
+
+    data.rules = (db.query('SELECT content FROM rules').all() as any[]).map((r: any) => r.content)
+
+    db.close()
+    return data
+  } catch (e) {
+    console.error('[knowledgeGraph] Failed to read SQLite store:', e)
+    return null
+  }
+}
+
+function doMigration(data: any, sourcePath: string): void {
+  // Create a backup before any writes so data can be recovered.
+  const backupPath = `${sourcePath}.backup-${Date.now()}`
+  if (existsSync(sourcePath)) {
+    try {
+      writeFileSync(backupPath, readFileSync(sourcePath))
+    } catch {
+      console.error('[knowledgeGraph] Legacy migration: cannot create backup, aborting')
+      return
+    }
   }
 
   const memDir = getAutoMemPath()
@@ -157,12 +236,16 @@ function migrateLegacyKnowledgeGraph(): void {
     const legacyEntities: Entity[] = Object.values(data.entities ?? {})
     for (const entity of legacyEntities) {
       const slug = slugify(entity.name)
+      const attrsYaml = Object.entries(entity.attributes ?? {})
+        .map(([k, v]) => `${k}: "${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+        .join('\n')
       const content = `---
 type: reference
 title: "${entity.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
 description: "Migrated from legacy knowledge graph: ${entity.type}"
 factType: ${entity.type}
 source: legacy_migration
+${attrsYaml ? `attributes:\n${attrsYaml}` : ''}
 ---
 Auto-migrated from legacy store: **${entity.name}**
 `
@@ -285,6 +368,11 @@ export function getGlobalGraphSummary(): string {
 }
 
 export async function getOrchestratedMemory(query: string): Promise<string> {
+  // Ensure any legacy store is migrated before searching so users with only
+  // a legacy JSON or SQLite graph receive their prior knowledge during normal
+  // conversation, not only after invoking /knowledge status.
+  migrateLegacyKnowledgeGraph()
+
   const memDir = getAutoMemPath()
   if (!memDir || !query) return ''
 
@@ -342,6 +430,28 @@ export function resetGlobalGraph(): void {
       try { rmSync(metaPath, { force: true }) } catch { /* ignore */ }
     }
   }
+  // Atomically clear the legacy source so /knowledge clear does not
+  // resurrect data via remigration on the next getGlobalGraph() call.
+  const legacyPath = getLegacyGraphPath()
+  if (existsSync(legacyPath)) {
+    try {
+      // Archive rather than delete so recovery is possible.
+      const archived = `${legacyPath}.cleared-${Date.now()}`
+      writeFileSync(archived, readFileSync(legacyPath))
+      rmSync(legacyPath, { force: true })
+    } catch { /* ignore */ }
+  }
+  const sqlitePath = getLegacySqlitePath()
+  if (existsSync(sqlitePath)) {
+    try {
+      const archived = `${sqlitePath}.cleared-${Date.now()}`
+      writeFileSync(archived, readFileSync(sqlitePath))
+      rmSync(sqlitePath, { force: true })
+    } catch { /* ignore */ }
+  }
+  // Reset the guard so that if the user re-enables the feature the cleared
+  // state is authoritative — no remigration from deleted sources occurs.
+  legacyMigrationDone = false
   clearIndex()
 }
 

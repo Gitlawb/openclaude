@@ -79,9 +79,9 @@ const MAX_FACTS_PER_CALL = 20
 export async function extractFactsIntoMemdir(
   content: string,
   memoryDir?: string,
-): Promise<void> {
+): Promise<boolean> {
   const dir = memoryDir || getAutoMemPath()
-  if (!dir) return
+  if (!dir) return false
 
   let factsWritten = 0
 
@@ -109,7 +109,7 @@ export async function extractFactsIntoMemdir(
   const scrubbedContent = (
     redactSecretSubstringsForDisplay(
       content.replace(
-        new RegExp(`(?:export\\s+)?[A-Z_][A-Z_0-9]{2,}=${envValuePattern}`, 'g'),
+        new RegExp(`(?:export\\s+)?[A-Za-z_][A-Za-z_0-9]{2,}=${envValuePattern}`, 'g'),
         match => `${match.split('=')[0]}=[REDACTED]`,
       ),
     ) ?? content
@@ -215,4 +215,5 @@ export async function extractFactsIntoMemdir(
     cappedWrite(dir, 'file', match[1].toLowerCase(), `Project file: ${match[1]}`, { category: 'configuration' })
   }
 
+  return factsWritten > 0
 }
