@@ -782,6 +782,11 @@ async function configureApiKeyHeaders(
     process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
     (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
   if (token) {
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'authorization' || name.toLowerCase() === 'x-api-key') {
+        delete headers[name]
+      }
+    }
     headers['Authorization'] = `Bearer ${token}`
   }
 }

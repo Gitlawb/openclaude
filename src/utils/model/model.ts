@@ -48,6 +48,9 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
 
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
+  if (getAPIProvider() === 'firstParty' && !isFirstPartyAnthropicBaseUrl()) {
+    return process.env.ANTHROPIC_MODEL || getDefaultHaikuModel()
+  }
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
@@ -226,7 +229,7 @@ export function getDefaultOpusModel(): ModelName {
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
   // the next model launch. Keep 3P on Opus 4.7 until they roll out 4.8.
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     return getModelStrings().opus47
   }
   return getModelStrings().opus48
@@ -274,7 +277,7 @@ export function getDefaultSonnetModel(): ModelName {
     return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     return getModelStrings().sonnet45
   }
   return getModelStrings().sonnet46

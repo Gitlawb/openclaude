@@ -216,6 +216,7 @@ test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', a
 
   const {
     getMergedBetas,
+    getModelBetas,
     isAnthropicProvider,
     modelSupportsAutoMode,
     modelSupportsContextManagement,
@@ -226,6 +227,7 @@ test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', a
   } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(false)
   expect(getMergedBetas('tenant-model')).toEqual([])
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
   expect(modelSupportsISP('claude-sonnet-4-5')).toBe(true)
   expect(modelSupportsContextManagement('claude-sonnet-4-5')).toBe(true)
   expect(modelSupportsStructuredOutputs('claude-sonnet-4-5')).toBe(false)

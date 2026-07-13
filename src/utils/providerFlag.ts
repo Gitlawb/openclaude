@@ -346,7 +346,14 @@ export function applyProviderFlag(
       break
 
     case 'custom-anthropic':
-      delete process.env.ANTHROPIC_API_KEY
+      if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
+        }
+      }
+      if (process.env.ANTHROPIC_AUTH_TOKEN?.trim()) {
+        delete process.env.ANTHROPIC_API_KEY
+      }
       delete process.env.OPENAI_BASE_URL
       delete process.env.OPENAI_API_BASE
       delete process.env.OPENAI_MODEL

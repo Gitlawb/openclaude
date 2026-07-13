@@ -17,15 +17,16 @@ export function resetProToOpusDefault(): void {
   const apiProvider = getAPIProvider()
 
   // Pro users on firstParty get auto-migrated to Opus 4.5 default
-  if (
-    apiProvider !== 'firstParty' ||
-    !isFirstPartyAnthropicBaseUrl() ||
-    !isProSubscriber()
-  ) {
+  if (apiProvider !== 'firstParty' || !isProSubscriber()) {
     saveGlobalConfig(current => ({
       ...current,
       opusProMigrationComplete: true,
     }))
+    logEvent('tengu_reset_pro_to_opus_default', { skipped: true })
+    return
+  }
+
+  if (!isFirstPartyAnthropicBaseUrl()) {
     logEvent('tengu_reset_pro_to_opus_default', { skipped: true })
     return
   }

@@ -44,6 +44,7 @@ const ENV_KEYS = [
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
 ]
 
@@ -82,6 +83,9 @@ const RESET_KEYS = [
   'CLOUDFLARE_API_TOKEN',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
 ] as const
 
 beforeEach(() => {
@@ -146,6 +150,14 @@ describe('applyProviderFlag - anthropic', () => {
 })
 
 describe('applyProviderFlag - custom Anthropic-compatible', () => {
+  test('requires a custom endpoint instead of sending its credential to Anthropic', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toContain('ANTHROPIC_BASE_URL')
+  })
+
   test('keeps native Anthropic routing and applies --model', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
@@ -172,6 +184,16 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('proxy-token')
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
+  })
+
+  test('preserves native x-api-key credentials when no bearer token is configured', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+    process.env.ANTHROPIC_API_KEY = 'native-key'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('native-key')
   })
 })
 
