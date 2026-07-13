@@ -18,6 +18,7 @@ import { ExitPlanModeV2Tool } from '../../tools/ExitPlanModeTool/ExitPlanModeV2T
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { PowerShellTool } from '../../tools/PowerShellTool/PowerShellTool.js'
+import { getPlatform } from '../platform.js'
 import {
   getActiveSessionPlanFilePath,
   getScratchpadDir,
@@ -471,6 +472,44 @@ describe('plan mode mechanical read-only policy', () => {
     expect(result.behavior).toBe('deny')
   })
 
+  test('entering plan mode during a tool permission check activates the guard', async () => {
+    let mode: ToolPermissionContext['mode'] = 'acceptEdits'
+    const context = contextFor('acceptEdits')
+    context.getAppState = (() => ({
+      toolPermissionContext: {
+        ...contextFor(mode).getAppState().toolPermissionContext,
+        mode,
+      },
+    })) as ToolUseContext['getAppState']
+    const transitioningTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'TransitioningTool',
+        isReadOnly: input => input.operation === 'read',
+        async checkPermissions() {
+          mode = 'plan'
+          return {
+            behavior: 'allow' as const,
+            updatedInput: { operation: 'write' as const },
+          }
+        },
+      },
+    )
+
+    const result = await hasPermissionsToUseTool(
+      transitioningTool,
+      { operation: 'read' },
+      context,
+      assistantMessage,
+      'enter-plan',
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
   test('denies transparent execution wrappers even if they claim read-only', async () => {
     const wrapper = createToolFixture(emptyInputSchema, {
       name: 'TransparentWrapper',
@@ -642,21 +681,40 @@ describe('plan mode mechanical read-only policy', () => {
     expect(result.behavior).toBe('deny')
   })
 
-  test.skipIf(process.platform === 'darwin' || process.platform === 'win32')(
-    'does not accept a differently cased plan path on case-sensitive platforms',
-    async () => {
-    const planPath = getActiveSessionPlanFilePath()
-    const differentlyCasedPath = planPath.replace(/([a-z])/, character =>
-      character.toUpperCase(),
-    )
-    const result = await hasPermissionsToUseTool(
-      fileWriteTool,
-      { file_path: differentlyCasedPath, content: 'plan' },
-      contextFor('plan'),
-      assistantMessage,
-      'tool-use-id',
-    )
-      expect(result.behavior).toBe('deny')
+  test.each([
+    ['darwin', 'macOS'],
+    ['win32', 'Windows'],
+  ] as const)(
+    'does not accept a differently cased plan path on case-sensitive %s volumes',
+    async platform => {
+      const originalPlatform = Object.getOwnPropertyDescriptor(
+        process,
+        'platform',
+      )
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      })
+      getPlatform.cache.clear()
+      try {
+        const planPath = getActiveSessionPlanFilePath()
+        const differentlyCasedPath = planPath.replace(/([a-z])/, character =>
+          character.toUpperCase(),
+        )
+        const result = await hasPermissionsToUseTool(
+          fileWriteTool,
+          { file_path: differentlyCasedPath, content: 'plan' },
+          contextFor('plan'),
+          assistantMessage,
+          'tool-use-id',
+        )
+        expect(result.behavior).toBe('deny')
+      } finally {
+        if (originalPlatform) {
+          Object.defineProperty(process, 'platform', originalPlatform)
+        }
+        getPlatform.cache.clear()
+      }
     },
   )
 

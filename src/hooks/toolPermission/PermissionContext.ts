@@ -33,6 +33,7 @@ import {
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
 import {
   applyPermissionUpdate,
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
   supportsPersistence,
 } from '../../utils/permissions/PermissionUpdate.js'
@@ -255,6 +256,8 @@ function createPermissionContext(
       updatedInput?: Record<string, unknown>,
       permissionPromptStartTimeMs?: number,
     ): Promise<PermissionDecision | null> {
+      const enforcePlanMode =
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
       for await (const hookResult of executePermissionRequestHooks(
         tool.name,
         toolUseID,
@@ -270,7 +273,12 @@ function createPermissionContext(
             const finalInput = decision.updatedInput ?? updatedInput ?? input
             return await this.handleHookAllow(
               finalInput,
-              decision.updatedPermissions ?? [],
+              filterPermissionRequestHookUpdates(
+                decision.updatedPermissions ?? [],
+                enforcePlanMode ||
+                  toolUseContext.getAppState().toolPermissionContext.mode ===
+                    'plan',
+              ),
               permissionPromptStartTimeMs,
             )
           } else if (decision.behavior === 'deny') {

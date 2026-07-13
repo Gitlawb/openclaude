@@ -287,6 +287,87 @@ describe('resolveHookPermissionDecision', () => {
     })
   })
 
+  test('plan mode survives a permission hook mode change before rewritten input is checked', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'ConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    let mode: ToolPermissionContext['mode'] = 'plan'
+    const context = contextForPlan()
+    context.getAppState = (() => ({
+      toolPermissionContext: {
+        ...getEmptyToolPermissionContext(),
+        mode,
+        isBypassPermissionsModeAvailable: true,
+      },
+    })) as ToolUseContext['getAppState']
+    const canUseTool = vi.fn(async () => {
+      mode = 'fullAccess'
+      return {
+        behavior: 'allow' as const,
+        updatedInput: { operation: 'write' as const },
+      }
+    }) as unknown as CanUseToolFn
+
+    const result = await resolveHookPermissionDecision(
+      undefined,
+      conditionalTool,
+      { operation: 'read' },
+      context,
+      canUseTool,
+      assistantMessage,
+      'tool-use-id',
+    )
+
+    expect(result.decision).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('entering plan mode before rewritten input executes activates the guard', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'ConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    let mode: ToolPermissionContext['mode'] = 'acceptEdits'
+    const context = contextForPlan()
+    context.getAppState = (() => ({
+      toolPermissionContext: {
+        ...getEmptyToolPermissionContext(),
+        mode,
+      },
+    })) as ToolUseContext['getAppState']
+    const canUseTool = vi.fn(async () => {
+      mode = 'plan'
+      return {
+        behavior: 'allow' as const,
+        updatedInput: { operation: 'write' as const },
+      }
+    }) as unknown as CanUseToolFn
+
+    const result = await resolveHookPermissionDecision(
+      undefined,
+      conditionalTool,
+      { operation: 'read' },
+      context,
+      canUseTool,
+      assistantMessage,
+      'tool-use-id',
+    )
+
+    expect(result.decision).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
   test('plan mode rechecks input rewritten after a required canUseTool call', async () => {
     const conditionalTool = createToolFixture(
       z.object({ operation: z.enum(['read', 'write']) }),

@@ -51,6 +51,7 @@ import type {
 import {
   applyPermissionUpdate,
   applyPermissionUpdates,
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import type {
@@ -435,6 +436,14 @@ async function runPermissionRequestHooksForHeadlessAgent(
   permissionMode: string | undefined,
   suggestions: PermissionUpdate[] | undefined,
 ): Promise<PermissionDecision | null> {
+  const enforcePlanMode =
+    context.getAppState().toolPermissionContext.mode === 'plan'
+  const candidateRuleDecision = enforcePlanMode
+    ? await checkRuleBasedPermissions(tool, input, context)
+    : null
+  if (candidateRuleDecision?.behavior === 'deny') {
+    return candidateRuleDecision
+  }
   try {
     for await (const hookResult of executePermissionRequestHooks(
       tool.name,
@@ -451,18 +460,41 @@ async function runPermissionRequestHooksForHeadlessAgent(
       const decision = hookResult.permissionRequestResult
       if (decision.behavior === 'allow') {
         const finalInput = decision.updatedInput ?? input
+        const finalPlanMode =
+          enforcePlanMode ||
+          context.getAppState().toolPermissionContext.mode === 'plan'
+        const finalRuleDecision = finalPlanMode
+          ? await checkRuleBasedPermissions(tool, finalInput, context)
+          : null
+        if (finalRuleDecision?.behavior === 'deny') {
+          return finalRuleDecision
+        }
         const planModeDecision = await checkPlanModePermissions(
           tool,
           finalInput,
           context,
+          enforcePlanMode,
         )
         if (planModeDecision) {
           return planModeDecision
         }
+        if (
+          finalRuleDecision?.behavior === 'ask' &&
+          !samePermissionAskConstraint(
+            candidateRuleDecision,
+            finalRuleDecision,
+          )
+        ) {
+          return finalRuleDecision
+        }
         // Persist permission updates if provided
-        if (decision.updatedPermissions?.length) {
+        const permissionUpdates = filterPermissionRequestHookUpdates(
+          decision.updatedPermissions ?? [],
+          finalPlanMode,
+        )
+        if (permissionUpdates.length) {
           // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = decision.updatedPermissions
+          const updatedPermissions = permissionUpdates
           let updatedContext = context.getAppState().toolPermissionContext
           context.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(
@@ -475,7 +507,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
               toolPermissionContext: updatedContext,
             }
           })
-          persistPermissionUpdates(decision.updatedPermissions)
+          persistPermissionUpdates(permissionUpdates)
         }
         return {
           behavior: 'allow',
@@ -1207,6 +1239,34 @@ export async function checkRuleBasedPermissions(
   return null
 }
 
+export function samePermissionAskConstraint(
+  candidate: Awaited<ReturnType<typeof checkRuleBasedPermissions>>,
+  final: PermissionAskDecision,
+): boolean {
+  if (candidate?.behavior !== 'ask') {
+    return false
+  }
+
+  const candidateReason = candidate.decisionReason
+  const finalReason = final.decisionReason
+  if (candidateReason?.type === 'rule' && finalReason?.type === 'rule') {
+    return (
+      candidateReason.rule.source === finalReason.rule.source &&
+      candidateReason.rule.ruleBehavior === finalReason.rule.ruleBehavior &&
+      candidateReason.rule.ruleValue.toolName ===
+        finalReason.rule.ruleValue.toolName &&
+      candidateReason.rule.ruleValue.ruleContent ===
+        finalReason.rule.ruleValue.ruleContent
+    )
+  }
+
+  return (
+    candidateReason?.type === finalReason?.type &&
+    candidate.message === final.message &&
+    candidate.blockedPath === final.blockedPath
+  )
+}
+
 function planModeDenial(toolName: string): PermissionDenyDecision {
   return {
     behavior: 'deny',
@@ -1224,8 +1284,12 @@ export async function checkPlanModePermissions(
   tool: Tool,
   input: { [key: string]: unknown },
   context: ToolUseContext,
+  planModeWasActive = false,
 ): Promise<PermissionDenyDecision | null> {
-  if (context.getAppState().toolPermissionContext.mode !== 'plan') {
+  if (
+    !planModeWasActive &&
+    context.getAppState().toolPermissionContext.mode !== 'plan'
+  ) {
     return null
   }
 
@@ -1329,6 +1393,7 @@ async function hasPermissionsToUseToolInner(
   }
 
   let appState = context.getAppState()
+  const enforcePlanMode = appState.toolPermissionContext.mode === 'plan'
   let isFullAccessMode = appState.toolPermissionContext.mode === 'fullAccess'
 
   // 1. Check if the tool is denied
@@ -1402,6 +1467,7 @@ async function hasPermissionsToUseToolInner(
     tool,
     permissionInput,
     context,
+    enforcePlanMode,
   )
   if (planModeDecision) {
     return planModeDecision

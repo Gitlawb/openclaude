@@ -492,11 +492,6 @@ function pathsEqualForPermission(a: string, b: string): boolean {
 function pathsEqualForActivePlan(a: string, b: string): boolean {
   const normalizedA = normalize(a)
   const normalizedB = normalize(b)
-  const platform = getPlatform()
-  if (platform === 'windows' || platform === 'macos') {
-    return normalizeCaseForComparison(normalizedA) ===
-      normalizeCaseForComparison(normalizedB)
-  }
   return normalizedA === normalizedB
 }
 
