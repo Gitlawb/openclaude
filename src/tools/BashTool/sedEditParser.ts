@@ -35,7 +35,10 @@ function convertBrePatternToJs(pattern: string): string {
       }
       if (next === '\\') {
         result += '\\\\'
-      } else if ('+?|()'.includes(next)) {
+      } else if ('+?|(){}'.includes(next)) {
+        // BRE metacharacters that are special only when escaped: unescape them
+        // for JS. Braces belong here too — in BRE `\{n,m\}` is the interval
+        // quantifier and a bare `{` is literal, the reverse of JS.
         result += next
       } else {
         result += `\\${next}`
@@ -44,7 +47,7 @@ function convertBrePatternToJs(pattern: string): string {
       continue
     }
 
-    if ('+?|()'.includes(char)) {
+    if ('+?|(){}'.includes(char)) {
       result += `\\${char}`
       continue
     }
