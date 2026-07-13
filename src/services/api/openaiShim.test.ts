@@ -4111,6 +4111,37 @@ test('OPENAI_API_KEYS rotates to the next key on rate-limit failure', async () =
   expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
 })
 
+test('OPENAI_API_KEYS does not reuse a cooled-down key after every key is rate-limited', async () => {
+  const authorizations: Array<string | null> = []
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toThrow()
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+})
+
 test('comma-separated OPENAI_API_KEY rotates to the next key on rate-limit failure', async () => {
   const authorizations: Array<string | null> = []
 

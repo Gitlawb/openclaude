@@ -4591,9 +4591,9 @@ class OpenAIShimMessages {
 
     const maxSelfHealAttempts = isLocal
       ? localRetryBaseUrls.length + 1
-      : 1
+      : 0
     const credentialPoolAttempts = credentialPool?.size ?? 1
-    const maxAttempts =
+    let maxAttempts =
       Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
       maxSelfHealAttempts
 
@@ -4955,10 +4955,13 @@ class OpenAIShimMessages {
       if (
         !didRetryWithoutToolStream &&
         failure.category === 'tool_stream_unsupported' &&
-        body.tool_stream === true &&
-        attempt < maxAttempts - 1
+        body.tool_stream === true
       ) {
         didRetryWithoutToolStream = true
+        // Reserve one additional request only after this specific recovery is
+        // needed. Increasing the shared initial budget changes unrelated
+        // GitHub and credential-pool retry behavior.
+        maxAttempts += 1
         delete body.tool_stream
         refreshSerializedBody()
 
