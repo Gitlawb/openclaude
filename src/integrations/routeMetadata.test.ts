@@ -173,6 +173,14 @@ test('custom Anthropic credentials stay native and resolve to their proxy route'
       MINIMAX_API_KEY: 'ambient-minimax-key',
     }),
   ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://api.minimax.io/anthropic',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('custom-anthropic')
 })
 
 test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {

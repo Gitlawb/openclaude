@@ -7,6 +7,7 @@ import {
 } from '../../utils/auth.js'
 import { getAuthHeaders } from '../../utils/http.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
+import { isFirstPartyAnthropicProvider } from '../../utils/model/providers.js'
 import { isOAuthTokenExpired } from '../oauth/client.js'
 
 export type RateLimit = {
@@ -31,6 +32,9 @@ export type Utilization = {
 }
 
 export async function fetchUtilization(): Promise<Utilization | null> {
+  if (!isFirstPartyAnthropicProvider()) {
+    return {}
+  }
   if (!isClaudeAISubscriber() || !hasProfileScope()) {
     return {}
   }

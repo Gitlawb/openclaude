@@ -16,6 +16,7 @@ import '../integrations/index.js'
 import {
   ensureIntegrationsLoaded,
   getAnthropicProxy,
+  getAllAnthropicProxies,
   getAllGateways,
   getAllVendors,
   getGateway,
@@ -25,6 +26,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -54,6 +56,7 @@ function buildValidProviders(): string[] {
     ...PRESET_VENDOR_MAP.map(mapping => mapping.preset),
     ...getAllVendors().map(vendor => vendor.id),
     ...getAllGateways().map(gateway => gateway.id),
+    ...getAllAnthropicProxies().map(proxy => proxy.id),
   ])
 
   const preferred = PREFERRED_PROVIDER_ORDER.filter(provider =>
@@ -342,7 +345,19 @@ export function applyProviderFlag(
 
   switch (provider) {
     case 'anthropic':
-      // Default — no env vars needed
+      // Default — clear any custom native proxy contract so this explicit
+      // provider flag cannot keep routing requests to a prior endpoint.
+      // Preserve a first-party API key: it is the normal credential for this
+      // provider and may have been supplied directly through the environment.
+      const hadCustomAnthropicEndpoint =
+        !isFirstPartyAnthropicBaseUrlForEnv(process.env)
+      delete process.env.ANTHROPIC_BASE_URL
+      delete process.env.ANTHROPIC_MODEL
+      if (hadCustomAnthropicEndpoint) {
+        delete process.env.ANTHROPIC_API_KEY
+      }
+      delete process.env.ANTHROPIC_AUTH_TOKEN
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
 
     case 'custom-anthropic':

@@ -368,6 +368,12 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  // Custom Anthropic-compatible endpoints intentionally retain the legacy
+  // firstParty provider category, so prefer their explicitly configured model
+  // before the subscription and PAYG defaults below.
+  if (getAPIProvider() === 'firstParty' && !isFirstPartyAnthropicBaseUrl()) {
+    return process.env.ANTHROPIC_MODEL || getDefaultSonnetModel()
+  }
   // GitHub Copilot provider: check settings.model first, then env, then default
   if (getAPIProvider() === 'github') {
     const settings = getSettings_DEPRECATED() || {}

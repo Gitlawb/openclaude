@@ -5,6 +5,7 @@ import {
   resolveActiveRouteIdFromEnv,
 } from '../../integrations/routeMetadata.js'
 import { isEnvTruthy } from '../envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../anthropicBaseUrl.js'
 
 // Legacy provider categories that older model/status/runtime callers still
 // consume. Descriptor route ids are the newer source of truth, but we keep
@@ -82,6 +83,10 @@ export function getAPIProvider(): LegacyAPIProvider {
 }
 
 export function usesAnthropicAccountFlow(): boolean {
+  return isFirstPartyAnthropicProvider()
+}
+
+export function isFirstPartyAnthropicProvider(): boolean {
   return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
 }
 
@@ -119,18 +124,5 @@ export function getAPIProviderForStatsig(): AnalyticsMetadata_I_VERIFIED_THIS_IS
  * (or api-staging.anthropic.com for ant users).
  */
 export function isFirstPartyAnthropicBaseUrl(): boolean {
-  const baseUrl = process.env.ANTHROPIC_BASE_URL
-  if (!baseUrl) {
-    return true
-  }
-  try {
-    const url = new URL(baseUrl)
-    const allowedHosts = ['api.anthropic.com']
-    if (process.env.USER_TYPE === 'ant') {
-      allowedHosts.push('api-staging.anthropic.com')
-    }
-    return url.protocol === 'https:' && allowedHosts.includes(url.host)
-  } catch {
-    return false
-  }
+  return isFirstPartyAnthropicBaseUrlForEnv(process.env)
 }

@@ -145,7 +145,8 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
+  const is3P =
+    getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()
 
   if (process.env.USER_TYPE === 'ant') {
     const currentModel = renderDefaultModelSetting(
@@ -590,7 +591,12 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
             description: 'Custom Anthropic-compatible endpoint',
           }]
         : []
-    return [...profileModelOptions, ...directEnvOption, ...inactiveProfileOptions]
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...profileModelOptions,
+      ...directEnvOption,
+      ...inactiveProfileOptions,
+    ]
   }
 
   if (process.env.USER_TYPE === 'ant') {

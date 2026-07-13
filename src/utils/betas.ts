@@ -245,6 +245,16 @@ export function shouldUseGlobalCacheScope(): boolean {
   )
 }
 
+function getBetaCacheKey(model: string): string {
+  return [
+    model.toLowerCase(),
+    getAPIProvider(),
+    process.env.ANTHROPIC_BASE_URL ?? '',
+    process.env.USER_TYPE ?? '',
+    process.env.CLAUDE_CODE_USE_GITHUB ?? '',
+  ].join('\0')
+}
+
 export const getAllModelBetas = memoize((model: string): string[] => {
   const betaHeaders: string[] = []
   const isHaiku = getCanonicalName(model).includes('haiku')
@@ -380,7 +390,7 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     )
   }
   return betaHeaders
-})
+}, getBetaCacheKey)
 
 export const getModelBetas = memoize((model: string): string[] => {
   if (!isAnthropicProvider() && !isGithubNativeAnthropicMode(model)) {
@@ -391,13 +401,14 @@ export const getModelBetas = memoize((model: string): string[] => {
     return modelBetas.filter(b => !BEDROCK_EXTRA_PARAMS_HEADERS.has(b))
   }
   return modelBetas
-})
+}, getBetaCacheKey)
 
 export const getBedrockExtraBodyParamsBetas = memoize(
   (model: string): string[] => {
     const modelBetas = getAllModelBetas(model)
     return modelBetas.filter(b => BEDROCK_EXTRA_PARAMS_HEADERS.has(b))
   },
+  getBetaCacheKey,
 )
 
 /**

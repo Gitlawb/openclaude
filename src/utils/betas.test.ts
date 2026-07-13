@@ -236,6 +236,17 @@ test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', a
   expect(shouldUseGlobalCacheScope()).toBe(false)
 })
 
+test('switching from first-party Anthropic to a custom proxy does not retain beta headers', async () => {
+  const { getModelBetas } = await importFreshBetas()
+  expect(getModelBetas('claude-sonnet-4-6')).not.toEqual([])
+
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
+})
+
 test('first-party Anthropic retains the beta gates excluded for custom proxies', async () => {
   const {
     shouldIncludeFirstPartyOnlyBetas,

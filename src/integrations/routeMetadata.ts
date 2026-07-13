@@ -16,6 +16,7 @@ import {
 } from './index.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 
 export type RouteDescriptor = GatewayDescriptor | VendorDescriptor | import('./descriptors.js').AnthropicProxyDescriptor
 
@@ -90,24 +91,6 @@ function normalizeHost(
     return new URL(baseUrl).hostname.toLowerCase()
   } catch {
     return null
-  }
-}
-
-function isFirstPartyAnthropicBaseUrl(
-  processEnv: NodeJS.ProcessEnv,
-): boolean {
-  const baseUrl = processEnv.ANTHROPIC_BASE_URL
-  if (!baseUrl) return true
-
-  try {
-    const allowedHosts = ['api.anthropic.com']
-    if (processEnv.USER_TYPE === 'ant') {
-      allowedHosts.push('api-staging.anthropic.com')
-    }
-    const url = new URL(baseUrl)
-    return url.protocol === 'https:' && allowedHosts.includes(url.host)
-  } catch {
-    return false
   }
 }
 
@@ -1015,8 +998,9 @@ export function resolveActiveRouteIdFromEnv(
     return 'vertex'
   }
 
-  // A custom Anthropic endpoint is explicitly the proxy contract; resolve it
-  // before heuristic env-only vendor detection can reinterpret its host.
+  // A Bearer token explicitly selects the custom Anthropic proxy contract,
+  // even if the host also belongs to a known OpenAI-compatible route. Keep
+  // native x-api-key configurations on those known routes for compatibility.
   const knownAnthropicRoute = resolveRouteIdFromBaseUrl(
     processEnv.ANTHROPIC_BASE_URL,
   )
@@ -1026,8 +1010,10 @@ export function resolveActiveRouteIdFromEnv(
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
     (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
       hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY)) &&
-    !isFirstPartyAnthropicBaseUrl(processEnv) &&
-    !knownAnthropicRoute
+    !isFirstPartyAnthropicBaseUrlForEnv(processEnv) &&
+    (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+      knownAnthropicRoute === 'custom-anthropic' ||
+      !knownAnthropicRoute)
   ) {
     return 'custom-anthropic'
   }

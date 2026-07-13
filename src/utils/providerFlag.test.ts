@@ -46,6 +46,7 @@ const ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_CUSTOM_HEADERS',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -69,6 +70,10 @@ const RESET_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -86,6 +91,7 @@ const RESET_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_CUSTOM_HEADERS',
 ] as const
 
 beforeEach(() => {
@@ -147,6 +153,32 @@ describe('applyProviderFlag - anthropic', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
   })
+
+  test('clears a previously selected custom Anthropic endpoint', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+    process.env.ANTHROPIC_MODEL = 'proxy-model'
+    process.env.ANTHROPIC_API_KEY = 'proxy-api-key'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-tenant: example'
+
+    const result = applyProviderFlag('anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('preserves a first-party Anthropic API key', () => {
+    process.env.ANTHROPIC_API_KEY = 'first-party-key'
+
+    const result = applyProviderFlag('anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('first-party-key')
+  })
 })
 
 describe('applyProviderFlag - custom Anthropic-compatible', () => {
@@ -207,6 +239,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('venice')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
+    expect(VALID_PROVIDERS).toContain('custom-anthropic')
   })
 })
 

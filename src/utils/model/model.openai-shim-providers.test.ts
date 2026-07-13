@@ -36,6 +36,7 @@ async function importFreshModelModule() {
       if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
       return 'firstParty'
     },
+    isFirstPartyAnthropicBaseUrl: () => !process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
     isModelAllowed: () => true,
@@ -67,6 +68,7 @@ const SAVED_ENV = {
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -383,6 +385,14 @@ test('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', async () => {
 
   const { getDefaultHaikuModel } = await importFreshModelModule()
   expect(getDefaultHaikuModel()).toBe('MiniMax-M2.5-highspeed')
+})
+
+test('getDefaultMainLoopModelSetting keeps the configured custom Anthropic model', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('tenant-model')
 })
 
 test('default helpers do not leak claude-* names to shim providers', async () => {

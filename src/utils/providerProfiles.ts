@@ -405,6 +405,16 @@ function applySupportedProfileCustomHeaders(
   return customHeaders ? { ...env, ANTHROPIC_CUSTOM_HEADERS: customHeaders } : env
 }
 
+function buildAnthropicCredentialEnv(
+  provider: ProviderProfile['provider'],
+  apiKey: string | undefined,
+): ProfileEnv {
+  if (!apiKey) return {}
+  return provider === 'custom-anthropic'
+    ? { ANTHROPIC_AUTH_TOKEN: apiKey }
+    : { ANTHROPIC_API_KEY: apiKey }
+}
+
 function getModelCacheByProfile(
   profileId: string,
   config = getGlobalConfig(),
@@ -854,11 +864,7 @@ export function applyProviderProfileToProcessEnv(
       profileEnv = {
         ANTHROPIC_BASE_URL: profile.baseUrl,
         ANTHROPIC_MODEL: primaryModel,
-        ...(profile.apiKey
-          ? profile.provider === 'custom-anthropic'
-            ? { ANTHROPIC_AUTH_TOKEN: profile.apiKey }
-            : { ANTHROPIC_API_KEY: profile.apiKey }
-          : {}),
+        ...buildAnthropicCredentialEnv(profile.provider, profile.apiKey),
       }
     }
   } else if (compatibilityMode === 'mistral') {
@@ -1418,11 +1424,10 @@ function buildStartupProfileFromActiveProfile(
         env: applySupportedProfileCustomHeaders(activeProfile, {
           ANTHROPIC_BASE_URL: activeProfile.baseUrl,
           ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
-          ...(activeProfile.apiKey
-            ? activeProfile.provider === 'custom-anthropic'
-              ? { ANTHROPIC_AUTH_TOKEN: activeProfile.apiKey }
-              : { ANTHROPIC_API_KEY: activeProfile.apiKey }
-            : {}),
+          ...buildAnthropicCredentialEnv(
+            activeProfile.provider,
+            activeProfile.apiKey,
+          ),
         }),
       }
     case 'gemini': {
