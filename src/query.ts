@@ -1201,6 +1201,7 @@ async function* queryLoop(
           activeMessageLimit,
         ) &&
         (isAutoCompactEnabled() ||
+          hasExplicitMessageCountThreshold ||
           isAboveMaxActiveMessagesLimit(
             messagesForQuery.length,
             getMaxActiveMessagesHardCap(),
