@@ -491,6 +491,13 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
       baseUrl: 'https://api.fireworks.ai/inference/v1',
     },
   ] as const
+  const customLocalLikeBaseUrls: Array<[string]> = [
+    ['https://proxy.example.com:11434/v1'],
+    ['https://proxy.example.com:1234/v1'],
+    ['https://myollama.example.com/v1'],
+    ['https://lmstudio.example.com/v1'],
+    ['https://example.com/lm-studio/v1'],
+  ]
 
   for (const { provider, baseUrl } of providers) {
     test(`${provider} replaces a stale known provider base URL`, () => {
@@ -511,24 +518,17 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
       expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
     })
 
-    test(`${provider} preserves custom URLs that resemble local providers`, () => {
-      const customBaseUrls = [
-        'https://proxy.example.com:11434/v1',
-        'https://proxy.example.com:1234/v1',
-        'https://myollama.example.com/v1',
-        'https://lmstudio.example.com/v1',
-        'https://example.com/lm-studio/v1',
-      ]
-
-      for (const customBaseUrl of customBaseUrls) {
+    test.each(customLocalLikeBaseUrls)(
+      `${provider} preserves custom local-like URL %s`,
+      customBaseUrl => {
         process.env.OPENAI_BASE_URL = customBaseUrl
 
         const result = applyProviderFlag(provider, [])
 
         expect(result.error).toBeUndefined()
         expect(process.env.OPENAI_BASE_URL).toBe(customBaseUrl)
-      }
-    })
+      },
+    )
 
     test(`${provider} preserves a custom OPENAI_API_BASE alias`, () => {
       process.env.OPENAI_API_BASE =
