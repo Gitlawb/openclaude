@@ -415,6 +415,50 @@ function shouldUseGithubResponsesApi(model: string): boolean {
   return true
 }
 
+// GPT-5.4/5.5/5.6 (incl. sol/terra/luna suffixes) reject function tools +
+// reasoning_effort on /v1/chat/completions and must use /v1/responses. An
+// agent CLI always sends tools, so plain OpenAI/Azure users can't otherwise
+// reach these models. Matches gpt-5.4..gpt-5.9; bare gpt-5, gpt-5-mini,
+// gpt-4.x, o-series, and claude-* stay on chat/completions.
+export function modelRequiresResponsesApi(model: string): boolean {
+  const normalized = model.trim().toLowerCase().split('?', 1)[0] ?? ''
+  return /^gpt-5\.[4-9]/.test(normalized)
+}
+
+// The responses auto-route only fires for the OpenAI first-party surface
+// (api.openai.com / the default base) and Azure OpenAI hosts, where
+// /v1/responses is known to exist. Arbitrary OpenAI-compatible gateways
+// (OpenRouter-style proxies) often lack it, so those keep chat/completions
+// unless the user opts in via OPENAI_API_FORMAT / apiFormat.
+function isDefaultOrDirectOpenAIBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl || baseUrl === DEFAULT_OPENAI_BASE_URL) return true
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === 'api.openai.com'
+  } catch {
+    return false
+  }
+}
+
+function isAzureOpenAIResponsesHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return (
+      hostname.endsWith('.azure.com') &&
+      (hostname.includes('openai') ||
+        hostname.includes('cognitiveservices') ||
+        hostname.includes('services.ai') ||
+        hostname.includes('inference.ml'))
+    )
+  } catch {
+    return false
+  }
+}
+
+function baseUrlSupportsResponsesAutoRoute(baseUrl: string | undefined): boolean {
+  return isDefaultOrDirectOpenAIBaseUrl(baseUrl) || isAzureOpenAIResponsesHost(baseUrl)
+}
+
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
   try {
@@ -967,11 +1011,24 @@ export function resolveProviderRequest(options?: {
     isGithubMode
       ? undefined
       : parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.requiredApiFormat)
+  // Precedence: explicit env/profile apiFormat (incl. chat_completions, the
+  // escape hatch) > catalog requiredApiFormat > this model+base predicate >
+  // shim default. The predicate fires only when nothing above resolved it, so
+  // an explicit format always wins over it.
+  const autoResponsesApiFormat =
+    !isGithubMode &&
+    explicitApiFormat === undefined &&
+    requiredApiFormat === undefined &&
+    modelRequiresResponsesApi(resolvedModel) &&
+    baseUrlSupportsResponsesAutoRoute(finalBaseUrl)
+      ? ('responses' as const)
+      : undefined
   const requestedApiFormat =
     requiredApiFormat &&
     (explicitApiFormat === undefined || explicitApiFormat === 'chat_completions')
       ? requiredApiFormat
       : explicitApiFormat ??
+        autoResponsesApiFormat ??
         parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.defaultApiFormat)
   const supportsRequestedApiFormat =
     (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||

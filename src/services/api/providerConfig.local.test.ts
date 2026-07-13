@@ -5,6 +5,7 @@ import {
   getAdditionalModelOptionsCacheScope,
   getLocalProviderRetryBaseUrls,
   isLocalProviderUrl,
+  modelRequiresResponsesApi,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
@@ -366,4 +367,87 @@ test('disables local toolless retry for non-Ollama local endpoints', () => {
       hasTools: true,
     }),
   ).toBe(false)
+})
+
+test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (incl. suffixes) only', () => {
+  for (const model of [
+    'gpt-5.4',
+    'gpt-5.5',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'GPT-5.6-SOL',
+  ]) {
+    expect(modelRequiresResponsesApi(model)).toBe(true)
+  }
+  for (const model of [
+    'gpt-4.1',
+    'gpt-5',
+    'gpt-5-mini',
+    'o3',
+    'claude-opus-4-8',
+  ]) {
+    expect(modelRequiresResponsesApi(model)).toBe(false)
+  }
+})
+
+test('auto-routes gpt-5.6 to responses on the default OpenAI base', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    resolvedModel: 'gpt-5.6-sol',
+    baseUrl: 'https://api.openai.com/v1',
+  })
+})
+
+test('explicit chat_completions overrides the gpt-5.6 responses auto-route', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    resolvedModel: 'gpt-5.6-sol',
+  })
+})
+
+test('leaves gpt-4-class models on chat completions for the OpenAI base', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    resolvedModel: 'gpt-4o',
+  })
+})
+
+test('does not auto-route gpt-5.6 on an arbitrary non-OpenAI gateway base', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    baseUrl: 'https://gateway.example/v1',
+  })
+})
+
+test('auto-routes gpt-5.6 to responses on an Azure OpenAI v1 base', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-terra'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    resolvedModel: 'gpt-5.6-terra',
+  })
 })

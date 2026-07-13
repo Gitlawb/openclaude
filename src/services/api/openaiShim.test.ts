@@ -683,6 +683,264 @@ test('nests reasoning effort for OpenAI-compatible responses endpoint', async ()
   expect(capturedBody).not.toHaveProperty('reasoning_summary')
 })
 
+test('auto-routes gpt-5.6 to /responses on api.openai.com with tools and nested reasoning', async () => {
+  // No OPENAI_API_FORMAT set: the model+base predicate must pick responses.
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-sol',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ reasoningEffort: 'high' }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [
+      {
+        name: 'get_weather',
+        description: 'Get the weather',
+        input_schema: {
+          type: 'object',
+          properties: { location: { type: 'string' } },
+          required: ['location'],
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.openai.com/v1/responses')
+  expect(Array.isArray(capturedBody?.tools)).toBe(true)
+  expect((capturedBody?.tools as unknown[]).length).toBe(1)
+  expect(JSON.stringify(capturedBody?.tools)).toContain('get_weather')
+  expect(capturedBody?.reasoning).toEqual({ effort: 'high', summary: 'auto' })
+  expect(capturedBody).not.toHaveProperty('reasoning_effort')
+})
+
+test('gpt-5.6 honors explicit OPENAI_API_FORMAT=chat_completions as an escape hatch', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5.6-sol',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.openai.com/v1/chat/completions')
+})
+
+test('auto-route leaves non gpt-5.4+ models on chat/completions', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.openai.com/v1/chat/completions')
+})
+
+test('auto-route does NOT fire for arbitrary non-OpenAI gateway bases', async () => {
+  process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5.6-sol',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://gateway.example/v1/chat/completions')
+})
+
+test('auto-routed responses on legacy Azure base uses the deployment path + api-version', async () => {
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-terra',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-terra',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://myres.openai.azure.com/openai/deployments/gpt-5.6-terra/responses?api-version=2024-12-01-preview',
+  )
+})
+
+test('auto-routed responses on the Azure v1 base appends /responses without rewriting the path', async () => {
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-luna',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-luna',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
+})
+
+test('auto-routed responses on an Azure base already containing /deployments/ keeps the path and adds api-version', async () => {
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/deployments/my-gpt56'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-sol',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://myres.openai.azure.com/openai/deployments/my-gpt56/responses?api-version=2024-12-01-preview',
+  )
+})
+
 test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
   process.env.OPENAI_API_FORMAT = 'responses_compat'
   let capturedUrl = ''
@@ -9340,6 +9598,9 @@ test('strips Anthropic attribution header block from responses-API instructions 
 test('emits reasoning_effort on chat_completions when reasoningEffort is passed', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_API_KEY = 'test-key'
+  // gpt-5.4 now auto-routes to /responses on api.openai.com; opt back into
+  // chat_completions to exercise its top-level reasoning_effort serialization.
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
 
   let requestBody: Record<string, unknown> | undefined
 
@@ -9414,6 +9675,9 @@ test('omits reasoning_effort on chat_completions when no override and model has 
 test('emits reasoning_effort from codex alias default when no override is passed', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_API_KEY = 'test-key'
+  // gpt-5.4 now auto-routes to /responses on api.openai.com; opt back into
+  // chat_completions to exercise its top-level reasoning_effort serialization.
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
 
   let requestBody: Record<string, unknown> | undefined
 
