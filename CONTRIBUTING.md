@@ -56,6 +56,7 @@ Before opening a PR:
 
 Every PR needs a reason. Your PR description must include:
 
+- confirmation that you reviewed both this `CONTRIBUTING.md` file and [`AGENTS.md`](AGENTS.md)
 - what changed and why
 - the user or developer impact
 - the exact checks you ran
