@@ -149,6 +149,7 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
   test('keeps native Anthropic routing and applies --model', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+    process.env.ANTHROPIC_API_KEY = 'stale-anthropic-key'
     process.env.OPENAI_BASE_URL = 'https://stale.example/v1'
     process.env.OPENAI_API_BASE = 'https://stale.example/v1'
     process.env.OPENAI_API_FORMAT = 'responses'
@@ -169,6 +170,7 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://proxy.example/v1')
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('proxy-token')
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 })

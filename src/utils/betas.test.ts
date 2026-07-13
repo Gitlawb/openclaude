@@ -234,6 +234,15 @@ test('custom Anthropic proxy endpoints do not receive Anthropic beta headers', a
   expect(shouldUseGlobalCacheScope()).toBe(false)
 })
 
+test('first-party Anthropic retains the beta gates excluded for custom proxies', async () => {
+  const {
+    shouldIncludeFirstPartyOnlyBetas,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
+  expect(shouldIncludeFirstPartyOnlyBetas()).toBe(true)
+  expect(shouldUseGlobalCacheScope()).toBe(true)
+})
+
 test('isAnthropicProvider is true for bedrock', async () => {
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   const { isAnthropicProvider } = await importFreshBetas()
