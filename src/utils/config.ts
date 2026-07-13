@@ -204,7 +204,7 @@ export function normalizeMaxMessagesCompactionThreshold(
     value as MaxMessagesCompactionThreshold,
   )
     ? (value as MaxMessagesCompactionThreshold)
-    : 'off'
+    : '200'
 }
 
 export type OutputStyle = string
@@ -681,7 +681,7 @@ export type GlobalConfig = {
   logoColor?: string
 
   // Message-count-based compaction threshold. Set via /config.
-  // 'off' = disabled (default). Otherwise, one of '100', '200', '500', '1000'.
+  // 'off' = disabled. Otherwise, one of '100', '200', '500', '1000'.
   // When enabled, triggers forced compaction if the message count exceeds the
   // chosen threshold, regardless of token usage.
   maxMessagesCompactionThreshold?: MaxMessagesCompactionThreshold
@@ -741,8 +741,9 @@ function createDefaultGlobalConfig(): GlobalConfig {
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
     // Omitted by default so callers can distinguish "unset" from an explicit
-    // persisted "off"; normalizeMaxMessagesCompactionThreshold keeps the
-    // effective default disabled.
+    // persisted "off"; normalizeMaxMessagesCompactionThreshold resolves an
+    // unset value to the effective default of '200' (message-count compaction
+    // enabled at 200 messages) to bound per-turn latency growth (issue #1949).
   }
   return config
 }

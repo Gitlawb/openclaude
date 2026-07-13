@@ -74,6 +74,7 @@ import {
   startRelevantMemoryPrefetch,
 } from './utils/attachments.js'
 import {
+  getMaxActiveMessagesHardCap,
   isAboveMaxActiveMessagesLimit,
   resolveMaxActiveMessagesLimit,
 } from './utils/maxActiveMessages.js'
@@ -813,18 +814,31 @@ async function* queryLoop(
     // compaction and forcing would deadlock via recursive autocompaction.
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
+    // An unset UI setting keeps the legacy environment override. Without that
+    // override, enforce the new effective 200-message default.
+    const maxMessagesLimitSetting =
+      configuredMaxMessagesCompactionThreshold === undefined &&
+      process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES !== undefined
+        ? undefined
+        : maxMessagesCompactionThreshold
+    const hasExplicitMessageCountThreshold =
+      configuredMaxMessagesCompactionThreshold !== undefined &&
+      configuredMaxMessagesCompactionThreshold !== 'off'
     const activeMessageLimit = canForceCompact
       ? resolveMaxActiveMessagesLimit(
-          maxMessagesCompactionThreshold,
+          maxMessagesLimitSetting,
           process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
         )
       : 0
     if (canForceCompact) {
       if (
-        isAboveMaxActiveMessagesLimit(
-          messagesForQuery.length,
-          activeMessageLimit,
-        )
+        isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit) &&
+        (isAutoCompactEnabled() ||
+          hasExplicitMessageCountThreshold ||
+          isAboveMaxActiveMessagesLimit(
+            messagesForQuery.length,
+            getMaxActiveMessagesHardCap(),
+          ))
       ) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
@@ -1181,14 +1195,22 @@ async function* queryLoop(
         tokenUsage,
         model,
       )
+      const isAboveActiveMessageSafetyLimit =
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          activeMessageLimit,
+        ) &&
+        (isAutoCompactEnabled() ||
+          hasExplicitMessageCountThreshold ||
+          isAboveMaxActiveMessagesLimit(
+            messagesForQuery.length,
+            getMaxActiveMessagesHardCap(),
+          ))
       const isAboveBreakerThreshold =
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
           tokenUsage >= getAutoCompactThreshold(model)) ||
-        isAboveMaxActiveMessagesLimit(
-          messagesForQuery.length,
-          activeMessageLimit,
-        )
+        isAboveActiveMessageSafetyLimit
       if (isAboveBreakerThreshold) {
         const nowMs = Date.now()
         const retryDelayMs =
@@ -1211,7 +1233,16 @@ async function* queryLoop(
     }
 
     if (
-      isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit)
+      isAboveMaxActiveMessagesLimit(
+        messagesForQuery.length,
+        activeMessageLimit,
+      ) &&
+      (isAutoCompactEnabled() ||
+        hasExplicitMessageCountThreshold ||
+        isAboveMaxActiveMessagesLimit(
+          messagesForQuery.length,
+          getMaxActiveMessagesHardCap(),
+        ))
     ) {
       yield createAssistantAPIErrorMessage({
         content:

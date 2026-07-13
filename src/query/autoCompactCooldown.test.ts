@@ -368,6 +368,41 @@ test('default active-message hard cap forces compaction', async () => {
   expect(seenTracking[0]?.forceReason).toBe('message-count')
 })
 
+test('unset message threshold forces compaction at the 200-message default', async () => {
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(201))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
+test('disabled auto-compact leaves the default message threshold inactive', async () => {
+  process.env.DISABLE_AUTO_COMPACT = '1'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(201))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBeUndefined()
+})
+
+test('disabled auto-compact preserves an explicit message threshold', async () => {
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: '100',
+  }))
+  process.env.DISABLE_AUTO_COMPACT = '1'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(101))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+})
+
 test('long-session smoke keeps repeated over-cap turns bounded before provider calls', async () => {
   const seenProviderMessageCounts: number[] = []
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
@@ -440,6 +475,13 @@ test('invalid active-message hard cap override keeps default safety cap', async 
 })
 
 test('explicit zero active-message hard cap override disables safety cap', async () => {
+  // Isolate the hard-cap override: with the 200-message-count default active,
+  // a 1001-message history would otherwise force message-count compaction, so
+  // disable message-count compaction explicitly to test only the hard cap.
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: 'off',
+  }))
   process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
 
   const { terminal, callModel, seenTracking } =
