@@ -605,10 +605,18 @@ export function verifyBackgroundSessionProcessIdentity(
   if (liveness !== 'alive') return result(liveness)
 
   const readCommand = options?.getProcessCommand ?? getProcessCommand
-  const command = readCommand(session.pid)
+  let command: string | null
+  try {
+    command = readCommand(session.pid)
+  } catch {
+    const latestLiveness = getLiveness()
+    return result(
+      latestLiveness === 'alive' ? 'unreadable' : latestLiveness,
+    )
+  }
   const latestLiveness = getLiveness()
   if (latestLiveness !== 'alive') return result(latestLiveness)
-  if (command == null) {
+  if (command == null || command.trim() === '') {
     return result('unreadable')
   }
   return result(
@@ -623,7 +631,11 @@ export function getBackgroundSessionProcessLiveness(
   options?: BackgroundSessionProcessIdentityOptions,
 ): BackgroundSessionProcessLiveness {
   if (options?.isProcessAlive) {
-    return options.isProcessAlive(pid) ? 'alive' : 'not-running'
+    try {
+      return options.isProcessAlive(pid) ? 'alive' : 'not-running'
+    } catch {
+      return 'unreadable'
+    }
   }
   if (pid <= 1) return 'not-running'
 

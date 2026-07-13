@@ -1014,4 +1014,33 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
 
     expect(result.state).toBe('unreadable')
   })
+
+  it('maps throwing injected liveness and command probes to unreadable', () => {
+    const livenessError = verifyBackgroundSessionProcessIdentity(session, {
+      isProcessAlive: () => {
+        throw new Error('private liveness details')
+      },
+      getProcessCommand: () => 'not read',
+    })
+    const commandError = verifyBackgroundSessionProcessIdentity(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => {
+        throw new Error('private command details')
+      },
+    })
+
+    expect(livenessError.state).toBe('unreadable')
+    expect(commandError.state).toBe('unreadable')
+  })
+
+  it('treats empty command output as unreadable', () => {
+    for (const command of ['', '   ']) {
+      const result = verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => command,
+      })
+
+      expect(result.state).toBe('unreadable')
+    }
+  })
 })

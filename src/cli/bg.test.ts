@@ -549,7 +549,7 @@ describe('background session process termination safety', () => {
       pollIntervalMs: 1,
     })
 
-    expect(calls.slice(0, 2)).toEqual([
+    expect(calls).toEqual([
       'verify:4242',
       'signal:4242:SIGTERM',
     ])
@@ -818,6 +818,32 @@ describe('background session process termination safety', () => {
 
       expect(signals).toEqual([])
     }
+  })
+
+  it('sanitizes throwing injected identity verifiers without signalling or marking', async () => {
+    const calls: string[] = []
+    let refusal: unknown
+
+    try {
+      await killBackgroundSession(session, {
+        verifySessionIdentity: () => {
+          throw new Error('private verifier details')
+        },
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        markKilled: async selected => {
+          calls.push(`mark:${selected.id}`)
+          return { ...selected, status: 'killed' }
+        },
+      })
+    } catch (error) {
+      refusal = error
+    }
+
+    expect(String(refusal)).toContain('refused to signal an unverified process')
+    expect(String(refusal)).not.toContain('private verifier details')
+    expect(calls).toEqual([])
   })
 })
 

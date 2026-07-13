@@ -821,9 +821,19 @@ function verifySelectedBackgroundSessionIdentity(
   session: BackgroundSession,
   options: BackgroundSessionTerminationOptions,
 ): BackgroundSessionProcessIdentity {
-  const identity = options.verifySessionIdentity
-    ? options.verifySessionIdentity(session)
-    : verifyBackgroundSessionProcessIdentity(session, options)
+  let identity: BackgroundSessionProcessIdentity
+  if (options.verifySessionIdentity) {
+    try {
+      identity = options.verifySessionIdentity(session)
+    } catch {
+      throw unverifiedProcessError(
+        session,
+        'the live process identity could not be read',
+      )
+    }
+  } else {
+    identity = verifyBackgroundSessionProcessIdentity(session, options)
+  }
   if (
     identity.backgroundSessionId !== session.id ||
     identity.pid !== session.pid
