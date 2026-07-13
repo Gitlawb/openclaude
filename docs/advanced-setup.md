@@ -665,7 +665,7 @@ would otherwise prevent it. Set `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`
 only when you need to suppress that safety cap for diagnostics.
 
 If you frequently resume long sessions that accumulate hundreds of small
-tool-result messages with negligible token cost, you can opt in to message-count
+tool-result messages with negligible token cost, adjust message-count
 compaction via the in-app `/config` command:
 
 ```text
@@ -674,8 +674,9 @@ compaction via the in-app `/config` command:
 
 Message-count compaction defaults to `200` messages. Select
 **Message-count compaction** to choose a different threshold (`100`, `500`, or
-`1000`), or set it to `off` to disable this proactive guard and leave only the
-built-in hard cap.
+`1000`), or set it to `off` to disable this proactive guard. The built-in hard
+cap remains, and an `OPENCLAUDE_MAX_ACTIVE_MESSAGES` override remains active
+when configured.
 
 The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is honored
 when the setting is unset or `off`; when both it and an explicit setting are
