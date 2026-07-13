@@ -490,7 +490,8 @@ async function runPermissionRequestHooksForHeadlessAgent(
         // Persist permission updates if provided
         const permissionUpdates = filterPermissionRequestHookUpdates(
           decision.updatedPermissions ?? [],
-          finalPlanMode,
+          enforcePlanMode ||
+            context.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length) {
           // Capture so the narrowing survives into the setAppState callback

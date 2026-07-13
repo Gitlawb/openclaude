@@ -147,7 +147,10 @@ function createPermissionContext(
         toolName: sanitizeToolNameForAnalytics(tool.name),
       })
     },
-    async persistPermissions(updates: PermissionUpdate[]) {
+    async persistPermissions(
+      updates: PermissionUpdate[],
+      hookPlanModeWasActive?: boolean,
+    ) {
       if (updates.length === 0) return false
       const appState = toolUseContext.getAppState()
       const validatedUpdates: PermissionUpdate[] = []
@@ -177,13 +180,22 @@ function createPermissionContext(
       }
       if (validatedUpdates.length === 0) return false
       const latestAppState = toolUseContext.getAppState()
+      const updatesToApply =
+        hookPlanModeWasActive === undefined
+          ? validatedUpdates
+          : filterPermissionRequestHookUpdates(
+              validatedUpdates,
+              hookPlanModeWasActive ||
+                latestAppState.toolPermissionContext.mode === 'plan',
+            )
+      if (updatesToApply.length === 0) return false
       const updatedContext = applyPermissionUpdatesToLiveContext(
         latestAppState.toolPermissionContext,
-        validatedUpdates,
+        updatesToApply,
       )
-      persistPermissionUpdates(validatedUpdates)
+      persistPermissionUpdates(updatesToApply)
       setToolPermissionContext(updatedContext)
-      return validatedUpdates.some(update =>
+      return updatesToApply.some(update =>
         supportsPersistence(update.destination),
       )
     },
@@ -323,9 +335,12 @@ function createPermissionContext(
               finalInput,
               filterPermissionRequestHookUpdates(
                 decision.updatedPermissions ?? [],
-                finalPlanMode,
+                enforcePlanMode ||
+                  toolUseContext.getAppState().toolPermissionContext.mode ===
+                    'plan',
               ),
               permissionPromptStartTimeMs,
+              enforcePlanMode,
             )
           } else if (decision.behavior === 'deny') {
             this.logDecision(
@@ -410,9 +425,10 @@ function createPermissionContext(
       finalInput: Record<string, unknown>,
       permissionUpdates: PermissionUpdate[],
       permissionPromptStartTimeMs?: number,
+      planModeWasActive = false,
     ): Promise<PermissionAllowDecision> {
       const acceptedPermanentUpdates =
-        await this.persistPermissions(permissionUpdates)
+        await this.persistPermissions(permissionUpdates, planModeWasActive)
       this.logDecision(
         {
           decision: 'accept',

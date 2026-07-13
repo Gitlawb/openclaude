@@ -514,6 +514,125 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     }
   })
 
+  test.each(['SDK', 'interactive', 'headless'] as const)(
+    '%s hooks recheck plan mode immediately before applying updates',
+    async executionPath => {
+      const readTool = createToolFixture(z.object({}), {
+        name: `${executionPath}LateTransitionReadTool`,
+        isReadOnly: () => true,
+        async checkPermissions() {
+          return { behavior: 'ask' as const, message: 'Review read' }
+        },
+      })
+      const state = planContext({ mode: 'default' })
+      const structuredIO = new StructuredIO(
+        (async function* () {
+          yield* []
+        })(),
+      )
+      hookDecision = {
+        behavior: 'allow',
+        updatedPermissions: [
+          {
+            type: 'setMode',
+            mode: 'fullAccess',
+            destination: 'session',
+          },
+        ],
+      }
+      Object.defineProperty(hookDecision, 'updatedInput', {
+        configurable: true,
+        get() {
+          queueMicrotask(() => {
+            state.setPermissionContext({
+              ...state.getPermissionContext(),
+              mode: 'plan',
+            })
+          })
+          return {}
+        },
+      })
+
+      const result =
+        executionPath === 'SDK'
+          ? await structuredIO.createCanUseTool()(
+              readTool,
+              {},
+              state.context,
+              assistantMessage,
+              'sdk-late-enter-plan-mode',
+              { behavior: 'ask', message: 'Review read' },
+            )
+          : executionPath === 'headless'
+            ? await hasPermissionsToUseTool(
+                readTool,
+                {},
+                state.context,
+                assistantMessage,
+                'headless-late-enter-plan-mode',
+              )
+          : await createPermissionContext(
+              readTool,
+              {},
+              state.context,
+              { message: { id: 'assistant-message' } } as never,
+              'interactive-late-enter-plan-mode',
+              state.setPermissionContext,
+            ).runHooks(undefined, undefined)
+
+      expect(result?.behavior).toBe('allow')
+      expect(state.getPermissionContext().mode).toBe('plan')
+    },
+  )
+
+  test('interactive hooks recheck plan mode at the update commit boundary', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'InteractiveCommitTransitionReadTool',
+      isReadOnly: () => true,
+    })
+    const state = planContext({ mode: 'default' })
+    const modeUpdate = {
+      type: 'setMode' as const,
+      destination: 'session' as const,
+      get mode() {
+        queueMicrotask(() => {
+          state.setPermissionContext({
+            ...state.getPermissionContext(),
+            mode: 'plan',
+          })
+        })
+        return 'acceptEdits' as const
+      },
+    }
+    hookDecision = {
+      behavior: 'allow',
+      updatedPermissions: [
+        modeUpdate,
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'LaterWriteTool' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ],
+    }
+
+    const result = await createPermissionContext(
+      readTool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-commit-enter-plan-mode',
+      state.setPermissionContext,
+    ).runHooks(undefined, undefined)
+
+    expect(result?.behavior).toBe('allow')
+    expect(state.getPermissionContext().mode).toBe('plan')
+    expect(state.getPermissionContext().alwaysAllowRules.session ?? []).toEqual(
+      [],
+    )
+  })
+
   test('entering plan mode while an interactive hook runs guards its rewritten input', async () => {
     const conditionalTool = createToolFixture(
       z.object({ operation: z.enum(['read', 'write']) }),

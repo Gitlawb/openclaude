@@ -864,7 +864,8 @@ async function executePermissionRequestHooksForSDK(
         // Apply permission updates if provided by hook ("always allow")
         const permissionUpdates = filterPermissionRequestHookUpdates(
           decision.updatedPermissions ?? [],
-          finalPlanMode,
+          enforcePlanMode ||
+            toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length > 0) {
           let updatedContext = toolUseContext.getAppState().toolPermissionContext
