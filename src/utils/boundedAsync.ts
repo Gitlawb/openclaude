@@ -11,6 +11,15 @@ function abortReason(signal: AbortSignal, message?: string): Error {
   return new AbortError(message)
 }
 
+export function throwIfAborted(
+  signal: AbortSignal | undefined,
+  message?: string,
+): void {
+  if (signal?.aborted) {
+    throw abortReason(signal, message)
+  }
+}
+
 export async function raceAbort<T>(
   promise: Promise<T>,
   signal?: AbortSignal,
@@ -58,7 +67,7 @@ export async function mapWithConcurrency<T, R>(
   }
 
   const signal = options?.signal
-  signal?.throwIfAborted()
+  throwIfAborted(signal, 'operation aborted')
 
   const results = new Array<R>(items.length)
   let nextIndex = 0
@@ -69,7 +78,7 @@ export async function mapWithConcurrency<T, R>(
       if (failed) {
         return
       }
-      signal?.throwIfAborted()
+      throwIfAborted(signal, 'operation aborted')
       const index = nextIndex
       nextIndex++
       if (index >= items.length) {

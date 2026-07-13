@@ -81,6 +81,52 @@ describe('mapWithConcurrency', () => {
     expect(started).toBe(false)
   })
 
+  test('normalizes non-Error abort reasons when already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort('cancelled')
+    let started = false
+
+    await expect(
+      mapWithConcurrency(
+        [1],
+        1,
+        async value => {
+          started = true
+          return value
+        },
+        { signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(started).toBe(false)
+  })
+
+  test('rejects and stops queued work when signal aborts mid-flight', async () => {
+    const controller = new AbortController()
+    const gate = deferred()
+    const started: number[] = []
+
+    const promise = mapWithConcurrency(
+      [0, 1, 2, 3],
+      2,
+      async value => {
+        started.push(value)
+        await gate.promise
+        return value
+      },
+      { signal: controller.signal },
+    )
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(started).toEqual([0, 1])
+
+    controller.abort('cancelled')
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+
+    gate.resolve()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(started).toEqual([0, 1])
+  })
+
   test('stops scheduling queued items after the first mapper rejection', async () => {
     const failFirst = deferred()
     const holdSecond = deferred()

@@ -119,7 +119,11 @@ import {
   createAbortController,
   createChildAbortController,
 } from './abortController.js'
-import { mapWithConcurrency, raceAbort } from './boundedAsync.js'
+import {
+  mapWithConcurrency,
+  raceAbort,
+  throwIfAborted,
+} from './boundedAsync.js'
 import { isAbortError } from './errors.js'
 import {
   getFileModificationTimeAsync,
@@ -801,20 +805,16 @@ export async function getAttachments(
     label: string,
     f: () => Promise<A[]>,
   ): Promise<A[]> => maybe(label, f)
-  const maybeTimedAttachment = <A>(
-    label: string,
-    f: () => Promise<A[]>,
-  ): Promise<A[]> => maybe(label, f, context.abortController.signal)
 
   const isMainThread = !toolUseContext.agentId
 
   // Attachments which are added in response to on user input
   const userInputAttachments = input
     ? [
-        maybeTimedAttachment('at_mentioned_files', () =>
+        maybeAttachment('at_mentioned_files', () =>
           processAtMentionedFiles(input, context),
         ),
-        maybeTimedAttachment('mcp_resources', () =>
+        maybeAttachment('mcp_resources', () =>
           processMcpResourceAttachments(input, context),
         ),
         maybeAttachment('agent_mentions', () =>
@@ -841,7 +841,7 @@ export async function getAttachments(
         skillSearchModules &&
         !options?.skipSkillDiscovery
           ? [
-              maybeTimedAttachment('skill_discovery', () =>
+              maybeAttachment('skill_discovery', () =>
                 skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
                   input,
                   messages ?? [],
@@ -912,17 +912,17 @@ export async function getAttachments(
           ),
         ]
       : []),
-    maybeTimedAttachment('changed_files', () => getChangedFiles(context)),
-    maybeTimedAttachment('nested_memory', () =>
+    maybeAttachment('changed_files', () => getChangedFiles(context)),
+    maybeAttachment('nested_memory', () =>
       getNestedMemoryAttachments(context),
     ),
     // relevant_memories moved to async prefetch (startRelevantMemoryPrefetch)
-    maybeTimedAttachment('dynamic_skill', () =>
+    maybeAttachment('dynamic_skill', () =>
       getDynamicSkillAttachments(context),
     ),
     ...(shouldIncludeSkillListingAttachment(querySource)
       ? [
-          maybeTimedAttachment('skill_listing', () =>
+          maybeAttachment('skill_listing', () =>
             getSkillListingAttachments(context),
           ),
         ]
@@ -1072,7 +1072,7 @@ async function maybe<A>(
 ): Promise<A[]> {
   const startTime = Date.now()
   try {
-    signal?.throwIfAborted()
+    throwIfAborted(signal, `Attachment ${label} timed out`)
     const result = await raceAbort(f(), signal, `Attachment ${label} timed out`)
     const duration = Date.now() - startTime
     // Log only 5% of events to reduce volume
@@ -2070,7 +2070,6 @@ async function processAtMentionedFilesWithDependencies(
     files,
     ATTACHMENT_FILE_IO_CONCURRENCY,
     async file => {
-      toolUseContext.abortController.signal.throwIfAborted()
       try {
         const { filename, lineStart, lineEnd } = parseAtMentionedFileLines(file)
         const absoluteFilename = expandPath(filename)
@@ -2084,7 +2083,6 @@ async function processAtMentionedFilesWithDependencies(
         // Check if it's a directory
         try {
           const stats = await deps.stat(absoluteFilename)
-          toolUseContext.abortController.signal.throwIfAborted()
           if (stats.isDirectory()) {
             try {
               const entries = await deps.readdir(absoluteFilename, {
@@ -2126,15 +2124,13 @@ async function processAtMentionedFilesWithDependencies(
             limit: lineEnd && lineStart ? lineEnd - lineStart + 1 : undefined,
           },
         )
-      } catch (err) {
-        if (isAbortError(err)) throw err
+      } catch {
         logEvent('tengu_at_mention_extracting_filename_error', {})
       }
       return null
     },
-    { signal: toolUseContext.abortController.signal },
   )
-  return results.filter(Boolean) as Attachment[]
+  return results.filter(result => result != null) as Attachment[]
 }
 
 function processAgentMentions(
@@ -2282,8 +2278,42 @@ export async function tryReadEditedImageAttachment(
   }
 }
 
+type ChangedFileReadInput = {
+  file_path: string
+}
+
+type ChangedFileDeps = {
+  getFileModificationTime: (path: string) => Promise<number>
+  validateFileReadInput: (
+    input: ChangedFileReadInput,
+    toolUseContext: ToolUseContext,
+  ) => ReturnType<typeof FileReadTool.validateInput>
+  readFile: (
+    input: ChangedFileReadInput,
+    toolUseContext: ToolUseContext,
+  ) => ReturnType<typeof FileReadTool.call>
+  readEditedImageAttachment: (
+    path: string,
+  ) => ReturnType<typeof tryReadEditedImageAttachment>
+}
+
+const defaultChangedFileDeps: ChangedFileDeps = {
+  getFileModificationTime: getFileModificationTimeAsync,
+  validateFileReadInput: (input, context) =>
+    FileReadTool.validateInput(input, context),
+  readFile: (input, context) => FileReadTool.call(input, context),
+  readEditedImageAttachment: tryReadEditedImageAttachment,
+}
+
 export async function getChangedFiles(
   toolUseContext: ToolUseContext,
+): Promise<Attachment[]> {
+  return getChangedFilesWithDependencies(toolUseContext, defaultChangedFileDeps)
+}
+
+async function getChangedFilesWithDependencies(
+  toolUseContext: ToolUseContext,
+  deps: ChangedFileDeps,
 ): Promise<Attachment[]> {
   const filePaths = cacheKeys(toolUseContext.readFileState)
   if (filePaths.length === 0) return []
@@ -2309,8 +2339,7 @@ export async function getChangedFiles(
       }
 
       try {
-        toolUseContext.abortController.signal.throwIfAborted()
-        const mtime = await getFileModificationTimeAsync(normalizedPath)
+        const mtime = await deps.getFileModificationTime(normalizedPath)
         if (mtime <= fileState.timestamp) {
           return null
         }
@@ -2318,7 +2347,7 @@ export async function getChangedFiles(
         const fileInput = { file_path: normalizedPath }
 
         // Validate file path is valid
-        const isValid = await FileReadTool.validateInput(
+        const isValid = await deps.validateFileReadInput(
           fileInput,
           toolUseContext,
         )
@@ -2326,8 +2355,7 @@ export async function getChangedFiles(
           return null
         }
 
-        toolUseContext.abortController.signal.throwIfAborted()
-        const result = await FileReadTool.call(fileInput, toolUseContext)
+        const result = await deps.readFile(fileInput, toolUseContext)
         // Extract only the changed section
         if (result.data.type === 'text') {
           const snippet = getSnippetForTwoFileDiff(
@@ -2350,16 +2378,13 @@ export async function getChangedFiles(
         // For non-text files (images), apply the same token limit logic as
         // FileReadTool. Degrades to null on failure (see the helper's contract).
         if (result.data.type === 'image') {
-          return tryReadEditedImageAttachment(normalizedPath)
+          return deps.readEditedImageAttachment(normalizedPath)
         }
 
         // notebook / pdf / parts — no diff representation; explicitly
         // null so the map callback has no implicit-undefined path.
         return null
       } catch (err) {
-        if (isAbortError(err)) {
-          throw err
-        }
         // Evict ONLY on ENOENT (file truly deleted). Transient stat
         // failures — atomic-save races (editor writes tmp→rename and
         // stat hits the gap), EACCES churn, network-FS hiccups — must
@@ -2373,7 +2398,6 @@ export async function getChangedFiles(
         return null
       }
     },
-    { signal: toolUseContext.abortController.signal },
   )
   return results.filter(result => result != null) as Attachment[]
 }
@@ -3242,6 +3266,7 @@ async function getLSPDiagnosticAttachments(
 
 export const __test = {
   ATTACHMENT_FILE_IO_CONCURRENCY,
+  getChangedFilesWithDependencies,
   getLSPDiagnosticAttachments,
   maybe,
   processAtMentionedFilesWithDependencies,
