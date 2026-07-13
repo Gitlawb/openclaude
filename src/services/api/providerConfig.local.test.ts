@@ -21,6 +21,7 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+  OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -47,6 +48,7 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENAI_AZURE_STYLE', originalEnv.OPENAI_AZURE_STYLE)
   } finally {
     releaseSharedMutationLock()
   }
@@ -449,5 +451,31 @@ test('auto-routes gpt-5.6 to responses on an Azure OpenAI v1 base', () => {
   expect(resolveProviderRequest()).toMatchObject({
     transport: 'responses',
     resolvedModel: 'gpt-5.6-terra',
+  })
+})
+
+test('OPENAI_AZURE_STYLE extends the gpt-5.6 responses auto-route to non-azure.com hosts', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://apim.contoso.example/azure-openai'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  process.env.OPENAI_AZURE_STYLE = '1'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    resolvedModel: 'gpt-5.6-sol',
+  })
+})
+
+test('without OPENAI_AZURE_STYLE the same non-azure.com host stays on chat completions', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://apim.contoso.example/azure-openai'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    resolvedModel: 'gpt-5.6-sol',
   })
 })

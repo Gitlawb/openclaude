@@ -439,10 +439,19 @@ function isDefaultOrDirectOpenAIBaseUrl(baseUrl: string | undefined): boolean {
   }
 }
 
-function isAzureOpenAIResponsesHost(baseUrl: string | undefined): boolean {
+// Azure-style endpoint detection shared by the responses auto-route gate and
+// the shim's URL/auth handling. OPENAI_AZURE_STYLE=1 forces Azure handling
+// for endpoints whose hostname would not otherwise match (APIM-fronted,
+// private link); hostname-based otherwise (not raw URL) to prevent bypass
+// via path segments like https://evil.com/cognitiveservices.azure.com/.
+export function isAzureStyleBaseUrl(
+  baseUrl: string | undefined,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (isEnvTruthy(processEnv.OPENAI_AZURE_STYLE)) return true
   if (!baseUrl) return false
   try {
-    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    const hostname = new URL(baseUrl).hostname
     return (
       hostname.endsWith('.azure.com') &&
       (hostname.includes('openai') ||
@@ -455,8 +464,11 @@ function isAzureOpenAIResponsesHost(baseUrl: string | undefined): boolean {
   }
 }
 
-function baseUrlSupportsResponsesAutoRoute(baseUrl: string | undefined): boolean {
-  return isDefaultOrDirectOpenAIBaseUrl(baseUrl) || isAzureOpenAIResponsesHost(baseUrl)
+function baseUrlSupportsResponsesAutoRoute(
+  baseUrl: string | undefined,
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  return isDefaultOrDirectOpenAIBaseUrl(baseUrl) || isAzureStyleBaseUrl(baseUrl, processEnv)
 }
 
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
@@ -1020,7 +1032,7 @@ export function resolveProviderRequest(options?: {
     explicitApiFormat === undefined &&
     requiredApiFormat === undefined &&
     modelRequiresResponsesApi(resolvedModel) &&
-    baseUrlSupportsResponsesAutoRoute(finalBaseUrl)
+    baseUrlSupportsResponsesAutoRoute(finalBaseUrl, processEnv)
       ? ('responses' as const)
       : undefined
   const requestedApiFormat =

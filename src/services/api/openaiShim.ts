@@ -82,6 +82,7 @@ import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  isAzureStyleBaseUrl,
   isDirectLocalOllamaEndpoint,
   isLikelyOllamaEndpoint,
   isLocalProviderUrl,
@@ -4349,22 +4350,7 @@ class OpenAIShimMessages {
         new Headers(),
       )
     }
-    // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
-    // path segments like https://evil.com/cognitiveservices.azure.com/
-    let isAzure = isEnvTruthy(process.env.OPENAI_AZURE_STYLE)
-    if (!isAzure) {
-      try {
-        const { hostname } = new URL(request.baseUrl)
-        isAzure =
-          hostname.endsWith('.azure.com') &&
-          (hostname.includes('cognitiveservices') ||
-            hostname.includes('openai') ||
-            hostname.includes('services.ai') ||
-            hostname.includes('inference.ml'))
-      } catch {
-        /* malformed URL — not Azure */
-      }
-    }
+    const isAzure = isAzureStyleBaseUrl(request.baseUrl)
 
     let isBankr = false
     try {
@@ -4468,28 +4454,22 @@ class OpenAIShimMessages {
       return `${baseUrl}/chat/completions`
     }
 
-    // Mirror buildChatCompletionsUrl's Azure handling for /responses, so a
-    // forced/auto responses route on Azure hits a real endpoint instead of a
-    // bare `${base}/responses` 404. The one divergence: the modern Azure v1
-    // surface (…/openai/v1) speaks /responses natively, so it is preserved
-    // rather than rewritten to the deployment path.
+    // Azure serves the Responses API only on the v1 surface
+    // ({resource}/openai/v1/responses — model in the request body, no
+    // api-version, no deployment-scoped form), so any Azure-style base is
+    // normalized to it: strip a trailing /openai/v1, /v1, or
+    // /openai/deployments/<dep> and append /openai/v1/responses.
+    // https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
     const buildResponsesUrl = (baseUrl: string): string => {
       if (!isAzure) {
         return `${baseUrl}/responses`
       }
-      if (/\/openai\/v1\/?$/i.test(baseUrl)) {
-        return `${baseUrl.replace(/\/+$/, '')}/responses`
-      }
-      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-      if (/\/deployments\//i.test(baseUrl)) {
-        const normalizedBase = baseUrl.replace(/\/+$/, '')
-        return `${normalizedBase}/responses?api-version=${apiVersion}`
-      }
-      const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
       const normalizedBase = baseUrl
-        .replace(/\/(openai\/)?v1\/?$/, '')
         .replace(/\/+$/, '')
-      return `${normalizedBase}/openai/deployments/${deployment}/responses?api-version=${apiVersion}`
+        .replace(/\/(openai\/)?v1$/i, '')
+        .replace(/\/openai\/deployments\/[^/]+$/i, '')
+        .replace(/\/+$/, '')
+      return `${normalizedBase}/openai/v1/responses`
     }
 
     const localRetryBaseUrls = isLocal

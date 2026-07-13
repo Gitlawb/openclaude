@@ -832,7 +832,7 @@ test('auto-route does NOT fire for arbitrary non-OpenAI gateway bases', async ()
   expect(capturedUrl).toBe('https://gateway.example/v1/chat/completions')
 })
 
-test('auto-routed responses on legacy Azure base uses the deployment path + api-version', async () => {
+test('auto-routed responses on a bare Azure resource base normalizes to the v1 surface', async () => {
   process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com'
   process.env.OPENAI_API_KEY = 'test-key'
   let capturedUrl = ''
@@ -864,9 +864,7 @@ test('auto-routed responses on legacy Azure base uses the deployment path + api-
     stream: false,
   })
 
-  expect(capturedUrl).toBe(
-    'https://myres.openai.azure.com/openai/deployments/gpt-5.6-terra/responses?api-version=2024-12-01-preview',
-  )
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
 })
 
 test('auto-routed responses on the Azure v1 base appends /responses without rewriting the path', async () => {
@@ -904,7 +902,7 @@ test('auto-routed responses on the Azure v1 base appends /responses without rewr
   expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
 })
 
-test('auto-routed responses on an Azure base already containing /deployments/ keeps the path and adds api-version', async () => {
+test('auto-routed responses on an Azure /deployments/ base strips the deployment and uses the v1 surface', async () => {
   process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/deployments/my-gpt56'
   process.env.OPENAI_API_KEY = 'test-key'
   let capturedUrl = ''
@@ -936,9 +934,7 @@ test('auto-routed responses on an Azure base already containing /deployments/ ke
     stream: false,
   })
 
-  expect(capturedUrl).toBe(
-    'https://myres.openai.azure.com/openai/deployments/my-gpt56/responses?api-version=2024-12-01-preview',
-  )
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
 })
 
 test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
