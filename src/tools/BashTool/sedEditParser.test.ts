@@ -38,3 +38,25 @@ test('BRE mode preserves escaped backslashes', () => {
 
   expect(result).toBe('backslash-match foo/bar')
 })
+
+test('BRE mode treats escaped braces as an interval quantifier', () => {
+  // `a\{2\}` is the BRE interval quantifier (exactly two a's). Before the fix
+  // braces were omitted from the metacharacter set, so it was emitted as the
+  // JS literal `a\{2\}` and matched nothing — the preview showed no change
+  // while real sed rewrote the file.
+  const result = applySedSubstitution('aa and a', sedInfo('a\\{2\\}', 'X'))
+  expect(result).toBe('X and a')
+})
+
+test('BRE mode treats bare braces as literals', () => {
+  // A bare `{2}` is literal in BRE, so it must not become a JS quantifier.
+  const result = applySedSubstitution('a{2} and aa', sedInfo('a{2}', 'X'))
+  expect(result).toBe('X and aa')
+})
+
+test('BRE mode supports escaped interval ranges', () => {
+  // `b\{1,3\}` matches one-to-three b's; on "bbbc" it consumes the three b's
+  // (the upper bound) and leaves the trailing "c".
+  const result = applySedSubstitution('bbbc', sedInfo('b\\{1,3\\}', 'X'))
+  expect(result).toBe('Xc')
+})
