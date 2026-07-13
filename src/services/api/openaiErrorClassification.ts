@@ -475,17 +475,6 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
-  if (options.status === 400 && isToolCompatibilityMessage(body)) {
-    return {
-      source: 'http',
-      category: 'tool_call_incompatible',
-      retryable: false,
-      status: options.status,
-      message: body,
-      hint: 'Provider/model rejected tool-calling payload. Retry without tools or use a tool-capable model.',
-    }
-  }
-
   // `tool_stream` is a Z.AI-proprietary streaming extension. Some OpenAI-
   // compatible gateways (e.g. NVIDIA NIM) reject it with a 400 like
   // "Unsupported parameter(s): `tool_stream`". Classify it distinctly so the
@@ -501,6 +490,17 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'Provider rejected the `tool_stream` parameter. Retrying without it (tool calls are not streamed).',
+    }
+  }
+
+  if (options.status === 400 && isToolCompatibilityMessage(body)) {
+    return {
+      source: 'http',
+      category: 'tool_call_incompatible',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider/model rejected tool-calling payload. Retry without tools or use a tool-capable model.',
     }
   }
 

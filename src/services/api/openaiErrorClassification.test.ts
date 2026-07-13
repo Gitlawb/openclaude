@@ -158,6 +158,15 @@ test('classifies tool_stream rejection as tool_stream_unsupported (#1950)', () =
   expect(failure.retryable).toBe(false)
 })
 
+test('prioritizes tool_stream rejection over accompanying tool-call wording', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Invalid parameter tool_stream for this tool_call request',
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
 test('does not classify a generic 400 as tool_stream_unsupported', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 400,
