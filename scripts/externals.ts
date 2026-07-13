@@ -193,9 +193,13 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'vscode-languageserver-protocol',
   // File watching
   'chokidar',
+  // Color conversion
+  'color-convert',
   // Graph algorithms (repo map PageRank)
   'graphology',
   'graphology-metrics',
+  // File existence checking
+  'isexe',
   // Tokenizer for repo map token budgeting
   'js-tiktoken',
 ]

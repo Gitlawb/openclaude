@@ -615,6 +615,7 @@ export function userMessageToMessageParam(
   addCache = false,
   enablePromptCaching: boolean,
   querySource?: QuerySource,
+  useCachedMC = false,
 ): MessageParam {
   if (addCache) {
     if (typeof message.message.content === 'string') {
@@ -644,12 +645,12 @@ export function userMessageToMessageParam(
       }
     }
   }
-  // Clone array content to prevent in-place mutations (e.g., insertCacheEditsBlock's
-  // splice) from contaminating the original message. Without cloning, multiple calls
-  // to addCacheBreakpoints share the same array and each splices in duplicate cache_edits.
+  // Clone array content only when cache editing is active (insertCacheEditsBlock
+  // splices into the array). Without useCachedMC, no mutation occurs, so we can
+  // return the original reference and avoid O(n) spread for every message.
   return {
     role: 'user',
-    content: Array.isArray(message.message.content)
+    content: Array.isArray(message.message.content) && useCachedMC
       ? [...message.message.content]
       : message.message.content,
   }
@@ -3367,6 +3368,7 @@ export function addCacheBreakpoints(
         addCache,
         enablePromptCaching,
         querySource,
+        useCachedMC,
       )
     }
     return assistantMessageToMessageParam(

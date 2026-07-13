@@ -1377,10 +1377,59 @@ function relocateToolReferenceSiblings(
   return result
 }
 
+// Memoization cache for normalizeMessagesForAPI.
+// Keyed by fast hash of message UUIDs + content lengths + tool names to avoid
+// re-processing unchanged messages on every turn.
+const _normalizeCache = new Map<string, (UserMessage | AssistantMessage)[]>()
+const _NORMALIZE_CACHE_MAX = 3
+
+function getNormalizeCacheKey(
+  messages: Message[],
+  tools: Tools,
+): string {
+  let hash = 0
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m.uuid) {
+      for (let j = 0; j < m.uuid.length; j++) {
+        hash = ((hash << 5) - hash) + m.uuid.charCodeAt(j)
+        hash |= 0
+      }
+    }
+    const content = m.message?.content
+    let len = 0
+    if (typeof content === 'string') {
+      len = content.length
+    } else if (Array.isArray(content)) {
+      len = content.length
+    }
+    hash = ((hash << 5) - hash) + len
+    hash |= 0
+  }
+  // Mix in tool names so tool set changes invalidate
+  for (let i = 0; i < tools.length; i++) {
+    const t = tools[i]
+    if (t.name) {
+      for (let j = 0; j < t.name.length; j++) {
+        hash = ((hash << 5) - hash) + t.name.charCodeAt(j)
+        hash |= 0
+      }
+    }
+  }
+  return (hash >>> 0).toString(36)
+}
+
 export function normalizeMessagesForAPI(
   messages: Message[],
   tools: Tools = [],
 ): (UserMessage | AssistantMessage)[] {
+  // Check memoization cache before running the full pipeline
+  const cacheKey = getNormalizeCacheKey(messages, tools)
+  const cached = _normalizeCache.get(cacheKey)
+  if (cached && messages.every(m => m.uuid)) {
+    return cached
+  }
+
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
@@ -1810,6 +1859,13 @@ export function normalizeMessagesForAPI(
 
   // Validate all images are within API size limits before sending
   validateImagesForAPI(sanitized)
+
+  // Store in cache before returning
+  if (_normalizeCache.size >= _NORMALIZE_CACHE_MAX) {
+    const firstKey = _normalizeCache.keys().next().value
+    if (firstKey) _normalizeCache.delete(firstKey)
+  }
+  _normalizeCache.set(cacheKey, sanitized)
 
   return sanitized
 }
