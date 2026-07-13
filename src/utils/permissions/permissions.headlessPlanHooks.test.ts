@@ -16,6 +16,7 @@ type HookDecision = PermissionDecision & {
 let hookDecision: HookDecision
 let hasPermissionsToUseTool: typeof import('./permissions.js').hasPermissionsToUseTool
 let createPermissionContext: typeof import('../../hooks/toolPermission/PermissionContext.js').createPermissionContext
+let StructuredIO: typeof import('../../cli/structuredIO.js').StructuredIO
 let actualHooks: typeof import('../hooks.js')
 let beforeHookDecision: (() => void) | undefined
 
@@ -38,6 +39,9 @@ beforeAll(async () => {
   ))
   ;({ createPermissionContext } = await import(
     `../../hooks/toolPermission/PermissionContext.ts?headlessPlanHooks=${Date.now()}-${Math.random()}`
+  ))
+  ;({ StructuredIO } = await import(
+    `../../cli/structuredIO.ts?headlessPlanHooks=${Date.now()}-${Math.random()}`
   ))
 })
 
@@ -290,6 +294,224 @@ describe('headless plan-mode PermissionRequest hooks', () => {
       behavior: 'deny',
       decisionReason: { type: 'mode', mode: 'plan' },
     })
+  })
+
+  test('interactive PermissionRequest hooks cannot rewrite into an explicit deny', async () => {
+    const tool = createToolFixture(
+      z.object({ target: z.enum(['review', 'restricted']) }),
+      {
+        name: 'InteractiveTargetTool',
+        isReadOnly: () => true,
+        async checkPermissions(input) {
+          return input.target === 'restricted'
+            ? {
+                behavior: 'deny' as const,
+                message: 'Restricted target',
+                decisionReason: {
+                  type: 'other' as const,
+                  reason: 'Restricted target',
+                },
+              }
+            : { behavior: 'ask' as const, message: 'Review target' }
+        },
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      tool,
+      { target: 'review' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-deny-rewrite',
+      state.setPermissionContext,
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedInput: { target: 'restricted' },
+    }
+
+    const result = await permissionContext.runHooks(undefined, undefined)
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Restricted target',
+    })
+  })
+
+  test('interactive PermissionRequest hooks preserve a new ask constraint', async () => {
+    const tool = createToolFixture(
+      z.object({ target: z.enum(['review', 'sensitive']) }),
+      {
+        name: 'InteractiveAskTool',
+        isReadOnly: () => true,
+        async checkPermissions(input) {
+          return {
+            behavior: 'ask' as const,
+            message: `Approval required for ${input.target}`,
+            decisionReason: {
+              type: 'rule' as const,
+              rule: {
+                source: 'session' as const,
+                ruleBehavior: 'ask' as const,
+                ruleValue: {
+                  toolName: 'InteractiveAskTool',
+                  ruleContent: input.target,
+                },
+              },
+            },
+          }
+        },
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      tool,
+      { target: 'review' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-ask-rewrite',
+      state.setPermissionContext,
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedInput: { target: 'sensitive' },
+    }
+
+    const result = await permissionContext.runHooks(undefined, undefined)
+
+    expect(result).toMatchObject({
+      behavior: 'ask',
+      message: 'Approval required for sensitive',
+    })
+  })
+
+  test('SDK PermissionRequest hooks cannot persist a plan-mode escape', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'SDKReadTool',
+      isReadOnly: () => true,
+    })
+    const writeTool = createToolFixture(z.object({}), {
+      name: 'SDKWriteTool',
+      isReadOnly: () => false,
+    })
+    const state = planContext()
+    const structuredIO = new StructuredIO(
+      (async function* () {
+        yield* []
+      })(),
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedPermissions: [
+        {
+          type: 'setMode',
+          mode: 'fullAccess',
+          destination: 'session',
+        },
+      ],
+    }
+
+    const readResult = await structuredIO.createCanUseTool()(
+      readTool,
+      {},
+      state.context,
+      assistantMessage,
+      'sdk-mode-update',
+      { behavior: 'ask', message: 'Review read' },
+    )
+    const writeResult = await hasPermissionsToUseTool(
+      writeTool,
+      {},
+      state.context,
+      assistantMessage,
+      'sdk-subsequent-write',
+    )
+
+    expect(readResult.behavior).toBe('allow')
+    expect(state.getPermissionContext().mode).toBe('plan')
+    expect(writeResult).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('SDK PermissionRequest hooks cannot rewrite a read into a mutation', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'SDKConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext()
+    const structuredIO = new StructuredIO(
+      (async function* () {
+        yield* []
+      })(),
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedInput: { operation: 'write' },
+    }
+
+    const result = await structuredIO.createCanUseTool()(
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+      assistantMessage,
+      'sdk-input-rewrite',
+      { behavior: 'ask', message: 'Review read' },
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('entering plan mode while an SDK hook runs blocks its permission updates', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'SDKTransitionReadTool',
+      isReadOnly: () => true,
+    })
+    const state = planContext({ mode: 'default' })
+    const structuredIO = new StructuredIO(
+      (async function* () {
+        yield* []
+      })(),
+    )
+    hookDecision = {
+      behavior: 'allow',
+      updatedPermissions: [
+        {
+          type: 'setMode',
+          mode: 'fullAccess',
+          destination: 'session',
+        },
+      ],
+    }
+    beforeHookDecision = () => {
+      state.setPermissionContext({
+        ...state.getPermissionContext(),
+        mode: 'plan',
+      })
+    }
+
+    try {
+      const result = await structuredIO.createCanUseTool()(
+        readTool,
+        {},
+        state.context,
+        assistantMessage,
+        'sdk-enter-plan-mode',
+        { behavior: 'ask', message: 'Review read' },
+      )
+
+      expect(result.behavior).toBe('allow')
+      expect(state.getPermissionContext().mode).toBe('plan')
+    } finally {
+      beforeHookDecision = undefined
+    }
   })
 
   test('entering plan mode while an interactive hook runs guards its rewritten input', async () => {

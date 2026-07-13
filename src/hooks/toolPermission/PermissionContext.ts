@@ -31,7 +31,11 @@ import {
   withMemoryCorrectionHint,
 } from '../../utils/messages.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
-import { checkPlanModePermissions } from '../../utils/permissions/permissions.js'
+import {
+  checkPlanModePermissions,
+  checkRuleBasedPermissions,
+  samePermissionAskConstraint,
+} from '../../utils/permissions/permissions.js'
 import {
   applyPermissionUpdate,
   filterPermissionRequestHookUpdates,
@@ -259,6 +263,17 @@ function createPermissionContext(
     ): Promise<PermissionDecision | null> {
       const enforcePlanMode =
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      const candidateInput = updatedInput ?? input
+      const candidateRuleDecision = enforcePlanMode
+        ? await checkRuleBasedPermissions(
+            tool,
+            candidateInput,
+            toolUseContext,
+          )
+        : null
+      if (candidateRuleDecision?.behavior === 'deny') {
+        return candidateRuleDecision
+      }
       for await (const hookResult of executePermissionRequestHooks(
         tool.name,
         toolUseID,
@@ -272,6 +287,20 @@ function createPermissionContext(
           const decision = hookResult.permissionRequestResult
           if (decision.behavior === 'allow') {
             const finalInput = decision.updatedInput ?? updatedInput ?? input
+            const finalPlanMode =
+              enforcePlanMode ||
+              toolUseContext.getAppState().toolPermissionContext.mode ===
+                'plan'
+            const finalRuleDecision = finalPlanMode
+              ? await checkRuleBasedPermissions(
+                  tool,
+                  finalInput,
+                  toolUseContext,
+                )
+              : null
+            if (finalRuleDecision?.behavior === 'deny') {
+              return finalRuleDecision
+            }
             const planModeDecision = await checkPlanModePermissions(
               tool,
               finalInput,
@@ -281,13 +310,20 @@ function createPermissionContext(
             if (planModeDecision) {
               return planModeDecision
             }
+            if (
+              finalRuleDecision?.behavior === 'ask' &&
+              !samePermissionAskConstraint(
+                candidateRuleDecision,
+                finalRuleDecision,
+              )
+            ) {
+              return finalRuleDecision
+            }
             return await this.handleHookAllow(
               finalInput,
               filterPermissionRequestHookUpdates(
                 decision.updatedPermissions ?? [],
-                enforcePlanMode ||
-                  toolUseContext.getAppState().toolPermissionContext.mode ===
-                    'plan',
+                finalPlanMode,
               ),
               permissionPromptStartTimeMs,
             )

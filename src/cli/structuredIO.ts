@@ -34,7 +34,12 @@ import type {
   PermissionDecision,
   PermissionDecisionReason,
 } from 'src/utils/permissions/PermissionResult.js'
-import { hasPermissionsToUseTool } from 'src/utils/permissions/permissions.js'
+import {
+  checkPlanModePermissions,
+  checkRuleBasedPermissions,
+  hasPermissionsToUseTool,
+  samePermissionAskConstraint,
+} from 'src/utils/permissions/permissions.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import { z } from 'zod/v4'
@@ -42,6 +47,7 @@ import { notifyCommandLifecycle } from '../utils/commandLifecycle.js'
 import { normalizeControlMessageKeys } from '../utils/controlMessageCompat.js'
 import { executePermissionRequestHooks } from '../utils/hooks.js'
 import {
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
 } from '../utils/permissions/PermissionUpdate.js'
 import { applyPermissionUpdatesToLiveContext } from '../utils/permissions/permissionSetup.js'
@@ -581,7 +587,7 @@ export class StructuredIO {
       try {
         // Start the hook evaluation (runs in background)
         const hookPromise = executePermissionRequestHooksForSDK(
-          tool.name,
+          tool,
           toolUseID,
           input,
           toolUseContext,
@@ -791,7 +797,7 @@ function exitWithMessage(message: string): never {
  * Returns undefined if no hook made a decision.
  */
 async function executePermissionRequestHooksForSDK(
-  toolName: string,
+  tool: Tool,
   toolUseID: string,
   input: Record<string, unknown>,
   toolUseContext: ToolUseContext,
@@ -799,10 +805,17 @@ async function executePermissionRequestHooksForSDK(
 ): Promise<PermissionDecision | undefined> {
   const appState = toolUseContext.getAppState()
   const permissionMode = appState.toolPermissionContext.mode
+  const enforcePlanMode = permissionMode === 'plan'
+  const candidateRuleDecision = enforcePlanMode
+    ? await checkRuleBasedPermissions(tool, input, toolUseContext)
+    : null
+  if (candidateRuleDecision?.behavior === 'deny') {
+    return candidateRuleDecision
+  }
 
   // Iterate directly over the generator instead of using `all`
   const hookGenerator = executePermissionRequestHooks(
-    toolName,
+    tool.name,
     toolUseID,
     input,
     toolUseContext,
@@ -820,9 +833,39 @@ async function executePermissionRequestHooksForSDK(
       const decision = hookResult.permissionRequestResult
       if (decision.behavior === 'allow') {
         const finalInput = decision.updatedInput || input
+        const finalPlanMode =
+          enforcePlanMode ||
+          toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+        const finalRuleDecision = finalPlanMode
+          ? await checkRuleBasedPermissions(tool, finalInput, toolUseContext)
+          : null
+        if (finalRuleDecision?.behavior === 'deny') {
+          return finalRuleDecision
+        }
+        const planModeDecision = await checkPlanModePermissions(
+          tool,
+          finalInput,
+          toolUseContext,
+          enforcePlanMode,
+        )
+        if (planModeDecision) {
+          return planModeDecision
+        }
+        if (
+          finalRuleDecision?.behavior === 'ask' &&
+          !samePermissionAskConstraint(
+            candidateRuleDecision,
+            finalRuleDecision,
+          )
+        ) {
+          return finalRuleDecision
+        }
 
         // Apply permission updates if provided by hook ("always allow")
-        const permissionUpdates = decision.updatedPermissions ?? []
+        const permissionUpdates = filterPermissionRequestHookUpdates(
+          decision.updatedPermissions ?? [],
+          finalPlanMode,
+        )
         if (permissionUpdates.length > 0) {
           let updatedContext = toolUseContext.getAppState().toolPermissionContext
           // Update permission context via setAppState
