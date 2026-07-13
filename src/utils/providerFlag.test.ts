@@ -168,6 +168,7 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('proxy-token')
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 })

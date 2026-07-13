@@ -104,7 +104,8 @@ function isFirstPartyAnthropicBaseUrl(
     if (processEnv.USER_TYPE === 'ant') {
       allowedHosts.push('api-staging.anthropic.com')
     }
-    return allowedHosts.includes(new URL(baseUrl).host)
+    const url = new URL(baseUrl)
+    return url.protocol === 'https:' && allowedHosts.includes(url.host)
   } catch {
     return false
   }
@@ -1014,9 +1015,8 @@ export function resolveActiveRouteIdFromEnv(
     return 'vertex'
   }
 
-  // A Bearer-token Anthropic endpoint is explicitly the custom proxy contract;
-  // resolve it before heuristic env-only vendor detection can reinterpret a
-  // provider-controlled host as a first-party gateway.
+  // A custom Anthropic endpoint is explicitly the proxy contract; resolve it
+  // before heuristic env-only vendor detection can reinterpret its host.
   const knownAnthropicRoute = resolveRouteIdFromBaseUrl(
     processEnv.ANTHROPIC_BASE_URL,
   )
@@ -1024,21 +1024,8 @@ export function resolveActiveRouteIdFromEnv(
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
     hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
-    hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) &&
-    !isFirstPartyAnthropicBaseUrl(processEnv) &&
-    !knownAnthropicRoute
-  ) {
-    return 'custom-anthropic'
-  }
-
-  // Native x-api-key custom endpoints use the same proxy transport as Bearer
-  // endpoints. A dedicated provider's own known base URL retains its route,
-  // but an unrelated ambient credential must not replace an explicit endpoint.
-  if (
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
-    hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
-    hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
-    hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY) &&
+    (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+      hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY)) &&
     !isFirstPartyAnthropicBaseUrl(processEnv) &&
     !knownAnthropicRoute
   ) {

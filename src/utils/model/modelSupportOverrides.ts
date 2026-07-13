@@ -37,6 +37,8 @@ function buildCapabilityOverrideCacheKey(
     model.toLowerCase(),
     capability,
     getAPIProvider(),
+    process.env.ANTHROPIC_BASE_URL ?? '',
+    process.env.USER_TYPE ?? '',
     ...envParts,
   ].join('\0')
 }
