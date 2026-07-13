@@ -440,6 +440,13 @@ test('invalid active-message hard cap override keeps default safety cap', async 
 })
 
 test('explicit zero active-message hard cap override disables safety cap', async () => {
+  // Isolate the hard-cap override: with the 200-message-count default active,
+  // a 1001-message history would otherwise force message-count compaction, so
+  // disable message-count compaction explicitly to test only the hard cap.
+  saveGlobalConfig(current => ({
+    ...current,
+    maxMessagesCompactionThreshold: 'off',
+  }))
   process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
 
   const { terminal, callModel, seenTracking } =

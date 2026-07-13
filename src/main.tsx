@@ -2789,9 +2789,10 @@ async function run(): Promise<CommanderCommand> {
       }
       logSessionTelemetry();
       profileCheckpoint('before_print_import');
-      const {
-        runHeadless
-      } = await import('src/cli/print.js');
+       const {
+         runHeadless,
+         DEFAULT_REPL_MAX_TURNS,
+       } = await import('src/cli/print.js');
       profileCheckpoint('after_print_import');
       void runHeadless(inputPrompt, () => headlessStore.getState(), headlessStore.setState, commandsHeadless, tools, sdkMcpConfigs, agentDefinitions.activeAgents, {
         continue: options.continue,
@@ -2803,7 +2804,14 @@ async function run(): Promise<CommanderCommand> {
         permissionPromptToolName: options.permissionPromptTool,
         allowedTools,
         thinkingConfig,
-        maxTurns: options.maxTurns,
+        // Cap the interactive REPL main thread at a bounded default number of
+        // turns per prompt so a single prompt cannot spin indefinitely in the
+        // while(true) tool-use loop (issue #1949). Headless/print mode (where
+        // inputPrompt is provided) keeps the previous behavior where only the
+        // --max-turns flag bounds it. The SDK API contract is unchanged.
+        maxTurns:
+          options.maxTurns ??
+          (inputPrompt ? undefined : DEFAULT_REPL_MAX_TURNS),
         maxBudgetUsd: options.maxBudgetUsd,
         taskBudget: options.taskBudget ? {
           total: options.taskBudget

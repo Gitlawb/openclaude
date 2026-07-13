@@ -179,7 +179,7 @@ describe('getEffectiveContextWindowSize', () => {
     try {
       const effective = getEffectiveContextWindowSize('some-unknown-3p-model')
       expect(effective).toBeGreaterThan(0)
-      // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_BUFFER_TOKENS (13k).
+      // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_FLOOR_BUFFER_TOKENS (13k).
       // Covers the anti-regression intent of issue #635 without assuming
       // the GrowthBook flag state.
       expect(effective).toBeGreaterThanOrEqual(21_000)
