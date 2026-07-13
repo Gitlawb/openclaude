@@ -371,11 +371,12 @@ describe('conversationArc', () => {
       const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, messages)
 
       // Arc content is appended to the system prompt (not the user message),
-      // wrapped in untrusted-data delimiters to avoid message mutation.
+      // wrapped in trusted-boundary delimiters to avoid message mutation.
       expect(promptWithArc.length).toBe(mockSystemPrompt.length + 1)
       expect(promptWithArc.join('\n')).toContain('Phase:')
       expect(promptWithArc.join('\n')).toContain('PERSISTENT PROJECT MEMORY')
       expect(promptWithArc.join('\n')).toContain('Add JWT auth')
+      expect(promptWithArc.join('\n')).toContain('RETRIEVED MEMORY (DATA ONLY)')
       // User message must not be mutated
       expect(messages[0].message?.content).toBe('add login endpoint')
     })
