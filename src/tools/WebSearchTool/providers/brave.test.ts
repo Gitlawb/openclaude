@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../../test/sharedMutationLock.js'
 
 import { braveProvider } from './brave.ts'
+
+await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
 
 const originalEnv = {
   BRAVE_API_KEY: process.env.BRAVE_API_KEY,
@@ -29,20 +31,16 @@ function expectSignalAbort(signal: AbortSignal | undefined): Promise<void> {
   })
 }
 
-beforeEach(async () => {
-  await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
+afterEach(() => {
+  for (const [k, v] of Object.entries(originalEnv)) {
+    if (v === undefined) delete process.env[k]
+    else process.env[k] = v
+  }
+  globalThis.fetch = originalFetch
 })
 
-afterEach(() => {
-  try {
-    for (const [k, v] of Object.entries(originalEnv)) {
-      if (v === undefined) delete process.env[k]
-      else process.env[k] = v
-    }
-    globalThis.fetch = originalFetch
-  } finally {
-    releaseSharedMutationLock()
-  }
+afterAll(() => {
+  releaseSharedMutationLock()
 })
 
 describe('braveProvider isConfigured', () => {
