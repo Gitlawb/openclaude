@@ -473,22 +473,45 @@ describe('applyProviderFlag - ollama', () => {
 
 describe('applyProviderFlag - explicit provider base URL defaults', () => {
   const providers = [
-    { provider: 'ollama', baseUrl: 'http://localhost:11434/v1' },
+    {
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434/v1',
+      defaultModel: 'llama3.1:8b',
+    },
     {
       provider: 'nvidia-nim',
       baseUrl: 'https://integrate.api.nvidia.com/v1',
+      defaultModel: 'nvidia/llama-3.1-nemotron-70b-instruct',
     },
-    { provider: 'bankr', baseUrl: 'https://llm.bankr.bot/v1' },
-    { provider: 'xai', baseUrl: 'https://api.x.ai/v1' },
+    {
+      provider: 'bankr',
+      baseUrl: 'https://llm.bankr.bot/v1',
+      defaultModel: 'claude-opus-4.6',
+    },
+    {
+      provider: 'xai',
+      baseUrl: 'https://api.x.ai/v1',
+      defaultModel: 'grok-4.3',
+    },
     {
       provider: 'xiaomi-mimo',
       baseUrl: 'https://api.xiaomimimo.com/v1',
+      defaultModel: 'mimo-v2.5-pro',
     },
-    { provider: 'venice', baseUrl: 'https://api.venice.ai/api/v1' },
-    { provider: 'nearai', baseUrl: 'https://cloud-api.near.ai/v1' },
+    {
+      provider: 'venice',
+      baseUrl: 'https://api.venice.ai/api/v1',
+      defaultModel: 'venice-uncensored',
+    },
+    {
+      provider: 'nearai',
+      baseUrl: 'https://cloud-api.near.ai/v1',
+      defaultModel: 'anthropic/claude-sonnet-4-6',
+    },
     {
       provider: 'fireworks',
       baseUrl: 'https://api.fireworks.ai/inference/v1',
+      defaultModel: 'accounts/fireworks/models/llama-v3p1-70b-instruct',
     },
   ] as const
   const customLocalLikeBaseUrls: Array<[string]> = [
@@ -499,7 +522,7 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
     ['https://example.com/lm-studio/v1'],
   ]
 
-  for (const { provider, baseUrl } of providers) {
+  for (const { provider, baseUrl, defaultModel } of providers) {
     test(`${provider} replaces a stale known provider base URL`, () => {
       process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
@@ -507,6 +530,33 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
 
       expect(result.error).toBeUndefined()
       expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+    })
+
+    test(`${provider} resets a stale model when replacing a stale known provider base URL`, () => {
+      process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+      process.env.OPENAI_MODEL = 'gpt-5.5'
+
+      const result = applyProviderFlag(provider, [])
+
+      expect(result.error).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+      expect(process.env.OPENAI_MODEL).toBe(defaultModel)
+    })
+
+    test(`${provider} preserves an explicit model when replacing a stale known provider base URL`, () => {
+      process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+      process.env.OPENAI_MODEL = 'gpt-5.5'
+
+      const result = applyProviderFlag(provider, [
+        '--provider',
+        provider,
+        '--model',
+        'custom-route-model',
+      ])
+
+      expect(result.error).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+      expect(process.env.OPENAI_MODEL).toBe('custom-route-model')
     })
 
     test(`${provider} preserves a custom unknown base URL`, () => {

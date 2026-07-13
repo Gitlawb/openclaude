@@ -204,10 +204,21 @@ function isPlaceholderBaseUrl(baseUrl: string): boolean {
   return /<[^>]+>/.test(baseUrl)
 }
 
-function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
+type OpenAIBaseUrlDefaultResult = {
+  replacedStaleKnownBaseUrl: boolean
+}
+
+const UNCHANGED_OPENAI_BASE_URL_DEFAULT: OpenAIBaseUrlDefaultResult = {
+  replacedStaleKnownBaseUrl: false,
+}
+
+function applyOpenAIBaseUrlDefault(
+  provider: string,
+  baseUrl?: string,
+): OpenAIBaseUrlDefaultResult {
   const normalizedBaseUrl = baseUrl?.trim()
   if (!normalizedBaseUrl) {
-    return
+    return UNCHANGED_OPENAI_BASE_URL_DEFAULT
   }
 
   // Never seed an unresolved placeholder endpoint. The user must supply a real
@@ -215,14 +226,55 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   // `/provider` wizard treats such defaults as requiring explicit setup, and
   // the CLI shortcut should not silently install a broken endpoint.
   if (isPlaceholderBaseUrl(normalizedBaseUrl)) {
+    return UNCHANGED_OPENAI_BASE_URL_DEFAULT
+  }
+
+  const configuredBaseUrl = getConfiguredOpenAIBaseUrl()
+  const replacedStaleKnownBaseUrl =
+    !!configuredBaseUrl && shouldReplaceStaleKnownBaseUrl(provider)
+
+  if (!configuredBaseUrl || replacedStaleKnownBaseUrl) {
+    process.env.OPENAI_BASE_URL = normalizedBaseUrl
+    return { replacedStaleKnownBaseUrl }
+  }
+
+  return UNCHANGED_OPENAI_BASE_URL_DEFAULT
+}
+
+function applyOpenAIModelDefault(
+  defaultModel: string | undefined,
+  baseUrlDefault: OpenAIBaseUrlDefaultResult,
+  model: string | null,
+): void {
+  if (model) {
+    process.env.OPENAI_MODEL = model
     return
   }
 
-  if (
-    !getConfiguredOpenAIBaseUrl() ||
-    shouldReplaceStaleKnownBaseUrl(provider)
-  ) {
-    process.env.OPENAI_BASE_URL = normalizedBaseUrl
+  const normalizedDefaultModel = defaultModel?.trim()
+  if (!normalizedDefaultModel) {
+    return
+  }
+
+  if (baseUrlDefault.replacedStaleKnownBaseUrl) {
+    process.env.OPENAI_MODEL = normalizedDefaultModel
+  } else {
+    process.env.OPENAI_MODEL ??= normalizedDefaultModel
+  }
+}
+
+function resetOpenAIModelDefaultWhenStaleBaseUrlReplaced(
+  defaultModel: string | undefined,
+  baseUrlDefault: OpenAIBaseUrlDefaultResult,
+  model: string | null,
+): void {
+  if (model) {
+    process.env.OPENAI_MODEL = model
+    return
+  }
+
+  if (baseUrlDefault.replacedStaleKnownBaseUrl && defaultModel?.trim()) {
+    process.env.OPENAI_MODEL = defaultModel.trim()
   }
 }
 
@@ -426,38 +478,54 @@ export function applyProviderFlag(
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'http://localhost:11434/v1',
-      )
+      {
+        const baseUrlDefault = applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'http://localhost:11434/v1',
+        )
+        resetOpenAIModelDefaultWhenStaleBaseUrlReplaced(
+          defaultModel ?? 'llama3.1:8b',
+          baseUrlDefault,
+          model,
+        )
+      }
       if (!process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = 'ollama'
       }
-      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'nvidia-nim':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1',
-      )
+      {
+        const baseUrlDefault = applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1',
+        )
+        applyOpenAIModelDefault(
+          defaultModel ?? 'nvidia/llama-3.1-nemotron-70b-instruct',
+          baseUrlDefault,
+          model,
+        )
+      }
       process.env.NVIDIA_NIM = '1'
       if (process.env.NVIDIA_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.NVIDIA_API_KEY
       }
-      process.env.OPENAI_MODEL ??= 'nvidia/llama-3.1-nemotron-70b-instruct'
-      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'bankr':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://llm.bankr.bot/v1',
-      )
-      process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
-      if (model) process.env.OPENAI_MODEL = model
+      {
+        const baseUrlDefault = applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://llm.bankr.bot/v1',
+        )
+        applyOpenAIModelDefault(
+          defaultModel ?? 'claude-opus-4.6',
+          baseUrlDefault,
+          model,
+        )
+      }
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
       }
@@ -484,16 +552,22 @@ export function applyProviderFlag(
 
     case 'gitlawb-opengateway':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      if (process.env.OPENGATEWAY_BASE_URL?.trim()) {
-        process.env.OPENAI_BASE_URL = process.env.OPENGATEWAY_BASE_URL.trim()
-      } else {
-        applyOpenAIBaseUrlDefault(
-          provider,
-          defaultBaseUrl ?? 'https://opengateway.gitlawb.com/v1',
+      {
+        const baseUrlDefault = process.env.OPENGATEWAY_BASE_URL?.trim()
+          ? UNCHANGED_OPENAI_BASE_URL_DEFAULT
+          : applyOpenAIBaseUrlDefault(
+              provider,
+              defaultBaseUrl ?? 'https://opengateway.gitlawb.com/v1',
+            )
+        if (process.env.OPENGATEWAY_BASE_URL?.trim()) {
+          process.env.OPENAI_BASE_URL = process.env.OPENGATEWAY_BASE_URL.trim()
+        }
+        applyOpenAIModelDefault(
+          defaultModel ?? 'mimo-v2.5-pro',
+          baseUrlDefault,
+          model,
         )
       }
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
-      if (model) process.env.OPENAI_MODEL = model
       if (opengatewayApiKey) {
         process.env.OPENAI_API_KEY = opengatewayApiKey
       }
@@ -501,11 +575,11 @@ export function applyProviderFlag(
 
     case 'nearai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
+      applyOpenAIModelDefault(
+        defaultModel,
+        applyOpenAIBaseUrlDefault(provider, defaultBaseUrl),
+        model,
+      )
       if (process.env.NEARAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
       } else {
@@ -515,12 +589,14 @@ export function applyProviderFlag(
 
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://api.x.ai/v1',
+      applyOpenAIModelDefault(
+        defaultModel ?? 'grok-4.3',
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://api.x.ai/v1',
+        ),
+        model,
       )
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
-      if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
       }
@@ -528,12 +604,14 @@ export function applyProviderFlag(
 
     case 'xiaomi-mimo':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1',
+      applyOpenAIModelDefault(
+        defaultModel ?? 'mimo-v2.5-pro',
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1',
+        ),
+        model,
       )
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
-      if (model) process.env.OPENAI_MODEL = model
       if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
       }
@@ -541,12 +619,14 @@ export function applyProviderFlag(
 
     case 'xiaomi-mimo-token':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://token-plan-sgp.xiaomimimo.com/v1',
+      applyOpenAIModelDefault(
+        defaultModel ?? 'mimo-v2.5-pro',
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://token-plan-sgp.xiaomimimo.com/v1',
+        ),
+        model,
       )
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
-      if (model) process.env.OPENAI_MODEL = model
       if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
       }
@@ -554,12 +634,14 @@ export function applyProviderFlag(
 
     case 'venice':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://api.venice.ai/api/v1',
+      applyOpenAIModelDefault(
+        defaultModel ?? 'venice-uncensored',
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://api.venice.ai/api/v1',
+        ),
+        model,
       )
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'venice-uncensored'
-      if (model) process.env.OPENAI_MODEL = model
       if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
       }
@@ -567,12 +649,14 @@ export function applyProviderFlag(
 
     case 'atlas-cloud':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://api.atlascloud.ai/v1',
+      applyOpenAIModelDefault(
+        defaultModel ?? 'deepseek-ai/deepseek-v4-pro',
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://api.atlascloud.ai/v1',
+        ),
+        model,
       )
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'deepseek-ai/deepseek-v4-pro'
-      if (model) process.env.OPENAI_MODEL = model
       // The dedicated key always wins so a lingering OPENAI_API_KEY from
       // another provider is never sent to Atlas Cloud; without it the
       // generic key is cleared for the same reason and validation reports
@@ -586,11 +670,11 @@ export function applyProviderFlag(
 
     case 'fireworks':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
+      applyOpenAIModelDefault(
+        defaultModel,
+        applyOpenAIBaseUrlDefault(provider, defaultBaseUrl),
+        model,
+      )
       if (process.env.FIREWORKS_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
       } else {
@@ -603,11 +687,11 @@ export function applyProviderFlag(
       // applyOpenAIBaseUrlDefault skips unresolved `<...>` placeholder
       // endpoints (the Cloudflare default carries `<ACCOUNT_ID>`), so the
       // user must export a real account-scoped base URL.
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
+      applyOpenAIModelDefault(
+        defaultModel,
+        applyOpenAIBaseUrlDefault(provider, defaultBaseUrl),
+        model,
+      )
       // The Cloudflare transport reads the generic OpenAI-compatible auth
       // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same way
       // nearai/fireworks mirror their dedicated keys. Gate it on the configured
@@ -638,11 +722,11 @@ export function applyProviderFlag(
 
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
+      applyOpenAIModelDefault(
+        defaultModel,
+        applyOpenAIBaseUrlDefault(provider, defaultBaseUrl),
+        model,
+      )
       break
   }
 

@@ -9,6 +9,7 @@ import {
   isCloudflareBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
+  resolveLocalCompatibleRouteIdFromBaseUrl,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
@@ -121,6 +122,37 @@ test('resolveRouteIdFromBaseUrl preserves custom URLs that resemble local routes
     null,
   )
   expect(resolveRouteIdFromBaseUrl('https://localhost:11434/v1')).toBe(null)
+})
+
+test('remote Ollama-compatible URLs keep Ollama route identity for runtime decisions', () => {
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl('http://203.0.113.5:11434/v1'),
+  ).toBe('ollama')
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'http://my-ollama-server.example.com:11434/v1',
+    ),
+  ).toBe('ollama')
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'https://ollama.corp.example.com/v1',
+    ),
+  ).toBe('ollama')
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl('https://myollama.example.com/v1'),
+  ).toBe(null)
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'https://proxy.example.com:11434/v1',
+    ),
+  ).toBe(null)
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://ollama.corp.example.com/v1',
+    }),
+  ).toBe('ollama')
 })
 
 test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback for openai-compatible routes', () => {

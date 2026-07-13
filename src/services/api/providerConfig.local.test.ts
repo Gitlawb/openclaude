@@ -170,6 +170,27 @@ test('uses responses transport when OpenAI-compatible API format requests respon
   })
 })
 
+test.each([
+  'http://203.0.113.5:11434/v1',
+  'http://my-ollama-server.example.com:11434/v1',
+  'https://ollama.corp.example.com/v1',
+])(
+  'keeps remote Ollama endpoint %s on chat completions when API format is set',
+  baseUrl => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = baseUrl
+    process.env.OPENAI_MODEL = 'llama3.1:8b'
+    process.env.OPENAI_API_FORMAT = 'responses'
+
+    expect(resolveProviderRequest()).toMatchObject({
+      transport: 'chat_completions',
+      requestedModel: 'llama3.1:8b',
+      resolvedModel: 'llama3.1:8b',
+      baseUrl,
+    })
+  },
+)
+
 test('uses responses transport for Hicap gpt-5.5 models when requested', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'

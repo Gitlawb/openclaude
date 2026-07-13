@@ -752,6 +752,47 @@ describe('applyProviderProfileToProcessEnv', () => {
     }
   })
 
+  test.each([
+    'http://203.0.113.5:11434/v1',
+    'http://my-ollama-server.example.com:11434/v1',
+    'https://ollama.corp.example.com/v1',
+  ])(
+    'remote Ollama profile %s applies auth headers without API-format selection',
+    async baseUrl => {
+      const { applyProviderProfileToProcessEnv } =
+        await importFreshProviderProfileModules()
+
+      applyProviderProfileToProcessEnv(
+        buildProfile({
+          name: 'Remote Ollama',
+          provider: 'openai',
+          baseUrl,
+          model: 'llama3.1:8b',
+          apiFormat: 'responses',
+          authHeader: 'X-API-Key',
+          authScheme: 'raw',
+          authHeaderValue: 'remote-ollama-secret',
+        }),
+      )
+
+      const { resolveProviderRequest } = await import(
+        `../services/api/providerConfig.ts?ts=${Date.now()}-${Math.random()}`
+      )
+
+      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+      expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+      expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+      expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+        'remote-ollama-secret',
+      )
+      expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+      expect(resolveProviderRequest()).toMatchObject({
+        transport: 'chat_completions',
+        baseUrl,
+      })
+    },
+  )
+
   test('minimax profile ignores advanced OpenAI-compatible auth settings', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

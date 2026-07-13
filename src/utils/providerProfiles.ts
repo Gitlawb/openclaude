@@ -42,6 +42,7 @@ import {
   routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
   resolveProfileRoute,
+  resolveLocalCompatibleRouteIdFromBaseUrl,
   resolveRouteIdFromBaseUrl,
   type ResolvedProfileRoute,
   type ProviderPreset,
@@ -217,7 +218,7 @@ function resolveProfileCapabilityRouteId(
     return providerRouteId
   }
 
-  const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
+  const routeIdFromBaseUrl = resolveLocalCompatibleRouteIdFromBaseUrl(baseUrl)
   if (routeIdFromBaseUrl) {
     return routeIdFromBaseUrl
   }

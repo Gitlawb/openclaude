@@ -958,8 +958,10 @@ export function resolveProviderRequest(options?: {
           model: resolvedModel,
           treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
         })
+  const runtimeRouteIsLocal =
+    runtimeShimContext?.descriptor?.transportConfig.kind === 'local'
   const explicitApiFormat =
-    isGithubMode
+    isGithubMode || runtimeRouteIsLocal
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(processEnv.OPENAI_API_FORMAT)

@@ -21,6 +21,7 @@ import {
   getRouteDescriptor,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
+  resolveLocalCompatibleRouteIdFromBaseUrl,
   resolveRouteIdFromBaseUrl,
   type RouteDescriptor,
 } from './routeMetadata.js'
@@ -269,7 +270,9 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     activeProfileProvider: options?.activeProfileProvider,
     activeProfileBaseUrl: options?.baseUrl,
   })
-  const baseUrlRouteId = resolveRouteIdFromBaseUrl(options?.baseUrl)
+  const baseUrlRouteId = resolveLocalCompatibleRouteIdFromBaseUrl(
+    options?.baseUrl,
+  )
   const routeId =
     options?.preferBaseUrlRoute && options.baseUrl !== undefined
       ? baseUrlRouteId

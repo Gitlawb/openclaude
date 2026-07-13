@@ -136,6 +136,49 @@ function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
   return null
 }
 
+function hostnameContainsRouteToken(hostname: string, token: string): boolean {
+  return hostname
+    .split('.')
+    .some(label => label.split(/[-_]+/).includes(token))
+}
+
+function resolveRemoteOllamaRouteIdFromBaseUrl(baseUrl?: string): string | null {
+  if (!baseUrl) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(baseUrl)
+    const hostname = parsed.hostname.toLowerCase()
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+
+    if (parsed.protocol === 'http:' && parsed.port === '11434') {
+      return 'ollama'
+    }
+
+    if (hostnameContainsRouteToken(hostname, 'ollama')) {
+      return 'ollama'
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+export function resolveLocalCompatibleRouteIdFromBaseUrl(
+  baseUrl?: string,
+): string | null {
+  return (
+    resolveRouteIdFromBaseUrl(baseUrl) ??
+    resolveKnownLocalRouteIdFromBaseUrl(baseUrl) ??
+    resolveRemoteOllamaRouteIdFromBaseUrl(baseUrl)
+  )
+}
+
 export function getRouteDescriptor(
   routeId: string,
 ): RouteDescriptor | null {
@@ -1041,7 +1084,7 @@ export function resolveActiveRouteIdFromEnv(
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
     const baseUrl =
       processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
-    const matchedRoute = resolveRouteIdFromBaseUrl(baseUrl)
+    const matchedRoute = resolveLocalCompatibleRouteIdFromBaseUrl(baseUrl)
 
     if (matchedRoute) {
       return matchedRoute
@@ -1062,7 +1105,7 @@ export function resolveActiveRouteIdFromEnv(
       }
       // A custom/unknown profile may still target a known gateway via its
       // saved base URL; prefer that route over the generic openai/custom path.
-      const profileBaseUrlRoute = resolveRouteIdFromBaseUrl(
+      const profileBaseUrlRoute = resolveLocalCompatibleRouteIdFromBaseUrl(
         options.activeProfileBaseUrl,
       )
       if (profileBaseUrlRoute) {
@@ -1097,7 +1140,7 @@ export function resolveActiveRouteIdFromEnv(
     }
     // A custom/unknown profile may still target a known gateway via its
     // saved base URL; prefer that route over the generic anthropic fallback.
-    const profileBaseUrlRoute = resolveRouteIdFromBaseUrl(
+    const profileBaseUrlRoute = resolveLocalCompatibleRouteIdFromBaseUrl(
       options.activeProfileBaseUrl,
     )
     if (profileBaseUrlRoute) {
