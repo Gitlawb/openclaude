@@ -74,7 +74,7 @@ describe('startSpeculation', () => {
         abortController: new AbortController(),
         getAppState: () => appState,
       } as unknown as ToolUseContext,
-    } as REPLHookContext
+    } as unknown as REPLHookContext
     capturedDecision = undefined
 
     try {
