@@ -74,6 +74,7 @@ import {
   startRelevantMemoryPrefetch,
 } from './utils/attachments.js'
 import {
+  getMaxActiveMessagesHardCap,
   isAboveMaxActiveMessagesLimit,
   resolveMaxActiveMessagesLimit,
 } from './utils/maxActiveMessages.js'
@@ -815,16 +816,18 @@ async function* queryLoop(
       querySource !== 'compact' && querySource !== 'session_memory'
     const activeMessageLimit = canForceCompact
       ? resolveMaxActiveMessagesLimit(
-          maxMessagesCompactionThreshold,
+          configuredMaxMessagesCompactionThreshold,
           process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
         )
       : 0
     if (canForceCompact) {
       if (
-        isAboveMaxActiveMessagesLimit(
-          messagesForQuery.length,
-          activeMessageLimit,
-        )
+        isAboveMaxActiveMessagesLimit(messagesForQuery.length, activeMessageLimit) &&
+        (isAutoCompactEnabled() ||
+          isAboveMaxActiveMessagesLimit(
+            messagesForQuery.length,
+            getMaxActiveMessagesHardCap(),
+          ))
       ) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),

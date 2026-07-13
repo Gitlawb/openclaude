@@ -672,14 +672,14 @@ compaction via the in-app `/config` command:
 /config
 ```
 
-Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
-or `1000`). Setting it to `off` (default) leaves only the built-in hard cap.
+Message-count compaction defaults to `200` messages. Select
+**Message-count compaction** to choose a different threshold (`100`, `500`, or
+`1000`), or set it to `off` to disable this proactive guard and leave only the
+built-in hard cap.
 
-This setting is intended for power users debugging specific edge cases. Most
-users should leave it at `off`.
-
-The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
-honored when the setting is `off`. `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`
+The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is honored
+when the setting is unset or `off`; when both it and an explicit setting are
+present, the explicit setting takes precedence. `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`
 can override the safety cap; set it to `0` only for diagnostics.
 
 ### Long-session memory guard validation

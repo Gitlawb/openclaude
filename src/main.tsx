@@ -853,6 +853,10 @@ async function getInputPrompt(prompt: string, inputFormat: 'text' | 'stream-json
   }
   return prompt;
 }
+// Default per-prompt turn cap for the interactive REPL main thread. Headless
+// and SDK callers keep their existing explicit maxTurns contracts.
+const DEFAULT_REPL_MAX_TURNS = 50
+
 async function run(): Promise<CommanderCommand> {
   profileCheckpoint('run_function_start');
 
@@ -2789,10 +2793,9 @@ async function run(): Promise<CommanderCommand> {
       }
       logSessionTelemetry();
       profileCheckpoint('before_print_import');
-       const {
-         runHeadless,
-         DEFAULT_REPL_MAX_TURNS,
-       } = await import('src/cli/print.js');
+      const {
+        runHeadless
+      } = await import('src/cli/print.js');
       profileCheckpoint('after_print_import');
       void runHeadless(inputPrompt, () => headlessStore.getState(), headlessStore.setState, commandsHeadless, tools, sdkMcpConfigs, agentDefinitions.activeAgents, {
         continue: options.continue,
@@ -2804,14 +2807,7 @@ async function run(): Promise<CommanderCommand> {
         permissionPromptToolName: options.permissionPromptTool,
         allowedTools,
         thinkingConfig,
-        // Cap the interactive REPL main thread at a bounded default number of
-        // turns per prompt so a single prompt cannot spin indefinitely in the
-        // while(true) tool-use loop (issue #1949). Headless/print mode (where
-        // inputPrompt is provided) keeps the previous behavior where only the
-        // --max-turns flag bounds it. The SDK API contract is unchanged.
-        maxTurns:
-          options.maxTurns ??
-          (inputPrompt ? undefined : DEFAULT_REPL_MAX_TURNS),
+        maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
         taskBudget: options.taskBudget ? {
           total: options.taskBudget
@@ -3053,7 +3049,8 @@ async function run(): Promise<CommanderCommand> {
       strictMcpConfig,
       systemPrompt,
       appendSystemPrompt,
-      thinkingConfig
+      thinkingConfig,
+      maxTurns: DEFAULT_REPL_MAX_TURNS,
     };
 
     // Shared context for processResumedConversation calls

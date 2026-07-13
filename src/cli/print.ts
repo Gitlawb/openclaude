@@ -480,15 +480,6 @@ export function canBatchWith(
   )
 }
 
-// Default per-prompt turn cap for the interactive REPL main thread.
-// Without a hard cap the while(true) tool-use loop in query.ts can spin for
-// dozens of sequential tool round-trips within a single prompt, each appending
-// tool_use/tool_result pairs and re-issuing a full-context API call — producing
-// the non-linear latency growth described in issue #1949. The --max-turns flag
-// still overrides this for headless/print mode; the SDK API contract is
-// unchanged (SDK callers pass their own maxTurns).
-export const DEFAULT_REPL_MAX_TURNS = 50
-
 export async function runHeadless(
   inputPrompt: string | AsyncIterable<string>,
   getAppState: () => AppState,

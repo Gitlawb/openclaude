@@ -243,6 +243,16 @@ describe('getAutoCompactThreshold', () => {
       restoreEnv()
     }
   })
+
+  test('keeps the floor buffer for constrained context windows', async () => {
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '30000'
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000'
+    const { getAutoCompactThreshold } = await importAutoCompact()
+
+    // The effective window is floor-raised to 33k in this configuration.
+    // Selecting the 30k buffer here would compact after only 3k tokens.
+    expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(20_000)
+  })
 })
 
 describe('getAutoCompactFailureCooldownMs', () => {

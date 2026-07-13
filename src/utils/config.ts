@@ -681,7 +681,7 @@ export type GlobalConfig = {
   logoColor?: string
 
   // Message-count-based compaction threshold. Set via /config.
-  // 'off' = disabled (default). Otherwise, one of '100', '200', '500', '1000'.
+  // 'off' = disabled. Otherwise, one of '100', '200', '500', '1000'.
   // When enabled, triggers forced compaction if the message count exceeds the
   // chosen threshold, regardless of token usage.
   maxMessagesCompactionThreshold?: MaxMessagesCompactionThreshold

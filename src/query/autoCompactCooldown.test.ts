@@ -368,6 +368,17 @@ test('default active-message hard cap forces compaction', async () => {
   expect(seenTracking[0]?.forceReason).toBe('message-count')
 })
 
+test('disabled auto-compact leaves the default message threshold inactive', async () => {
+  process.env.DISABLE_AUTO_COMPACT = '1'
+
+  const { terminal, callModel, seenTracking } =
+    await runMessageCountHardCapQuery(manySmallMessages(201))
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(seenTracking[0]?.forceReason).toBeUndefined()
+})
+
 test('long-session smoke keeps repeated over-cap turns bounded before provider calls', async () => {
   const seenProviderMessageCounts: number[] = []
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []

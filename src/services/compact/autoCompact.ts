@@ -187,13 +187,13 @@ export function resolveAutoCompactCircuitBreakerState(args: {
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
-  // Use the larger 30k buffer (issue #1949) when the context is big enough to
-  // afford it, so auto-compact fires earlier. For small-context models the 30k
-  // buffer would make the threshold negative — firing auto-compact on every
-  // message (issue #635) — so fall back to the 13k floor buffer there, keeping
-  // the pre-#1949 behavior.
+  // Use the larger 30k buffer (issue #1949) only when it still leaves the
+  // previous 13k usable threshold. getEffectiveContextWindowSize() can be
+  // floor-raised for small contexts, so checking only for a non-negative
+  // threshold would otherwise compact after just a few thousand tokens.
   const buffer =
-    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS >= 0
+    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS >=
+    AUTOCOMPACT_FLOOR_BUFFER_TOKENS
       ? AUTOCOMPACT_BUFFER_TOKENS
       : AUTOCOMPACT_FLOOR_BUFFER_TOKENS
   const autocompactThreshold = effectiveContextWindow - buffer
