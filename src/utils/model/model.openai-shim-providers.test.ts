@@ -37,6 +37,8 @@ async function importFreshModelModule() {
       return 'firstParty'
     },
     isFirstPartyAnthropicBaseUrl: () => !process.env.ANTHROPIC_BASE_URL,
+    isFirstPartyAnthropicProvider: () => !process.env.ANTHROPIC_BASE_URL,
+    isCustomAnthropicProvider: () => !!process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
     isModelAllowed: () => true,
