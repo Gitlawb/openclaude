@@ -71,6 +71,7 @@ describe('REPL query lifecycle timeout logging', () => {
     })!
     tracker.bindModelTurn({
       shouldQuery: false,
+      isInterruptionCorrectionEligible: true,
       queryId: localCommand.context.queryId,
     })
     tracker.handleCancellation({
@@ -87,6 +88,7 @@ describe('REPL query lifecycle timeout logging', () => {
     })!
     tracker.bindModelTurn({
       shouldQuery: true,
+      isInterruptionCorrectionEligible: true,
       queryId: modelTurn.context.queryId,
     })
     tracker.handleCancellation({
@@ -108,6 +110,7 @@ describe('REPL query lifecycle timeout logging', () => {
     })!
     tracker.bindModelTurn({
       shouldQuery: true,
+      isInterruptionCorrectionEligible: true,
       queryId: sessionScopedTurn.context.queryId,
     })
     tracker.handleCancellation({
@@ -141,6 +144,7 @@ describe('REPL query lifecycle timeout logging', () => {
     })
     const turn = tracker.runModelTurn({
       shouldQuery: true,
+      isInterruptionCorrectionEligible: true,
       queryId: modelTurn.context.queryId,
       run: async () => {
         signalPreQueryStarted()
@@ -161,5 +165,33 @@ describe('REPL query lifecycle timeout logging', () => {
       type: 'user',
       isMeta: true,
     })
+  })
+
+  test('does not arm when the model turn is marked ineligible', async () => {
+    const queryGuard = new QueryGuard()
+    const tracker = new InterruptionCorrectionTracker(
+      queryGuard,
+      () => 'session-a',
+    )
+    const modelTurn = queryGuard.tryStart({
+      queryId: 'remote-origin-turn',
+      querySource: 'repl_main_thread',
+      startedAt: 1,
+    })!
+
+    await tracker.runModelTurn({
+      shouldQuery: true,
+      isInterruptionCorrectionEligible: false,
+      queryId: modelTurn.context.queryId,
+      run: async () => {
+        tracker.handleCancellation({
+          isUserInitiated: true,
+          isRemoteMode: false,
+        })
+        queryGuard.forceEnd('user-abort', 'user-cancel')
+      },
+    })
+
+    expect(tracker.takeReminder()).toBeNull()
   })
 })

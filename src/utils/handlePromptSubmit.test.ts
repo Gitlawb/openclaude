@@ -223,6 +223,105 @@ describe('handlePromptSubmit', () => {
     }
   })
 
+  it('marks only normal local prompts as correction-eligible model turns', async () => {
+    mock.module('./processUserInput/processUserInput.js', () => ({
+      processUserInput: async ({ input }: { input: string }) => ({
+        messages: [createUserMessage({ content: input })],
+        shouldQuery: true,
+      }),
+    }))
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+
+    const correctionEligibility: unknown[] = []
+    const baseParams = {
+      helpers: {
+        setCursorOffset: () => {},
+        clearBuffer: () => {},
+        resetHistory: () => {},
+      },
+      onInputChange: () => {},
+      setPastedContents: () => {},
+      queryGuard: {
+        isActive: false,
+        reserve: () => true,
+        cancelReservation: () => {},
+      } as never,
+      isExternalLoading: false,
+      commands: [],
+      messages: [],
+      mainLoopModel: 'sonnet',
+      ideSelection: undefined,
+      querySource: 'repl' as never,
+      setToolJSX: () => {},
+      getToolUseContext: () => ({}) as never,
+      setUserInputOnProcessing: () => {},
+      setAbortController: () => {},
+      onQuery: async (
+        _newMessages: unknown,
+        _abortController: unknown,
+        _shouldQuery: unknown,
+        _allowedTools: unknown,
+        _mainLoopModel: unknown,
+        _onBeforeQuery: unknown,
+        _input: unknown,
+        _effort: unknown,
+        isInterruptionCorrectionEligible: unknown,
+      ) => {
+        correctionEligibility.push(isInterruptionCorrectionEligible)
+      },
+      setAppState: () => ({}) as never,
+    }
+
+    await handlePromptSubmit({
+      ...baseParams,
+      queuedCommands: [
+        {
+          value: 'local prompt',
+          preExpansionValue: 'local prompt',
+          mode: 'prompt',
+        },
+      ],
+    } as never)
+    await handlePromptSubmit({
+      ...baseParams,
+      queuedCommands: [
+        {
+          value: 'remote prompt',
+          preExpansionValue: 'remote prompt',
+          mode: 'prompt',
+          bridgeOrigin: true,
+          skipSlashCommands: true,
+        },
+      ],
+    } as never)
+    await handlePromptSubmit({
+      ...baseParams,
+      queuedCommands: [
+        {
+          value: 'local prompt',
+          preExpansionValue: 'local prompt',
+          mode: 'prompt',
+        },
+        {
+          value: 'remote prompt',
+          preExpansionValue: 'remote prompt',
+          mode: 'prompt',
+          bridgeOrigin: true,
+          skipSlashCommands: true,
+        },
+      ],
+    } as never)
+    await handlePromptSubmit({
+      ...baseParams,
+      input: 'programmatic initial prompt',
+      mode: 'prompt',
+      pastedContents: {},
+      allowInterruptionCorrection: false,
+    } as never)
+
+    expect(correctionEligibility).toEqual([true, false, false, false])
+  })
+
   it('queues prompt submissions during generation without interrupting the current turn', async () => {
     const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
 
