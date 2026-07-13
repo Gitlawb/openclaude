@@ -52,27 +52,39 @@ export class InterruptionCorrectionTracker {
 
   bindModelTurn({
     shouldQuery,
+    isInterruptionCorrectionEligible,
     queryId,
   }: {
     shouldQuery: boolean
+    isInterruptionCorrectionEligible: boolean
     queryId: string
   }): void {
     const activeQueryId = this.queryGuard.activeContext?.queryId ?? null
-    if (shouldQuery && activeQueryId === queryId) {
+    if (
+      shouldQuery &&
+      isInterruptionCorrectionEligible &&
+      activeQueryId === queryId
+    ) {
       this.modelBoundQueryId = queryId
     }
   }
 
   async runModelTurn({
     shouldQuery,
+    isInterruptionCorrectionEligible,
     queryId,
     run,
   }: {
     shouldQuery: boolean
+    isInterruptionCorrectionEligible: boolean
     queryId: string
     run: () => Promise<void>
   }): Promise<void> {
-    this.bindModelTurn({ shouldQuery, queryId })
+    this.bindModelTurn({
+      shouldQuery,
+      isInterruptionCorrectionEligible,
+      queryId,
+    })
     try {
       await run()
     } finally {

@@ -53,7 +53,8 @@ export function isNormalLocalUserPrompt(command: QueuedCommand): boolean {
     command.origin === undefined &&
     command.slashCommandOverride === undefined &&
     command.workload === undefined &&
-    command.agentId === undefined
+    command.agentId === undefined &&
+    command.allowInterruptionCorrection !== false
   )
 }
 
@@ -90,6 +91,7 @@ type BaseExecutionParams = {
     onBeforeQuery?: (input: string, newMessages: Message[]) => Promise<boolean>,
     input?: string,
     effort?: EffortValue,
+    isInterruptionCorrectionEligible?: boolean,
     // Return false when the query guard declines ownership before a turn starts.
   ) => Promise<void | false>
   setAppState: (updater: (prev: AppState) => AppState) => void
@@ -139,6 +141,7 @@ export type HandlePromptSubmitParams = BaseExecutionParams & {
    */
   skipSlashCommands?: boolean
   slashCommandOverride?: Command
+  allowInterruptionCorrection?: boolean
 }
 
 export async function handlePromptSubmit(
@@ -167,6 +170,7 @@ export async function handlePromptSubmit(
     uuid,
     skipSlashCommands,
     slashCommandOverride,
+    allowInterruptionCorrection,
   } = params
 
   const { setCursorOffset, clearBuffer, resetHistory } = helpers
@@ -368,6 +372,7 @@ export async function handlePromptSubmit(
       pastedContents: hasImages ? pastedContents : undefined,
       skipSlashCommands,
       slashCommandOverride,
+      allowInterruptionCorrection,
       uuid,
     })
 
@@ -392,6 +397,7 @@ export async function handlePromptSubmit(
     pastedContents: hasImages ? pastedContents : undefined,
     skipSlashCommands,
     slashCommandOverride,
+    allowInterruptionCorrection,
     uuid,
   }
 
@@ -610,6 +616,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           shouldCallBeforeQuery ? onBeforeQuery : undefined,
           primaryInput,
           effort,
+          // Fail closed for mixed-provenance batches: only an entirely local
+          // human turn may arm interruption-correction context.
+          commands.length > 0 && commands.every(isNormalLocalUserPrompt),
         )
         if (queryOwnershipResult === false) {
           queryProfileOwnedByOnQuery = false

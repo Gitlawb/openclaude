@@ -3094,8 +3094,8 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
-  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void | false> => {
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
+  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
       const teamName = getTeamName();
@@ -3164,6 +3164,7 @@ export function REPL({
 
       await interruptionCorrectionTracker.runModelTurn({
         shouldQuery,
+        isInterruptionCorrectionEligible,
         queryId: queryContext.queryId,
         run: async () => {
           // messagesRef is updated synchronously by the setMessages wrapper
@@ -3432,6 +3433,8 @@ export function REPL({
           setCursorOffset: () => { },
           clearBuffer: () => { },
           resetHistory: () => { }
+        }, undefined, {
+          allowInterruptionCorrection: false
         });
       } else {
         // Plan messages or complex content (images, etc.) - send directly to model
@@ -3460,6 +3463,7 @@ export function REPL({
   }, options?: {
     fromKeybinding?: boolean;
     slashCommandOverride?: Command;
+    allowInterruptionCorrection?: boolean;
   }) => {
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
@@ -3835,6 +3839,7 @@ export function REPL({
       addNotification,
       setMessages,
       slashCommandOverride: options?.slashCommandOverride,
+      allowInterruptionCorrection: options?.allowInterruptionCorrection,
       takeInterruptionCorrectionReminder,
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
