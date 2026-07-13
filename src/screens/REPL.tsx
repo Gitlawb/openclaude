@@ -3152,34 +3152,34 @@ export function REPL({
       lastFlushedStreamingVisibleRef.current = null;
       setStreamingText(null);
 
-      // messagesRef is updated synchronously by the setMessages wrapper
-      // above, so it already includes newMessages from the append at the
-      // top of this try block.  No reconstruction needed, no waiting for
-      // React's scheduler (previously cost 20-56ms per prompt; the 56ms
-      // case was a GC pause caught during the await).
-      const latestMessages = messagesRef.current;
-      if (input) {
-        await mrOnBeforeQuery(input, latestMessages, newMessages.length);
-      }
-
-      // Pass full conversation history to callback
-      if (onBeforeQueryCallback && input) {
-        const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
-        if (!shouldProceed) {
-          return;
-        }
-      }
-      interruptionCorrectionTracker.bindModelTurn({
+      await interruptionCorrectionTracker.runModelTurn({
         shouldQuery,
-        isAborted: abortController.signal.aborted,
-        queryId: queryContext.queryId
+        queryId: queryContext.queryId,
+        run: async () => {
+          // messagesRef is updated synchronously by the setMessages wrapper
+          // above, so it already includes newMessages from the append at the
+          // top of this try block.  No reconstruction needed, no waiting for
+          // React's scheduler (previously cost 20-56ms per prompt; the 56ms
+          // case was a GC pause caught during the await).
+          const latestMessages = messagesRef.current;
+          if (input) {
+            await mrOnBeforeQuery(input, latestMessages, newMessages.length);
+          }
+
+          // Pass full conversation history to callback
+          if (onBeforeQueryCallback && input) {
+            const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
+            if (!shouldProceed) {
+              return;
+            }
+          }
+          await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
+        }
       });
-      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
     } catch (error) {
       didThrow = true;
       throw error;
     } finally {
-      interruptionCorrectionTracker.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();

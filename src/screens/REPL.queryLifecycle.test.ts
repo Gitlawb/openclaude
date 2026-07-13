@@ -24,17 +24,6 @@ function getQueryFinallyBody(): string {
   return source.slice(finallyStart, finallyEnd)
 }
 
-function getOnCancelBody(): string {
-  const start = source.indexOf('function onCancel(')
-  expect(start).toBeGreaterThan(-1)
-  const end = source.indexOf(
-    'const handleQueuedCommandOnCancel = useCallback',
-    start,
-  )
-  expect(end).toBeGreaterThan(start)
-  return source.slice(start, end)
-}
-
 describe('REPL query lifecycle timeout logging', () => {
   test('constructs QueryGuard with resolved hard max config', () => {
     expect(source).toContain(
@@ -67,48 +56,6 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(body).toContain('logCompletedLifecycle(guardCompletedContext)')
   })
 
-  test('wires the correction tracker to local model-turn cancellation', () => {
-    expect(source).toContain(
-      'const interruptionCorrectionTrackerRef = useRef<InterruptionCorrectionTracker | null>(null)',
-    )
-    expect(source).toContain(
-      'new InterruptionCorrectionTracker(queryGuard, getSessionId)',
-    )
-
-    const onCancelBody = getOnCancelBody()
-    expect(onCancelBody).toContain('.handleCancellation({')
-    expect(onCancelBody).toContain('isUserInitiated')
-    expect(onCancelBody).toContain('activeRemote.isRemoteMode')
-    expect(source).toContain('onCancel: () => onCancel(true)')
-
-    const reminderHookOccurrences =
-      source.match(/takeInterruptionCorrectionReminder/g)?.length ?? 0
-    expect(reminderHookOccurrences).toBeGreaterThanOrEqual(3)
-  })
-
-  test('marks model ownership only after pre-query callbacks approve', () => {
-    const onQueryStart = source.indexOf('const onQuery = useCallback')
-    const approvalIndex = source.indexOf(
-      'const shouldProceed = await onBeforeQueryCallback',
-      onQueryStart,
-    )
-    const ownershipIndex = source.indexOf(
-      'interruptionCorrectionTracker.bindModelTurn({',
-      onQueryStart,
-    )
-    const modelExecutionIndex = source.indexOf(
-      'await onQueryImpl(',
-      onQueryStart,
-    )
-
-    expect(approvalIndex).toBeGreaterThan(onQueryStart)
-    expect(ownershipIndex).toBeGreaterThan(approvalIndex)
-    expect(modelExecutionIndex).toBeGreaterThan(ownershipIndex)
-    expect(source).toContain(
-      'interruptionCorrectionTracker.finishModelTurn(queryContext.queryId)',
-    )
-  })
-
   test('executes correction arming and consumption through QueryGuard', () => {
     const queryGuard = new QueryGuard()
     let sessionId = 'session-a'
@@ -124,7 +71,6 @@ describe('REPL query lifecycle timeout logging', () => {
     })!
     tracker.bindModelTurn({
       shouldQuery: false,
-      isAborted: false,
       queryId: localCommand.context.queryId,
     })
     tracker.handleCancellation({
@@ -141,7 +87,6 @@ describe('REPL query lifecycle timeout logging', () => {
     })!
     tracker.bindModelTurn({
       shouldQuery: true,
-      isAborted: false,
       queryId: modelTurn.context.queryId,
     })
     tracker.handleCancellation({
@@ -156,7 +101,65 @@ describe('REPL query lifecycle timeout logging', () => {
     })
     expect(tracker.takeReminder()).toBeNull()
 
+    const sessionScopedTurn = queryGuard.tryStart({
+      queryId: 'session-scoped-turn',
+      querySource: 'repl_main_thread',
+      startedAt: 3,
+    })!
+    tracker.bindModelTurn({
+      shouldQuery: true,
+      queryId: sessionScopedTurn.context.queryId,
+    })
+    tracker.handleCancellation({
+      isUserInitiated: true,
+      isRemoteMode: false,
+    })
+    queryGuard.forceEnd('user-abort', 'user-cancel')
+
     sessionId = 'session-b'
     expect(tracker.takeReminder()).toBeNull()
+  })
+
+  test('arms when the user cancels during pre-query work', async () => {
+    const queryGuard = new QueryGuard()
+    const tracker = new InterruptionCorrectionTracker(
+      queryGuard,
+      () => 'session-a',
+    )
+    const modelTurn = queryGuard.tryStart({
+      queryId: 'pre-query-turn',
+      querySource: 'repl_main_thread',
+      startedAt: 1,
+    })!
+    let releasePreQuery!: () => void
+    const preQueryPending = new Promise<void>(resolve => {
+      releasePreQuery = resolve
+    })
+    let signalPreQueryStarted!: () => void
+    const preQueryStarted = new Promise<void>(resolve => {
+      signalPreQueryStarted = resolve
+    })
+    const turn = tracker.runModelTurn({
+      shouldQuery: true,
+      queryId: modelTurn.context.queryId,
+      run: async () => {
+        signalPreQueryStarted()
+        await preQueryPending
+      },
+    })
+
+    await preQueryStarted
+    tracker.handleCancellation({
+      isUserInitiated: true,
+      isRemoteMode: false,
+    })
+    queryGuard.forceEnd('user-abort', 'user-cancel')
+    releasePreQuery()
+    await turn
+
+    expect(tracker.takeReminder()).toMatchObject({
+      type: 'user',
+      isMeta: true,
+    })
   })
 })
