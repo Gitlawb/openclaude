@@ -1,17 +1,25 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { extractFactsIntoMemdir } from './autoExtractFacts.js'
+import { setGovernancePolicySettingsForSourceForTesting } from '../utils/governancePolicy.js'
 
 describe('autoExtractFacts', () => {
   let memDir: string
 
   beforeEach(() => {
     memDir = mkdtempSync(join(tmpdir(), 'auto-extract-facts-test-'))
+    // Extraction respects the memory-write approval policy; tests opt in so
+    // facts are actually persisted.
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
   })
 
   afterEach(() => {
+    setGovernancePolicySettingsForSourceForTesting(null)
     rmSync(memDir, { recursive: true, force: true })
   })
 
@@ -157,4 +165,88 @@ describe('autoExtractFacts', () => {
     await extractFactsIntoMemdir('', memDir)
     expect(countFactFiles()).toBe(0)
   })
+
+  it('does not persist token-like URL path segments (P1#3)', async () => {
+    await extractFactsIntoMemdir(
+      'download from https://api.example.com/download/super-secret-access-token',
+      memDir,
+    )
+    const files = readdirSync(factsDir()).map(f => f.toLowerCase())
+    const endpoint = files.find(f => f.includes('example'))
+    expect(endpoint).toBeDefined()
+    const content = readFileSync(join(factsDir(), endpoint!), 'utf-8').toLowerCase()
+    // The opaque token path component must not be persisted.
+    expect(content).not.toContain('super-secret-access-token')
+    expect(content).toContain('api.example.com')
+  })
+
+  it('does not persist token-like hyphenated terms as concepts (P1#3)', async () => {
+    await extractFactsIntoMemdir('the value is super-secret-access-token here', memDir)
+    const dir = factsDir()
+    const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
+    expect(files.some(f => f.includes('super-secret-access-token'))).toBe(false)
+  })
+
+  it('extracts passive project rules (P2#7)', async () => {
+    await extractFactsIntoMemdir(
+      'Always use pnpm. Never commit secrets. Prefer SQLite WAL.',
+      memDir,
+    )
+    const files = readdirSync(factsDir()).map(f => f.toLowerCase())
+    expect(files.some(f => f.includes('rule'))).toBe(true)
+  })
+})
+
+describe('autoExtractFacts governance gate (P1#1, P2#6)', () => {
+  let memDir: string
+
+  beforeEach(() => {
+    memDir = mkdtempSync(join(tmpdir(), 'auto-extract-gate-test-'))
+    setGovernancePolicySettingsForSourceForTesting(null)
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+  })
+
+  afterEach(() => {
+    setGovernancePolicySettingsForSourceForTesting(null)
+    rmSync(memDir, { recursive: true, force: true })
+  })
+
+  it('does not write facts when memory-write approval is required', async () => {
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: true },
+    }))
+    const result = await extractFactsIntoMemdir('DATABASE_HOST=prod-db-1.internal', memDir)
+    expect(result).toBe(false)
+    expect(factCount()).toBe(0)
+  })
+
+  it('does not write facts when auto-memory is disabled', async () => {
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
+    process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
+    const result = await extractFactsIntoMemdir('we use React with Redux', memDir)
+    expect(result).toBe(false)
+    expect(factCount()).toBe(0)
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+  })
+
+  it('degrades non-fatally when the facts directory cannot be created (P2#6)', async () => {
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
+    // Pass a path that is an existing *file* so the .facts subdirectory cannot
+    // be created; the extractor must not throw (it would otherwise crash the
+    // turn before the model request) and must return false.
+    const fileDir = join(memDir, 'not-a-dir')
+    writeFileSync(fileDir, 'x')
+    const result = await extractFactsIntoMemdir('we use React with Redux', fileDir)
+    expect(result).toBe(false)
+  })
+
+  function factCount(): number {
+    const dir = join(memDir, '.facts')
+    if (!existsSync(dir)) return 0
+    return readdirSync(dir).filter(f => f.endsWith('.md')).length
+  }
 })

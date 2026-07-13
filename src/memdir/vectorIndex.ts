@@ -70,10 +70,12 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
         } catch { continue }
         count++
         totalSize += st.size
+        // Cheap, content-aware invalidation: a file's size + mtime change
+        // whenever its content changes, so we detect corpus changes without
+        // reading and hashing every file's bytes on each search turn. This
+        // keeps prompt dispatch proportional to directory metadata, not corpus
+        // size.
         hash.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
-        try {
-          hash.update(readFileSync(fullPath, 'utf-8'))
-        } catch { /* skip unreadable */ }
         if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs
       }
     }

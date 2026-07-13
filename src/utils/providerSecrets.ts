@@ -116,7 +116,7 @@ const SECRET_PREFIX_SUBSTRING_PATTERN =
 const JWT_SUBSTRING_PATTERN =
   /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
 
-function looksLikeSecretValue(value: string): boolean {
+export function looksLikeSecretValue(value: string): boolean {
   const trimmed = value.trim()
   if (!trimmed) return false
 

@@ -10,11 +10,12 @@
 import { readFileSync, existsSync, readdirSync, rmSync, mkdirSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { getAutoMemPath } from '../memdir/paths.js'
-import { initMemdirIndex, searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
+import { searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
 import { parseFrontmatter } from './frontmatterParser.js'
 import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
+import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import { createRequire } from 'module'
 const _require = createRequire(import.meta.url)
 
@@ -74,35 +75,15 @@ export function extractKeywords(text: string): string[] {
   return Array.from(new Set([...words, ...extraWords]))
 }
 
-function calculateBM25Score(
-  queryWords: string[],
-  summary: SemanticSummary,
-  allSummaries: SemanticSummary[],
-): number {
-  let totalScore = 0
-  const totalDocs = allSummaries.length || 1
+// Track migration completion per project. The legacy JSON/SQLite paths are
+// derived from the current project (cwd), so the guard must be scoped per
+// project — a single global flag would let a project without a legacy graph
+// suppress migration for all later projects in the same process.
+const legacyMigrationDoneProjects = new Set<string>()
 
-  for (const word of queryWords) {
-    const tf =
-      summary.keywords.filter(k => k === word).length ||
-      (summary.content.toLowerCase().includes(word) ? 1 : 0)
-
-    const docsWithWord =
-      allSummaries.filter(
-        s =>
-          s.keywords.includes(word) || s.content.toLowerCase().includes(word),
-      ).length || 1
-
-    const idf = Math.log(
-      (totalDocs - docsWithWord + 0.5) / (docsWithWord + 0.5) + 1,
-    )
-    totalScore += (idf * (tf * 2.2)) / (tf + 1.2)
-  }
-
-  return totalScore
+function currentProjectKey(): string {
+  return sanitizePath(getFsImplementation().cwd())
 }
-
-let legacyMigrationDone = false
 
 function slugify(text: string): string {
   return text
@@ -113,17 +94,24 @@ function slugify(text: string): string {
 }
 
 function getLegacyGraphPath(): string {
-  const cwd = getFsImplementation().cwd()
-  return join(getProjectsDir(), sanitizePath(cwd), 'knowledge_graph.json')
+  return join(getProjectsDir(), currentProjectKey(), 'knowledge_graph.json')
 }
 
 function getLegacySqlitePath(): string {
-  const cwd = getFsImplementation().cwd()
-  return join(getProjectsDir(), sanitizePath(cwd), 'knowledge.db')
+  return join(getProjectsDir(), currentProjectKey(), 'knowledge.db')
 }
 
 function migrateLegacyKnowledgeGraph(): void {
-  if (legacyMigrationDone) return
+  const projectKey = currentProjectKey()
+  if (legacyMigrationDoneProjects.has(projectKey)) return
+
+  // Honor the opt-out. A user who disabled auto-memory must not receive
+  // persistent memory writes from a status/list/read path. Migration writes
+  // to the memdir, so it is gated on the same auto-memory toggle.
+  if (!isAutoMemoryEnabled()) {
+    legacyMigrationDoneProjects.add(projectKey)
+    return
+  }
 
   const legacyPath = getLegacyGraphPath()
   const sqlitePath = getLegacySqlitePath()
@@ -148,17 +136,17 @@ function migrateLegacyKnowledgeGraph(): void {
       data = JSON.parse(readFileSync(legacyPath, 'utf-8'))
     } catch (e) {
       console.error('[knowledgeGraph] Legacy migration: cannot read legacy file, skipping:', e)
-      legacyMigrationDone = true
+      legacyMigrationDoneProjects.add(projectKey)
       return
     }
   }
 
   if (!data) {
-    legacyMigrationDone = true
+    legacyMigrationDoneProjects.add(projectKey)
     return
   }
 
-  doMigration(data, sourcePath)
+  doMigration(data, sourcePath, projectKey)
 }
 
 function readLegacySqliteStore(): any | null {
@@ -209,7 +197,7 @@ function readLegacySqliteStore(): any | null {
   }
 }
 
-function doMigration(data: any, sourcePath: string): void {
+function doMigration(data: any, sourcePath: string, projectKey: string): void {
   // Create a backup before any writes so data can be recovered.
   const backupPath = `${sourcePath}.backup-${Date.now()}`
   if (existsSync(sourcePath)) {
@@ -237,7 +225,7 @@ function doMigration(data: any, sourcePath: string): void {
     for (const entity of legacyEntities) {
       const slug = slugify(entity.name)
       const attrsYaml = Object.entries(entity.attributes ?? {})
-        .map(([k, v]) => `${k}: "${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+        .map(([k, v]) => `  ${k}: "${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
         .join('\n')
       const content = `---
 type: reference
@@ -288,18 +276,35 @@ ${rule}
       count++
     }
 
-    // Relations are not stored in the new memdir model. Log them for audit.
-    const relCount = (data.relations ?? []).length
-    if (relCount > 0) {
-      console.error(`[knowledgeGraph] Legacy migration: ${relCount} relations are not migrated (memdir stores entity-level facts only).`)
+    // Preserve legacy relations as a single relation-set fact so the graph's
+    // structure survives the migration (previously relations were silently
+    // dropped on read-back).
+    const relations: Relation[] = (data.relations ?? []).map((r: any) => ({
+      sourceId: String(r.sourceId ?? ''),
+      targetId: String(r.targetId ?? ''),
+      type: String(r.type ?? 'related'),
+    }))
+    if (relations.length > 0) {
+      const relContent = `---
+type: reference
+title: "Migrated Relations"
+description: "Legacy knowledge-graph relations"
+factType: relations
+source: legacy_migration
+relationCount: ${relations.length}
+---
+${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
+`
+      writeFileSync(join(factsDir, `fact-relations-migrated.md`), relContent, 'utf-8')
+      count++
     }
 
     // Guard is set only after all writes succeed.
-    legacyMigrationDone = true
+    legacyMigrationDoneProjects.add(projectKey)
     console.error(`[knowledgeGraph] Migrated ${count} items from legacy store. Backup saved at ${backupPath}`)
   } catch (e) {
     console.error('[knowledgeGraph] Legacy migration failed during write phase. Backup preserved at:', backupPath, e)
-    // Do NOT set legacyMigrationDone so migration is retried on next access.
+    // Do NOT set legacyMigrationDoneProjects so migration is retried on next access.
   }
 }
 
@@ -307,6 +312,9 @@ export function getGlobalGraph(): KnowledgeGraph {
   migrateLegacyKnowledgeGraph()
   const factsDir = getFactsDir()
   const entities: Record<string, Entity> = {}
+  const relations: Relation[] = []
+  const rules: string[] = []
+  const summaries: SemanticSummary[] = []
 
   if (factsDir && existsSync(factsDir)) {
     try {
@@ -318,16 +326,47 @@ export function getGlobalGraph(): KnowledgeGraph {
           const raw = readFileSync(filePath, 'utf-8')
           const parsed = parseFrontmatter(raw)
           const fm = parsed?.frontmatter
-          if (fm?.title && typeof fm.title === 'string') {
-            const id = `fact_${file}`
-            entities[id] = {
-              id,
-              type: typeof fm.factType === 'string' ? fm.factType : 'fact',
-              name: fm.title,
-              attributes: fm.description && typeof fm.description === 'string'
-                ? { description: fm.description }
-                : {},
+          if (!fm?.title || typeof fm.title !== 'string') continue
+          const factType = typeof fm.factType === 'string' ? fm.factType : 'fact'
+          const id = `fact_${file}`
+
+          if (factType === 'relations') {
+            // Restore migrated relations from the relation-set fact.
+            const relMatches = parsed.content.matchAll(/^(\S+)\s*=>\s*(.+?)\s*=>\s*(\S+)$/gm)
+            for (const m of relMatches) {
+              relations.push({ sourceId: m[1], targetId: m[3], type: m[2].trim() })
             }
+            continue
+          }
+
+          if (factType === 'rule') {
+            rules.push(fm.title)
+            continue
+          }
+
+          if (factType === 'summary') {
+            const keywords = typeof fm.keywords === 'string'
+              ? fm.keywords.split(',').map(k => k.trim()).filter(Boolean)
+              : []
+            summaries.push({ id, content: parsed.content.trim(), keywords, timestamp: Date.now() })
+          }
+
+          // Preserve the full attributes block (including migrated legacy
+          // attributes such as url/owner), not just the description.
+          const attrs: Record<string, string> = {}
+          if (fm.attributes && typeof fm.attributes === 'object') {
+            for (const [k, v] of Object.entries(fm.attributes)) {
+              attrs[k] = typeof v === 'string' ? v : String(v)
+            }
+          }
+          if (fm.description && typeof fm.description === 'string') {
+            attrs.description = fm.description
+          }
+          entities[id] = {
+            id,
+            type: factType,
+            name: fm.title,
+            attributes: attrs,
           }
         } catch {
           // skip
@@ -340,9 +379,9 @@ export function getGlobalGraph(): KnowledgeGraph {
 
   return {
     entities,
-    relations: [],
-    summaries: [],
-    rules: [],
+    relations,
+    summaries,
+    rules,
     lastUpdateTime: Date.now(),
   }
 }
@@ -377,7 +416,6 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
   if (!memDir || !query) return ''
 
   try {
-    await initMemdirIndex(memDir)
     const results = await searchMemdirIndex(query, memDir, 10)
 
     if (results.length > 0) {
@@ -449,9 +487,22 @@ export function resetGlobalGraph(): void {
       rmSync(sqlitePath, { force: true })
     } catch { /* ignore */ }
   }
+  // Legacy SQLite ran in WAL mode, so sensitive knowledge may remain in the
+  // -wal/-shm sidecar files after the main db is removed. Archive/remove them
+  // too, or /knowledge clear would report success while data persists.
+  for (const sidecar of ['-wal', '-shm']) {
+    const sidecarPath = `${sqlitePath}${sidecar}`
+    if (existsSync(sidecarPath)) {
+      try {
+        const archived = `${sidecarPath}.cleared-${Date.now()}`
+        writeFileSync(archived, readFileSync(sidecarPath))
+        rmSync(sidecarPath, { force: true })
+      } catch { /* ignore */ }
+    }
+  }
   // Reset the guard so that if the user re-enables the feature the cleared
   // state is authoritative — no remigration from deleted sources occurs.
-  legacyMigrationDone = false
+  legacyMigrationDoneProjects.delete(currentProjectKey())
   clearIndex()
 }
 
