@@ -34,4 +34,19 @@ describe('truncateEntrypointContent byte cap', () => {
     expect(result.content).toBe(raw)
     expect(result.byteCount).toBe(Buffer.byteLength(raw))
   })
+
+  test('hard byte cut does not split a multibyte character or exceed the cap', () => {
+    // A single 30KB line of CJK with no newline before the cap forces the hard
+    // byte-cut fallback. Cutting at byte 25000 lands mid-`一` (3 bytes each);
+    // decoding a split character yields U+FFFD and pushes the body back over
+    // the cap. The body before the warning must stay within the cap and hold no
+    // replacement chars.
+    const raw = '一'.repeat(10000) // 30,000 bytes, no newline
+    const result = truncateEntrypointContent(raw)
+
+    expect(result.wasByteTruncated).toBe(true)
+    const body = result.content.split('\n\n> WARNING:')[0]!
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_ENTRYPOINT_BYTES)
+    expect(body).not.toContain('�')
+  })
 })
