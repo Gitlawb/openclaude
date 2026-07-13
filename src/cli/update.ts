@@ -9,6 +9,7 @@ import { regenerateCompletionCache } from 'src/utils/completionCache.js'
 import {
   getGlobalConfig,
   type InstallMethod,
+  type ReleaseChannel,
   saveGlobalConfig,
 } from 'src/utils/config.js'
 import { logForDebugging } from 'src/utils/debug.js'
@@ -23,7 +24,14 @@ import {
   installLatest as installLatestNative,
   removeInstalledSymlink,
 } from 'src/utils/nativeInstaller/index.js'
-import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
+import {
+  getPackageManager,
+  type PackageManager,
+} from 'src/utils/nativeInstaller/packageManagers.js'
+import {
+  getPackageManagerUpdateGuidance,
+  type PackageManagerUpdateGuidance,
+} from 'src/utils/packageManagerUpdateGuidance.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
 import { shouldRemoveInstalledSymlinkForNpmUpdate } from 'src/utils/autoUpdaterRouting.js'
@@ -39,6 +47,42 @@ export function getGlobalUpdateFailureHint(
   return nativeDistributionAvailable
     ? 'Or consider using native installation with: openclaude install\n'
     : `Or update manually with:\n  npm install -g ${MACRO.PACKAGE_URL}@latest\n`
+}
+
+export async function writePackageManagerUpdateGuidance(
+  manager: PackageManager,
+  channel: ReleaseChannel,
+  deps: {
+    displayVersion?: string
+    getGuidance?: (manager: PackageManager) => PackageManagerUpdateGuidance
+    getLatestVersion?: (channel: ReleaseChannel) => Promise<string | null>
+    write?: (value: string) => void
+    bold?: (value: string) => string
+  } = {},
+): Promise<void> {
+  const guidance = (deps.getGuidance ?? getPackageManagerUpdateGuidance)(manager)
+  const displayVersion = deps.displayVersion ?? MACRO.DISPLAY_VERSION
+  const write = deps.write ?? writeToStdout
+  const bold = deps.bold ?? chalk.bold
+
+  write('\n')
+  write(`${guidance.message}\n`)
+
+  if (!guidance.managerName) {
+    return
+  }
+
+  const latest = await (deps.getLatestVersion ?? getLatestVersion)(channel)
+  if (latest && !gte(displayVersion, latest)) {
+    write(`Update available: ${displayVersion} → ${latest}\n`)
+    if (guidance.command) {
+      write('\n')
+      write('To update, run:\n')
+      write(bold(`  ${guidance.command}`) + '\n')
+    }
+  } else {
+    write('OpenClaude is up to date!\n')
+  }
 }
 
 export async function update() {
@@ -155,51 +199,7 @@ export async function update() {
   // Check if running from a package manager
   if (diagnostic.installationType === 'package-manager') {
     const packageManager = await getPackageManager()
-    writeToStdout('\n')
-
-    if (packageManager === 'homebrew') {
-      writeToStdout('Claude is managed by Homebrew.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else if (packageManager === 'winget') {
-      writeToStdout('Claude is managed by winget.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(
-          chalk.bold('  winget upgrade Anthropic.ClaudeCode') + '\n',
-        )
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else if (packageManager === 'apk') {
-      writeToStdout('Claude is managed by apk.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else {
-      // pacman, deb, and rpm don't get specific commands because they each have
-      // multiple frontends (pacman: yay/paru/makepkg, deb: apt/apt-get/aptitude/nala,
-      // rpm: dnf/yum/zypper)
-      writeToStdout('Claude is managed by a package manager.\n')
-      writeToStdout('Please use your package manager to update.\n')
-    }
-
+    await writePackageManagerUpdateGuidance(packageManager, channel)
     await gracefulShutdown(0)
   }
 

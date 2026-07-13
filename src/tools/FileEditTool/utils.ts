@@ -382,7 +382,11 @@ export function getSnippetForTwoFileDiff(
 
   const full = patch.hunks
     .map(_ => ({
-      startLine: _.oldStart,
+      // `content` below keeps the new-file lines (deletions are filtered out),
+      // so number them from the hunk's new-file start. Using `oldStart` mislabels
+      // every hunk after one that changed the line count, by the net line delta
+      // of the earlier hunks.
+      startLine: _.newStart,
       content: _.lines
         // Filter out deleted lines AND diff metadata lines
         .filter(_ => !_.startsWith('-') && !_.startsWith('\\'))

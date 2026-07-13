@@ -26,8 +26,19 @@ export type ToolFailureLoopGuardState = {
   pathCounts: Map<string, number>
 }
 
+type ToolFailureLoopGuardAdvisory = {
+  message: string
+  threshold: number
+  toolName: string
+  errorCategory: string
+}
+
 export type ToolFailureLoopGuardDecision =
-  | { tripped: false }
+  | { tripped: false; advisories?: undefined }
+  | {
+      tripped: false
+      advisories: ToolFailureLoopGuardAdvisory[]
+    }
   | {
       tripped: true
       message: string
@@ -122,6 +133,7 @@ export function updateToolFailureLoopGuard(params: {
     resetPersistentToolSignatures(params.state, toolName)
   }
 
+  const advisories: ToolFailureLoopGuardAdvisory[] = []
   for (const failure of failures) {
     const persistentSignatureCount = incrementCounter(
       params.state.persistentSignatureCounts,
@@ -142,6 +154,19 @@ export function updateToolFailureLoopGuard(params: {
           errorCategory: failure.errorCategory,
         }),
       }
+    }
+
+    if (threshold > 1 && persistentSignatureCount === threshold - 1) {
+      advisories.push({
+        threshold,
+        toolName: failure.toolName,
+        errorCategory: failure.errorCategory,
+        message: createAdvisoryMessage({
+          threshold,
+          toolName: failure.toolName,
+          errorCategory: failure.errorCategory,
+        }),
+      })
     }
   }
 
@@ -168,7 +193,9 @@ export function updateToolFailureLoopGuard(params: {
 
   if (hasSuccess) {
     resetToolFailureLoopGuard(params.state, successfulMutationPaths)
-    return { tripped: false }
+    return advisories.length > 0
+      ? { tripped: false, advisories }
+      : { tripped: false }
   }
 
   for (const failure of failures) {
@@ -211,7 +238,9 @@ export function updateToolFailureLoopGuard(params: {
     }
   }
 
-  return { tripped: false }
+  return advisories.length > 0
+    ? { tripped: false, advisories }
+    : { tripped: false }
 }
 
 type ToolResultBlockLike = {
@@ -437,11 +466,11 @@ function createTripMessage(
 ): string {
   let reason: string
   if (detail.kind === 'path') {
-    reason = `The path \`${detail.path}\` failed ${detail.threshold} times.`
+    reason = `The path \`${getTripPath(detail.path)}\` failed ${detail.threshold} times.`
   } else if (detail.kind === 'signature') {
-    reason = `\`${detail.toolName}\` failed ${detail.threshold} times with \`${detail.errorCategory}\`.`
+    reason = `\`${getAdvisoryToolName(detail.toolName)}\` failed ${detail.threshold} times with \`${getAdvisoryErrorCategory(detail.errorCategory)}\`.`
   } else {
-    reason = `Tool calls failed ${detail.threshold} times with \`${detail.errorCategory}\`.`
+    reason = `Tool calls failed ${detail.threshold} times with \`${getAdvisoryErrorCategory(detail.errorCategory)}\`.`
   }
 
   return [
@@ -449,4 +478,42 @@ function createTripMessage(
     '',
     `${reason} Please inspect permissions, path, or tool schema before retrying.`,
   ].join('\n')
+}
+
+function createAdvisoryMessage({
+  threshold,
+  toolName,
+  errorCategory,
+}: {
+  threshold: number
+  toolName: string
+  errorCategory: string
+}): string {
+  return [
+    'Warning: repeated tool failures are close to stopping this query.',
+    '',
+    `\`${getAdvisoryToolName(toolName)}\` failed ${threshold - 1}/${threshold} times with \`${getAdvisoryErrorCategory(errorCategory)}\`. ` +
+      'One more matching failure will stop the query. Try a different tool, or verify the path, permissions, and tool inputs before retrying.',
+  ].join('\n')
+}
+
+function getAdvisoryToolName(toolName: string): string {
+  return /^[A-Za-z0-9_.:-]+$/.test(toolName) ? toolName : 'unknown tool'
+}
+
+function getAdvisoryErrorCategory(errorCategory: string): string {
+  return [
+    'InputValidationError',
+    'NoSuchTool',
+    'PermissionError',
+    'NotFound',
+    'FileWriteError',
+  ].includes(errorCategory)
+    ? errorCategory
+    : 'unknown error'
+}
+
+function getTripPath(path: string): string {
+  const sanitized = path.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}`]/gu, '')
+  return sanitized === '' ? 'unknown path' : sanitized
 }
