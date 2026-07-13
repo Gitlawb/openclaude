@@ -681,11 +681,8 @@ describe('plan mode mechanical read-only policy', () => {
     expect(result.behavior).toBe('deny')
   })
 
-  test.each([
-    ['darwin', 'macOS'],
-    ['win32', 'Windows'],
-  ] as const)(
-    'does not accept a differently cased plan path on case-sensitive %s volumes',
+  test.each(['darwin', 'win32'] as const)(
+    'does not accept a differently cased plan path when process.platform is %s',
     async platform => {
       const originalPlatform = Object.getOwnPropertyDescriptor(
         process,
