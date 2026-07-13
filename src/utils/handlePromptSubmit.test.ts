@@ -213,6 +213,8 @@ describe('handlePromptSubmit', () => {
       { ...normalPrompt, isMeta: true },
       { ...normalPrompt, origin: { kind: 'task-notification' } },
       { ...normalPrompt, slashCommandOverride: {} },
+      { ...normalPrompt, workload: 'cron' },
+      { ...normalPrompt, agentId: 'agent-1' },
       { ...normalPrompt, value: [{ type: 'text', text: 'do Y instead' }] },
     ]
 

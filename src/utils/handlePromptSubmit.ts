@@ -51,7 +51,9 @@ export function isNormalLocalUserPrompt(command: QueuedCommand): boolean {
     command.bridgeOrigin !== true &&
     command.isMeta !== true &&
     command.origin === undefined &&
-    command.slashCommandOverride === undefined
+    command.slashCommandOverride === undefined &&
+    command.workload === undefined &&
+    command.agentId === undefined
   )
 }
 
