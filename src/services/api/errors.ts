@@ -148,6 +148,12 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
         error: 'invalid_request',
       })
 
+    case 'tool_stream_unsupported':
+      return createAssistantAPIErrorMessage({
+        content: `The selected provider rejected the \`tool_stream\` parameter. Retrying without it (tool calls are not streamed). If this persists, switch providers via ${switchCmd}.`,
+        error: 'invalid_request',
+      })
+
     case 'malformed_provider_response':
       return createAssistantAPIErrorMessage({
         content: `${API_ERROR_MESSAGE_PREFIX}: Provider returned a malformed response. Confirm endpoint compatibility and check local proxy/network middleware.`,

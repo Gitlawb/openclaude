@@ -11,6 +11,7 @@ export type OpenAICompatibilityFailureCategory =
   | 'vision_not_supported'
   | 'context_overflow'
   | 'tool_call_incompatible'
+  | 'tool_stream_unsupported'
   | 'malformed_provider_response'
   | 'provider_unavailable'
   | 'unknown'
@@ -44,6 +45,7 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'vision_not_supported',
     'context_overflow',
     'tool_call_incompatible',
+    'tool_stream_unsupported',
     'malformed_provider_response',
     'provider_unavailable',
     'unknown',
@@ -144,6 +146,21 @@ function isToolCompatibilityMessage(body: string): boolean {
     lower.includes('tool_result') ||
     lower.includes('function calling') ||
     lower.includes('function call')
+  )
+}
+
+// Detect a gateway rejecting the Z.AI-proprietary `tool_stream` parameter
+// (e.g. NVIDIA NIM: `400 Unsupported parameter(s): tool_stream`). The
+// `tool_call` substring in isToolCompatibilityMessage does NOT match
+// `tool_stream`, so this needs its own matcher.
+function isToolStreamUnsupportedMessage(body: string): boolean {
+  const lower = body.toLowerCase()
+  return (
+    lower.includes('tool_stream') &&
+    (lower.includes('unsupported') ||
+      lower.includes('unknown parameter') ||
+      lower.includes('not supported') ||
+      lower.includes('invalid'))
   )
 }
 
@@ -466,6 +483,24 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'Provider/model rejected tool-calling payload. Retry without tools or use a tool-capable model.',
+    }
+  }
+
+  // `tool_stream` is a Z.AI-proprietary streaming extension. Some OpenAI-
+  // compatible gateways (e.g. NVIDIA NIM) reject it with a 400 like
+  // "Unsupported parameter(s): `tool_stream`". Classify it distinctly so the
+  // shim can self-heal by dropping just `tool_stream` and retrying with tools
+  // intact (issue #1950). Match liberally on the parameter name plus an
+  // unsupported/unknown-parameter signal so provider-specific wording still
+  // triggers the fallback.
+  if (options.status === 400 && isToolStreamUnsupportedMessage(body)) {
+    return {
+      source: 'http',
+      category: 'tool_stream_unsupported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider rejected the `tool_stream` parameter. Retrying without it (tool calls are not streamed).',
     }
   }
 

@@ -148,6 +148,25 @@ test('classifies tool compatibility failures', () => {
   expect(failure.category).toBe('tool_call_incompatible')
 })
 
+test('classifies tool_stream rejection as tool_stream_unsupported (#1950)', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Validation: Unsupported parameter(s): `tool_stream`',
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+  expect(failure.retryable).toBe(false)
+})
+
+test('does not classify a generic 400 as tool_stream_unsupported', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Invalid request: missing required field `messages`',
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
 test('embeds and extracts category markers in formatted messages', () => {
   const marker = formatOpenAICategoryMarker('endpoint_not_found')
   expect(marker).toBe('[openai_category=endpoint_not_found]')
