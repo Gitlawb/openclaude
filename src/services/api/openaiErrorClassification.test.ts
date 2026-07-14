@@ -184,7 +184,6 @@ test.each([
   "Parameter 'tool_stream' is unknown",
   "'tool_stream' is an unknown parameter",
   'Invalid "tool_stream" parameter',
-  '`tool_stream` is not supported',
   '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
   '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
   'Additional properties are not allowed ("tool_stream" was unexpected)',
@@ -208,6 +207,8 @@ test.each([
   "Function 'tool_stream' is invalid",
   'Tool: tool_stream is unsupported',
   'Function: tool_stream is invalid',
+  'tool_stream is unsupported as a function',
+  'Additional properties are not allowed in function tool_stream',
 ])('does not classify a tool name error as a tool_stream parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 

@@ -155,6 +155,7 @@ function isToolCompatibilityMessage(body: string): boolean {
 // `tool_stream`, so this needs its own matcher.
 function isToolStreamUnsupportedMessage(body: string): boolean {
   const normalized = body.toLowerCase().replace(/['"`]/g, '')
+  if (/(?:function|tool)\s+tool_stream\b/.test(normalized)) return false
   return (
     /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*tool_stream\b/.test(normalized) ||
     /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
@@ -163,8 +164,7 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /(?:unsupported|unknown|unrecognized|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
     /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|not\s+supported)/.test(normalized) ||
     /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
-    /tool_stream\b.*?(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter))/.test(normalized) ||
-    /^tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized)
+    /tool_stream\b.*?(?:extra[_\s-]?forbidden|extra inputs are not permitted|unexpected (?:field|property|parameter))/.test(normalized)
   )
 }
 
