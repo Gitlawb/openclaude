@@ -41,7 +41,11 @@ const SAVED_API_KEY = process.env.ANTHROPIC_API_KEY
 beforeEach(() => {
   // Reset argv each test so the dangerously-skip-permissions detector starts
   // from a known baseline.
-  process.argv = [...SAVED_ARGV.filter(a => a !== '--dangerously-skip-permissions')]
+  process.argv = [
+    ...SAVED_ARGV.filter(
+      a => a !== '--dangerously-skip-permissions' && a !== '--yolo',
+    ),
+  ]
   // Other status notices read auth state via getAnthropicApiKeyWithSource,
   // which throws when no key/token is present. Seed a dummy so getActiveNotices
   // can iterate every notice without unrelated failures crashing the test.

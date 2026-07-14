@@ -292,7 +292,12 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // fires from the first frame, before any AppState mode change propagates.
 // See issue #244 finding 2.
 function hasDangerouslySkipPermissionsArg(): boolean {
-  return process.argv.includes('--dangerously-skip-permissions');
+  // --yolo is a registered alias of --dangerously-skip-permissions; this reads
+  // raw argv (before commander), so it must match either spelling.
+  return (
+    process.argv.includes('--dangerously-skip-permissions') ||
+    process.argv.includes('--yolo')
+  );
 }
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',
