@@ -204,6 +204,8 @@ test('does not classify a generic 400 as tool_stream_unsupported', () => {
 test.each([
   'Tool "tool_stream" is unsupported',
   "Function 'tool_stream' is invalid",
+  'Tool: tool_stream is unsupported',
+  'Function: tool_stream is invalid',
 ])('does not classify a tool name error as a tool_stream parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
