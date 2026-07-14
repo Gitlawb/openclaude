@@ -307,7 +307,8 @@ const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
     ctx.permissionMode === 'bypassPermissions',
   render: () => <WarningNoticeRow>
       <Text color="warning">
-        <Text bold>--dangerously-skip-permissions</Text> is active.
+        <Text bold>--dangerously-skip-permissions</Text> (alias{' '}
+        <Text bold>--yolo</Text>) is active.
       </Text>
       <Text dimColor>
         Every tool consent check is bypassed. Only use inside a sandbox with no internet access.

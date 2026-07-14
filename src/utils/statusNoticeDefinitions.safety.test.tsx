@@ -145,6 +145,22 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
   })
 
+  test('fires when the --yolo alias is in argv', () => {
+    process.argv = [...process.argv, '--yolo']
+    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
+  })
+
+  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
+    process.argv = [...process.argv, '--yolo']
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext(),
+    )
+    // The notice fires for either spelling, so its text must not name only one.
+    expect(notice).toContain('--yolo')
+    expect(notice).toContain('--dangerously-skip-permissions')
+  })
+
   test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',
