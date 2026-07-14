@@ -65,6 +65,7 @@ import {
   createMicrocompactBoundaryMessage,
 } from './utils/messages.js'
 import { analyzeContinuationIntent } from './utils/continuation.js'
+import { TOOL_RESULTS_RECEIVED_MARKER } from './constants/messages.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
@@ -995,6 +996,11 @@ async function* queryLoop(
     // loop-exit signal. If false after streaming, we're done (modulo stop-hook retry).
     const toolUseBlocks: ToolUseBlock[] = []
     let needsFollowUp = false
+    // Tracks whether the streaming loop encountered a marker-only (shim
+    // artifact) assistant response this iteration — used by the
+    // continuation-nudge block below to force a nudge when the stripped
+    // text is empty (model effectively said nothing).
+    let markerOnlyStall = false
 
     queryCheckpoint('query_setup_start')
     const useStreamingToolExecution =
@@ -1455,34 +1461,65 @@ async function* queryLoop(
             ) {
               withheld = true
             }
-            if (!withheld) {
-              yield yieldMessage
-            }
             if (message.type === 'assistant') {
               assistantMessages.push(message)
 
               const msgToolUseBlocks = message.message.content.filter(
                 content => content.type === 'tool_use',
               ) as ToolUseBlock[]
-              // Treat '[Tool results received]' placeholder as a synonym for tool_use
-              // to ensure execution continues when using self-hosted llama-server
+              // Detect the semantic boundary the OpenAI shim injects so
+              // self-hosted providers (e.g. llama-server) which echo the
+              // shim's assistant-injection marker back in their response are
+              // handled correctly.  Use the same whitespace-tolerant pattern
+              // as the strip logic below so detection and removal stay in
+              // sync even when the server wraps the marker in newlines.
+              const markerPattern = new RegExp(
+                `\\s*${TOOL_RESULTS_RECEIVED_MARKER
+                  .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`,
+                'g',
+              )
               const hasToolResultsMarker = message.message.content.some(
                 content =>
                   content.type === 'text' &&
-                  content.text === '[Tool results received]',
+                  typeof content.text === 'string' &&
+                  markerPattern.test(content.text),
               )
-              if (msgToolUseBlocks.length > 0 || hasToolResultsMarker) {
+              // Marker-only response (no tool_use blocks): this is a shim
+              // artifact, not a user-visible message.  Withhold it from the
+              // UI and strip it from the state so the continuation-nudge
+              // block below sees a clean text tail and the capped nudge
+              // path handles the stall (max 20 retries).
+              if (hasToolResultsMarker && msgToolUseBlocks.length === 0) {
+                withheld = true
+                markerOnlyStall = true
+                // Strip marker from the stored message so it doesn't appear
+                // in messagesForQuery for subsequent turns.
+                const remaining = message.message.content.map(
+                  (content: unknown) => {
+                    if (
+                      typeof content === 'object' &&
+                      content !== null &&
+                      'type' in content &&
+                      'text' in content &&
+                      (content as { type: string }).type === 'text'
+                    ) {
+                      const textBlock = content as { text: string }
+                      const cleaned = textBlock.text.replace(
+                        markerPattern,
+                        '',
+                      )
+                      return cleaned ? { ...textBlock, text: cleaned } : null
+                    }
+                    return content
+                  },
+                ).filter(Boolean) as typeof message.message.content
+                message.message.content = remaining
+              } else if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true
               }
-
-              if (
-                streamingToolExecutor &&
-                !toolUseContext.abortController.signal.aborted
-              ) {
-                for (const toolBlock of msgToolUseBlocks) {
-                  streamingToolExecutor.addTool(toolBlock, message)
-                }
+              if (!withheld) {
+                yield yieldMessage
               }
             }
 
@@ -2295,9 +2332,28 @@ async function* queryLoop(
             .join(' ')
             .toLowerCase()
 
-          const { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
+          let { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
             lastText,
-          )
+          ) as { shouldNudge: boolean; reason?: string }
+
+          // Marker-only stall: when a self-hosted LLM echoes the shim's
+          // assistant-injection marker and the remaining text is empty (or
+          // whitespace), the model effectively said nothing.  Force a nudge
+          // so the turn doesn't complete prematurely.
+          if (!shouldNudge && markerOnlyStall) {
+            shouldNudge = true
+            nudgeReason = 'marker_only_stall'
+          }
+
+          // Stop-hook-active: the model was already told the task is
+          // incomplete (via goal evaluation or hook blocking errors).
+          // Force a nudge even if the text itself has no continuation
+          // signal — the model is being prompted to continue from the
+          // previous turn's tool results.
+          if (!shouldNudge && stopHookActive) {
+            shouldNudge = true
+            nudgeReason = 'stop_hook_active'
+          }
 
           if (shouldNudge) {
             logForDebugging(

@@ -25,3 +25,4 @@ plan/
 .tmp
 .tmp-*
 temp_reference/
+.codelite/

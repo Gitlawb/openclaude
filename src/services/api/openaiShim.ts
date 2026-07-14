@@ -112,6 +112,7 @@ import {
   processStreamChunk,
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
+import { TOOL_RESULTS_RECEIVED_MARKER } from '../../constants/messages.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
 import {
   CredentialPool,
@@ -1374,10 +1375,19 @@ function convertMessages(
     // assistant boundary to satisfy the strict role sequence without implying
     // that the user interrupted or cancelled anything:
     // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
+    //
+    // The injected marker also serves a second purpose for self-hosted
+    // providers (e.g. llama-server, vLLM) that cannot produce native
+    // tool_use blocks: when such a server echoes the marker back in its
+    // assistant response, query.ts detects it via the same constant and
+    // strips it, routing the stall through the capped continuation-nudge
+    // mechanism (MAX_CONTINUATION_NUDGES = 20).  If this string changes,
+    // update the detection in src/query.ts — both sides share the
+    // TOOL_RESULTS_RECEIVED_MARKER constant for sync.
     if (prev && prev.role === 'tool' && msg.role === 'user') {
       coalesced.push({
         role: 'assistant',
-        content: '[Tool results received]',
+        content: TOOL_RESULTS_RECEIVED_MARKER,
       })
     }
 
