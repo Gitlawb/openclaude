@@ -418,11 +418,16 @@ function shouldUseGithubResponsesApi(model: string): boolean {
 // GPT-5.4/5.5/5.6 (incl. sol/terra/luna suffixes) reject function tools +
 // reasoning_effort on /v1/chat/completions and must use /v1/responses. An
 // agent CLI always sends tools, so plain OpenAI/Azure users can't otherwise
-// reach these models. Matches gpt-5.4..gpt-5.9; bare gpt-5, gpt-5-mini,
-// gpt-4.x, o-series, and claude-* stay on chat/completions.
+// reach these models. Matches gpt-5.4..gpt-5.9 with any non-mini/nano
+// suffix. -mini/-nano variants are excluded as unverified — they keep
+// chat/completions, and the OPENAI_API_FORMAT / profile apiFormat override
+// covers them if they turn out to need /responses. Two-digit minors
+// (gpt-5.10+) are deliberately unmatched: auto-routing unverified future
+// models is the exact risk this predicate exists to avoid. Bare gpt-5,
+// gpt-5-mini, gpt-4.x, o-series, and claude-* stay on chat/completions.
 export function modelRequiresResponsesApi(model: string): boolean {
   const normalized = model.trim().toLowerCase().split('?', 1)[0] ?? ''
-  return /^gpt-5\.[4-9]/.test(normalized)
+  return /^gpt-5\.[4-9](?!\d)(?!-(?:mini|nano)(?:-|$))/.test(normalized)
 }
 
 // The responses auto-route only fires for the OpenAI first-party surface

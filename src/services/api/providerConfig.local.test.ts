@@ -4,6 +4,7 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test
 import {
   getAdditionalModelOptionsCacheScope,
   getLocalProviderRetryBaseUrls,
+  isAzureStyleBaseUrl,
   isLocalProviderUrl,
   modelRequiresResponsesApi,
   resolveProviderRequest,
@@ -371,7 +372,7 @@ test('disables local toolless retry for non-Ollama local endpoints', () => {
   ).toBe(false)
 })
 
-test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (incl. suffixes) only', () => {
+test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (excl. mini/nano) only', () => {
   for (const model of [
     'gpt-5.4',
     'gpt-5.5',
@@ -386,11 +387,28 @@ test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (incl. suffixes) only', 
     'gpt-4.1',
     'gpt-5',
     'gpt-5-mini',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.5-mini',
+    'gpt-5.5-nano',
+    'gpt-5.10',
     'o3',
     'claude-opus-4-8',
   ]) {
     expect(modelRequiresResponsesApi(model)).toBe(false)
   }
+})
+
+test('keeps gpt-5.4-mini on chat completions on the OpenAI base', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4-mini'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    resolvedModel: 'gpt-5.4-mini',
+  })
 })
 
 test('auto-routes gpt-5.6 to responses on the default OpenAI base', () => {
@@ -478,4 +496,26 @@ test('without OPENAI_AZURE_STYLE the same non-azure.com host stays on chat compl
     transport: 'chat_completions',
     resolvedModel: 'gpt-5.6-sol',
   })
+})
+
+test('isAzureStyleBaseUrl honors the OPENAI_AZURE_STYLE override before hostname detection', () => {
+  const overrideEnv = { OPENAI_AZURE_STYLE: '1' } as NodeJS.ProcessEnv
+  const plainEnv = {} as NodeJS.ProcessEnv
+
+  expect(isAzureStyleBaseUrl('https://apim.contoso.example/azure-openai', overrideEnv)).toBe(true)
+  expect(isAzureStyleBaseUrl('https://apim.contoso.example/azure-openai', plainEnv)).toBe(false)
+  // Override precedes URL parsing, so even a malformed base is Azure-style.
+  expect(isAzureStyleBaseUrl('not a url', overrideEnv)).toBe(true)
+  expect(isAzureStyleBaseUrl('not a url', plainEnv)).toBe(false)
+})
+
+test('isAzureStyleBaseUrl matches the four Azure marker hostnames only', () => {
+  const plainEnv = {} as NodeJS.ProcessEnv
+
+  expect(isAzureStyleBaseUrl('https://myres.openai.azure.com/openai/v1', plainEnv)).toBe(true)
+  expect(isAzureStyleBaseUrl('https://myres.cognitiveservices.azure.com', plainEnv)).toBe(true)
+  expect(isAzureStyleBaseUrl('https://myres.services.ai.azure.com/models', plainEnv)).toBe(true)
+  expect(isAzureStyleBaseUrl('https://myres.inference.ml.azure.com', plainEnv)).toBe(true)
+  // .azure.com alone is not enough without a marker.
+  expect(isAzureStyleBaseUrl('https://myapp.web.azure.com', plainEnv)).toBe(false)
 })

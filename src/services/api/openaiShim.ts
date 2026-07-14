@@ -4350,6 +4350,8 @@ class OpenAIShimMessages {
         new Headers(),
       )
     }
+    // Reads live process.env by design; must agree with the responses
+    // auto-route gate's processEnv (both default to process.env today).
     const isAzure = isAzureStyleBaseUrl(request.baseUrl)
 
     let isBankr = false
@@ -4457,18 +4459,25 @@ class OpenAIShimMessages {
     // Azure serves the Responses API only on the v1 surface
     // ({resource}/openai/v1/responses — model in the request body, no
     // api-version, no deployment-scoped form), so any Azure-style base is
-    // normalized to it: strip a trailing /openai/v1, /v1, or
-    // /openai/deployments/<dep> and append /openai/v1/responses.
+    // normalized to it: trailing /openai/v1, /v1, and
+    // /openai/deployments/<dep> segments are stripped until stable (bases
+    // can carry several, e.g. /openai/deployments/<dep>/openai/v1), then
+    // /openai/v1/responses is appended.
     // https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
     const buildResponsesUrl = (baseUrl: string): string => {
+      const trimmedBase = baseUrl.replace(/\/+$/, '')
       if (!isAzure) {
-        return `${baseUrl}/responses`
+        return `${trimmedBase}/responses`
       }
-      const normalizedBase = baseUrl
-        .replace(/\/+$/, '')
-        .replace(/\/(openai\/)?v1$/i, '')
-        .replace(/\/openai\/deployments\/[^/]+$/i, '')
-        .replace(/\/+$/, '')
+      let normalizedBase = trimmedBase
+      for (;;) {
+        const stripped = normalizedBase
+          .replace(/\/(openai\/)?v1$/i, '')
+          .replace(/\/openai\/deployments\/[^/]+$/i, '')
+          .replace(/\/+$/, '')
+        if (stripped === normalizedBase) break
+        normalizedBase = stripped
+      }
       return `${normalizedBase}/openai/v1/responses`
     }
 

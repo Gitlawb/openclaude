@@ -59,9 +59,9 @@ export default defineVendor({
       // emit nested reasoning.effort; requiredApiFormat is intentionally NOT
       // set so an explicit OPENAI_API_FORMAT=chat_completions stays an escape
       // hatch.
-      { id: 'gpt-5.6-sol', apiName: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', modelDescriptorId: 'gpt-5.6-sol', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
-      { id: 'gpt-5.6-terra', apiName: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', modelDescriptorId: 'gpt-5.6-terra', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
-      { id: 'gpt-5.6-luna', apiName: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', modelDescriptorId: 'gpt-5.6-luna', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
+      { id: 'gpt-5.6-sol', apiName: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', modelDescriptorId: 'gpt-5.6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
+      { id: 'gpt-5.6-terra', apiName: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', modelDescriptorId: 'gpt-5.6-terra', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
+      { id: 'gpt-5.6-luna', apiName: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', modelDescriptorId: 'gpt-5.6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, capabilities: { supportsReasoning: true }, reasoning: { mode: 'levels', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'high', wireFormat: 'reasoning_effort' } },
       { id: 'gpt-5.4', apiName: 'gpt-5.4', label: 'GPT-5.4' },
       { id: 'gpt-5-mini', apiName: 'gpt-5-mini', label: 'GPT-5 Mini' },
       { id: 'gpt-4o', apiName: 'gpt-4o', label: 'GPT-4o' },

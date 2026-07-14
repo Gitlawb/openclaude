@@ -22,6 +22,7 @@ const originalEnv = {
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+  OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
   OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
   OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
   OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
@@ -437,6 +438,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -480,6 +482,7 @@ afterEach(() => {
     restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENAI_AZURE_STYLE', originalEnv.OPENAI_AZURE_STYLE)
     restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
     restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
     restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
@@ -929,6 +932,78 @@ test('auto-routed responses on an Azure /deployments/ base strips the deployment
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   await client.beta.messages.create({
     model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
+})
+
+test('OPENAI_AZURE_STYLE routes gpt-5.6 on a custom base to {base}/openai/v1/responses', async () => {
+  process.env.OPENAI_BASE_URL = 'https://apim.contoso.example/azure-openai'
+  process.env.OPENAI_API_KEY = 'test-key'
+  process.env.OPENAI_AZURE_STYLE = '1'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-sol',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://apim.contoso.example/azure-openai/openai/v1/responses')
+})
+
+test('Azure responses URL normalization strips stacked v1 and deployment suffixes', async () => {
+  process.env.OPENAI_BASE_URL =
+    'https://myres.openai.azure.com/openai/deployments/my-gpt56/openai/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.6-terra',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-terra',
     messages: [{ role: 'user', content: 'hello' }],
     max_tokens: 64,
     stream: false,
