@@ -155,8 +155,9 @@ function isToolCompatibilityMessage(body: string): boolean {
 // `tool_stream`, so this needs its own matcher.
 function isToolStreamUnsupportedMessage(body: string): boolean {
   return (
-    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s*[:=]?\s*`?tool_stream`?|`?tool_stream`?\s+(?:parameter|request\s+argument))/i.test(body) ||
-    /`?tool_stream`?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body)
+    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s*[:=]?\s*['"`]?tool_stream['"`]?|['"`]?tool_stream['"`]?\s+(?:parameter|request\s+argument))/i.test(body) ||
+    /(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s+['"`]?tool_stream['"`]?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body) ||
+    /['"`]?tool_stream['"`]?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body)
   )
 }
 
