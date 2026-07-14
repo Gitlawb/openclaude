@@ -4,6 +4,7 @@ import * as React from 'react';
 import { getLargeMemoryFiles, MAX_MEMORY_CHARACTER_COUNT, type MemoryFileInfo } from './claudemd.js';
 import figures from 'figures';
 import { getCwd } from './cwd.js';
+import { hasDangerousSkipFlag } from './dangerousSkipFlags.js';
 import { relative } from 'path';
 import { formatNumber } from './format.js';
 import type { getGlobalConfig } from './config.js';
@@ -293,11 +294,9 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // See issue #244 finding 2.
 function hasDangerouslySkipPermissionsArg(): boolean {
   // --yolo is a registered alias of --dangerously-skip-permissions; this reads
-  // raw argv (before commander), so it must match either spelling.
-  return (
-    process.argv.includes('--dangerously-skip-permissions') ||
-    process.argv.includes('--yolo')
-  );
+  // raw argv (before commander), so it must match either spelling — but only in
+  // an option position, so a positional `-- --yolo` prompt does not false-fire.
+  return hasDangerousSkipFlag(process.argv);
 }
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',

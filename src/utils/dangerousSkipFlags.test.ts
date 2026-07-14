@@ -43,6 +43,25 @@ describe('dangerousSkipFlags', () => {
     expect(stripDangerousSkipFlags(argv)).toEqual(argv)
   })
 
+  it('honors the -- end-of-options marker: a positional --yolo is not a flag', () => {
+    // `openclaude -p -- --yolo` — the --yolo is prompt text, not the bypass flag.
+    expect(hasDangerousSkipFlag(['-p', '--', '--yolo'])).toBe(false)
+    expect(
+      hasDangerousSkipFlag(['--', '--dangerously-skip-permissions']),
+    ).toBe(false)
+    // A flag before -- still counts; the positional after -- is preserved.
+    expect(hasDangerousSkipFlag(['--yolo', '--', '--yolo'])).toBe(true)
+    expect(stripDangerousSkipFlags(['--yolo', '--', '--yolo'])).toEqual([
+      '--',
+      '--yolo',
+    ])
+    expect(stripDangerousSkipFlags(['-p', '--', '--yolo'])).toEqual([
+      '-p',
+      '--',
+      '--yolo',
+    ])
+  })
+
   it('does not mutate the input array', () => {
     const argv = ['--yolo', 'x']
     stripDangerousSkipFlags(argv)

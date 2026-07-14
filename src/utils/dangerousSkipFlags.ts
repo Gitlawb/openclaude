@@ -14,11 +14,32 @@ export function isDangerousSkipFlag(arg: string): boolean {
   return DANGEROUS_SKIP_FLAGS.includes(arg)
 }
 
-export function hasDangerousSkipFlag(argv: readonly string[]): boolean {
-  return argv.some(isDangerousSkipFlag)
+// Tokens at or after the first `--` (end-of-options marker) are positional
+// data, not options — commander never parses them as flags. The index of that
+// marker, or argv.length when absent.
+function endOfOptions(argv: readonly string[]): number {
+  const marker = argv.indexOf('--')
+  return marker === -1 ? argv.length : marker
 }
 
-/** Returns a copy of `argv` with every dangerous-skip token removed. */
+/**
+ * True when a dangerous-skip flag appears in an option position (before any
+ * `--`). A `--yolo` after `--` is a positional/prompt token — e.g.
+ * `openclaude -p -- --yolo` — and must not count as the bypass flag.
+ */
+export function hasDangerousSkipFlag(argv: readonly string[]): boolean {
+  const end = endOfOptions(argv)
+  for (let i = 0; i < end; i += 1) {
+    if (isDangerousSkipFlag(argv[i]!)) return true
+  }
+  return false
+}
+
+/**
+ * Returns a copy of `argv` with every dangerous-skip token in an option
+ * position removed. Tokens at or after the first `--` are preserved verbatim.
+ */
 export function stripDangerousSkipFlags(argv: readonly string[]): string[] {
-  return argv.filter(arg => !isDangerousSkipFlag(arg))
+  const end = endOfOptions(argv)
+  return argv.filter((arg, i) => i >= end || !isDangerousSkipFlag(arg))
 }
