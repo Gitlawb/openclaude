@@ -677,6 +677,19 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
   })
 
+  test('gitlawb-opengateway explicit base URL resets stale OpenAI model', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-5.5'
+    process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+  })
+
   test('gitlawb-opengateway explicit provider preserves custom OPENAI_BASE_URL when no OPENGATEWAY_BASE_URL is set', () => {
     process.env.OPENAI_BASE_URL = 'http://localhost:8181/v1'
     process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'

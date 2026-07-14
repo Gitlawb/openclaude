@@ -553,14 +553,18 @@ export function applyProviderFlag(
     case 'gitlawb-opengateway':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       {
-        const baseUrlDefault = process.env.OPENGATEWAY_BASE_URL?.trim()
-          ? UNCHANGED_OPENAI_BASE_URL_DEFAULT
+        const explicitBaseUrl = process.env.OPENGATEWAY_BASE_URL?.trim()
+        const baseUrlDefault = explicitBaseUrl
+          ? {
+              replacedStaleKnownBaseUrl:
+                shouldReplaceStaleKnownBaseUrl(provider),
+            }
           : applyOpenAIBaseUrlDefault(
               provider,
               defaultBaseUrl ?? 'https://opengateway.gitlawb.com/v1',
             )
-        if (process.env.OPENGATEWAY_BASE_URL?.trim()) {
-          process.env.OPENAI_BASE_URL = process.env.OPENGATEWAY_BASE_URL.trim()
+        if (explicitBaseUrl) {
+          process.env.OPENAI_BASE_URL = explicitBaseUrl
         }
         applyOpenAIModelDefault(
           defaultModel ?? 'mimo-v2.5-pro',
