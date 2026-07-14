@@ -367,9 +367,11 @@ export function applyProviderFlag(
           error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
         }
       }
-      // The --provider switch cannot distinguish a proxy key from an inherited
-      // first-party key, so do not forward an ambient Anthropic credential.
-      // Direct ANTHROPIC_API_KEY proxy setups remain supported without this flag.
+      if (!process.env.ANTHROPIC_AUTH_TOKEN?.trim()) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN.',
+        }
+      }
       delete process.env.ANTHROPIC_API_KEY
       delete process.env.OPENAI_BASE_URL
       delete process.env.OPENAI_API_BASE

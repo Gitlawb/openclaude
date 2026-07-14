@@ -10,7 +10,7 @@ export function isFirstPartyAnthropicBaseUrlForEnv(
       allowedHosts.push('api-staging.anthropic.com')
     }
     const url = new URL(baseUrl)
-    return url.protocol === 'https:' && allowedHosts.includes(url.host)
+    return url.protocol === 'https:' && allowedHosts.includes(url.hostname)
   } catch {
     return false
   }

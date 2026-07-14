@@ -218,14 +218,14 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 
-  test('clears inherited API keys when selecting the custom provider explicitly', () => {
+  test('requires a Bearer token rather than forwarding an inherited API key', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_API_KEY = 'stale-first-party-key'
 
     const result = applyProviderFlag('custom-anthropic', [])
 
-    expect(result.error).toBeUndefined()
-    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(result.error).toContain('ANTHROPIC_AUTH_TOKEN')
+    expect(process.env.ANTHROPIC_API_KEY).toBe('stale-first-party-key')
   })
 })
 
