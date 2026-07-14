@@ -1,23 +1,46 @@
+import { createHook, executionAsyncId } from 'async_hooks'
 import { getEnabledSettingSources } from './settings/constants.js'
 import { getInitialSettings, getSettingsForSource } from './settings/settings.js'
 import type { SettingSource } from './settings/constants.js'
 import type { SettingsJson } from './settings/types.js'
 
-let getSettingsForSourceForTesting:
-  | ((source: SettingSource) => SettingsJson | null)
-  | null = null
+/**
+ * Per-async-context governance overrides for testing. Each test file sets its
+ * own override in beforeEach; the hook propagates it to descendant async
+ * resources (including the it() callback), so parallel test execution cannot
+ * corrupt the mock across files.
+ */
+const governanceOverrideByAsyncId = new Map<
+  number,
+  ((source: SettingSource) => SettingsJson | null) | null
+>()
+
+const governanceHook = createHook({
+  init(asyncId, _type, triggerAsyncId) {
+    const parentOverride = governanceOverrideByAsyncId.get(triggerAsyncId)
+    if (parentOverride !== undefined) {
+      governanceOverrideByAsyncId.set(asyncId, parentOverride)
+    }
+  },
+  destroy(asyncId) {
+    governanceOverrideByAsyncId.delete(asyncId)
+  },
+})
+
+governanceHook.enable()
 
 export function setGovernancePolicySettingsForSourceForTesting(
   getter: ((source: SettingSource) => SettingsJson | null) | null,
 ): void {
-  getSettingsForSourceForTesting = getter
+  governanceOverrideByAsyncId.set(executionAsyncId(), getter)
 }
 
 function getGovernanceSettingsForSource(
   source: SettingSource,
 ): SettingsJson | null {
-  if (getSettingsForSourceForTesting) {
-    return getSettingsForSourceForTesting(source)
+  const override = governanceOverrideByAsyncId.get(executionAsyncId())
+  if (override) {
+    return override(source)
   }
   return getSettingsForSource(source)
 }
