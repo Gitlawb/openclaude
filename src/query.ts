@@ -1555,10 +1555,29 @@ async function* queryLoop(
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true
               }
+              // Clear markerOnlyStall when a substantive message arrives
+              // after a marker-only one — a prior empty block shouldn't
+              // cause an unnecessary continuation nudge.
+              if (msgToolUseBlocks.length > 0 || !hasToolResultsMarker) {
+                markerOnlyStall = false
+              }
               assistantMessages.push(message)
               if (!withheld) {
                 yield yieldMessage
               }
+
+              if (
+                streamingToolExecutor &&
+                !toolUseContext.abortController.signal.aborted
+              ) {
+                for (const toolBlock of msgToolUseBlocks) {
+                  streamingToolExecutor.addTool(toolBlock, message)
+                }
+              }
+            }
+
+            if (message.type !== 'assistant') {
+              yield message
             }
 
             if (
