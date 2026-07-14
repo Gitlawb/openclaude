@@ -61,7 +61,6 @@ describe('conversationArc', () => {
     try {
       resetArc()
       resetGlobalGraph()
-      setGovernancePolicySettingsForSourceForTesting(null)
       if (originalConfigDir === undefined) {
         delete process.env.CLAUDE_CONFIG_DIR
       } else {
