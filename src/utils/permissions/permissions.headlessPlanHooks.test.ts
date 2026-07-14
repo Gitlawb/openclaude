@@ -323,9 +323,7 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     )
 
     expect(result).toMatchObject({ behavior: 'allow', updatedInput: {} })
-    expect(
-      result.behavior === 'allow' ? result.updatedPermissions : undefined,
-    ).toBeUndefined()
+    expect(result).not.toHaveProperty('updatedPermissions')
     expect(state.getPermissionContext().mode).toBe('plan')
   })
 

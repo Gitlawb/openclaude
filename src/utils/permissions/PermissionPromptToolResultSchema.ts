@@ -157,11 +157,10 @@ export async function permissionPromptToolResultToPermissionDecision(
     if (postUpdatePlanModeDecision) {
       return postUpdatePlanModeDecision
     }
+    const { updatedPermissions: _updatedPermissions, ...allowResult } = result
     return {
-      ...result,
+      ...allowResult,
       updatedInput,
-      updatedPermissions:
-        updatedPermissions.length > 0 ? updatedPermissions : undefined,
       decisionReason,
     }
   } else if (result.behavior === 'deny' && result.interrupt) {
