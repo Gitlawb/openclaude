@@ -22,6 +22,12 @@ export class ConversationCache {
   private cache = new Map<string, CacheEntry<CacheMessage[]>>()
   private accessOrder = new Map<string, number>()
   private evictions = 0
+  // Monotonic logical clock for recency. Must never decrease, so it can't be
+  // derived from `accessOrder.size` — that plateaus at ~maxSize once the cache
+  // is full (and drops on delete), which makes a freshly-set entry tie or even
+  // rank older than entries a prior get already bumped, so evictLRU discards the
+  // most-recently-touched key instead of the least.
+  private accessClock = 0
 
   private readonly maxSize: number
   private readonly ttlMs: number
@@ -49,7 +55,7 @@ export class ConversationCache {
       timestamp: Date.now(),
       hits: 0,
     })
-    this.accessOrder.set(key, this.accessOrder.size)
+    this.accessOrder.set(key, ++this.accessClock)
   }
 
   get(key: string): CacheMessage[] | undefined {
@@ -62,7 +68,7 @@ export class ConversationCache {
     }
 
     entry.hits++
-    this.accessOrder.set(key, this.accessOrder.size)
+    this.accessOrder.set(key, ++this.accessClock)
     return entry.value
   }
 
