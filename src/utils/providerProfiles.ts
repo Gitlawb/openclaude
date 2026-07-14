@@ -212,12 +212,15 @@ function resolveProfileCapabilityRouteId(
   provider: string,
   baseUrl?: string,
 ): string {
+  const providerRouteId = resolveProfileRoute(provider).routeId
+  if (providerRouteId === 'custom-anthropic') {
+    return providerRouteId
+  }
+
   const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
   if (routeIdFromBaseUrl) {
     return routeIdFromBaseUrl
   }
-
-  const providerRouteId = resolveProfileRoute(provider).routeId
 
   // A cloudflare profile retargeted away from the real Workers AI endpoint
   // (e.g. to gateway.ai.cloudflare.com or another OpenAI-compatible host) is

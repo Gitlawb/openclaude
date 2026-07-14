@@ -367,12 +367,18 @@ export function applyProviderFlag(
           error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
         }
       }
-      if (!process.env.ANTHROPIC_AUTH_TOKEN?.trim()) {
+      const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim())
+      const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+      if (!hasAuthToken && !hasApiKey) {
         return {
-          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN.',
+          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY.',
         }
       }
-      delete process.env.ANTHROPIC_API_KEY
+      if (hasAuthToken) {
+        delete process.env.ANTHROPIC_API_KEY
+      } else {
+        delete process.env.ANTHROPIC_AUTH_TOKEN
+      }
       delete process.env.OPENAI_BASE_URL
       delete process.env.OPENAI_API_BASE
       delete process.env.OPENAI_MODEL

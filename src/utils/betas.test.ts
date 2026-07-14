@@ -209,7 +209,7 @@ test('isAnthropicProvider is true for firstParty', async () => {
   expect(isAnthropicProvider()).toBe(true)
 })
 
-test('custom Anthropic proxy endpoints receive native Anthropic beta headers', async () => {
+test('custom Anthropic proxy endpoints do not receive first-party beta headers', async () => {
   process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
   process.env.ANTHROPIC_MODEL = 'tenant-model'
   process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
@@ -227,8 +227,8 @@ test('custom Anthropic proxy endpoints receive native Anthropic beta headers', a
     shouldUseGlobalCacheScope,
   } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(false)
-  expect(getMergedBetas('tenant-model')).toContain('tenant-beta-2026-01-01')
-  expect(getModelBetas('claude-sonnet-4-6').length).toBeGreaterThan(0)
+  expect(getMergedBetas('tenant-model')).toEqual([])
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
   expect(modelSupportsISP('claude-sonnet-4-5')).toBe(true)
   expect(modelSupportsContextManagement('claude-sonnet-4-5')).toBe(true)
   expect(modelSupportsStructuredOutputs('claude-sonnet-4-5')).toBe(false)
@@ -237,7 +237,7 @@ test('custom Anthropic proxy endpoints receive native Anthropic beta headers', a
   expect(shouldUseGlobalCacheScope()).toBe(false)
 })
 
-test('switching from first-party Anthropic to a custom proxy recalculates beta headers', async () => {
+test('switching from first-party Anthropic to a custom proxy clears beta headers', async () => {
   const { getModelBetas } = await importFreshBetas()
   expect(getModelBetas('claude-sonnet-4-6')).not.toEqual([])
 
@@ -246,9 +246,7 @@ test('switching from first-party Anthropic to a custom proxy recalculates beta h
   process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
   process.env.ANTHROPIC_BETAS = 'tenant-beta-2026-01-01'
 
-  expect(getModelBetas('claude-sonnet-4-6')).toContain(
-    'tenant-beta-2026-01-01',
-  )
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
 })
 
 test('first-party Anthropic retains the beta gates excluded for custom proxies', async () => {

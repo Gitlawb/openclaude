@@ -22,7 +22,6 @@ import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 import { randomUUID } from 'crypto'
 import {
   getAPIProvider,
-  isCustomAnthropicProvider,
   isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
@@ -355,7 +354,6 @@ export function getPromptCachingEnabled(model: string): boolean {
   const isNativeGithub = isGithubNativeAnthropicMode(model)
   if (
     (provider !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) &&
-    !isCustomAnthropicProvider() &&
     provider !== 'bedrock' &&
     provider !== 'vertex' &&
     !isNativeGithub

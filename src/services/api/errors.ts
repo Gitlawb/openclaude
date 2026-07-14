@@ -1270,7 +1270,9 @@ export function getAssistantMessageFromError(
       error: 'authentication_failed',
       content: getIsNonInteractiveSession()
         ? `Failed to authenticate. ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`
-        : `Please run /login · ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`,
+        : isFirstPartyAnthropicProvider()
+          ? `Please run /login · ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`
+          : `${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your provider credential configuration.`,
     })
   }
 

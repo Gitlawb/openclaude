@@ -309,7 +309,7 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   delete process.env.CLAUDE_CODE_USE_MISTRAL
   process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
-  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api/v1'
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a\nauthorization: stale-value'
 
   const fetchOverride = (async (input, init) => {

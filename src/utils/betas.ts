@@ -30,7 +30,6 @@ import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
-  isCustomAnthropicProvider,
   isGithubNativeAnthropicMode,
 } from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
@@ -477,7 +476,6 @@ export function getMergedBetas(
 function shouldUseAnthropicBetaHeaders(model: string): boolean {
   return (
     isAnthropicProvider() ||
-    isCustomAnthropicProvider() ||
     isGithubNativeAnthropicMode(model)
   )
 }

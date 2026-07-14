@@ -771,7 +771,7 @@ export async function getAnthropicClient({
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : process.env.ANTHROPIC_BASE_URL
-        ? { baseURL: process.env.ANTHROPIC_BASE_URL }
+        ? { baseURL: process.env.ANTHROPIC_BASE_URL.replace(/\/v1\/?$/i, '') }
         : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
