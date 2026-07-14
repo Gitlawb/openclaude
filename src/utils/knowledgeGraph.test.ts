@@ -7,6 +7,7 @@ import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getAutoMemPath } from '../memdir/paths.js'
 import { getFsImplementation, setFsImplementation, setOriginalFsImplementation } from './fsOperations.js'
+import { setGovernancePolicySettingsForSourceForTesting } from './governancePolicy.js'
 
 // The legacy graph, SQLite store, and migrated memdir all resolve under
 // getProjectsDir()/sanitizePath(cwd). We inject a distinct per-test cwd via
@@ -55,6 +56,9 @@ describe('knowledgeGraph legacy migration', () => {
     setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
     removeProjectArtifacts()
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
   })
 
   afterEach(() => {
