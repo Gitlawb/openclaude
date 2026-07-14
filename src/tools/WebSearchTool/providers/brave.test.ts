@@ -28,10 +28,6 @@ function pendingResponseUntilAbort(signal: AbortSignal | undefined): Promise<Res
   })
 }
 
-beforeEach(async () => {
-  await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
-})
-
 afterEach(() => {
   for (const [k, v] of Object.entries(originalEnv)) {
     if (v === undefined) delete process.env[k]
