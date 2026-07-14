@@ -367,12 +367,10 @@ export function applyProviderFlag(
           error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
         }
       }
-      // A custom endpoint can authenticate with either its Bearer token or
-      // Anthropic's native x-api-key. Keep an explicitly configured API key
-      // when no Bearer token is present, but never keep both credentials.
-      if (process.env.ANTHROPIC_AUTH_TOKEN?.trim()) {
-        delete process.env.ANTHROPIC_API_KEY
-      }
+      // The --provider switch cannot distinguish a proxy key from an inherited
+      // first-party key, so do not forward an ambient Anthropic credential.
+      // Direct ANTHROPIC_API_KEY proxy setups remain supported without this flag.
+      delete process.env.ANTHROPIC_API_KEY
       delete process.env.OPENAI_BASE_URL
       delete process.env.OPENAI_API_BASE
       delete process.env.OPENAI_MODEL
