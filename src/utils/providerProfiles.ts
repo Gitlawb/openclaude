@@ -1653,6 +1653,7 @@ export function deleteProviderProfile(profileId: string): {
   let removed = false
   let deletedProfile: ProviderProfile | undefined
   let nextActiveProfile: ProviderProfile | undefined
+  let activeProfileWasDeleted = false
 
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
@@ -1675,6 +1676,7 @@ export function deleteProviderProfile(profileId: string): {
       currentActive === profileId ||
       (currentActive !== ANTHROPIC_DEFAULT_PROFILE_ID &&
         !nextProfiles.some(profile => profile.id === currentActive))
+    activeProfileWasDeleted = activeWasDeleted
 
     const nextActiveId = activeWasDeleted ? nextProfiles[0]?.id : currentActive
 
@@ -1710,13 +1712,14 @@ export function deleteProviderProfile(profileId: string): {
 
   if (nextActiveProfile) {
     setActiveProviderProfile(nextActiveProfile.id)
-  } else if (
-    deletedProfile &&
-    isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
-      includeApiKey: false,
-    })
-  ) {
-    clearProviderProfileEnvFromProcessEnv()
+  } else if (deletedProfile && activeProfileWasDeleted) {
+    if (
+      isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
+        includeApiKey: false,
+      })
+    ) {
+      clearProviderProfileEnvFromProcessEnv()
+    }
     deleteProfileFile()
   }
 

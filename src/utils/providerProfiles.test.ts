@@ -19,6 +19,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'CLAUDE_CONFIG_DIR',
+  'OPENCLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
@@ -110,6 +111,7 @@ beforeEach(async () => {
   }
   testConfigDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
   process.env.CLAUDE_CONFIG_DIR = testConfigDir
+  process.env.OPENCLAUDE_CONFIG_DIR = testConfigDir
 })
 
 afterEach(() => {
@@ -3494,6 +3496,101 @@ describe('deleteProviderProfile', () => {
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+  })
+
+  test('deleting the active custom Anthropic profile removes its startup mirror', async () => {
+    const {
+      deleteProviderProfile,
+      setActiveProviderProfile,
+    } = await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'custom_anthropic_profile',
+      provider: 'custom-anthropic',
+      baseUrl: 'https://proxy.example',
+      model: 'proxy-model',
+      apiKey: 'bearer-token',
+    })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [profile],
+      activeProviderProfileId: profile.id,
+    }))
+
+    setActiveProviderProfile(profile.id, { configDir: testConfigDir ?? undefined })
+    const profilePath = join(testConfigDir!, '.openclaude-profile.json')
+    expect(existsSync(profilePath)).toBe(true)
+
+    deleteProviderProfile(profile.id)
+
+    expect(existsSync(profilePath)).toBe(false)
+  })
+
+  test('updating the active custom Anthropic profile synchronizes its startup mirror', async () => {
+    const { setActiveProviderProfile, updateProviderProfile } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'custom_anthropic_profile',
+      provider: 'custom-anthropic',
+      baseUrl: 'https://proxy.example',
+      model: 'proxy-model',
+      apiKey: 'old-token',
+    })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [profile],
+      activeProviderProfileId: profile.id,
+    }))
+
+    setActiveProviderProfile(profile.id, { configDir: testConfigDir ?? undefined })
+    updateProviderProfile(profile.id, {
+      ...profile,
+      baseUrl: 'https://new-proxy.example',
+      model: 'new-proxy-model',
+      apiKey: 'new-token',
+    })
+
+    const persisted = JSON.parse(
+      readFileSync(join(testConfigDir!, '.openclaude-profile.json'), 'utf8'),
+    )
+    expect(persisted.env.ANTHROPIC_BASE_URL).toBe('https://new-proxy.example')
+    expect(persisted.env.ANTHROPIC_MODEL).toBe('new-proxy-model')
+    expect(persisted.env.ANTHROPIC_AUTH_TOKEN).toBe('new-token')
+  })
+
+  test('deleting an active custom Anthropic profile persists its replacement', async () => {
+    const { deleteProviderProfile, setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'custom_anthropic_profile',
+      provider: 'custom-anthropic',
+      baseUrl: 'https://proxy.example',
+      model: 'proxy-model',
+      apiKey: 'bearer-token',
+    })
+    const replacement = buildProfile({
+      id: 'replacement_profile',
+      baseUrl: 'https://replacement.example/v1',
+      model: 'replacement-model',
+      apiKey: 'replacement-token',
+    })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile, replacement],
+      activeProviderProfileId: activeProfile.id,
+    }))
+
+    setActiveProviderProfile(activeProfile.id, {
+      configDir: testConfigDir ?? undefined,
+    })
+    deleteProviderProfile(activeProfile.id)
+
+    const persisted = JSON.parse(
+      readFileSync(join(testConfigDir!, '.openclaude-profile.json'), 'utf8'),
+    )
+    expect(persisted.profile).toBe('openai')
+    expect(persisted.env.OPENAI_BASE_URL).toBe('https://replacement.example/v1')
+    expect(persisted.env.OPENAI_MODEL).toBe('replacement-model')
+    expect(persisted.env.OPENAI_API_KEY).toBe('replacement-token')
   })
 
   test('deleting final profile preserves explicit startup provider env', async () => {
