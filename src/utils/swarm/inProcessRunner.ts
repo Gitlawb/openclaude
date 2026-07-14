@@ -86,7 +86,7 @@ import {
 import type { PermissionUpdate } from '../permissions/PermissionUpdateSchema.js'
 import {
   hasPermissionsToUseTool,
-  revalidatePlanModePermissionAllow,
+  revalidatePlanModePermissionAllowWithRaceGuard,
 } from '../permissions/permissions.js'
 import { emitTaskTerminatedSdk } from '../sdkEventQueue.js'
 import { sleep } from '../sleep.js'
@@ -155,25 +155,17 @@ function createInProcessCanUseTool(
     > => {
       const planModeWasActive =
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-      let decision = await revalidatePlanModePermissionAllow(
-        tool,
-        input,
-        finalInput,
-        toolUseContext,
-        planModeWasActive,
-      )
-      const enforcePlanMode =
-        planModeWasActive ||
-        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-      if (!decision && enforcePlanMode && !planModeWasActive) {
-        decision = await revalidatePlanModePermissionAllow(
+      const decision =
+        await revalidatePlanModePermissionAllowWithRaceGuard(
           tool,
           input,
           finalInput,
           toolUseContext,
-          true,
+          planModeWasActive,
         )
-      }
+      const enforcePlanMode =
+        planModeWasActive ||
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
       if (decision) {
         return { decision, permissionUpdates: [] }
       }

@@ -486,7 +486,7 @@ export const AgentTool = buildTool({
     }
 
     const forceSyncCopilot = shouldForceSyncSubagentsInCopilotMode();
-    const forcePlanModeSync = permissionMode === 'plan';
+    const forcePlanModeSync = permissionMode === 'plan' || toolUseContext.getAppState().toolPermissionContext.mode === 'plan';
 
     // Use inline env check instead of coordinatorModule to avoid circular
     // dependency issues during test module loading.

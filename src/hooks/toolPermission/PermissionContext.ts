@@ -34,7 +34,7 @@ import type { PermissionDecision } from '../../utils/permissions/PermissionResul
 import {
   checkPlanModePermissions,
   checkRuleBasedPermissions,
-  revalidatePlanModePermissionAllow,
+  revalidatePlanModePermissionAllowWithRaceGuard,
   samePermissionAskConstraint,
 } from '../../utils/permissions/permissions.js'
 import {
@@ -248,7 +248,7 @@ function createPermissionContext(
             }
             const finalInput = updatedInput ?? input
             const planModeDecision =
-              await revalidatePlanModePermissionAllow(
+              await revalidatePlanModePermissionAllowWithRaceGuard(
                 tool,
                 input,
                 finalInput,
@@ -419,25 +419,27 @@ function createPermissionContext(
     ): Promise<PermissionDecision> {
       const planModeWasActive =
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-      const revalidation = await revalidatePlanModePermissionAllow(
-        tool,
-        input,
-        updatedInput,
-        toolUseContext,
-        planModeWasActive,
-      )
+      const revalidation =
+        await revalidatePlanModePermissionAllowWithRaceGuard(
+          tool,
+          input,
+          updatedInput,
+          toolUseContext,
+          planModeWasActive,
+        )
       if (revalidation) {
         return revalidation
       }
       const acceptedPermanentUpdates =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
-      const finalRevalidation = await revalidatePlanModePermissionAllow(
-        tool,
-        input,
-        updatedInput,
-        toolUseContext,
-        planModeWasActive,
-      )
+      const finalRevalidation =
+        await revalidatePlanModePermissionAllowWithRaceGuard(
+          tool,
+          input,
+          updatedInput,
+          toolUseContext,
+          planModeWasActive,
+        )
       if (finalRevalidation) {
         return finalRevalidation
       }
@@ -468,7 +470,7 @@ function createPermissionContext(
       const acceptedPermanentUpdates =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
       const postUpdatePlanModeDecision =
-        await revalidatePlanModePermissionAllow(
+        await revalidatePlanModePermissionAllowWithRaceGuard(
           tool,
           input,
           finalInput,
@@ -496,13 +498,14 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
     ): Promise<PermissionDecision> {
-      const planModeDecision = await revalidatePlanModePermissionAllow(
-        tool,
-        input,
-        finalInput,
-        toolUseContext,
-        planModeWasActive,
-      )
+      const planModeDecision =
+        await revalidatePlanModePermissionAllowWithRaceGuard(
+          tool,
+          input,
+          finalInput,
+          toolUseContext,
+          planModeWasActive,
+        )
       if (planModeDecision) {
         return planModeDecision
       }

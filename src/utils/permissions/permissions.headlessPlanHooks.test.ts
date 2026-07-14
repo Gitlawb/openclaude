@@ -151,7 +151,7 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     expect(state.getPermissionContext().mode).toBe('plan')
   })
 
-  test('interactive classifier approval is denied after entering plan mode', async () => {
+  test('interactive classifier approval is denied when plan mode starts during revalidation', async () => {
     const mutationTool = createToolFixture(z.object({}), {
       name: 'InteractiveClassifierMutationTool',
       isReadOnly: () => false,
@@ -165,9 +165,11 @@ describe('headless plan-mode PermissionRequest hooks', () => {
       'interactive-classifier-enter-plan-mode',
       state.setPermissionContext,
     )
-    state.setPermissionContext({
-      ...state.getPermissionContext(),
-      mode: 'plan',
+    queueMicrotask(() => {
+      state.setPermissionContext({
+        ...state.getPermissionContext(),
+        mode: 'plan',
+      })
     })
 
     const result = await permissionContext.handleClassifierAllow(
@@ -178,6 +180,44 @@ describe('headless plan-mode PermissionRequest hooks', () => {
         reason: 'Allowed by classifier',
       },
     )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('interactive user approval is denied when plan mode starts at the final validation boundary', async () => {
+    const mutationTool = createToolFixture(z.object({}), {
+      name: 'InteractiveUserFinalValidationMutationTool',
+      isReadOnly: () => false,
+    })
+    const state = planContext({ mode: 'default' })
+    const getAppState = state.context.getAppState.bind(state.context)
+    let appStateReads = 0
+    state.context.getAppState = () => {
+      appStateReads += 1
+      const appState = getAppState()
+      if (appStateReads === 3) {
+        queueMicrotask(() => {
+          state.setPermissionContext({
+            ...state.getPermissionContext(),
+            mode: 'plan',
+          })
+        })
+      }
+      return appState
+    }
+    const permissionContext = createPermissionContext(
+      mutationTool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-user-final-validation-enter-plan-mode',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow({}, [])
 
     expect(result).toMatchObject({
       behavior: 'deny',

@@ -12,7 +12,7 @@ import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { PermissionDecision, PermissionMode } from '../../types/permissions.js'
 import {
   hasPermissionsToUseTool,
-  revalidatePlanModePermissionAllow,
+  revalidatePlanModePermissionAllowWithRaceGuard,
 } from '../../utils/permissions/permissions.js'
 import {
   getEmptyToolPermissionContext,
@@ -298,27 +298,13 @@ export function createExternalCanUseTool(
       const planModeWasActive =
         typeof toolUseContext.getAppState === 'function' &&
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-      let revalidation = await revalidatePlanModePermissionAllow(
+      return await revalidatePlanModePermissionAllowWithRaceGuard(
         tool,
         originalInput,
         finalInput,
         toolUseContext,
         planModeWasActive,
       )
-      const enforcePlanMode =
-        planModeWasActive ||
-        (typeof toolUseContext.getAppState === 'function' &&
-          toolUseContext.getAppState().toolPermissionContext.mode === 'plan')
-      if (!revalidation && enforcePlanMode && !planModeWasActive) {
-        revalidation = await revalidatePlanModePermissionAllow(
-          tool,
-          originalInput,
-          finalInput,
-          toolUseContext,
-          true,
-        )
-      }
-      return revalidation
     }
     const isFullAccessMode =
       typeof toolUseContext.getAppState === 'function' &&

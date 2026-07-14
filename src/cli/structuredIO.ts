@@ -38,7 +38,7 @@ import {
   checkPlanModePermissions,
   checkRuleBasedPermissions,
   hasPermissionsToUseTool,
-  revalidatePlanModePermissionAllow,
+  revalidatePlanModePermissionAllowWithRaceGuard,
   samePermissionAskConstraint,
 } from 'src/utils/permissions/permissions.js'
 import { writeToStdout } from 'src/utils/process.js'
@@ -883,7 +883,7 @@ async function executePermissionRequestHooksForSDK(
         }
 
         const postUpdatePlanModeDecision =
-          await revalidatePlanModePermissionAllow(
+          await revalidatePlanModePermissionAllowWithRaceGuard(
             tool,
             input,
             finalInput,

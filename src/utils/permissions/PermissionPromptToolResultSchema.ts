@@ -12,7 +12,7 @@ import {
 } from './PermissionUpdate.js'
 import { permissionUpdateSchema } from './PermissionUpdateSchema.js'
 import { applyPermissionUpdatesToLiveContext } from './permissionSetup.js'
-import { revalidatePlanModePermissionAllow } from './permissions.js'
+import { revalidatePlanModePermissionAllowWithRaceGuard } from './permissions.js'
 
 export const inputSchema = lazySchema(() =>
   z.object({
@@ -102,25 +102,17 @@ export async function permissionPromptToolResultToPermissionDecision(
       Object.keys(result.updatedInput).length > 0 ? result.updatedInput : input
     const planModeWasActive =
       toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-    let revalidation = await revalidatePlanModePermissionAllow(
-      tool,
-      input,
-      updatedInput,
-      toolUseContext,
-      planModeWasActive,
-    )
-    const enforcePlanMode =
-      planModeWasActive ||
-      toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
-    if (!revalidation && enforcePlanMode && !planModeWasActive) {
-      revalidation = await revalidatePlanModePermissionAllow(
+    const revalidation =
+      await revalidatePlanModePermissionAllowWithRaceGuard(
         tool,
         input,
         updatedInput,
         toolUseContext,
-        true,
+        planModeWasActive,
       )
-    }
+    const enforcePlanMode =
+      planModeWasActive ||
+      toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
     if (revalidation) {
       return revalidation
     }
@@ -146,7 +138,7 @@ export async function permissionPromptToolResultToPermissionDecision(
       persistPermissionUpdates(updatedPermissions)
     }
     const postUpdatePlanModeDecision =
-      await revalidatePlanModePermissionAllow(
+      await revalidatePlanModePermissionAllowWithRaceGuard(
         tool,
         input,
         updatedInput,

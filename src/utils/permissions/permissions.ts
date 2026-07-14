@@ -1051,26 +1051,14 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   }
 
   const finalInput = result.updatedInput ?? input
-  let planModeDecision = await revalidatePlanModePermissionAllow(
-    tool,
-    input,
-    finalInput,
-    context,
-    planModeWasActive,
-  )
-  if (
-    !planModeDecision &&
-    !planModeWasActive &&
-    context.getAppState().toolPermissionContext.mode === 'plan'
-  ) {
-    planModeDecision = await revalidatePlanModePermissionAllow(
+  const planModeDecision =
+    await revalidatePlanModePermissionAllowWithRaceGuard(
       tool,
       input,
       finalInput,
       context,
-      true,
+      planModeWasActive,
     )
-  }
   return planModeDecision ?? result
 }
 
@@ -1372,6 +1360,42 @@ export async function revalidatePlanModePermissionAllow(
   }
 
   return null
+}
+
+/**
+ * Revalidates an approval and closes the async boundary where plan mode can
+ * become active after the first check has already read the previous mode.
+ */
+export async function revalidatePlanModePermissionAllowWithRaceGuard(
+  tool: Tool,
+  originalInput: { [key: string]: unknown },
+  finalInput: { [key: string]: unknown },
+  context: ToolUseContext,
+  planModeWasActive =
+    typeof context.getAppState === 'function' &&
+    context.getAppState().toolPermissionContext.mode === 'plan',
+): Promise<PermissionDecision | null> {
+  let revalidation = await revalidatePlanModePermissionAllow(
+    tool,
+    originalInput,
+    finalInput,
+    context,
+    planModeWasActive,
+  )
+  const enforcePlanMode =
+    planModeWasActive ||
+    (typeof context.getAppState === 'function' &&
+      context.getAppState().toolPermissionContext.mode === 'plan')
+  if (!revalidation && enforcePlanMode && !planModeWasActive) {
+    revalidation = await revalidatePlanModePermissionAllow(
+      tool,
+      originalInput,
+      finalInput,
+      context,
+      true,
+    )
+  }
+  return revalidation
 }
 
 function planModeDenial(toolName: string): PermissionDenyDecision {
