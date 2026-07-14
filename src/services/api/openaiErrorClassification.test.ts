@@ -185,7 +185,9 @@ test.each([
   "'tool_stream' is an unknown parameter",
   'Invalid "tool_stream" parameter',
   '`tool_stream` is not supported',
-  '{"error":{"message":"Invalid parameter","param":"tool_stream"}}',
+  '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
+  '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
+  'Additional properties are not allowed ("tool_stream" was unexpected)',
 ])('classifies quoted tool_stream parameter rejections: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
@@ -216,6 +218,15 @@ test('does not classify an invalid schema for a tool named tool_stream as a para
   const failure = classifyOpenAIHttpFailure({
     status: 400,
     body: "Invalid schema for function 'tool_stream': properties must be an object",
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test('does not classify a structured validation error that merely references tool_stream', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"error":{"message":"Parameter is required","param":"tool_stream"}}',
   })
 
   expect(failure.category).not.toBe('tool_stream_unsupported')
