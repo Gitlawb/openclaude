@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_ENTRYPOINT_BYTES, truncateEntrypointContent } from './memdir.js'
+import {
+  MAX_ENTRYPOINT_BYTES,
+  MAX_ENTRYPOINT_LINES,
+  truncateEntrypointContent,
+} from './memdir.js'
 
 describe('truncateEntrypointContent byte cap', () => {
   test('enforces the byte cap on multibyte content that is under the char cap', () => {
@@ -33,6 +37,30 @@ describe('truncateEntrypointContent byte cap', () => {
     expect(result.wasLineTruncated).toBe(false)
     expect(result.content).toBe(raw)
     expect(result.byteCount).toBe(Buffer.byteLength(raw))
+  })
+
+  test('applies line truncation then byte truncation when content exceeds both caps', () => {
+    // 250 lines (over MAX_ENTRYPOINT_LINES) where even the first 200 lines are
+    // well over MAX_ENTRYPOINT_BYTES: each line is 100 CJK chars = 300 bytes, so
+    // 200 lines ≈ 60KB. Line truncation fires first, then the byte cut runs on
+    // the already line-clipped result — exercising the combined path.
+    const line = '一'.repeat(100) // 300 bytes
+    const raw = Array.from({ length: 250 }, () => line).join('\n')
+
+    expect(raw.split('\n').length).toBeGreaterThan(MAX_ENTRYPOINT_LINES)
+    expect(Buffer.byteLength(raw)).toBeGreaterThan(MAX_ENTRYPOINT_BYTES)
+
+    const result = truncateEntrypointContent(raw)
+
+    expect(result.wasLineTruncated).toBe(true)
+    expect(result.wasByteTruncated).toBe(true)
+    // Combined reason string names both caps.
+    expect(result.content).toContain('lines and')
+    // The body (before the warning) stays within the byte cap and holds no
+    // split-character replacement chars.
+    const body = result.content.split('\n\n> WARNING:')[0]!
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_ENTRYPOINT_BYTES)
+    expect(body).not.toContain('�')
   })
 
   test('hard byte cut does not split a multibyte character or exceed the cap', () => {
