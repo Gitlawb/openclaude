@@ -141,4 +141,26 @@ describe('relevancePruning', () => {
       expect(stats.toolCallCount).toBeGreaterThanOrEqual(0)
     })
   })
+
+  describe('chronological ordering', () => {
+    // Production Message objects carry the chronological key on the envelope
+    // `timestamp` (an ISO string), not on `message.created_at`. Build that real
+    // shape here so the final "restore chronological order" sort is exercised.
+    function envMessage(idx: number): any {
+      return {
+        type: 'user',
+        uuid: `u${idx}`,
+        timestamp: new Date(1_700_000_000_000 + idx * 1000).toISOString(),
+        message: { role: 'user', content: `message number ${idx} content here`, id: `m${idx}` },
+      }
+    }
+
+    it('returns retained messages in chronological order', () => {
+      const messages = Array.from({ length: 8 }, (_, i) => envMessage(i))
+      // Large target keeps every group; with preserveRecent=3 the last three
+      // are sliced off first, so a broken final sort leaves them out front.
+      const result = pruneByRelevance(messages, { targetTokens: 1_000_000 })
+      expect(result.map(m => m.message.id)).toEqual(messages.map(m => m.message.id))
+    })
+  })
 })

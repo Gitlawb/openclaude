@@ -12,6 +12,7 @@ import {
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
+  verifyBackgroundSessionProcessIdentity,
   type BackgroundSession,
 } from './bgRegistry.js'
 
@@ -955,5 +956,91 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
       getProcessCommand: () => 'node openclaude 1642',
     })
     expect(alive).toBe(false)
+  })
+
+  it('distinguishes missing, matching, mismatched, and unreadable live processes', () => {
+    const states = [
+      verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => false,
+        getProcessCommand: () => 'not read',
+      }),
+      verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => 'node openclaude 1642 --serve',
+      }),
+      verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => 'node unrelated --serve',
+      }),
+      verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => null,
+      }),
+    ]
+
+    expect(states.map(result => result.state)).toEqual([
+      'not-running',
+      'matches',
+      'mismatch',
+      'unreadable',
+    ])
+    expect(
+      states.every(result => result.backgroundSessionId === session.id),
+    ).toBe(true)
+    expect(states.every(result => result.pid === session.pid)).toBe(true)
+  })
+
+  it('treats exit during command lookup as not running', () => {
+    let aliveChecks = 0
+
+    const result = verifyBackgroundSessionProcessIdentity(session, {
+      isProcessAlive: () => ++aliveChecks === 1,
+      getProcessCommand: () => null,
+    })
+
+    expect(result.state).toBe('not-running')
+    expect(aliveChecks).toBe(2)
+  })
+
+  it('treats an access-denied liveness probe as unreadable', () => {
+    const result = verifyBackgroundSessionProcessIdentity(session, {
+      signalProcess: () => {
+        throw Object.assign(new Error('access denied'), { code: 'EPERM' })
+      },
+      getProcessCommand: () => {
+        throw new Error('command lookup must not run without confirmed liveness')
+      },
+    })
+
+    expect(result.state).toBe('unreadable')
+  })
+
+  it('maps throwing injected liveness and command probes to unreadable', () => {
+    const livenessError = verifyBackgroundSessionProcessIdentity(session, {
+      isProcessAlive: () => {
+        throw new Error('private liveness details')
+      },
+      getProcessCommand: () => 'not read',
+    })
+    const commandError = verifyBackgroundSessionProcessIdentity(session, {
+      isProcessAlive: () => true,
+      getProcessCommand: () => {
+        throw new Error('private command details')
+      },
+    })
+
+    expect(livenessError.state).toBe('unreadable')
+    expect(commandError.state).toBe('unreadable')
+  })
+
+  it('treats empty command output as unreadable', () => {
+    for (const command of ['', '   ']) {
+      const result = verifyBackgroundSessionProcessIdentity(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => command,
+      })
+
+      expect(result.state).toBe('unreadable')
+    }
   })
 })

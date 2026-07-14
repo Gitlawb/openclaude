@@ -568,6 +568,10 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  let pendingToolFailureAdvisories: {
+    message: ReturnType<typeof createUserMessage>
+    threshold: number
+  }[] = []
   // Smart-routing decision, pinned once per user turn (transition===undefined)
   // and reused on every continuation pass. Loop-local (not on State) so it
   // survives the State rebuilds at the continue sites for free — mirrors
@@ -663,6 +667,11 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
+    if (pendingToolFailureAdvisories.length > 0) {
+      messagesForQuery.push(
+        ...pendingToolFailureAdvisories.map(advisory => advisory.message),
+      )
+    }
 
     // Extract facts and update phase from the latest message (user input or tool result)
     if (
@@ -924,7 +933,17 @@ async function* queryLoop(
       }
 
       // Continue on with the current query call using the post compact messages
-      messagesForQuery = messagesAfterCompact
+      messagesForQuery = [
+        ...messagesAfterCompact,
+        ...pendingToolFailureAdvisories
+          .filter(
+            advisory =>
+              !messagesAfterCompact.some(
+                message => message.uuid === advisory.message.uuid,
+              ),
+          )
+          .map(advisory => advisory.message),
+      ]
     } else if (
       consecutiveFailures !== undefined ||
       nextRetryAtMs !== undefined ||
@@ -1206,6 +1225,21 @@ async function* queryLoop(
     const toolsForModel = agentStepLimit?.summaryRequested
       ? []
       : toolUseContext.options.tools
+    // The blocking-limit returns above are terminal, so an advisory cannot be
+    // surfaced or retained for a later model turn on those paths.
+    const advisoriesForCurrentRequest = pendingToolFailureAdvisories
+    for (const advisory of advisoriesForCurrentRequest) {
+      logForDebugging(
+        `Tool failure loop guard advisory: threshold=${advisory.threshold} hasToolName=true hasErrorCategory=true`,
+      )
+      logEvent('tengu_tool_failure_loop_guard_advisory', {
+        threshold: advisory.threshold,
+        hasToolName: true,
+        hasErrorCategory: true,
+        queryDepth: queryTracking.depth,
+      })
+    }
+    pendingToolFailureAdvisories = []
     // Once-only guard for the smart-routing routed-error fallback (U4): a
     // simple-routed call that errors retries once on the strong model; a second
     // failure propagates normally rather than re-routing. Intentionally scoped
@@ -1811,12 +1845,23 @@ async function* queryLoop(
           }
 
           const postCompactMessages = buildPostCompactMessages(compacted)
+          const messagesAfterCompact = [
+            ...postCompactMessages,
+            ...advisoriesForCurrentRequest
+              .filter(
+                advisory =>
+                  !postCompactMessages.some(
+                    message => message.uuid === advisory.message.uuid,
+                  ),
+              )
+              .map(advisory => advisory.message),
+          ]
           for (const msg of postCompactMessages) {
             yield msg
           }
           updateAutoCompactTracking(undefined)
           const next: State = {
-            messages: postCompactMessages,
+            messages: messagesAfterCompact,
             toolUseContext,
             autoCompactTracking: undefined,
             maxOutputTokensRecoveryCount,
@@ -2801,6 +2846,18 @@ async function* queryLoop(
         turnCount: nextTurnCount,
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
+    }
+
+    if (!nextAgentStepLimit?.summaryRequested) {
+      pendingToolFailureAdvisories = (
+        toolFailureLoopDecision.advisories ?? []
+      ).map(advisoryDecision => ({
+        message: createUserMessage({
+          content: advisoryDecision.message,
+          isMeta: true,
+        }),
+        threshold: advisoryDecision.threshold,
+      }))
     }
 
     queryCheckpoint('query_recursive_call')
