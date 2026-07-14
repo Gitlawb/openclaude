@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test'
 import {
   consumeInterruptionCorrectionReminder,
+  InterruptionCorrectionTracker,
   shouldMarkInterruptionCorrection,
 } from './interruptionCorrection.js'
+import { QueryGuard } from './QueryGuard.js'
 
 test('only marks a local user cancellation of the active model query', () => {
   const localUserCancellation = {
@@ -19,11 +21,39 @@ test('only marks a local user cancellation of the active model query', () => {
     { ...localUserCancellation, modelBoundQueryId: null },
     { ...localUserCancellation, modelBoundQueryId: 'query-2' },
     { ...localUserCancellation, isRemoteMode: true },
+    { ...localUserCancellation, hasQueuedNormalPrompt: true },
   ]
 
   for (const cancellation of excludedCancellations) {
     expect(shouldMarkInterruptionCorrection(cancellation)).toBe(false)
   }
+})
+
+test('clears a pending reminder when the interrupted context is rewritten', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const turn = queryGuard.tryStart({
+    queryId: 'auto-restored-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  tracker.handleConversationRewrite()
+
+  expect(tracker.takeReminder()).toBeNull()
 })
 
 test('builds one same-session reminder and clears pending state', () => {

@@ -58,6 +58,18 @@ export function isNormalLocalUserPrompt(command: QueuedCommand): boolean {
   )
 }
 
+export function buildConcurrentRequeuedPrompt(
+  value: string,
+  isInterruptionCorrectionEligible: boolean,
+): QueuedCommand {
+  return {
+    value,
+    preExpansionValue: isInterruptionCorrectionEligible ? value : undefined,
+    allowInterruptionCorrection: isInterruptionCorrectionEligible,
+    mode: 'prompt',
+  }
+}
+
 type BaseExecutionParams = {
   queuedCommands?: QueuedCommand[]
   messages: Message[]
@@ -98,6 +110,7 @@ type BaseExecutionParams = {
   onBeforeQuery?: (input: string, newMessages: Message[]) => Promise<boolean>
   canUseTool?: CanUseToolFn
   takeInterruptionCorrectionReminder?: () => Message | null
+  restoreInterruptionCorrectionReminder?: () => void
 }
 
 /**
@@ -167,6 +180,7 @@ export async function handlePromptSubmit(
     canUseTool,
     queuedCommands,
     takeInterruptionCorrectionReminder,
+    restoreInterruptionCorrectionReminder,
     uuid,
     skipSlashCommands,
     slashCommandOverride,
@@ -198,6 +212,7 @@ export async function handlePromptSubmit(
       canUseTool,
       onInputChange,
       takeInterruptionCorrectionReminder,
+      restoreInterruptionCorrectionReminder,
     })
     return
   }
@@ -420,6 +435,7 @@ export async function handlePromptSubmit(
     canUseTool,
     onInputChange,
     takeInterruptionCorrectionReminder,
+    restoreInterruptionCorrectionReminder,
   })
 }
 
@@ -448,6 +464,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     canUseTool,
     queuedCommands,
     takeInterruptionCorrectionReminder,
+    restoreInterruptionCorrectionReminder,
   } = params
 
   // Note: paste references are already processed before calling this function
@@ -488,6 +505,12 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     // ideSelection + pastedContents, rest skip attachments to avoid
     // duplicating turn-level context (IDE selection, todos, diffs).
     const commands = queuedCommands ?? []
+    const isInterruptionCorrectionEligible =
+      commands.length > 0 && commands.every(isNormalLocalUserPrompt)
+    const interruptionCorrectionReminder = isInterruptionCorrectionEligible
+      ? takeInterruptionCorrectionReminder?.()
+      : undefined
+    let interruptionCorrectionReminderInjected = false
 
     // Compute the workload tag for this turn. queueProcessor can batch a
     // cron prompt with a same-tick human prompt; only tag when EVERY
@@ -512,10 +535,6 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       for (let i = 0; i < commands.length; i++) {
         const cmd = commands[i]!
         const isFirst = i === 0
-        const interruptionCorrectionReminder =
-          isNormalLocalUserPrompt(cmd)
-            ? takeInterruptionCorrectionReminder?.()
-            : undefined
         const result = await processUserInput({
           input: cmd.value,
           preExpansionInput: cmd.preExpansionValue,
@@ -538,8 +557,13 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           isMeta: cmd.isMeta,
           skipAttachments: !isFirst,
         })
-        if (interruptionCorrectionReminder) {
+        if (
+          isFirst &&
+          result.shouldQuery &&
+          interruptionCorrectionReminder
+        ) {
           newMessages.push(interruptionCorrectionReminder)
+          interruptionCorrectionReminderInjected = true
         }
         // Stamp origin here rather than threading another arg through
         // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
@@ -618,10 +642,13 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           effort,
           // Fail closed for mixed-provenance batches: only an entirely local
           // human turn may arm interruption-correction context.
-          commands.length > 0 && commands.every(isNormalLocalUserPrompt),
+          isInterruptionCorrectionEligible,
         )
         if (queryOwnershipResult === false) {
           queryProfileOwnedByOnQuery = false
+          if (interruptionCorrectionReminderInjected) {
+            restoreInterruptionCorrectionReminder?.()
+          }
         }
       } else {
         // Local slash commands that skip messages (e.g., /model, /theme).

@@ -136,7 +136,7 @@ import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_ST
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
-import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
+import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
@@ -1014,6 +1014,9 @@ export function REPL({
   const interruptionCorrectionTracker = interruptionCorrectionTrackerRef.current;
   const takeInterruptionCorrectionReminder = useCallback(() => {
     return interruptionCorrectionTracker.takeReminder();
+  }, []);
+  const restoreInterruptionCorrectionReminder = useCallback(() => {
+    interruptionCorrectionTracker.restoreReminder();
   }, []);
 
   // Subscribe to the guard — true during dispatching or running.
@@ -2330,7 +2333,8 @@ export function REPL({
     const cancelContext = queryGuard.activeContext;
     interruptionCorrectionTracker.handleCancellation({
       isUserInitiated,
-      isRemoteMode: activeRemote.isRemoteMode
+      isRemoteMode: activeRemote.isRemoteMode,
+      hasQueuedNormalPrompt: getCommandQueue().some(isNormalLocalUserPrompt)
     });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
@@ -3124,10 +3128,7 @@ export function REPL({
       // (e.g. expanded skill content, tick prompts) that should not be
       // replayed as user-visible text.
       newMessages.filter((m): m is UserMessage => m.type === 'user' && !m.isMeta).map(_ => getContentText(_.message.content)).filter(_ => _ !== null).forEach((msg, i) => {
-        enqueue({
-          value: msg,
-          mode: 'prompt'
-        });
+        enqueue(buildConcurrentRequeuedPrompt(msg, isInterruptionCorrectionEligible));
         if (i === 0) {
           logEvent('tengu_concurrent_onquery_enqueued', {});
         }
@@ -3841,6 +3842,7 @@ export function REPL({
       slashCommandOverride: options?.slashCommandOverride,
       allowInterruptionCorrection: options?.allowInterruptionCorrection,
       takeInterruptionCorrectionReminder,
+      restoreInterruptionCorrectionReminder,
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
       streamMode: streamModeRef.current,
@@ -3871,7 +3873,7 @@ export function REPL({
     // messages array in downstream closures (PromptInput, handleAutoRunIssue).
     // Heap analysis showed ~9 REPL scopes and ~15 messages array versions
     // accumulating after #20174/#20175, all traced to this dep.
-    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, takeInterruptionCorrectionReminder]);
+    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, takeInterruptionCorrectionReminder, restoreInterruptionCorrectionReminder]);
 
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {
@@ -3986,6 +3988,7 @@ export function REPL({
       rewindToMessageIndex: messageIndex
     });
     setMessages(prev.slice(0, messageIndex));
+    interruptionCorrectionTracker.handleConversationRewrite();
     resetAutoCompactTracking();
     // Careful, this has to happen after setMessages
     setConversationId(randomUUID());
@@ -4024,7 +4027,7 @@ export function REPL({
         generationRequestId: null
       }
     }));
-  }, [setMessages, resetAutoCompactTracking, setAppState]);
+  }, [setMessages, resetAutoCompactTracking, setAppState, interruptionCorrectionTracker]);
 
   // Synchronous rewind + input population. Used directly by auto-restore on
   // interrupt (so React batches with the abort's setMessages → single render,
@@ -4207,9 +4210,10 @@ export function REPL({
       addNotification,
       setMessages,
       takeInterruptionCorrectionReminder,
+      restoreInterruptionCorrectionReminder,
       queuedCommands
     });
-  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery, takeInterruptionCorrectionReminder]);
+  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery, takeInterruptionCorrectionReminder, restoreInterruptionCorrectionReminder]);
   useQueueProcessor({
     executeQueuedInput,
     hasActiveLocalJsxUI: isShowingLocalJSXCommand,
@@ -5250,6 +5254,7 @@ export function REPL({
             } else {
               setMessages(postCompact);
             }
+            interruptionCorrectionTracker.handleConversationRewrite();
             // Partial compact bypasses handleMessageFromStream — clear
             // the auto-compact breaker and context-blocked flag.
             setAutoCompactTrackingForSession(getSessionId(), undefined);

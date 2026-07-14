@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   createUserMessage,
   mergeUserMessages,
+  normalizeMessagesForAPI,
 } from '../messages.js'
 import {
   appendMessageTagToUserMessage,
@@ -25,6 +26,17 @@ function countTags(out: UserMessage): number {
 }
 
 describe('appendMessageTagToUserMessage', () => {
+  test('normalizing meta context with real user input produces a non-meta message', () => {
+    const reminder = createUserMessage({ content: 'context', isMeta: true })
+    const correction = createUserMessage({ content: 'do Y instead' })
+
+    const [merged] = normalizeMessagesForAPI([reminder, correction])
+
+    expect(merged?.isMeta).toBeUndefined()
+    expect(JSON.stringify(merged?.message.content)).toContain('context')
+    expect(JSON.stringify(merged?.message.content)).toContain('do Y instead')
+  })
+
   test('appends internal snip metadata to string content', () => {
     const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
     const out = appendMessageTagToUserMessage(msg as UserMessage)
