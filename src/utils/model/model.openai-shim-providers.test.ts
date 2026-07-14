@@ -16,29 +16,32 @@ import {
 } from '../settings/settingsCache.js'
 async function importFreshModelModule() {
   mock.restore()
+  const getAPIProvider = () => {
+    if (process.env.NVIDIA_NIM) return 'nvidia-nim'
+    if (process.env.MINIMAX_API_KEY) return 'minimax'
+    if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
+    if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
+    if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
+    if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
+    if (process.env.CLAUDE_CODE_USE_OPENAI) {
+      const baseUrl = process.env.OPENAI_BASE_URL ?? ''
+      const model = process.env.OPENAI_MODEL ?? ''
+      return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
+        ? 'codex'
+        : 'openai'
+    }
+    if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
+    if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
+    if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
+    return 'firstParty'
+  }
   mock.module('./providers.js', () => ({
-    getAPIProvider: () => {
-      if (process.env.NVIDIA_NIM) return 'nvidia-nim'
-      if (process.env.MINIMAX_API_KEY) return 'minimax'
-      if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
-      if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
-      if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
-      if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
-      if (process.env.CLAUDE_CODE_USE_OPENAI) {
-        const baseUrl = process.env.OPENAI_BASE_URL ?? ''
-        const model = process.env.OPENAI_MODEL ?? ''
-        return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
-          ? 'codex'
-          : 'openai'
-      }
-      if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
-      if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
-      if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
-      return 'firstParty'
-    },
+    getAPIProvider,
     isFirstPartyAnthropicBaseUrl: () => !process.env.ANTHROPIC_BASE_URL,
-    isFirstPartyAnthropicProvider: () => !process.env.ANTHROPIC_BASE_URL,
-    isCustomAnthropicProvider: () => !!process.env.ANTHROPIC_BASE_URL,
+    isFirstPartyAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !process.env.ANTHROPIC_BASE_URL,
+    isCustomAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !!process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
     isModelAllowed: () => true,

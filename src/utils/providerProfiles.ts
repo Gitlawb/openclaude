@@ -1211,7 +1211,7 @@ export function updateProviderProfile(
   }
 
   if (shouldApply) {
-    applyProviderProfileToProcessEnv(updatedProfile)
+    setActiveProviderProfile(profileId)
   }
 
   return updatedProfile
@@ -1709,7 +1709,7 @@ export function deleteProviderProfile(profileId: string): {
   })
 
   if (nextActiveProfile) {
-    applyProviderProfileToProcessEnv(nextActiveProfile)
+    setActiveProviderProfile(nextActiveProfile.id)
   } else if (
     deletedProfile &&
     isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
@@ -1717,6 +1717,7 @@ export function deleteProviderProfile(profileId: string): {
     })
   ) {
     clearProviderProfileEnvFromProcessEnv()
+    deleteProfileFile()
   }
 
   return {

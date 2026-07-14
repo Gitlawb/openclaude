@@ -154,7 +154,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
       ? process.env.ANTHROPIC_MODEL
       : getDefaultMainLoopModelSetting()
 
-  if (process.env.USER_TYPE === 'ant') {
+  if (process.env.USER_TYPE === 'ant' && !is3P) {
     const currentModel = renderDefaultModelSetting(currentDefaultModel)
     return {
       value: null,
