@@ -380,6 +380,8 @@ test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (excl. mini/nano) only',
     'gpt-5.6-terra',
     'gpt-5.6-luna',
     'GPT-5.6-SOL',
+    // patch releases of a verified family stay routed
+    'gpt-5.4.1',
   ]) {
     expect(modelRequiresResponsesApi(model)).toBe(true)
   }
@@ -391,7 +393,9 @@ test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (excl. mini/nano) only',
     'gpt-5.4-nano',
     'gpt-5.5-mini',
     'gpt-5.5-nano',
+    'gpt-5.6-mini-high',
     'gpt-5.10',
+    'gpt-5.41',
     'o3',
     'claude-opus-4-8',
   ]) {
