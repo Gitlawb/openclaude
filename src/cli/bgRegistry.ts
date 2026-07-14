@@ -478,11 +478,14 @@ export async function refreshBackgroundSessionStatuses(options?: {
       continue
     }
 
-    const processState = getBackgroundSessionProcessState(session, options)
+    const processState = verifyBackgroundSessionProcessIdentity(
+      session,
+      options,
+    ).state
     const nextStatus: BackgroundSessionStatus =
-      processState === 'alive'
+      processState === 'matches'
         ? 'running'
-        : processState === 'unknown'
+        : processState === 'unreadable'
           ? 'unknown'
           : 'stale'
 
@@ -503,7 +506,22 @@ export async function refreshBackgroundSessionStatuses(options?: {
   return refreshed
 }
 
-type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
+export type BackgroundSessionProcessIdentity = {
+  state: 'not-running' | 'matches' | 'mismatch' | 'unreadable'
+  backgroundSessionId: string
+  pid: number
+}
+
+export type BackgroundSessionProcessLiveness =
+  | 'alive'
+  | 'not-running'
+  | 'unreadable'
+
+export type BackgroundSessionProcessIdentityOptions = {
+  isProcessAlive?: (pid: number) => boolean
+  signalProcess?: (pid: number, signal: 0) => unknown
+  getProcessCommand?: (pid: number) => string | null
+}
 
 // A spaced path or prompt is a single argv entry, but the raw command line
 // quotes it, so a whitespace split fuses a quote onto the edge tokens. Windows
@@ -570,30 +588,73 @@ function commandLineMatchesBackgroundSession(
   return commandLineContainsArgs(commandLine, session.command)
 }
 
-function getBackgroundSessionProcessState(
+export function verifyBackgroundSessionProcessIdentity(
   session: BackgroundSession,
-  options?: {
-    isProcessAlive?: (pid: number) => boolean
-    getProcessCommand?: (pid: number) => string | null
-  },
-): BackgroundSessionProcessState {
-  const isAlive = options?.isProcessAlive ?? isProcessRunning
-  if (!isAlive(session.pid)) return 'dead'
+  options?: BackgroundSessionProcessIdentityOptions,
+): BackgroundSessionProcessIdentity {
+  const result = (
+    state: BackgroundSessionProcessIdentity['state'],
+  ): BackgroundSessionProcessIdentity => ({
+    state,
+    backgroundSessionId: session.id,
+    pid: session.pid,
+  })
+  const getLiveness = () =>
+    getBackgroundSessionProcessLiveness(session.pid, options)
+  const liveness = getLiveness()
+  if (liveness !== 'alive') return result(liveness)
 
   const readCommand = options?.getProcessCommand ?? getProcessCommand
-  const command = readCommand(session.pid)
-  if (command == null) return 'unknown'
-  return commandLineMatchesBackgroundSession(command, session) ? 'alive' : 'dead'
+  let command: string | null
+  try {
+    command = readCommand(session.pid)
+  } catch {
+    const latestLiveness = getLiveness()
+    return result(
+      latestLiveness === 'alive' ? 'unreadable' : latestLiveness,
+    )
+  }
+  const latestLiveness = getLiveness()
+  if (latestLiveness !== 'alive') return result(latestLiveness)
+  if (command == null || command.trim() === '') {
+    return result('unreadable')
+  }
+  return result(
+    commandLineMatchesBackgroundSession(command, session)
+      ? 'matches'
+      : 'mismatch',
+  )
+}
+
+export function getBackgroundSessionProcessLiveness(
+  pid: number,
+  options?: BackgroundSessionProcessIdentityOptions,
+): BackgroundSessionProcessLiveness {
+  if (options?.isProcessAlive) {
+    try {
+      return options.isProcessAlive(pid) ? 'alive' : 'not-running'
+    } catch {
+      return 'unreadable'
+    }
+  }
+  if (pid <= 1) return 'not-running'
+
+  const signalProcess = options?.signalProcess ?? process.kill
+  try {
+    signalProcess(pid, 0)
+    return 'alive'
+  } catch (error) {
+    return isErrno(error, 'ESRCH') ? 'not-running' : 'unreadable'
+  }
 }
 
 export function isBackgroundSessionProcessAlive(
   session: BackgroundSession,
-  options?: {
-    isProcessAlive?: (pid: number) => boolean
-    getProcessCommand?: (pid: number) => string | null
-  },
+  options?: BackgroundSessionProcessIdentityOptions,
 ): boolean {
-  return getBackgroundSessionProcessState(session, options) === 'alive'
+  return (
+    verifyBackgroundSessionProcessIdentity(session, options).state === 'matches'
+  )
 }
 
 export async function markBackgroundSessionKilled(

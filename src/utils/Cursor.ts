@@ -875,11 +875,17 @@ export class Cursor {
       insertString +
       this.text.slice(endOffset)
 
-    return Cursor.fromText(
-      newText,
-      this.columns,
-      startOffset + insertString.normalize('NFC').length,
-    )
+    // Cursor.fromText NFC-normalizes the whole newText, so compute the new
+    // offset from the normalized prefix-plus-insert rather than normalizing
+    // insertString in isolation. Otherwise a combining mark that composes with
+    // the last character of the prefix (e.g. "e" + U+0301 -> "é") shortens the
+    // normalized text by one unit that this offset doesn't account for, landing
+    // the cursor one position too far (past following text).
+    const newOffset = (
+      this.text.slice(0, startOffset) + insertString
+    ).normalize('NFC').length
+
+    return Cursor.fromText(newText, this.columns, newOffset)
   }
 
   insert(insertString: string): Cursor {

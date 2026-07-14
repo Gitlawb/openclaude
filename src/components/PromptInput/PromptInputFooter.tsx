@@ -21,6 +21,7 @@ import { BuiltinStatusLine, builtinStatusLineShouldDisplay } from '../BuiltinSta
 import { useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
 import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
 import { Notifications } from './Notifications.js';
+import { resolveFooterOverlay, resolveTransientFooterMessage } from './footerVisibility.js';
 import { KeepMounted } from './KeepMounted.js';
 import { PromptInputFooterLeftSide } from './PromptInputFooterLeftSide.js';
 import { PromptInputFooterSuggestions, type SuggestionItem } from './PromptInputFooterSuggestions.js';
@@ -28,18 +29,20 @@ import { PromptInputHelpMenu } from './PromptInputHelpMenu.js';
 /**
  * Which status line, if any, the footer renders below the prompt: the
  * configured custom command wins over the built-in one, and neither renders
- * when the row's guards fail (non-prompt mode, short fullscreen, exit
- * message showing, paste in progress). The `? for shortcuts` hint is
+ * when the row's guards fail (non-prompt mode, short fullscreen, inline
+ * suggestions/help, exit message showing, or paste in progress). The
+ * `? for shortcuts` hint is
  * suppressed only when this returns non-null, so the hint never disappears
  * in states where no status line actually renders.
  */
 export function resolveFooterStatusLine(settings: ReadonlySettings, guards: {
   isPromptMode: boolean;
   isShort: boolean;
+  hideRegularFooter: boolean;
   exitMessageShown: boolean;
   isPasting: boolean;
 }, config?: Parameters<typeof builtinStatusLineShouldDisplay>[1]): 'custom' | 'builtin' | null {
-  if (!guards.isPromptMode || guards.isShort || guards.exitMessageShown || guards.isPasting) return null;
+  if (!guards.isPromptMode || guards.isShort || guards.hideRegularFooter || resolveTransientFooterMessage(guards) !== null) return null;
   if (statusLineShouldDisplay(settings)) return 'custom';
   if (builtinStatusLineShouldDisplay(settings, config)) return 'builtin';
   return null;
@@ -49,6 +52,7 @@ export function resolveConfiguredFooterStatusLine(settings: ReadonlySettings): '
   return resolveFooterStatusLine(settings, {
     isPromptMode: true,
     isShort: false,
+    hideRegularFooter: false,
     exitMessageShown: false,
     isPasting: false
   });
@@ -159,6 +163,12 @@ function PromptInputFooter({
   // has terminal scrollback to absorb overflow, so we never hide StatusLine there.
   const isFullscreen = isFullscreenEnvEnabled();
   const isShort = isFullscreen && rows < 24;
+  const footerOverlay = resolveFooterOverlay({
+    hasInlineSuggestions: suggestions.length > 0 && !isFullscreen,
+    helpOpen,
+    isSearching
+  });
+  const hideRegularFooter = footerOverlay !== null;
 
   // Pill highlights when tasks is the active footer item AND no specific
   // agent row is selected. When coordinatorTaskIndex >= 0 the pointer has
@@ -172,6 +182,7 @@ function PromptInputFooter({
   const footerStatusLine = resolveFooterStatusLine(settings, {
     isPromptMode: mode === 'prompt',
     isShort,
+    hideRegularFooter,
     exitMessageShown: exitMessage.show,
     isPasting
   });
@@ -192,16 +203,14 @@ function PromptInputFooter({
     maxColumnWidth
   } : null, [isFullscreen, suggestions, selectedSuggestion, maxColumnWidth]);
   useSetPromptOverlay(overlayData);
-  const showInlineSuggestions = suggestions.length > 0 && !isFullscreen;
-  const hideRegularFooter = showInlineSuggestions || helpOpen;
   return <>
       <KeepMounted hidden={hideRegularFooter}>
         <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent={isNarrow ? 'flex-start' : 'space-between'} paddingX={2} gap={isNarrow ? 0 : 1}>
           <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
           <KeepMounted hidden={footerStatusLine === null}>
-            {configuredFooterStatusLine === 'custom' ? <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} /> : configuredFooterStatusLine === 'builtin' ? <BuiltinStatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} /> : null}
+            {configuredFooterStatusLine === 'custom' ? <StatusLine active={footerStatusLine === 'custom'} messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} /> : configuredFooterStatusLine === 'builtin' ? <BuiltinStatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} /> : null}
           </KeepMounted>
-          <PromptInputFooterLeftSide exitMessage={exitMessage} vimMode={vimMode} mode={mode} toolPermissionContext={toolPermissionContext} suppressHint={suppressHint} isLoading={isLoading} tasksSelected={pillSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} tmuxSelected={tmuxSelected} isPasting={isPasting} isSearching={isSearching} historyQuery={historyQuery} setHistoryQuery={setHistoryQuery} historyFailedMatch={historyFailedMatch} onOpenTasksDialog={onOpenTasksDialog} />
+          <PromptInputFooterLeftSide active={!hideRegularFooter} exitMessage={exitMessage} vimMode={vimMode} mode={mode} toolPermissionContext={toolPermissionContext} suppressHint={suppressHint} isLoading={isLoading} tasksSelected={pillSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} tmuxSelected={tmuxSelected} isPasting={isPasting} isSearching={isSearching} historyQuery={historyQuery} setHistoryQuery={setHistoryQuery} historyFailedMatch={historyFailedMatch} onOpenTasksDialog={onOpenTasksDialog} />
           </Box>
           <Box flexShrink={1} gap={1}>
           {isFullscreen ? null : <Notifications apiKeyStatus={apiKeyStatus} autoUpdaterResult={autoUpdaterResult} debug={debug} isAutoUpdating={isAutoUpdating} verbose={verbose} messages={messages} onAutoUpdaterResult={onAutoUpdaterResult} onChangeIsUpdating={onChangeIsUpdating} ideSelection={ideSelection} mcpClients={mcpClients} isInputWrapped={isInputWrapped} isNarrow={isNarrow} />}
@@ -209,9 +218,9 @@ function PromptInputFooter({
           </Box>
         </Box>
       </KeepMounted>
-      {showInlineSuggestions ? <Box paddingX={2} paddingY={0}>
+      {footerOverlay === 'suggestions' ? <Box paddingX={2} paddingY={0}>
           <PromptInputFooterSuggestions suggestions={suggestions} selectedSuggestion={selectedSuggestion} maxColumnWidth={maxColumnWidth} />
-        </Box> : helpOpen ? <PromptInputHelpMenu dimColor={true} fixedWidth={true} paddingX={2} /> : null}
+        </Box> : footerOverlay === 'help' ? <PromptInputHelpMenu dimColor={true} fixedWidth={true} paddingX={2} /> : null}
     </>;
 }
 export default memo(PromptInputFooter);
