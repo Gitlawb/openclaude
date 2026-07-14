@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync, rmSync, mkdirSync, writeFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { getAutoMemPath } from '../memdir/paths.js'
 import { searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
 import { parseFrontmatter } from './frontmatterParser.js'
@@ -16,6 +16,7 @@ import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
+import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
 import { createRequire } from 'module'
 const _require = createRequire(import.meta.url)
 
@@ -80,6 +81,10 @@ export function extractKeywords(text: string): string[] {
 // project — a single global flag would let a project without a legacy graph
 // suppress migration for all later projects in the same process.
 const legacyMigrationDoneProjects = new Set<string>()
+// Track projects where auto-memory was disabled — these must NOT be added to
+// legacyMigrationDoneProjects so that a later re-enable in the same process
+// does not find the guard set and permanently short-circuit migration.
+const legacyMigrationSkippedProjects = new Set<string>()
 
 function currentProjectKey(): string {
   return sanitizePath(getFsImplementation().cwd())
@@ -91,6 +96,11 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 80)
+}
+
+function yamlQuote(val: string): string {
+  const escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
+  return `"${escaped}"`
 }
 
 function getLegacyGraphPath(): string {
@@ -105,18 +115,36 @@ function migrateLegacyKnowledgeGraph(): void {
   const projectKey = currentProjectKey()
   if (legacyMigrationDoneProjects.has(projectKey)) return
 
+  // If auto-memory was disabled in a prior call but is now re-enabled,
+  // clear the skipped marker so migration can proceed.
+  if (legacyMigrationSkippedProjects.has(projectKey)) {
+    if (!isAutoMemoryEnabled()) return
+    legacyMigrationSkippedProjects.delete(projectKey)
+  }
+
   // Honor the opt-out. A user who disabled auto-memory must not receive
   // persistent memory writes from a status/list/read path. Migration writes
-  // to the memdir, so it is gated on the same auto-memory toggle.
+  // to the memdir, so it is gated on the same auto-memory toggle. Track
+  // "skipped" separately from "completed" so a re-enable is not short-circuited.
   if (!isAutoMemoryEnabled()) {
-    legacyMigrationDoneProjects.add(projectKey)
+    legacyMigrationSkippedProjects.add(projectKey)
+    return
+  }
+
+  // Respect the same memory-write approval policy as extractMemories: do not
+  // silently write migrated facts into .facts/ without user approval.
+  if (isMemoryWriteApprovalRequired()) {
+    legacyMigrationSkippedProjects.add(projectKey)
     return
   }
 
   const legacyPath = getLegacyGraphPath()
   const sqlitePath = getLegacySqlitePath()
 
-  // Prefer SQLite when available and newer than JSON (or JSON absent)
+  // Prefer SQLite when available and newer than JSON (or JSON absent).
+  // However, do not prefer an empty SQLite store over a populated JSON graph:
+  // the deleted SQLite provider created DBs eagerly, so users with an empty
+  // DB + older JSON lose data if SQLite wins on mtime alone.
   let data: any
   let sourcePath = ''
 
@@ -127,6 +155,11 @@ function migrateLegacyKnowledgeGraph(): void {
     if (!jsonExists || sqliteMtime >= jsonMtime) {
       sourcePath = sqlitePath
       data = readLegacySqliteStore()
+      // Fall back to JSON when SQLite has no entities — the store was empty
+      // but the JSON graph may still have real content.
+      if (data && Object.keys(data.entities).length === 0 && jsonExists) {
+        data = null
+      }
     }
   }
 
@@ -223,38 +256,44 @@ function doMigration(data: any, sourcePath: string, projectKey: string): void {
     // Migrate entities
     const legacyEntities: Entity[] = Object.values(data.entities ?? {})
     for (const entity of legacyEntities) {
-      const slug = slugify(entity.name)
+      const nameSlug = slugify(entity.name)
+      // Slugify entity.type too — a legacy row with type "x/../../planted"
+      // would write outside .facts/ and plant/clobber files under memory/.
+      const typeSlug = slugify(entity.type || 'unknown')
       const attrsYaml = Object.entries(entity.attributes ?? {})
-        .map(([k, v]) => `  ${k}: "${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+        .map(([k, v]) => `  ${k}: ${yamlQuote(String(v))}`)
         .join('\n')
       const content = `---
 type: reference
-title: "${entity.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
+title: ${yamlQuote(entity.name)}
 description: "Migrated from legacy knowledge graph: ${entity.type}"
-factType: ${entity.type}
+factType: ${yamlQuote(entity.type)}
 source: legacy_migration
 ${attrsYaml ? `attributes:\n${attrsYaml}` : ''}
 ---
 Auto-migrated from legacy store: **${entity.name}**
 `
-      writeFileSync(join(factsDir, `fact-${entity.type}-${slug}.md`), content, 'utf-8')
+      writeFileSync(join(factsDir, `fact-${typeSlug}-${nameSlug}.md`), content, 'utf-8')
       count++
     }
 
     // Migrate summaries
     for (const summary of data.summaries ?? []) {
-      const slug = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      // Slugify summary.id as well — legacy IDs are raw strings that could
+      // contain path-separator characters.
+      const rawId = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const idSlug = slugify(rawId)
       const content = `---
 type: reference
 title: "Knowledge Summary"
-description: "${(summary.content ?? '').slice(0, 200).replace(/"/g, '\\"')}"
+description: ${yamlQuote((summary.content ?? '').slice(0, 200))}
 factType: summary
-keywords: "${(summary.keywords ?? []).join(', ')}"
+keywords: ${yamlQuote((summary.keywords ?? []).join(', '))}
 source: legacy_migration
 ---
 ${summary.content ?? ''}
 `
-      writeFileSync(join(factsDir, `fact-summary-${slug}.md`), content, 'utf-8')
+      writeFileSync(join(factsDir, `fact-summary-${idSlug}.md`), content, 'utf-8')
       count++
     }
 
@@ -265,7 +304,7 @@ ${summary.content ?? ''}
       const slug = slugify(rule)
       const content = `---
 type: reference
-title: "${rule.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
+title: ${yamlQuote(rule)}
 description: "Migrated legacy rule"
 factType: rule
 source: legacy_migration
@@ -302,6 +341,13 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
     // Guard is set only after all writes succeed.
     legacyMigrationDoneProjects.add(projectKey)
     console.error(`[knowledgeGraph] Migrated ${count} items from legacy store. Backup saved at ${backupPath}`)
+
+    // Retire the live legacy sources so a fresh process does not remigrate
+    // the same data and overwrite user edits under .facts/. The backup
+    // created above is always available for recovery.
+    if (existsSync(sourcePath)) {
+      try { rmSync(sourcePath, { force: true }) } catch { /* non-fatal */ }
+    }
   } catch (e) {
     console.error('[knowledgeGraph] Legacy migration failed during write phase. Backup preserved at:', backupPath, e)
     // Do NOT set legacyMigrationDoneProjects so migration is retried on next access.
@@ -503,7 +549,7 @@ export function resetGlobalGraph(): void {
   // Reset the guard so that if the user re-enables the feature the cleared
   // state is authoritative — no remigration from deleted sources occurs.
   legacyMigrationDoneProjects.delete(currentProjectKey())
-  clearIndex()
+  clearIndex(memDir)
 }
 
 export function clearMemoryOnly(): void {

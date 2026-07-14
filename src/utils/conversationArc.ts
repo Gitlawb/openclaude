@@ -18,6 +18,7 @@ import {
   clearIndex,
 } from '../memdir/vectorIndex.js'
 import { extractKeywords } from './knowledgeGraph.js'
+import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
 
 export interface Goal {
   id: string
@@ -62,6 +63,18 @@ const ARC_FILENAME = '.arc.json'
 
 let conversationArc: ConversationArc | null = null
 let arcMemoryDir: string | null = null
+// Track which project (cwd) the cached arc belongs to so that a long-lived
+// process that switches projects does not keep writing goals/phase into the
+// previous arc file and injecting the wrong arc summary. See P2 finding.
+let arcProjectKey: string | null = null
+
+function currentProjectKey(): string {
+  try {
+    return process.cwd()
+  } catch {
+    return ''
+  }
+}
 
 function getArcPath(memoryDir: string): string {
   return join(memoryDir, ARC_FILENAME)
@@ -80,6 +93,10 @@ function loadArcFromDisk(memoryDir: string): ConversationArc | null {
 
 function saveArcToDisk(memoryDir: string, arc: ConversationArc): void {
   if (!isAutoMemoryEnabled()) return
+  // Respect the same memory-write approval policy as the rest of the memory
+  // system. extractMemories() returns early when approval is required, so
+  // arc persistence must not silently write .arc.json without the prompt.
+  if (isMemoryWriteApprovalRequired()) return
   try {
     if (!existsSync(memoryDir)) {
       mkdirSync(memoryDir, { recursive: true })
@@ -111,6 +128,7 @@ export function initializeArc(memoryDir?: string): ConversationArc {
   if (existing) {
     conversationArc = existing
     arcMemoryDir = dir
+    arcProjectKey = currentProjectKey()
     return existing
   }
 
@@ -124,11 +142,21 @@ export function initializeArc(memoryDir?: string): ConversationArc {
     lastUpdateTime: Date.now(),
   }
   arcMemoryDir = dir
+  arcProjectKey = currentProjectKey()
   saveArcToDisk(dir, conversationArc)
   return conversationArc
 }
 
 export function getArc(): ConversationArc | null {
+  const projectKey = currentProjectKey()
+  // Re-resolve when the project (cwd) changes — a long-lived process that
+  // switches projects must not keep writing goals/phase into the previous
+  // arc file and injecting the wrong arc summary.
+  if (conversationArc && arcProjectKey !== null && arcProjectKey !== projectKey) {
+    conversationArc = null
+    arcMemoryDir = null
+    arcProjectKey = null
+  }
   if (!conversationArc) {
     const dir = getAutoMemPath()
     if (dir) {
@@ -136,6 +164,7 @@ export function getArc(): ConversationArc | null {
       if (existing) {
         conversationArc = existing
         arcMemoryDir = dir
+        arcProjectKey = projectKey
         return conversationArc
       }
     }
@@ -196,6 +225,42 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       }
     }
 
+    // Automatically extract goals from user messages: phrases like "implement X",
+    // "add Y", "fix Z" or "build A" are treated as implicit goals so that
+    // finalizeArcTurn can produce session-summary memory and getArcSummary can
+    // report progress. This replaces the previous approach where only explicit
+    // addGoal() calls (which production never issues) created goals.
+    if (msg.type === 'user') {
+      const goalPattern = /\b(?:implement|add|create|build|write|fix|make)\s+(?:a\s+|an\s+)?(.{3,80}?)(?:\.|$)/gi
+      let gmatch: RegExpExecArray | null
+      while ((gmatch = goalPattern.exec(content)) !== null) {
+        const desc = gmatch[1].trim()
+        if (desc.length > 3 && !arc.goals.some(g => g.description.toLowerCase() === desc.toLowerCase())) {
+          arc.goals.push({
+            id: `goal_${Date.now()}_${arc.goals.length}`,
+            description: desc,
+            status: 'active',
+            createdAt: Date.now(),
+          })
+          arc.lastUpdateTime = Date.now()
+        }
+      }
+      // Also extract decisions: "decided to X", "chose Y over Z", "use A instead of B"
+      const decisionPattern = /\b(?:decided\s+to|decided\s+on|chose|switching\s+to|using|preferring)\s+(.{10,120}?)(?:\.|$)/gi
+      let dmatch: RegExpExecArray | null
+      while ((dmatch = decisionPattern.exec(content)) !== null) {
+        const desc = dmatch[1].trim()
+        if (desc.length > 5 && !arc.decisions.some(d => d.description.toLowerCase() === desc.toLowerCase())) {
+          arc.decisions.push({
+            id: `decision_${Date.now()}_${arc.decisions.length}`,
+            description: desc,
+            timestamp: Date.now(),
+          })
+          arc.lastUpdateTime = Date.now()
+        }
+      }
+    }
+
     if (await extractFactsAutomatically(content)) {
       factsChanged = true
     }
@@ -221,6 +286,7 @@ function yamlQuote(val: string): string {
 export async function finalizeArcTurn(): Promise<void> {
   const arc = getArc()
   if (!arc || !isAutoMemoryEnabled()) return
+  if (isMemoryWriteApprovalRequired()) return
 
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
   const dir = arcMemoryDir
@@ -395,6 +461,7 @@ export async function getArcSummary(query?: string): Promise<string> {
 export function resetArc(): void {
   conversationArc = null
   arcMemoryDir = null
+  arcProjectKey = null
 }
 
 export function clearArcArtifacts(memoryDir: string): void {
@@ -419,7 +486,7 @@ export function clearArcArtifacts(memoryDir: string): void {
       try { rmSync(p, { force: true }) } catch { /* ignore */ }
     }
   }
-  clearIndex()
+  clearIndex(memoryDir)
 }
 
 export function getArcStats() {
@@ -442,11 +509,18 @@ export async function appendArcToSystemPrompt(
 ): Promise<readonly string[]> {
   const { getGlobalConfig } = await import('../utils/config.js')
   if (getGlobalConfig().knowledgeGraphEnabled && isAutoMemoryEnabled()) {
-    const lastMessage = messagesForQuery[messagesForQuery.length - 1]
-    const userQueryText =
-      lastMessage?.type === 'user'
-        ? extractTextFromContent(lastMessage.message?.content)
-        : ''
+    // Walk back to the latest human-authored text — after tool execution the
+    // trailing message is typically a tool_result content array and an empty
+    // query would skip vector search. Pinning the turn query once avoids
+    // dropping project memory mid-turn during multi-step tool loops.
+    let userQueryText = ''
+    for (let i = messagesForQuery.length - 1; i >= 0; i--) {
+      const m = messagesForQuery[i]
+      if (m.type === 'user') {
+        userQueryText = extractTextFromContent(m.message?.content)
+        if (userQueryText) break
+      }
+    }
     const arcSummary = await getArcSummary(userQueryText)
     const { getOrchestratedMemory } = await import('./knowledgeGraph.js')
     const orchMem = await getOrchestratedMemory(userQueryText)
