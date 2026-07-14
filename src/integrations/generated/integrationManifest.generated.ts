@@ -56,13 +56,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeId": "aimlapi",
     "vendorId": "openai",
     "gatewayId": "aimlapi",
-    "description": "AI/ML API OpenAI-compatible endpoint",
+    "description": "1,000+ models OpenAI compatible endpoint",
     "apiKeyEnvVars": [
       "AIMLAPI_API_KEY"
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ]
+    ],
+    "badge": {
+      "text": "Recommended",
+      "color": "success"
+    }
   },
   {
     "preset": "dashscope-cn",
@@ -142,6 +146,22 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "cloudflare",
+    "routeKind": "gateway",
+    "routeId": "cloudflare",
+    "vendorId": "openai",
+    "gatewayId": "cloudflare",
+    "description": "Cloudflare Workers AI OpenAI-compatible endpoint. Replace <ACCOUNT_ID> in the base URL with your Cloudflare account id.",
+    "label": "Cloudflare Workers AI",
+    "name": "Cloudflare Workers AI",
+    "apiKeyEnvVars": [
+      "CLOUDFLARE_API_TOKEN"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "deepseek",
     "routeKind": "vendor",
     "routeId": "deepseek",
@@ -169,7 +189,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeKind": "vendor",
     "routeId": "gemini",
     "vendorId": "gemini",
-    "description": "Gemini OpenAI-compatible endpoint",
+    "description": "Google AI / Gemini OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "GEMINI_API_KEY"
     ]
@@ -475,6 +495,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "azure-openai",
   "bankr",
   "clinepass",
+  "cloudflare",
   "deepseek",
   "fireworks",
   "gemini",

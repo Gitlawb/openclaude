@@ -179,13 +179,16 @@ Model lookup should prefer:
    `modelDescriptorId`;
 3. global shared model descriptors under `src/integrations/models/` for legacy
    and custom OpenAI-compatible model names;
-4. documented env overrides from `src/utils/model/openaiContextWindows.ts`
-   (`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
-   `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`).
+4. documented user overrides from `src/utils/model/openaiContextWindows.ts` —
+   the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` / `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`
+   env vars and the `modelLimits` map in `settings.json` (see the
+   `modelLimits` section in `docs/advanced-setup.md` for key matching and
+   precedence).
 
-`openaiContextWindows.ts` is compatibility glue for user-provided env
-overrides. It should not grow a second built-in model table. Built-in model
-limits belong in model descriptor files.
+`openaiContextWindows.ts` is compatibility glue for user-provided overrides
+(env vars and the `settings.json` `modelLimits` map). It should not grow a
+second built-in model table. Built-in model limits belong in model descriptor
+files.
 
 ## What not to do
 

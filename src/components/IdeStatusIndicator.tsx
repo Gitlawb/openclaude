@@ -9,6 +9,11 @@ type IdeStatusIndicatorProps = {
   ideSelection: IDESelection | undefined;
   mcpClients?: MCPServerConnection[];
 };
+
+export function hasIdeSelection(ideSelection: IDESelection | undefined): boolean {
+  return Boolean(ideSelection?.filePath || (ideSelection?.text && ideSelection.lineCount > 0));
+}
+
 export function IdeStatusIndicator(t0) {
   const $ = _c(7);
   const {
@@ -18,7 +23,7 @@ export function IdeStatusIndicator(t0) {
   const {
     status: ideStatus
   } = useIdeConnectionStatus(mcpClients);
-  const shouldShowIdeSelection = ideStatus === "connected" && (ideSelection?.filePath || ideSelection?.text && ideSelection.lineCount > 0);
+  const shouldShowIdeSelection = ideStatus === "connected" && hasIdeSelection(ideSelection);
   if (ideStatus === null || !shouldShowIdeSelection || !ideSelection) {
     return null;
   }

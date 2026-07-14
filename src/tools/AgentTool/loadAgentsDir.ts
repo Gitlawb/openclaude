@@ -17,7 +17,7 @@ import { logForDebugging } from '../../utils/debug.js'
 import {
   EFFORT_LEVELS,
   type EffortValue,
-  parseEffortValue,
+  parseFrontmatterEffortValue,
 } from '../../utils/effort.js'
 import { parsePositiveIntFromFrontmatter } from '../../utils/frontmatterParser.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -81,7 +81,14 @@ const AgentJsonSchema = lazySchema(() =>
       .min(1, 'Model cannot be empty')
       .transform(m => (m.toLowerCase() === 'inherit' ? 'inherit' : m))
       .optional(),
-    effort: z.union([z.enum(EFFORT_LEVELS), z.number().int()]).optional(),
+    // ultracode is a session-only meta-mode and must not be settable from an
+    // agent definition, so route the value through parseFrontmatterEffortValue
+    // (which drops ultracode) — same as the markdown/skill/plugin frontmatter
+    // and SDK schema paths, so every agent-definition input agrees.
+    effort: z
+      .union([z.enum(EFFORT_LEVELS), z.number().int()])
+      .optional()
+      .transform(parseFrontmatterEffortValue),
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     mcpServers: z.array(AgentMcpServerSpecSchema()).optional(),
     hooks: HooksSchema().optional(),
@@ -621,14 +628,17 @@ export function parseAgentFromMarkdown(
       }
     }
 
-    // Parse effort from frontmatter (supports string levels and integers)
+    // Parse effort from frontmatter (supports string levels and integers).
+    // ultracode is rejected here — see parseFrontmatterEffortValue.
     const effortRaw = frontmatter['effort']
     const parsedEffort =
-      effortRaw !== undefined ? parseEffortValue(effortRaw) : undefined
+      effortRaw !== undefined ? parseFrontmatterEffortValue(effortRaw) : undefined
 
     if (effortRaw !== undefined && parsedEffort === undefined) {
       logForDebugging(
-        `Agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.join(', ')} or an integer`,
+        String(effortRaw).toLowerCase() === 'ultracode'
+          ? `Agent file ${filePath} requested effort 'ultracode', a session-only mode not supported in frontmatter; ignoring.`
+          : `Agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.filter(l => l !== 'ultracode').join(', ')} or an integer`,
       )
     }
 

@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  appendMessageTagToUserMessage,
   createUserMessage,
-  deriveShortMessageId,
   mergeUserMessages,
-} from './messages.js'
-import type { UserMessage } from '../types/message.js'
+} from '../messages.js'
+import {
+  appendMessageTagToUserMessage,
+  deriveShortMessageId,
+  stripCallerFieldFromAssistantMessage,
+  stripToolReferenceBlocksFromUserMessage,
+} from './apiTransform.js'
+import type { UserMessage } from '../../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
@@ -152,5 +156,45 @@ describe('appendMessageTagToUserMessage', () => {
     // Both tool_result blocks are preserved for snip pairing.
     const blocks = merged.message.content as any[]
     expect(blocks.filter(b => b.type === 'tool_result').length).toBe(2)
+  })
+})
+
+describe('API cleanup transforms', () => {
+  test('removes tool-reference blocks while preserving other tool-result content', () => {
+    const message = createUserMessage({
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_abc',
+          content: [
+            { type: 'tool_reference', tool_name: 'mcp__example__search' },
+            { type: 'text', text: 'keep this result' },
+          ],
+        },
+      ],
+    })
+
+    const output = stripToolReferenceBlocksFromUserMessage(message)
+    const content = (output.message.content as any[])[0].content
+    expect(content).toEqual([{ type: 'text', text: 'keep this result' }])
+  })
+
+  test('removes a nullable caller field from tool-use blocks', () => {
+    const message = {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'toolu_abc', name: 'Read', input: {}, caller: null },
+          { type: 'text', text: 'keep this text block' },
+        ],
+      },
+    }
+
+    const output = stripCallerFieldFromAssistantMessage(message as any)
+    expect(output.message.content[0]).not.toHaveProperty('caller')
+    expect(output.message.content[1] as any).toEqual({
+      type: 'text',
+      text: 'keep this text block',
+    })
   })
 })

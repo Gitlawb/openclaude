@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const linkupProvider: SearchProvider = {
   name: 'linkup',
@@ -17,25 +18,24 @@ export const linkupProvider: SearchProvider = {
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
     const start = performance.now()
 
-    const res = await fetch('https://api.linkup.so/v1/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.LINKUP_API_KEY}`,
+    const data = await fetchJsonWithWebSearchTimeout(
+      'https://api.linkup.so/v1/search',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.LINKUP_API_KEY}`,
+        },
+        body: JSON.stringify({
+          q: input.query,
+          search_type: 'standard',
+          depth: 'standard',
+        }),
       },
-      body: JSON.stringify({
-        q: input.query,
-        search_type: 'standard',
-        depth: 'standard',
-      }),
       signal,
-    })
+      { providerName: 'Linkup' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Linkup search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const hits = (data.results ?? []).map((r: any) => ({
       title: r.name ?? r.title ?? '',
       url: r.url ?? '',

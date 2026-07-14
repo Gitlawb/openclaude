@@ -306,6 +306,29 @@ test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
 })
 
+test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'meta/llama-3.3-70b-instruct'
+
+  const {
+    getDefaultMainLoopModel,
+    getDefaultMainLoopModelSetting,
+  } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('meta/llama-3.3-70b-instruct')
+  expect(getDefaultMainLoopModel()).toBe('meta/llama-3.3-70b-instruct')
+})
+
+test('getDefaultMainLoopModelSetting falls back to the NVIDIA NIM descriptor default', async () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe(
+    'nvidia/llama-3.1-nemotron-70b-instruct',
+  )
+})
+
 test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', async () => {
   process.env.MIMO_API_KEY = 'mimo-test'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

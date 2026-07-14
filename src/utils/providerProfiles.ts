@@ -28,6 +28,7 @@ import {
   buildAtlasCloudProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
+  deleteProfileFile,
   type ProfileFileLocation,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
@@ -46,6 +47,7 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isFireworksBaseUrl,
   isNearaiBaseUrl,
@@ -210,10 +212,30 @@ function resolveProfileCapabilityRouteId(
   provider: string,
   baseUrl?: string,
 ): string {
-  return (
-    resolveRouteIdFromBaseUrl(baseUrl) ??
-    resolveProfileRoute(provider).routeId
-  )
+  const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
+  if (routeIdFromBaseUrl) {
+    return routeIdFromBaseUrl
+  }
+
+  const providerRouteId = resolveProfileRoute(provider).routeId
+
+  // A cloudflare profile retargeted away from the real Workers AI endpoint
+  // (e.g. to gateway.ai.cloudflare.com or another OpenAI-compatible host) is
+  // run generically at runtime — resolveActiveRouteIdFromEnv no longer resolves
+  // it to the cloudflare route. Mirror that boundary here so capability-driven
+  // surfaces (apiFormat, custom auth headers, custom request headers) are not
+  // stripped based on the stale cloudflare route id. Keep the cloudflare route
+  // only when the base URL is the real Workers AI URL (already handled above) or
+  // unset (the descriptor default); any other base URL falls back to generic.
+  if (
+    providerRouteId === 'cloudflare' &&
+    baseUrl &&
+    !isCloudflareBaseUrl(baseUrl)
+  ) {
+    return 'custom'
+  }
+
+  return providerRouteId
 }
 
 function normalizeProfileModelLookupKey(model: string | undefined): string {
@@ -720,9 +742,23 @@ function isProcessEnvAlignedWithProfile(
     (isFireworksBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
+      : true) &&
+    (isCloudflareBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLOUDFLARE_API_TOKEN, profile.apiKey)
       : true)
   )
 }
+
+/**
+ * Sentinel `activeProviderProfileId` meaning "use built-in Anthropic", kept
+ * distinct from `undefined`. Without it, clearing the active id falls through
+ * to `profiles[0]` (see below), so a user with any saved third-party profile
+ * could never return to Anthropic from `/provider` without hand-editing
+ * `~/.openclaude.json` and restarting (#1426). Storing the sentinel preserves
+ * the saved profiles for re-selection while expressing "no third-party active".
+ */
+export const ANTHROPIC_DEFAULT_PROFILE_ID = '__anthropic_default__'
 
 export function getActiveProviderProfile(
   config = getGlobalConfig(),
@@ -733,7 +769,35 @@ export function getActiveProviderProfile(
   }
 
   const activeId = trimOrUndefined(config.activeProviderProfileId)
+  // Explicit Anthropic selection: do not fall back to the first saved profile.
+  if (activeId === ANTHROPIC_DEFAULT_PROFILE_ID) {
+    return undefined
+  }
   return profiles.find(profile => profile.id === activeId) ?? profiles[0]
+}
+
+/**
+ * Switch back to built-in Anthropic while keeping saved provider profiles.
+ * Clears the managed env this session (so the switch takes effect without a
+ * restart), records the Anthropic sentinel as the active id (so startup no
+ * longer replays a third-party profile), and removes the startup profile
+ * mirror file. Returns false when there was nothing to clear.
+ */
+export function clearActiveProviderProfile(
+  options?: ProfileFileLocation,
+): boolean {
+  const hadActiveProfile = getActiveProviderProfile() !== undefined
+
+  saveGlobalConfig(config => ({
+    ...config,
+    activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    openaiAdditionalModelOptionsCache: [],
+  }))
+
+  clearProviderProfileEnvFromProcessEnv()
+  deleteProfileFile(options)
+
+  return hadActiveProfile
 }
 
 export function clearProviderProfileEnvFromProcessEnv(
@@ -886,6 +950,19 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
+      // Gate on the Workers AI path predicate (isCloudflareBaseUrl: exact
+      // api.cloudflare.com host AND the `/client/v4/accounts/<id>/ai/v1` path),
+      // not the saved route id and not the host alone. A cloudflare profile
+      // retargeted to the shared gateway.ai.cloudflare.com AI Gateway host, or
+      // to a non-Workers api.cloudflare.com REST path, keeps
+      // routeId === 'cloudflare' yet is not a Workers AI endpoint — mirroring
+      // CLOUDFLARE_API_TOKEN on the route id (or on host alone) would leak the
+      // token to it. The sibling sites (isProcessEnvAlignedWithProfile,
+      // buildOpenAICompatibleStartupEnv) key on the same isCloudflareBaseUrl
+      // path predicate.
+      if (isCloudflareBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.CLOUDFLARE_API_TOKEN = profile.apiKey
+      }
     }
     if (isAimlapiProfile) {
       const ambientOpenAIKey = trimOrUndefined(process.env.OPENAI_API_KEY)
@@ -929,6 +1006,28 @@ export function applyActiveProviderProfileFromConfig(
   },
 ): ProviderProfile | undefined {
   const processEnv = options?.processEnv ?? process.env
+
+  // Built-in Anthropic is an explicit active state recorded as the sentinel,
+  // not "no active profile". getActiveProviderProfile() resolves the sentinel
+  // to undefined, so without this guard we would return below without marking
+  // provider env as handled; buildStartupEnvFromProfile() then treats the
+  // profile mirror that clearActiveProviderProfile() deleted as a fresh install
+  // and synthesizes the default Gitlawb OpenGateway env, bouncing the user off
+  // built-in Anthropic on the next launch (#1429). Clear any managed provider
+  // env and set the applied flag so the legacy/fresh-install fallback is
+  // suppressed. An explicit startup provider selection still wins for the
+  // current session, matching the saved-profile branch below.
+  if (
+    trimOrUndefined(config.activeProviderProfileId) === ANTHROPIC_DEFAULT_PROFILE_ID
+  ) {
+    if (!options?.force && hasCompleteProviderSelection(processEnv)) {
+      return undefined
+    }
+    clearProviderProfileEnvFromProcessEnv(processEnv)
+    processEnv[PROFILE_ENV_APPLIED_FLAG] = '1'
+    return undefined
+  }
+
   const activeProfile = getActiveProviderProfile(config)
   if (!activeProfile) {
     return undefined
@@ -987,10 +1086,28 @@ export function addProviderProfile(
     const currentProfiles = getProviderProfiles(current)
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // Resolve the *effective* active id the same way getActiveProviderProfile
+    // does, so adding a profile with makeActive:false preserves whatever is
+    // actually active now rather than silently switching the user (#1426):
+    //   - Anthropic sentinel               -> built-in Anthropic (keep sentinel)
+    //   - explicit id for a saved profile  -> that profile
+    //   - stale or unset id with profiles  -> implicit first profile
+    //   - no saved profiles                -> nothing active yet
+    // The stale-id case matters: getActiveProviderProfile() falls back to
+    // profiles[0] for an id whose profile was deleted, so makeActive:false must
+    // keep profiles[0] and not promote the newly added profile.
+    let effectiveActiveId: string | undefined
+    if (currentActive === ANTHROPIC_DEFAULT_PROFILE_ID) {
+      effectiveActiveId = ANTHROPIC_DEFAULT_PROFILE_ID
+    } else if (currentActive && currentProfiles.some(p => p.id === currentActive)) {
+      effectiveActiveId = currentActive
+    } else if (currentProfiles.length > 0) {
+      effectiveActiveId = currentProfiles[0].id
+    } else {
+      effectiveActiveId = undefined
+    }
     const nextActiveId =
-      makeActive || !currentActive || !nextProfiles.some(p => p.id === currentActive)
-        ? profile.id
-        : currentActive
+      makeActive || effectiveActiveId === undefined ? profile.id : effectiveActiveId
 
     return {
       ...current,
@@ -1041,8 +1158,12 @@ export function updateProviderProfile(
     delete cacheByProfile[profileId]
 
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // Updating any profile must not reactivate profiles[0] when the user is on
+    // built-in Anthropic — the sentinel is a valid active state to preserve.
     const nextActiveId =
-      currentActive && nextProfiles.some(profile => profile.id === currentActive)
+      currentActive &&
+      (currentActive === ANTHROPIC_DEFAULT_PROFILE_ID ||
+        nextProfiles.some(profile => profile.id === currentActive))
         ? currentActive
         : nextProfiles[0]?.id
 
@@ -1169,6 +1290,16 @@ function buildOpenAICompatibleStartupEnv(
       if (isFireworksBaseUrl(activeProfile.baseUrl)) {
         strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
       }
+      // Cloudflare's transport reads the dedicated CLOUDFLARE_API_TOKEN; mirror
+      // it like nearai/fireworks, but only when the base URL is a real Workers
+      // AI endpoint per the isCloudflareBaseUrl path predicate (exact
+      // api.cloudflare.com host AND the `/client/v4/accounts/<id>/ai/v1` path),
+      // so a keyed Cloudflare profile's persisted startup env stays consistent
+      // and re-detects correctly after relaunch without persisting the token
+      // for a non-Workers api.cloudflare.com path or the shared AI Gateway host.
+      if (isCloudflareBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
@@ -1223,6 +1354,16 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isFireworksBaseUrl(activeProfile.baseUrl)) {
       env.FIREWORKS_API_KEY = activeProfile.apiKey
+    }
+    // Cloudflare Workers AI authenticates over the generic OpenAI-compatible
+    // header, so mirror the saved key into CLOUDFLARE_API_TOKEN only when the
+    // endpoint is the real Workers AI route: api.cloudflare.com with the
+    // /client/v4/accounts/<id>/ai/v1 path over HTTPS (isCloudflareBaseUrl).
+    // Non-Workers api.cloudflare.com paths and the shared AI Gateway host
+    // (gateway.ai.cloudflare.com) are excluded — they proxy arbitrary
+    // providers (#1100 review).
+    if (isCloudflareBaseUrl(activeProfile.baseUrl)) {
+      env.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY
@@ -1499,13 +1640,18 @@ export function deleteProviderProfile(profileId: string): {
 
     const nextProfiles = currentProfiles.filter(profile => profile.id !== profileId)
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // The Anthropic sentinel survives deletion of any other profile — deleting
+    // an inactive saved profile must not knock a built-in-Anthropic user back
+    // onto profiles[0] (#1426).
     const activeWasDeleted =
-      !currentActive || currentActive === profileId ||
-      !nextProfiles.some(profile => profile.id === currentActive)
+      !currentActive ||
+      currentActive === profileId ||
+      (currentActive !== ANTHROPIC_DEFAULT_PROFILE_ID &&
+        !nextProfiles.some(profile => profile.id === currentActive))
 
     const nextActiveId = activeWasDeleted ? nextProfiles[0]?.id : currentActive
 
-    if (nextActiveId) {
+    if (nextActiveId && nextActiveId !== ANTHROPIC_DEFAULT_PROFILE_ID) {
       nextActiveProfile =
         nextProfiles.find(profile => profile.id === nextActiveId) ?? nextProfiles[0]
     }

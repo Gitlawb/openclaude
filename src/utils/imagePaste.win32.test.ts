@@ -92,7 +92,7 @@ describe('Windows clipboard image handling', () => {
     expect(await imagePaste.hasImageInClipboard()).toBe(false)
   })
 
-  test('getImageFromClipboard returns null before saving when Windows reports no image', async () => {
+  test('getImageFromClipboard tries GetImage when Windows reports no image', async () => {
     setPlatform('win32')
     const execa = mock(async () => ({
       exitCode: 0,
@@ -104,8 +104,9 @@ describe('Windows clipboard image handling', () => {
     const { getImageFromClipboard } = await importImagePaste()
 
     expect(await getImageFromClipboard()).toBeNull()
-    expect(execa).toHaveBeenCalledTimes(1)
+    expect(execa).toHaveBeenCalledTimes(2)
     const checkCall = execa.mock.calls[0] as unknown as ExecaCall | undefined
+    expect(checkCall?.[0]).toContain('powershell -NoProfile -Command')
     expect(checkCall?.[0]).toContain('Clipboard]::ContainsImage()')
   })
 
@@ -136,12 +137,14 @@ describe('Windows clipboard image handling', () => {
     const saveCommand = String(saveCall?.[0] ?? '')
     expect(saveCommand).toContain("C:\\Temp\\O''Brien")
     expect(saveCommand).not.toContain('C:\\\\Temp')
+    expect(saveCommand).toContain('powershell -NoProfile -Command')
     expect(saveCommand).toContain(
       '[System.Windows.Forms.Clipboard]::GetImage()',
     )
+    expect(saveCommand).toContain('if (-not $img) { exit 1 }')
   })
 
-  test('getImageFromClipboard returns image data when Windows check and save succeed', async () => {
+  test('getImageFromClipboard saves a raw Windows bitmap when ContainsImage reports False', async () => {
     setPlatform('win32')
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-image-paste-'))
     tempDirs.push(tempDir)
@@ -157,7 +160,7 @@ describe('Windows clipboard image handling', () => {
       }
       return {
         exitCode: 0,
-        stdout: 'True\r\n',
+        stdout: 'False\r\n',
         stderr: '',
       }
     })
@@ -199,6 +202,10 @@ describe('Windows clipboard image handling', () => {
     )
     expect(image?.base64.length).toBeGreaterThan(0)
     expect(execa).toHaveBeenCalledTimes(3)
+    const checkCall = execa.mock.calls[0] as unknown as ExecaCall | undefined
+    expect(String(checkCall?.[0] ?? '')).toContain(
+      'Clipboard]::ContainsImage()',
+    )
     const saveCall = execa.mock.calls[1] as unknown as ExecaCall | undefined
     expect(String(saveCall?.[0] ?? '')).toContain(screenshotPath)
     const deleteCall = execa.mock.calls[2] as unknown as ExecaCall | undefined

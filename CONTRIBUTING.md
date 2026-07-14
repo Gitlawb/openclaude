@@ -46,8 +46,17 @@ This step prevents wasted effort on PRs that might otherwise be closed without r
 
 ## Pull Requests
 
+Before opening a PR:
+
+- Read this `CONTRIBUTING.md` file.
+- Read [`AGENTS.md`](AGENTS.md) for repo-specific coding-agent conventions, validation commands, provider guidance, and architecture rules.
+- Re-check open and recently closed PRs for duplicates.
+- Keep the branch focused on one issue or one clearly scoped improvement.
+- Run the narrowest meaningful validation command for the touched area.
+
 Every PR needs a reason. Your PR description must include:
 
+- confirmation that you reviewed both this `CONTRIBUTING.md` file and [`AGENTS.md`](AGENTS.md)
 - what changed and why
 - the user or developer impact
 - the exact checks you ran

@@ -7993,6 +7993,81 @@ test('DeepSeek sends thinking toggle and normalized reasoning effort', async () 
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('NVIDIA NIM DeepSeek sends chat template thinking kwargs', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-ai/deepseek-v4-pro',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.chat_template_kwargs).toEqual({
+    thinking: true,
+    enable_thinking: true,
+  })
+})
+
+test('NVIDIA NIM DeepSeek omits chat template thinking kwargs when thinking is disabled', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-ai/deepseek-v4-pro?thinking=disabled',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+  expect(requestBody?.chat_template_kwargs).toBeUndefined()
+})
+
 test('DeepSeek omits thinking controls when the Anthropic-side request does not set them', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
   process.env.OPENAI_API_KEY = 'sk-deepseek'
@@ -8563,6 +8638,109 @@ test('Z.AI GLM-5.2: per-turn thinking overrides model-query default', async () =
 
   expect(requestBody?.thinking).toEqual({ type: 'enabled' })
   expect(requestBody?.reasoning_effort).toBe('high')
+})
+
+test('NVIDIA NIM Z.AI GLM sends chat template thinking kwargs', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'z-ai/glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'z-ai/glm-5.2',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.chat_template_kwargs).toEqual({
+    thinking: true,
+    enable_thinking: true,
+  })
+})
+
+test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs without a reasoning request', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'z-ai/glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'z-ai/glm-5.2',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+  expect(requestBody?.chat_template_kwargs).toBeUndefined()
+})
+
+test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs when thinking is disabled', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'z-ai/glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'z-ai/glm-5.2?thinking=disabled',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'disabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+  expect(requestBody?.chat_template_kwargs).toBeUndefined()
 })
 
 test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {
@@ -9742,6 +9920,7 @@ function makeJsonChatCompletion(body: Record<string, unknown>): Response {
 
 async function collectFallbackEvents(
   body: Record<string, unknown>,
+  model = 'fake-model',
 ): Promise<Array<Record<string, unknown>>> {
   const previousFetch = globalThis.fetch
   globalThis.fetch = (async () => makeJsonChatCompletion(body)) as unknown as FetchType
@@ -9749,7 +9928,7 @@ async function collectFallbackEvents(
     const client = createOpenAIShimClient({}) as OpenAIShimClient
     const result = await client.beta.messages
       .create({
-        model: 'fake-model',
+        model,
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 64,
         stream: true,
@@ -9965,6 +10144,81 @@ test('JSON fallback: recovers raw-text tool call into tool_use block', async () 
     | undefined
   expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
 
+})
+
+test('JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks', async () => {
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-hy3',
+    model: 'tencent/hy3',
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          content:
+            '<tool_call:call_hy3>TaskCreate\n subject: Verify HY3\n description: Run the live test\n</tool_call:call_hy3>',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  }, 'tencent/hy3')
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    name: 'TaskCreate',
+  })
+  const jsonDelta = events.find(
+    event =>
+      event.type === 'content_block_delta' &&
+      typeof event.delta === 'object' &&
+      event.delta !== null &&
+      (event.delta as Record<string, unknown>).type === 'input_json_delta',
+  ) as { delta?: { partial_json?: string } } | undefined
+  expect(JSON.parse(jsonDelta?.delta?.partial_json ?? '')).toEqual({
+    subject: 'Verify HY3',
+    description: 'Run the live test',
+  })
+  const stopEvent = events.find(e => e.type === 'message_delta') as
+    | { delta?: { stop_reason?: string } }
+    | undefined
+  expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
+})
+
+test('JSON fallback: preserves HY3-looking text for non-Tencent model names', async () => {
+  const text =
+    '<tool_call:example>TaskCreate\nsubject: merely a documentation example\n</tool_call:example>'
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-non-tencent-hy3',
+    model: 'other/hy3-documentation',
+    choices: [
+      {
+        message: { role: 'assistant', content: text },
+        finish_reason: 'stop',
+      },
+    ],
+  }, 'other/hy3-documentation')
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  )
+  const textDelta = events.find(
+    event =>
+      event.type === 'content_block_delta' &&
+      typeof event.delta === 'object' &&
+      event.delta !== null &&
+      (event.delta as Record<string, unknown>).type === 'text_delta',
+  ) as { delta?: { text?: string } } | undefined
+
+  expect(toolStart).toBeUndefined()
+  expect(textDelta?.delta?.text).toBe(text)
 })
 
 test('JSON fallback: empty tool_calls array does not block raw-text recovery', async () => {

@@ -19,6 +19,7 @@ import {
   getAllVendors,
   getGateway,
   getVendor,
+  isCloudflareBaseUrl,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
@@ -189,9 +190,26 @@ function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
   )
 }
 
+// Descriptor defaults can carry an unresolved `<...>` placeholder that the user
+// must replace before the endpoint works — e.g. Cloudflare Workers AI's
+// `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`. Seeding it
+// verbatim would leave the shortcut "configured" with an endpoint that cannot
+// serve a single request.
+function isPlaceholderBaseUrl(baseUrl: string): boolean {
+  return /<[^>]+>/.test(baseUrl)
+}
+
 function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   const normalizedBaseUrl = baseUrl?.trim()
   if (!normalizedBaseUrl) {
+    return
+  }
+
+  // Never seed an unresolved placeholder endpoint. The user must supply a real
+  // base URL (via `OPENAI_BASE_URL` or the `/provider` baseUrl edit) first; the
+  // `/provider` wizard treats such defaults as requiring explicit setup, and
+  // the CLI shortcut should not silently install a broken endpoint.
+  if (isPlaceholderBaseUrl(normalizedBaseUrl)) {
     return
   }
 
@@ -301,7 +319,10 @@ export function applyProviderFlag(
                       opengatewayApiKey.length > 0 &&
                       process.env.OPENAI_API_KEY === opengatewayApiKey
                     ? 'gitlawb-opengateway'
-                    : null
+                    : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.CLOUDFLARE_API_TOKEN
+                      ? 'cloudflare'
+                      : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -503,6 +524,44 @@ export function applyProviderFlag(
         process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'cloudflare':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // applyOpenAIBaseUrlDefault skips unresolved `<...>` placeholder
+      // endpoints (the Cloudflare default carries `<ACCOUNT_ID>`), so the
+      // user must export a real account-scoped base URL.
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      // The Cloudflare transport reads the generic OpenAI-compatible auth
+      // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same way
+      // nearai/fireworks mirror their dedicated keys. Gate it on the configured
+      // base URL resolving to a *real* Cloudflare Workers AI endpoint: the host
+      // must be api.cloudflare.com AND the URL must not still carry the
+      // descriptor's unresolved `<ACCOUNT_ID>` placeholder (which shares that
+      // host). Mirroring onto a placeholder or a stale OPENAI_BASE_URL from a
+      // previous provider would leak the token to a host that cannot serve a
+      // request.
+      {
+        const configuredBaseUrl = getConfiguredOpenAIBaseUrl()
+        const isRealCloudflareEndpoint =
+          !!configuredBaseUrl &&
+          isCloudflareBaseUrl(configuredBaseUrl) &&
+          !isPlaceholderBaseUrl(configuredBaseUrl)
+        if (process.env.CLOUDFLARE_API_TOKEN && isRealCloudflareEndpoint) {
+          process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
+        } else if (!isRealCloudflareEndpoint) {
+          // Endpoint missing, an unresolved placeholder, or a stale/shared
+          // host: clear any generic key so a stale token isn't leaked.
+          delete process.env.OPENAI_API_KEY
+        }
+        // else: a real Cloudflare endpoint with no dedicated token — keep an
+        // existing OPENAI_API_KEY, the documented compatibility fallback
+        // (descriptor credentialEnvVars lists OPENAI_API_KEY after the token).
       }
       break
 

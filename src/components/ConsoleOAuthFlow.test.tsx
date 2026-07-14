@@ -139,4 +139,7 @@ test('third-party provider branch opens the first-run provider manager', async (
   expect(output).toContain('Anthropic')
   expect(output).toContain('Azure OpenAI')
   expect(output).toContain('DeepSeek')
+  // The Cloudflare Workers AI preset must be offered in the first-run picker
+  // (it sorts ahead of DeepSeek, so it is within the visible frame).
+  expect(output).toContain('Cloudflare Workers AI')
 })

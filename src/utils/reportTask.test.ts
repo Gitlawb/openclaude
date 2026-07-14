@@ -1280,7 +1280,7 @@ describe('task report generation', () => {
         expect(serialized.endsWith('\n')).toBe(false)
         expect(serialized).not.toContain(secret)
         expect(serialized).not.toContain('ghp_1234567890abcdef')
-        expect(serialized).toContain('[redacted]')
+        expect(serialized).toContain('[REDACTED]')
         expect(report.commands[0]?.stdout?.preview.length).toBeLessThanOrEqual(
           64,
         )
@@ -1669,10 +1669,10 @@ describe('task report generation', () => {
         const markdown = formatTaskReportAsMarkdown(report)
 
         expect(markdown).toContain(
-          '- Session: Review \\*bold\\* \\[link\\](https://example.test)',
+          '- Session: Review \\*bold\\* \\[link\\](https://example.test/)',
         )
         expect(markdown).toContain(
-          '- Title: Review \\*bold\\* \\[link\\](https://example.test)',
+          '- Title: Review \\*bold\\* \\[link\\](https://example.test/)',
         )
         expect(markdown).toContain(
           '- `error` `node missing.js` - Do \\*not\\* make \\[claims\\](x) (exit 1)',
@@ -1909,7 +1909,7 @@ describe('task report generation', () => {
         const markdown = formatTaskReportAsMarkdown(report)
 
         expect(markdown).not.toContain(secret)
-        expect(markdown).toContain('[redacted]')
+        expect(markdown).toMatch(/\[REDACTED(?:_OPENAI_KEY)?\]/)
         expect(markdown).toContain('stdout (truncated, ')
         expect(markdown).toContain('```text\n')
       },

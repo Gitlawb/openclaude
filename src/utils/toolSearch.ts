@@ -239,11 +239,16 @@ export function getToolSearchMode(): ToolSearchMode {
  * Default patterns for models that do NOT support tool_reference.
  * New models are assumed to support tool_reference unless explicitly listed here.
  */
+// HY3 supports standard OpenAI function calls, but it does not reliably follow
+// the extra ToolSearch round trip before calling a deferred tool. Keep its
+// schemas inline so it can call tools such as TaskCreate on the first attempt.
+const BUILT_IN_UNSUPPORTED_MODEL_IDS = new Set(['tencent/hy3'])
 const DEFAULT_UNSUPPORTED_MODEL_PATTERNS = ['haiku']
 
 /**
  * Get the list of model patterns that do NOT support tool_reference.
- * Can be configured via GrowthBook for live updates without code changes.
+ * A configured list adds temporary exceptions; it cannot remove built-in
+ * compatibility exceptions that protect known-unsupported models.
  */
 function getUnsupportedToolReferencePatterns(): string[] {
   try {
@@ -253,7 +258,7 @@ function getUnsupportedToolReferencePatterns(): string[] {
       null,
     )
     if (patterns && Array.isArray(patterns) && patterns.length > 0) {
-      return patterns
+      return [...new Set([...DEFAULT_UNSUPPORTED_MODEL_PATTERNS, ...patterns])]
     }
   } catch {
     // GrowthBook not ready, use defaults
@@ -276,6 +281,10 @@ function getUnsupportedToolReferencePatterns(): string[] {
  */
 export function modelSupportsToolReference(model: string): boolean {
   const normalizedModel = model.toLowerCase()
+  const canonicalModelId = normalizedModel.split('?', 1)[0] ?? normalizedModel
+  if (BUILT_IN_UNSUPPORTED_MODEL_IDS.has(canonicalModelId)) {
+    return false
+  }
   const unsupportedPatterns = getUnsupportedToolReferencePatterns()
 
   // Check if model matches any unsupported pattern

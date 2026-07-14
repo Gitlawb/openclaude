@@ -3,7 +3,7 @@ import { appendFileSync } from 'fs';
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdown.js';
-import { type ChannelEntry, getAllowedChannels, setAllowedChannels, setHasDevChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
+import { type ChannelEntry, getAllowedChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
 import type { Command } from './commands.js';
 import { createStatsStore, type StatsStore } from './context/stats.js';
 import { getSystemContext } from './context.js';
@@ -29,6 +29,7 @@ import { usesAnthropicAccountFlow } from './utils/model/providers.js';
 import { showDangerousModePromptIfNeeded } from './utils/permissions/dangerousModePromptFlow.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
+import { registerDevChannels } from './utils/devChannelRegistration.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
 import { hasAutoModeOptIn } from './utils/settings/settings.js';
 export function completeOnboarding(): void {
@@ -245,9 +246,12 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // --dangerously-load-development-channels confirmation. On accept, append
-  // dev channels to any --channels list already set in main.tsx. Org policy
-  // is NOT bypassed — gateChannelServer() still runs; this flag only exists
-  // to sidestep the --channels approved-server allowlist.
+  // dev channels to any --channels list already set in main.tsx. The OAuth,
+  // org-policy, and allowlist gates in gateChannelServer() are upstream of
+  // this flag — users without a Claude.ai OAuth token or whose managed org
+  // has not set channelsEnabled: true are blocked before the allowlist
+  // check runs. This flag only skips the allowlist gate for development
+  // entries, not the auth or policy gates.
   if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
     // gateChannelServer and ChannelsNotice read tengu_harbor after this
     // function returns. A cold disk cache (fresh install, or first run after
@@ -261,38 +265,49 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       await checkGate_CACHED_OR_BLOCKING('tengu_harbor');
     }
     if (devChannels && devChannels.length > 0) {
-      const [{
-        isChannelsEnabled
-      }, {
-        getClaudeAIOAuthTokens
-      }] = await Promise.all([import('./services/mcp/channelAllowlist.js'), import('./utils/auth.js')]);
-      // Skip the dialog when channels are blocked (tengu_harbor off or no
-      // OAuth) — accepting then immediately seeing "not available" in
-      // ChannelsNotice is worse than no dialog. Append entries anyway so
-      // ChannelsNotice renders the blocked branch with the dev entries
-      // named. dev:true here is for the flag label in ChannelsNotice
-      // (hasNonDev check); the allowlist bypass it also grants is moot
-      // since the gate blocks upstream.
-      if (!isChannelsEnabled() || !getClaudeAIOAuthTokens()?.accessToken) {
-        setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-          ...c,
-          dev: true
-        }))]);
-        setHasDevChannels(true);
+      // gateChannelServer() still enforces the OAuth and org-policy gates
+      // upstream of the allowlist check. Users without a Claude.ai OAuth
+      // token or whose managed org has not set channelsEnabled: true are
+      // blocked before reaching this flag. This flag only bypasses the
+      // allowlist gate for dev entries, so a non-OAuth session passing
+      // --dangerously-load-development-channels will still fail at the
+      // auth gate with no visible error. The dialog must always show when
+      // the flag is passed and `isChannelsEnabled()` is true — only
+      // explicit user acceptance enables the dev entries.
+      //
+      // Skip the dialog only when the channels feature itself is
+      // disabled (`isChannelsEnabled()` returns false). In that case
+      // dev entries are still registered so `ChannelsNotice` can
+      // render the blocked branch with them named; the dialog is
+      // omitted because acceptance would be moot.
+      const { isChannelsEnabled } = await import(
+        './services/mcp/channelAllowlist.js'
+      )
+      if (!isChannelsEnabled()) {
+        // Channels feature is unavailable. Still register the dev
+        // entries so ChannelsNotice renders the blocked branch with
+        // them named — but do not show the dialog since acceptance
+        // would be moot. This preserves the previous behavior for the
+        // genuinely-disabled case.
+        registerDevChannels(devChannels)
       } else {
         const {
-          DevChannelsDialog
-        } = await import('./components/DevChannelsDialog.js');
-        await showSetupDialog(root, done => <DevChannelsDialog channels={devChannels} onAccept={() => {
-          // Mark dev entries per-entry so the allowlist bypass doesn't leak
-          // to --channels entries when both flags are passed.
-          setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-            ...c,
-            dev: true
-          }))]);
-          setHasDevChannels(true);
-          void done();
-        }} />);
+          DevChannelsDialog,
+        } = await import('./components/DevChannelsDialog.js')
+        await showSetupDialog(
+          root,
+          done => (
+            <DevChannelsDialog
+              channels={devChannels}
+              onAccept={() => {
+                // Mark dev entries per-entry so the allowlist bypass doesn't leak
+                // to --channels entries when both flags are passed.
+                registerDevChannels(devChannels)
+                void done()
+              }}
+            />
+          ),
+        )
       }
     }
   }

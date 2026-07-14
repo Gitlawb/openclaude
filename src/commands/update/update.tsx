@@ -6,13 +6,23 @@ import {
   getLatestVersion,
   installGlobalPackage,
 } from '../../utils/autoUpdater.js'
-import type { ReleaseChannel } from '../../utils/config.js'
+import {
+  getGlobalConfig,
+  type InstallMethod,
+  type ReleaseChannel,
+} from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 import { detectGlobalPackageManager } from '../../utils/globalPackageManager.js'
 import { installOrUpdateClaudePackage } from '../../utils/localInstaller.js'
-import { installLatest as installLatestNative } from '../../utils/nativeInstaller/index.js'
+import { hasNativeDistribution } from '../../utils/nativeDistribution.js'
+import {
+  installLatest as installLatestNative,
+  removeInstalledSymlink,
+} from '../../utils/nativeInstaller/index.js'
 import type { PackageManager } from '../../utils/nativeInstaller/packageManagers.js'
+import { getPackageManagerUpdateGuidance } from '../../utils/packageManagerUpdateGuidance.js'
+import { shouldRemoveInstalledSymlinkForNpmUpdate } from '../../utils/autoUpdaterRouting.js'
 import { resolveUpdateStrategy } from '../../utils/updateStrategy.js'
 
 const PACKAGE_URL = MACRO.PACKAGE_URL
@@ -37,18 +47,43 @@ type UpdateState =
   | { type: 'success'; version: string; via: string }
   | { type: 'error'; message: string }
 
-// Manager-specific upgrade command, mirroring src/cli/update.ts.
-function packageManagerHint(manager: PackageManager): string | null {
-  switch (manager) {
-    case 'homebrew':
-      return 'brew upgrade claude-code'
-    case 'winget':
-      return 'winget upgrade Anthropic.ClaudeCode'
-    case 'apk':
-      return 'apk upgrade claude-code'
-    default:
-      return null
+export function PackageManagerUpdateGuidance({
+  manager,
+}: {
+  manager: PackageManager
+}): React.ReactNode {
+  const guidance = getPackageManagerUpdateGuidance(manager)
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box>
+        <StatusIcon status="warning" withSpace />
+        <Text color="warning">{guidance.message}</Text>
+      </Box>
+      {guidance.command && (
+        <Box marginLeft={2}>
+          <Text dimColor>To update, run: {guidance.command}</Text>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+export async function removeStaleNativeLauncherForNpmUpdate(deps: {
+  getConfig?: () => { installMethod?: InstallMethod }
+  hasNativeDistribution?: () => boolean
+  removeInstalledSymlink?: () => Promise<void>
+} = {}): Promise<boolean> {
+  const config = (deps.getConfig ?? getGlobalConfig)()
+  if (
+    shouldRemoveInstalledSymlinkForNpmUpdate(
+      config.installMethod,
+      (deps.hasNativeDistribution ?? hasNativeDistribution)(),
+    )
+  ) {
+    await (deps.removeInstalledSymlink ?? removeInstalledSymlink)()
+    return true
   }
+  return false
 }
 
 function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
@@ -115,6 +150,10 @@ function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
         }
 
         // strategy.action === 'npm' — update the local or global npm install.
+        // Clear stale native launchers before any early success path so the
+        // next `openclaude` resolves to the npm install we are updating.
+        await removeStaleNativeLauncherForNpmUpdate()
+
         const via =
           strategy.method === 'global'
             ? await detectGlobalPackageManager()
@@ -223,21 +262,7 @@ function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
       )}
 
       {state.type === 'package-manager' && (
-        <Box flexDirection="column" gap={1}>
-          <Box>
-            <StatusIcon status="warning" withSpace />
-            <Text color="warning">
-              OpenClaude is managed by a package manager ({state.manager}).
-            </Text>
-          </Box>
-          <Box marginLeft={2}>
-            <Text dimColor>
-              {packageManagerHint(state.manager)
-                ? `To update, run: ${packageManagerHint(state.manager)}`
-                : 'Please use your package manager to update.'}
-            </Text>
-          </Box>
-        </Box>
+        <PackageManagerUpdateGuidance manager={state.manager} />
       )}
 
       {state.type === 'no-package-manager' && (

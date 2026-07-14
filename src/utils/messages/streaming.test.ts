@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
-import { handleMessageFromStream, type StreamingToolUse } from './messages.js'
-import type { StreamEvent } from '../types/message.js'
+import { handleMessageFromStream, type StreamingToolUse } from './streaming.js'
+import type { StreamEvent } from '../../types/message.js'
 
 // Regression for the PR #1744 change that switched input_json_delta handling
 // from filter-then-append to an in-place update. Concurrently-streaming tool

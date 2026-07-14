@@ -6,10 +6,10 @@ export default [
     label: 'Tencent HY3',
     brandId: 'tencent',
     vendorId: 'openai',
-    classification: ['chat', 'reasoning', 'vision', 'coding'],
+    classification: ['chat', 'reasoning', 'coding'],
     defaultModel: 'tencent/hy3',
     capabilities: {
-      supportsVision: true,
+      supportsVision: false,
       supportsStreaming: true,
       supportsFunctionCalling: true,
       supportsJsonMode: true,
@@ -17,6 +17,6 @@ export default [
       supportsPreciseTokenCount: false,
     },
     contextWindow: 262_144,
-    maxOutputTokens: 65_536,
+    maxOutputTokens: 131_072,
   }),
 ]

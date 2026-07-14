@@ -51,12 +51,15 @@ export default defineGateway({
     apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
+    badge: {
+      text: 'Recommended',
+      color: 'success',
+    },
     vendorId: 'openai',
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
-    badge: { text: 'Recommended', color: 'success' },
   },
   catalog: {
     source: 'static',

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { findWhitespaceAgnosticMatch, adjustNewStringIndentation } from './utils.js'
+import {
+  findWhitespaceAgnosticMatch,
+  adjustNewStringIndentation,
+  getSnippetForTwoFileDiff,
+} from './utils.js'
 
 describe('findWhitespaceAgnosticMatch', () => {
   test('returns exact match for simple string', () => {
@@ -178,5 +182,54 @@ describe('adjustNewStringIndentation', () => {
     // oldIndent "  " maps to "    " for foo(), but maps to "" for bar()
     // It should detect the conflict and return null
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBeNull()
+  })
+})
+
+describe('getSnippetForTwoFileDiff truncation notice', () => {
+  test('reports the exact number of dropped lines when cutting at a line boundary', () => {
+    // A full-replacement diff of an empty file with a large file yields a single
+    // hunk whose line-numbered snippet far exceeds DIFF_SNIPPET_MAX_BYTES (8192),
+    // forcing truncation at a line boundary.
+    const bigFile =
+      Array.from({ length: 800 }, (_, i) => `line ${i + 1} content here`).join(
+        '\n',
+      ) + '\n'
+    const snippet = getSnippetForTwoFileDiff('', bigFile)
+
+    const match = snippet.match(/\.\.\. \[(\d+) lines truncated\] \.\.\./)
+    expect(match).not.toBeNull()
+    const reportedTruncated = Number(match![1])
+
+    // The snippet body before the marker holds the kept lines. Together with the
+    // reported truncated count they must sum to the total lines the untruncated
+    // snippet would have shown — here, the 800 added lines. Before the fix the
+    // boundary newline was double-counted and this reported 801.
+    const keptBody = snippet.slice(0, snippet.indexOf('\n\n... ['))
+    const keptLines = keptBody.split('\n').length
+
+    expect(keptLines + reportedTruncated).toBe(800)
+  })
+})
+
+describe('getSnippetForTwoFileDiff line numbering', () => {
+  test('numbers later hunks by their new-file position', () => {
+    const a = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n')
+    // First hunk inserts 3 lines near the top; second hunk changes a line near
+    // the bottom, so the second hunk's new-file start is 3 greater than its
+    // old-file start.
+    const bLines = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`)
+    bLines.splice(3, 0, 'INSERTED A', 'INSERTED B', 'INSERTED C')
+    bLines[57] = 'CHANGED near bottom' // original line 55, now at new-file line 58
+    const b = bLines.join('\n')
+
+    const snippet = getSnippetForTwoFileDiff(a, b)
+
+    // The changed line sits at line 58 in the new file. Before the fix it was
+    // labeled 55 (its old-file number), off by the net +3 of the first hunk.
+    const changedLine = snippet
+      .split('\n')
+      .find(l => l.includes('CHANGED near bottom'))
+    expect(changedLine).toBeDefined()
+    expect(changedLine!.trim()).toStartWith('58→')
   })
 })

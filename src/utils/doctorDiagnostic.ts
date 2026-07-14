@@ -31,6 +31,7 @@ import {
   detectWinget,
   getPackageManager,
 } from './nativeInstaller/packageManagers.js'
+import { hasNativeDistribution } from './nativeDistribution.js'
 import { getPlatform } from './platform.js'
 import { getRipgrepStatus } from './ripgrep.js'
 import { SandboxManager } from './sandbox/sandbox-adapter.js'
@@ -52,6 +53,41 @@ function getCliBinaryName(): string {
 
 function getNativeDataDirName(): string {
   return getCliBinaryName()
+}
+
+function getNpmUpdateCommand(): string {
+  return `npm install -g ${MACRO.PACKAGE_URL}@latest`
+}
+
+export function getNativeInstallUnavailableFix(
+  fallback:
+    | 'local-config'
+    | 'local-overlap'
+    | 'global-permissions'
+    | 'native-config',
+  nativeDistributionAvailable: boolean = hasNativeDistribution(),
+): string {
+  if (nativeDistributionAvailable) {
+    switch (fallback) {
+      case 'native-config':
+        return `Run ${getCliBinaryName()} install to update configuration`
+      case 'global-permissions':
+        return `Do one of: (1) Re-install node without sudo, or (2) Use \`${getCliBinaryName()} install\` for native installation`
+      default:
+        return `Consider using native installation: ${getCliBinaryName()} install`
+    }
+  }
+
+  switch (fallback) {
+    case 'local-config':
+      return `Run ${getCliBinaryName()} update to refresh the install method, or update manually with: ${getNpmUpdateCommand()}`
+    case 'local-overlap':
+      return `Use the local install at ~/.openclaude/local/${getCliBinaryName()}, remove it, or update the global npm package with: ${getNpmUpdateCommand()}`
+    case 'global-permissions':
+      return `Do one of: (1) Re-install node without sudo, or (2) Update manually with: ${getNpmUpdateCommand()}`
+    case 'native-config':
+      return `This build has no native binary; set installMethod to 'global' or reinstall with: ${getNpmUpdateCommand()}`
+  }
 }
 
 export type InstallationType =
@@ -480,14 +516,14 @@ async function detectConfigurationIssues(
     if (type === 'npm-local' && config.installMethod !== 'local') {
       warnings.push({
         issue: `Running from local installation but config install method is '${config.installMethod}'`,
-        fix: `Consider using native installation: ${getCliBinaryName()} install`,
+        fix: getNativeInstallUnavailableFix('local-config'),
       })
     }
 
     if (type === 'native' && config.installMethod !== 'native') {
       warnings.push({
         issue: `Running native installation but config install method is '${config.installMethod}'`,
-        fix: `Run ${getCliBinaryName()} install to update configuration`,
+        fix: getNativeInstallUnavailableFix('native-config'),
       })
     }
   }
@@ -495,7 +531,7 @@ async function detectConfigurationIssues(
   if (type === 'npm-global' && (await localInstallationExists())) {
     warnings.push({
       issue: 'Local installation exists but not being used',
-      fix: `Consider using native installation: ${getCliBinaryName()} install`,
+      fix: getNativeInstallUnavailableFix('local-overlap'),
     })
   }
 
@@ -620,7 +656,7 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     if (!hasUpdatePermissions && !getAutoUpdaterDisabledReason()) {
       warnings.push({
         issue: 'Insufficient permissions for auto-updates',
-        fix: `Do one of: (1) Re-install node without sudo, or (2) Use \`${getCliBinaryName()} install\` for native installation`,
+        fix: getNativeInstallUnavailableFix('global-permissions'),
       })
     }
   }

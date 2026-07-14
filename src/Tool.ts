@@ -100,6 +100,12 @@ export type QueryChainTracking = {
 export type QueryActivity = {
   registerActivity(reason: string): void
   acquireLease(input: QueryGuardLeaseInput): QueryGuardLease
+  /**
+   * Suspend query idle/hard-max accounting while blocked on a human decision.
+   * Lease deadlines continue to run. Returns a resume function to call exactly
+   * once when the interaction ends.
+   */
+  beginUserInteraction?(): () => void
 }
 
 export type ValidationResult =

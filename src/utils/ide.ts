@@ -102,6 +102,7 @@ export type DetectedIDEInfo = {
 export type IdeType =
   | 'cursor'
   | 'windsurf'
+  | 'agy'
   | 'vscode'
   | 'pycharm'
   | 'intellij'
@@ -141,6 +142,13 @@ const supportedIdeConfigs: Record<IdeType, IdeConfig> = {
     processKeywordsMac: ['Windsurf Helper', 'Windsurf.app'],
     processKeywordsWindows: ['windsurf.exe'],
     processKeywordsLinux: ['windsurf'],
+  },
+  agy: {
+    ideKind: 'vscode',
+    displayName: 'Antigravity',
+    processKeywordsMac: ['Antigravity Helper', 'Antigravity.app'],
+    processKeywordsWindows: ['antigravity.exe', 'agy.exe'],
+    processKeywordsLinux: ['antigravity', 'agy'],
   },
   vscode: {
     ideKind: 'vscode',
@@ -1042,6 +1050,8 @@ async function getVSCodeIDECommand(ideType: IdeType): Promise<string | null> {
       return 'cursor' + ext
     case 'windsurf':
       return 'windsurf' + ext
+    case 'agy':
+      return 'agy' + ext
     default:
       break
   }
@@ -1201,6 +1211,7 @@ const EDITOR_DISPLAY_NAMES: Record<string, string> = {
   cursor: 'Cursor',
   windsurf: 'Windsurf',
   antigravity: 'Antigravity',
+  agy: 'Antigravity',
   vi: 'Vim',
   vim: 'Vim',
   nano: 'nano',

@@ -36,6 +36,7 @@ import { launchRepl } from './replLauncher.js';
 import { refreshGrowthBookAfterAuthChange } from './services/analytics/growthbook.js';
 import { fetchBootstrapData } from './services/api/bootstrap.js';
 import { refreshStartupDiscoveryForActiveRoute } from './integrations/discoveryService.js';
+import { MAX_AMOUNT_USD_MINOR, MIN_AMOUNT_USD_MINOR } from './integrations/aimlapi/config.js';
 import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { type DownloadResult, downloadSessionFiles, type FilesApiConfig, parseFileSpecs } from './services/api/filesApi.js';
 import { prefetchPassesEligibility } from './services/api/referral.js';
@@ -53,7 +54,7 @@ import { count, uniq } from './utils/array.js';
 import { getSubscriptionType, isClaudeAISubscriber, prefetchAwsCredentialsAndBedRockInfoIfSafe, prefetchGcpCredentialsIfSafe, validateForceLoginOrg } from './utils/auth.js';
 import { checkHasTrustDialogAccepted, getGlobalConfig, getRemoteControlAtStartup, isAutoUpdaterDisabled, saveGlobalConfig } from './utils/config.js';
 import { seedEarlyInput, stopCapturingEarlyInput } from './utils/earlyInput.js';
-import { getInitialEffortSetting, parseEffortValue } from './utils/effort.js';
+import { clampUltracodeEffort, getInitialEffortSetting, parseEffortValue } from './utils/effort.js';
 import { getInitialFastModeSetting, isFastModeEnabled, prefetchFastModeStatus, resolveFastModeStatusFromCache } from './utils/fastMode.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { createSystemMessage, createUserMessage } from './utils/messages.js';
@@ -964,9 +965,9 @@ async function run(): Promise<CommanderCommand> {
     return Number.isFinite(n) ? n : undefined;
   }).hideHelp()).option('--from-pr [value]', 'Resume a session linked to a PR by PR number/URL, or open interactive picker with optional search term', value => value || true).option('--no-session-persistence', 'Disable session persistence - sessions will not be saved to disk and cannot be resumed (only works with --print)').addOption(new Option('--resume-session-at <message id>', 'When resuming, only messages up to and including the assistant message with <message.id> (use with --resume in print mode)').argParser(String).hideHelp()).addOption(new Option('--rewind-files <user-message-id>', 'Restore files to state at the specified user message and exit (requires --resume)').hideHelp())
   // @[MODEL LAUNCH]: Update the example model ID in the --model help text.
-  .option('--model <model>', `Model for the current session. Provide an alias for the latest model (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-sonnet-4-6').`).option('--provider <provider>', `AI provider to use (anthropic, openai, gemini, github, bedrock, vertex, ollama). Reads API keys from environment variables.`).addOption(new Option('--effort <level>', `Effort level for the current session (low, medium, high, xhigh, max)`).argParser((rawValue: string) => {
+  .option('--model <model>', `Model for the current session. Provide an alias for the latest model (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-sonnet-4-6').`).option('--provider <provider>', `AI provider to use (anthropic, openai, gemini, github, bedrock, vertex, ollama). Reads API keys from environment variables.`).addOption(new Option('--effort <level>', `Effort level for the current session (low, medium, high, xhigh, max, ultracode)`).argParser((rawValue: string) => {
     const value = rawValue.toLowerCase();
-    const allowed = ['low', 'medium', 'high', 'xhigh', 'max'];
+    const allowed = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
     if (!allowed.includes(value)) {
       throw new InvalidArgumentError(`It must be one of: ${allowed.join(', ')}`);
     }
@@ -2579,7 +2580,7 @@ async function run(): Promise<CommanderCommand> {
           tools: mcpTools
         },
         toolPermissionContext,
-        effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
+        effortValue: clampUltracodeEffort(parseEffortValue(options.effort) ?? getInitialEffortSetting(), effectiveModel ?? resolvedInitialModel),
         ...(isFastModeEnabled() && {
           fastMode: getInitialFastModeSetting(effectiveModel ?? null)
         }),
@@ -2992,7 +2993,7 @@ async function run(): Promise<CommanderCommand> {
           content: String(inputPrompt)
         })
       } : null,
-      effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
+      effortValue: clampUltracodeEffort(parseEffortValue(options.effort) ?? getInitialEffortSetting(), effectiveModel ?? resolvedInitialModel),
       activeOverlays: new Set<string>(),
       fastMode: getInitialFastModeSetting(resolvedInitialModel),
       ...(isAdvisorEnabled() && advisorModel && {
@@ -4008,6 +4009,36 @@ async function run(): Promise<CommanderCommand> {
     const { xaiStatus } = await import('./cli/handlers/xaiAuth.js');
     await xaiStatus();
   });
+
+  // AI/ML API (aimlapi.com) — log in, open the co-branded top-up page, and
+  // auto-configure the provider with the issued key.
+  const aimlapi = program.command('aimlapi').description('AI/ML API (aimlapi.com) — top up balance and configure the provider').configureHelp(createSortedHelpConfig());
+  aimlapi.command('topup')
+    .description("Log in, open AI/ML API top-up, then set the issued key as OpenClaude's provider")
+    .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
+    .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
+    .addOption(new Option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)').choices(['card', 'crypto']).default('card'))
+    .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
+    .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
+    .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
+    .action(async (opts: {
+      email?: string;
+      amount?: string;
+      method?: string;
+      model?: string;
+      partnerId?: string;
+      open?: boolean;
+    }) => {
+      const { aimlapiTopup } = await import('./cli/handlers/aimlapi.js');
+      await aimlapiTopup({
+        email: opts.email,
+        amountUsd: opts.amount,
+        method: opts.method === 'crypto' ? 'crypto' : 'card',
+        model: opts.model,
+        partnerId: opts.partnerId,
+        noOpen: opts.open === false,
+      });
+    });
 
   /**
    * Helper function to handle marketplace command errors consistently.

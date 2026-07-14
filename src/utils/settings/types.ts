@@ -266,6 +266,12 @@ export const SettingsSchema = lazySchema(() =>
         .literal(CLAUDE_CODE_SETTINGS_SCHEMA_URL)
         .optional()
         .describe('JSON Schema reference for Claude Code settings'),
+      subscriptionType: z
+        .enum(['free', 'pro', 'max', 'team', 'enterprise'])
+        .optional()
+        .describe(
+          'Override the active subscription type from user settings only. Project, repository, local, flag, and policy settings are ignored to prevent spoofing. Allowed values: free, pro, max, team, enterprise. The "free" value is authoritative and takes precedence over OAuth fallback detection.',
+        ),
       apiKeyHelper: z
         .string()
         .optional()
@@ -834,6 +840,32 @@ export const SettingsSchema = lazySchema(() =>
             'or quota error, OpenClaude advances to the next profile in this list (starting after ' +
             'the currently-active id) and retries the turn. ' +
             'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
+        ),
+      modelLimits: z
+        .record(
+          z.string(),
+          z.object({
+            contextWindow: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Total context window size in tokens.'),
+            maxOutputTokens: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Maximum output tokens per response.'),
+          }),
+        )
+        .optional()
+        .describe(
+          'Per-model overrides for context window and max output tokens. ' +
+            'Used for OpenAI-compatible models whose limits are not in the built-in catalog. ' +
+            'Keys are matched against the model name (exact match preferred, then prefix). ' +
+            'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS / CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS env vars take precedence. ' +
+            'Example: { "qwen3.6-plus": { "contextWindow": 1048576, "maxOutputTokens": 32768 } }',
         ),
       fastMode: z
         .boolean()

@@ -6,10 +6,66 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isCloudflareBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+
+test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway', () => {
+  // Workers AI lives on api.cloudflare.com.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    ),
+  ).toBe(true)
+  // The shared AI Gateway host proxies arbitrary providers (OpenAI, Anthropic),
+  // so a profile pointed there must NOT be treated as Cloudflare-credentialed.
+  expect(
+    isCloudflareBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/openai',
+    ),
+  ).toBe(false)
+  expect(
+    isCloudflareBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/anthropic',
+    ),
+  ).toBe(false)
+  // Lookalike host must not match.
+  expect(isCloudflareBaseUrl('https://api.cloudflare.com.evil.test/v1')).toBe(
+    false,
+  )
+  expect(isCloudflareBaseUrl(undefined)).toBe(false)
+  // Same host, but a general Cloudflare REST path — NOT Workers AI. Must not
+  // match, or it would inherit Workers-AI routing + CLOUDFLARE_API_TOKEN
+  // mirroring for an unrelated Cloudflare API call.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/user/tokens/verify',
+    ),
+  ).toBe(false)
+  expect(isCloudflareBaseUrl('https://api.cloudflare.com/')).toBe(false)
+  // The descriptor's unresolved <ACCOUNT_ID> placeholder is not a real endpoint.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1',
+    ),
+  ).toBe(false)
+  // A resolved account id with the OpenAI-compatible suffix still matches.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1/chat/completions',
+    ),
+  ).toBe(true)
+  // Workers AI is HTTPS-only. A plaintext http:// endpoint on the same host and
+  // path must NOT match, or the Cloudflare route would mirror
+  // CLOUDFLARE_API_TOKEN into OPENAI_API_KEY over cleartext.
+  expect(
+    isCloudflareBaseUrl(
+      'http://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    ),
+  ).toBe(false)
+})
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')
@@ -178,6 +234,77 @@ test('AI/ML API route credential discovery ignores placeholder dedicated key', (
       },
     }),
   ).toBe('sk-openai-fallback')
+})
+
+test('Cloudflare Workers AI route only matches api.cloudflare.com, not the shared AI Gateway host (#1100)', () => {
+  // api.cloudflare.com is the Workers AI host — direct match is fine.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/acc-123/ai/v1',
+    ),
+  ).toBe('cloudflare')
+  // gateway.ai.cloudflare.com is the shared host for all AI Gateway routes
+  // (Workers AI, Anthropic, OpenAI, etc.). Matching here would apply
+  // Workers-AI runtime metadata + credential precedence to other providers'
+  // Gateway URLs, so the route MUST NOT claim it. Falls back to custom/
+  // OpenAI-compatible (null) per resolveRouteIdFromBaseUrl semantics.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/anthropic',
+    ),
+  ).toBe(null)
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/openai',
+    ),
+  ).toBe(null)
+  // Same-host general REST path is not the Workers AI route.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://api.cloudflare.com/client/v4/user/tokens/verify',
+    ),
+  ).toBe(null)
+})
+
+test('resolveActiveRouteIdFromEnv does not claim cloudflare for a retargeted cloudflare profile (#1100)', () => {
+  // A saved `cloudflare` profile pointed at a non-Workers URL must fall back to
+  // generic openai/custom, not resolve as cloudflare via the profile-provider
+  // shortcut — otherwise the Workers AI shim config + CLOUDFLARE_API_TOKEN
+  // mirroring would be applied to the shared AI Gateway host or a general REST
+  // path.
+  // Falls back to the generic OpenAI-compatible `custom` route (not just
+  // "anything but cloudflare"), so the assertion also pins the intended target.
+  const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/abc/gw/openai'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: gatewayUrl },
+      { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: gatewayUrl },
+    ),
+  ).toBe('custom')
+
+  const restUrl = 'https://api.cloudflare.com/client/v4/user/tokens/verify'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: restUrl },
+      { activeProfileProvider: 'cloudflare', activeProfileBaseUrl: restUrl },
+    ),
+  ).toBe('custom')
+})
+
+test('resolveActiveRouteIdFromEnv still resolves cloudflare for a real Workers AI profile (#1100)', () => {
+  // With the env base URL unset, the profile-provider fallback runs; a genuine
+  // Workers AI profile base URL must still resolve as cloudflare.
+  const workersUrl =
+    'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1' },
+      {
+        activeProfileProvider: 'cloudflare',
+        activeProfileBaseUrl: workersUrl,
+      },
+    ),
+  ).toBe('cloudflare')
 })
 
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {

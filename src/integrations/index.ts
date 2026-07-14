@@ -138,6 +138,7 @@ export {
   getRouteLabel,
   getRouteProviderTypeLabel,
   getTransportKindForRoute,
+  isCloudflareBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,

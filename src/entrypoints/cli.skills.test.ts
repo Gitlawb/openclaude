@@ -2,12 +2,31 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
+import treeKill from 'tree-kill'
 
 const repoRoot = resolve(import.meta.dir, '..', '..')
 const cliEntrypoint = join(repoRoot, 'src', 'entrypoints', 'cli.tsx')
+const cliTimeoutMs = 10_000
 
-async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
-  return new Response(stream).text()
+async function readStream(
+  stream: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): Promise<string> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  const cancel = () => void reader.cancel().catch(() => {})
+  signal.addEventListener('abort', cancel, { once: true })
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return text + decoder.decode()
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    signal.removeEventListener('abort', cancel)
+    reader.releaseLock()
+  }
 }
 
 async function runSkillsList(args: string[]): Promise<{
@@ -16,35 +35,100 @@ async function runSkillsList(args: string[]): Promise<{
   stdout: string
 }> {
   const root = mkdtempSync(join(tmpdir(), 'openclaude-skills-cli-'))
-  const projectDir = join(root, 'project')
-  const homeDir = join(root, 'home')
-  const configDir = join(root, 'config')
-  mkdirSync(projectDir)
-  mkdirSync(homeDir)
+  try {
+    const projectDir = join(root, 'project')
+    const homeDir = join(root, 'home')
+    const configDir = join(root, 'config')
+    mkdirSync(projectDir)
+    mkdirSync(homeDir)
 
-  const proc = Bun.spawn({
-    cmd: [process.execPath, cliEntrypoint, ...args],
-    cwd: projectDir,
-    env: {
-      ...process.env,
-      CLAUDE_CODE_USE_OPENAI: '1',
-      OPENAI_BASE_URL: 'https://api.openai.com/v1',
-      OPENAI_API_KEY: '',
-      CLAUDE_CONFIG_DIR: configDir,
-      HOME: homeDir,
-      OPENCLAUDE_DISABLE_EARLY_INPUT: '1',
-    },
-    stderr: 'pipe',
-    stdout: 'pipe',
-  })
+    const proc = Bun.spawn({
+      cmd: [process.execPath, cliEntrypoint, ...args],
+      cwd: projectDir,
+      env: {
+        ...process.env,
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_API_KEY: '',
+        CLAUDE_CONFIG_DIR: configDir,
+        HOME: homeDir,
+        OPENCLAUDE_DISABLE_EARLY_INPUT: '1',
+      },
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readStream(proc.stdout),
-    readStream(proc.stderr),
-    proc.exited,
-  ])
+    const streamAbort = new AbortController()
+    let exited = false
+    const processExit = proc.exited.finally(() => {
+      exited = true
+    })
+    let termination: Promise<void> | undefined
+    const terminate = (): Promise<void> => {
+      if (termination) return termination
+      streamAbort.abort()
+      termination = new Promise(resolve => {
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          resolve()
+        }
+        const fallback = setTimeout(() => {
+          try {
+            proc.kill('SIGKILL')
+          } catch {
+            // The process may already have exited while tree-kill was running.
+          } finally {
+            finish()
+          }
+        }, 500)
+        treeKill(proc.pid, 'SIGKILL', error => {
+          clearTimeout(fallback)
+          if (error && !exited) {
+            try {
+              proc.kill('SIGKILL')
+            } catch {
+              // The process may have exited between tree-kill and the fallback.
+            }
+          }
+          finish()
+        })
+      })
+      return termination
+    }
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      watchdog = setTimeout(() => {
+        void terminate().finally(() => {
+          reject(new Error(`skills CLI timed out after ${cliTimeoutMs}ms`))
+        })
+      }, cliTimeoutMs)
+    })
+    try {
+      const [stdout, stderr, exitCode] = await Promise.race([
+        Promise.all([
+          readStream(proc.stdout, streamAbort.signal),
+          readStream(proc.stderr, streamAbort.signal),
+          processExit,
+        ]),
+        timeout,
+      ])
 
-  return { exitCode, stderr, stdout }
+      return { exitCode, stderr, stdout }
+    } finally {
+      if (watchdog) clearTimeout(watchdog)
+      if (!exited) {
+        await terminate()
+        await Promise.race([
+          processExit.catch(() => undefined),
+          new Promise(resolve => setTimeout(resolve, 1_000)),
+        ])
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 }
 
 test('skills list bypasses provider startup validation', async () => {
@@ -98,23 +182,27 @@ test('skills list bypasses provider startup validation after --setting-sources',
 test('skills list honors --add-dir before provider startup validation', async () => {
   const addDirRoot = mkdtempSync(join(tmpdir(), 'openclaude-skills-add-dir-'))
   const skillDir = join(addDirRoot, '.openclaude', 'skills', 'addon')
-  mkdirSync(skillDir, { recursive: true })
-  writeFileSync(
-    join(skillDir, 'SKILL.md'),
-    `---\ndescription: Skill loaded from add-dir.\n---\n# Addon\n`,
-    'utf8',
-  )
+  try {
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\ndescription: Skill loaded from add-dir.\n---\n# Addon\n`,
+      'utf8',
+    )
 
-  const { exitCode, stderr, stdout } = await runSkillsList([
-    '--add-dir',
-    addDirRoot,
-    'skills',
-    'list',
-  ])
+    const { exitCode, stderr, stdout } = await runSkillsList([
+      '--add-dir',
+      addDirRoot,
+      'skills',
+      'list',
+    ])
 
-  expect(exitCode).toBe(0)
-  expect(stdout).toContain('addon')
-  expect(stderr).not.toContain('OPENAI_API_KEY is required')
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('addon')
+    expect(stderr).not.toContain('OPENAI_API_KEY is required')
+  } finally {
+    rmSync(addDirRoot, { recursive: true, force: true })
+  }
 }, 15_000)
 
 test('skills list accepts equals-form global flags before provider startup validation', async () => {

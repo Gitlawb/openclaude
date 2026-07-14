@@ -45,6 +45,9 @@ const _realDiskOutputModule = await import(
 const _realMessagesModule = await import(
   `../../utils/messages.js?real=${Date.now()}-${Math.random()}`
 )
+const _realSystemFactoriesModule = await import(
+  `../../utils/messages/systemFactories.js?real=${Date.now()}-${Math.random()}`
+)
 const _realSlowOperationsModule = await import(
   `../../utils/slowOperations.js?real=${Date.now()}-${Math.random()}`
 )
@@ -347,30 +350,14 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 
   // --- Message helpers (DEFENSIVE — stub just enough) ---
   mock.module('../../utils/messages.js', () => ({
-    createUserMessage: mock(
-      (opts: { content: string; isCompactSummary?: boolean }) => ({
-        type: 'user' as const,
-        message: { role: 'user' as const, content: opts.content },
-        uuid: `msg-${Math.random()}`,
-        timestamp: new Date().toISOString(),
-        isCompactSummary: opts.isCompactSummary ?? false,
-      }),
-    ),
+    createUserMessage: _realMessagesModule.createUserMessage,
     createCompactBoundaryMessage: mock(() => ({
       type: 'system' as const,
       message: { role: 'system' as const, content: '' },
       uuid: `sys-${Math.random()}`,
       timestamp: new Date().toISOString(),
     })),
-    getAssistantMessageText: mock(
-      (msg: Message) =>
-        typeof msg.message.content === 'string'
-          ? msg.message.content
-          : (Array.isArray(msg.message.content) &&
-              msg.message.content[0]?.type === 'text')
-            ? msg.message.content[0].text
-            : '',
-    ),
+    getAssistantMessageText: _realMessagesModule.getAssistantMessageText,
     getLastAssistantMessage: mock(
       (msgs: Message[]) => msgs.findLast(m => m.type === 'assistant') ?? null,
     ),
@@ -631,6 +618,13 @@ afterEach(() => {
   try {
     mock.restore()
     clearProviderEnv()
+    // mock.module() persists process-wide in bun:test. Restore the message
+    // helpers after each compact test so downstream test files do not import
+    // the compact-only createUserMessage stub.
+    mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
+    mock.module('../../utils/messages/systemFactories.js', () => ({
+      ..._realSystemFactoriesModule,
+    }))
   } finally {
     releaseSharedMutationLock()
   }
@@ -663,6 +657,9 @@ afterAll(async () => {
     MAX_TASK_OUTPUT_BYTES_DISPLAY: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES_DISPLAY,
   }))
   mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
+  mock.module('../../utils/messages/systemFactories.js', () => ({
+    ..._realSystemFactoriesModule,
+  }))
   mock.module('../../utils/slowOperations.js', () => ({
     ..._realSlowOperationsModule,
   }))

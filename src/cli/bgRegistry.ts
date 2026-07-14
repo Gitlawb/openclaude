@@ -478,11 +478,14 @@ export async function refreshBackgroundSessionStatuses(options?: {
       continue
     }
 
-    const processState = getBackgroundSessionProcessState(session, options)
+    const processState = verifyBackgroundSessionProcessIdentity(
+      session,
+      options,
+    ).state
     const nextStatus: BackgroundSessionStatus =
-      processState === 'alive'
+      processState === 'matches'
         ? 'running'
-        : processState === 'unknown'
+        : processState === 'unreadable'
           ? 'unknown'
           : 'stale'
 
@@ -503,53 +506,155 @@ export async function refreshBackgroundSessionStatuses(options?: {
   return refreshed
 }
 
-type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
+export type BackgroundSessionProcessIdentity = {
+  state: 'not-running' | 'matches' | 'mismatch' | 'unreadable'
+  backgroundSessionId: string
+  pid: number
+}
+
+export type BackgroundSessionProcessLiveness =
+  | 'alive'
+  | 'not-running'
+  | 'unreadable'
+
+export type BackgroundSessionProcessIdentityOptions = {
+  isProcessAlive?: (pid: number) => boolean
+  signalProcess?: (pid: number, signal: 0) => unknown
+  getProcessCommand?: (pid: number) => string | null
+}
+
+// A spaced path or prompt is a single argv entry, but the raw command line
+// quotes it, so a whitespace split fuses a quote onto the edge tokens. Windows
+// `Get-CimInstance ... CommandLine` returns exactly this form — e.g.
+//   "C:\Program Files\nodejs\node.exe" ...\cli.mjs --from-pr 1642 --print "refactor auth"
+// splits to `"C:\Program`, `Files\nodejs\node.exe"`, ..., `"refactor`, `auth"`.
+// The stored argv holds those same values unquoted, so trim a single leading
+// and/or trailing quote from each token before comparing. POSIX `ps` output is
+// unquoted, making this a no-op there, and it never widens the token-boundary
+// match below (a stripped token still has to equal the stored one). See #1770.
+function tokenizeCommandLine(value: string): string[] {
+  return value
+    .split(/\s+/)
+    .map(token => token.replace(/^["']|["']$/g, ''))
+    .filter(token => token.length > 0)
+}
 
 function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
   if (args.length === 0) return false
-  let offset = 0
-  for (const arg of args) {
-    const index = commandLine.indexOf(arg, offset)
-    if (index === -1) return false
-    offset = index + arg.length
+  // Match the stored args against whole whitespace-delimited tokens, in order,
+  // rather than as a raw substring. Substring matching let a stored selector
+  // like "1642" satisfy a lookup against an unrelated live token "16420" (e.g. a
+  // reused PID whose command line merely contains those digits), so a dead
+  // session stayed classified as running. See #1770.
+  //
+  // A stored arg can itself contain whitespace — a prompt like "refactor auth"
+  // is a single argv entry but `ps` renders it as separate words — so expand
+  // each arg into its own tokens and require the flattened sequence to appear as
+  // one CONTIGUOUS run of whole command tokens. An ordered-subsequence match
+  // (skipping unrelated tokens between matches) would let a reused PID whose
+  // command line merely interleaves the stored tokens pass — e.g. stored
+  // ["node", "openclaude", "1642"] satisfied by "node attacker openclaude extra
+  // 1642 --serve" — reopening the same wrong-process `kill` risk for token
+  // insertion collisions. The real launch invocation appears as an unbroken run
+  // (only the interpreter path or trailing flags differ), so leading/trailing
+  // tokens are fine but interspersed ones are not.
+  const tokens = tokenizeCommandLine(commandLine)
+  const argTokens = args.flatMap(tokenizeCommandLine)
+  if (argTokens.length === 0) return false
+  if (argTokens.length > tokens.length) return false
+  for (let start = 0; start <= tokens.length - argTokens.length; start += 1) {
+    let matched = true
+    for (let offset = 0; offset < argTokens.length; offset += 1) {
+      if (tokens[start + offset] !== argTokens[offset]) {
+        matched = false
+        break
+      }
+    }
+    if (matched) return true
   }
-  return true
+  return false
 }
 
 function commandLineMatchesBackgroundSession(
   commandLine: string,
   session: BackgroundSession,
 ): boolean {
-  if (commandLine.includes(session.sessionId)) return true
+  // Match the session id as a whole token, not a raw substring: an id like
+  // "sess-1" must not match an unrelated live command that merely contains
+  // "sess-100" (the same reused-PID collision this guard fixes for #1770).
+  if (commandLineContainsArgs(commandLine, [session.sessionId])) return true
   // PR resume launches write to the resumed transcript id without carrying
   // that id on argv, so use the stored launch invocation as the PID guard.
   return commandLineContainsArgs(commandLine, session.command)
 }
 
-function getBackgroundSessionProcessState(
+export function verifyBackgroundSessionProcessIdentity(
   session: BackgroundSession,
-  options?: {
-    isProcessAlive?: (pid: number) => boolean
-    getProcessCommand?: (pid: number) => string | null
-  },
-): BackgroundSessionProcessState {
-  const isAlive = options?.isProcessAlive ?? isProcessRunning
-  if (!isAlive(session.pid)) return 'dead'
+  options?: BackgroundSessionProcessIdentityOptions,
+): BackgroundSessionProcessIdentity {
+  const result = (
+    state: BackgroundSessionProcessIdentity['state'],
+  ): BackgroundSessionProcessIdentity => ({
+    state,
+    backgroundSessionId: session.id,
+    pid: session.pid,
+  })
+  const getLiveness = () =>
+    getBackgroundSessionProcessLiveness(session.pid, options)
+  const liveness = getLiveness()
+  if (liveness !== 'alive') return result(liveness)
 
   const readCommand = options?.getProcessCommand ?? getProcessCommand
-  const command = readCommand(session.pid)
-  if (command == null) return 'unknown'
-  return commandLineMatchesBackgroundSession(command, session) ? 'alive' : 'dead'
+  let command: string | null
+  try {
+    command = readCommand(session.pid)
+  } catch {
+    const latestLiveness = getLiveness()
+    return result(
+      latestLiveness === 'alive' ? 'unreadable' : latestLiveness,
+    )
+  }
+  const latestLiveness = getLiveness()
+  if (latestLiveness !== 'alive') return result(latestLiveness)
+  if (command == null || command.trim() === '') {
+    return result('unreadable')
+  }
+  return result(
+    commandLineMatchesBackgroundSession(command, session)
+      ? 'matches'
+      : 'mismatch',
+  )
+}
+
+export function getBackgroundSessionProcessLiveness(
+  pid: number,
+  options?: BackgroundSessionProcessIdentityOptions,
+): BackgroundSessionProcessLiveness {
+  if (options?.isProcessAlive) {
+    try {
+      return options.isProcessAlive(pid) ? 'alive' : 'not-running'
+    } catch {
+      return 'unreadable'
+    }
+  }
+  if (pid <= 1) return 'not-running'
+
+  const signalProcess = options?.signalProcess ?? process.kill
+  try {
+    signalProcess(pid, 0)
+    return 'alive'
+  } catch (error) {
+    return isErrno(error, 'ESRCH') ? 'not-running' : 'unreadable'
+  }
 }
 
 export function isBackgroundSessionProcessAlive(
   session: BackgroundSession,
-  options?: {
-    isProcessAlive?: (pid: number) => boolean
-    getProcessCommand?: (pid: number) => string | null
-  },
+  options?: BackgroundSessionProcessIdentityOptions,
 ): boolean {
-  return getBackgroundSessionProcessState(session, options) === 'alive'
+  return (
+    verifyBackgroundSessionProcessIdentity(session, options).state === 'matches'
+  )
 }
 
 export async function markBackgroundSessionKilled(

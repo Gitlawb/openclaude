@@ -476,7 +476,7 @@ export function useManageMCPConnections(
               client.capabilities,
               client.config.pluginSource,
             )
-            const entry = findChannelEntry(client.name, getAllowedChannels())
+            const entry = findChannelEntry(client.name, getAllowedChannels(), client.config.pluginSource)
             // Plugin identifier for telemetry — log name@marketplace for any
             // plugin-kind entry (same tier as tengu_plugin_installed, which
             // logs arbitrary plugin_id+marketplace_name ungated). server-kind
@@ -532,14 +532,15 @@ export function useManageMCPConnections(
                 )
                 // Permission-reply handler — separate event, separate
                 // capability. Only registers if the server declares
-                // claude/channel/permission (same opt-in check as the send
-                // path in interactiveHandler.ts). Server parses the user's
-                // reply and emits {request_id, behavior}; no regex on our
-                // side, text in the general channel can't accidentally match.
+                // claude/channel/permission truthy (same opt-in check as
+                // filterPermissionRelayClients in channelPermissions.ts).
+                // Server parses the user's reply and emits {request_id,
+                // behavior}; no regex on our side, text in the general
+                // channel can't accidentally match.
                 if (
                   client.capabilities?.experimental?.[
                     'claude/channel/permission'
-                  ] !== undefined
+                  ]
                 ) {
                   client.client.setNotificationHandler(
                     ChannelPermissionNotificationSchema(),
@@ -590,17 +591,13 @@ export function useManageMCPConnections(
                     entry !== undefined)
                 ) {
                   channelWarnedKindsRef.current.add(gate.kind)
-                  // disabled/auth/policy get custom toast copy (shorter, actionable);
+                  // disabled gets custom toast copy (shorter, actionable);
                   // marketplace/allowlist reuse the gate's reason verbatim
                   // since it already names the mismatch.
                   const text =
                     gate.kind === 'disabled'
                       ? 'Channels are not currently available'
-                      : gate.kind === 'auth'
-                        ? 'Channels require claude.ai authentication · run /login'
-                        : gate.kind === 'policy'
-                          ? 'Channels are not enabled for your org · have an administrator set channelsEnabled: true in managed settings'
-                          : gate.reason
+                      : gate.reason
                   addNotification({
                     key: `channels-blocked-${gate.kind}`,
                     priority: 'high',

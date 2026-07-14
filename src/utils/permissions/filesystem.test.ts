@@ -1,18 +1,26 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, rm } from 'fs/promises'
+import { execFileSync } from 'child_process'
+import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../types/permissions.js'
 import {
   getOriginalCwd,
+  getCwdState,
   getProjectRoot,
+  setCwdState,
   setOriginalCwd,
   setProjectRoot,
 } from '../../bootstrap/state.js'
 import { getAutoMemPath } from '../../memdir/paths.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
-import { checkWritePermissionForTool } from './filesystem.js'
+import {
+  checkWritePermissionForTool,
+  getResolvedWorkingDirPaths,
+} from './filesystem.js'
+import { resetSafetyLevelCache } from './safetyLevel.js'
+import { resetSafetyLevelForTest } from '../../test/safetyLevelTestHelpers.js'
 
 const writeInputSchema = z.object({
   file_path: z.string(),
@@ -113,6 +121,7 @@ describe('OpenClaude commit message temp file permissions', () => {
 
   afterEach(async () => {
     setOriginalCwd(originalCwd)
+    resetSafetyLevelForTest()
     await rm(projectDir, { recursive: true, force: true })
   })
 
@@ -175,5 +184,97 @@ describe('OpenClaude commit message temp file permissions', () => {
     )
 
     expect(result.behavior).not.toBe('allow')
+  })
+
+  test.each([
+    '.gitmodules',
+    '.bashrc',
+    '.zshrc',
+    '.profile',
+    '.mcp.json',
+    '.claude.json',
+    '.openclaude.json',
+  ])('permits dangerous-file-list edit for %s in permissive safety mode', fileName => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(projectDir, fileName) },
+      {
+        ...permissionContext('acceptEdits'),
+        additionalWorkingDirectories: new Map([
+          [projectDir, { path: projectDir, source: 'session' }],
+        ]),
+      },
+    )
+
+    expect(result.behavior).toBe('allow')
+  })
+
+  test('still prompts for dangerous directories in permissive safety mode', () => {
+    process.env.OPENCLAUDE_SAFETY_LEVEL = 'permissive'
+    resetSafetyLevelCache()
+
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(projectDir, '.git', 'config') },
+      {
+        ...permissionContext('acceptEdits'),
+        additionalWorkingDirectories: new Map([
+          [projectDir, { path: projectDir, source: 'session' }],
+        ]),
+      },
+    )
+
+    expect(result.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({ type: 'safetyCheck' })
+  })
+})
+
+describe('nested Git worktree write permissions', () => {
+  test('allows relative writes in acceptEdits mode when the session uses a nested worktree', async () => {
+    const originalCwd = getOriginalCwd()
+    const originalCwdState = getCwdState()
+    const repository = await mkdtemp(join(tmpdir(), 'openclaude-worktree-perms-'))
+    const worktree = join(repository, 'a', 'b', 'worktrees', 'feature-branch')
+
+    try {
+      execFileSync('git', ['init', repository])
+      execFileSync('git', ['-C', repository, 'config', 'user.email', 'test@example.com'])
+      execFileSync('git', ['-C', repository, 'config', 'user.name', 'OpenClaude Test'])
+      await writeFile(join(repository, 'seed.txt'), 'seed\n')
+      execFileSync('git', ['-C', repository, 'add', 'seed.txt'])
+      execFileSync('git', ['-C', repository, 'commit', '-m', 'seed'])
+      await mkdir(join(repository, 'a', 'b', 'worktrees'), { recursive: true })
+      execFileSync('git', [
+        '-C',
+        repository,
+        'worktree',
+        'add',
+        '-b',
+        'feature-branch',
+        worktree,
+      ])
+
+      // Scoped sessions update application CWD state without changing the
+      // shared process CWD. Relative tool paths must still target this worktree.
+      setOriginalCwd(worktree)
+      setCwdState(worktree)
+      getResolvedWorkingDirPaths.cache.clear?.()
+
+      const result = checkWritePermissionForTool(
+        writeTool,
+        { file_path: 'src/new-file.ts' },
+        permissionContext('acceptEdits'),
+      )
+
+      expect(result.behavior).toBe('allow')
+    } finally {
+      setOriginalCwd(originalCwd)
+      setCwdState(originalCwdState)
+      getResolvedWorkingDirPaths.cache.clear?.()
+      await rm(repository, { recursive: true, force: true })
+    }
   })
 })

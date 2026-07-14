@@ -39,6 +39,7 @@ describe('planUpdate', () => {
     thirdPartyBlocked: false,
     packageManager: 'unknown' as PackageManager,
     localInstallExists: false,
+    nativeDistributionAvailable: true,
   }
 
   test('third-party build is blocked regardless of installation type', () => {
@@ -73,6 +74,16 @@ describe('planUpdate', () => {
     expect(planUpdate({ ...base, installationType: 'native' })).toEqual({
       action: 'native',
     })
+  })
+
+  test('native install routes to npm when the build has no native distribution', () => {
+    expect(
+      planUpdate({
+        ...base,
+        installationType: 'native',
+        nativeDistributionAvailable: false,
+      }),
+    ).toEqual({ action: 'npm', method: 'global' })
   })
 
   test('npm-local and npm-global route to their npm method', () => {
@@ -136,6 +147,7 @@ describe('resolveUpdateStrategy', () => {
           calls.localInstall++
           return true
         }),
+      hasNativeDistribution: overrides.hasNativeDistribution ?? (() => true),
     }
     return { deps, calls }
   }
@@ -167,6 +179,17 @@ describe('resolveUpdateStrategy', () => {
     })
     expect(calls.localInstall).toBe(1)
     expect(calls.packageManager).toBe(0)
+  })
+
+  test('routes a native install to npm when the build has no native distribution', async () => {
+    const { deps } = makeDeps({
+      installationType: 'native',
+      hasNativeDistribution: () => false,
+    })
+    expect(await resolveUpdateStrategy(deps)).toEqual({
+      action: 'npm',
+      method: 'global',
+    })
   })
 
   test('routes a global npm install without extra probes', async () => {

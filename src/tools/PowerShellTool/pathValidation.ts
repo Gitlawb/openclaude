@@ -121,7 +121,16 @@ type CmdletPathConfig = {
   optionalWrite?: boolean
 }
 
-const CMDLET_PATH_CONFIG: Record<string, CmdletPathConfig> = {
+// Uses Object.create(null) to prevent prototype-chain pollution — an
+// attacker-controlled cmdlet name like 'constructor' or '__proto__' must return
+// undefined here (hitting the `if (!config)` unknown-cmdlet passthrough), not an
+// inherited Object.prototype member. Without it, the lookup returns a truthy
+// inherited value and `[...config.knownSwitches]` throws (spread of undefined),
+// crashing path-constraint validation. Same defense as CMDLET_ALLOWLIST
+// (readOnlyValidation.ts) and COMMON_ALIASES (parser.ts).
+const CMDLET_PATH_CONFIG: Record<string, CmdletPathConfig> = Object.assign(
+  Object.create(null) as Record<string, CmdletPathConfig>,
+  {
   // ─── Write/create operations ──────────────────────────────────────────────
   'set-content': {
     operationType: 'write',
@@ -762,7 +771,8 @@ const CMDLET_PATH_CONFIG: Record<string, CmdletPathConfig> = {
     ],
     knownValueParams: ['-name', '-description', '-scope', '-as'],
   },
-}
+  },
+)
 
 /**
  * Checks if a lowercase parameter name (with leading dash) matches any entry
