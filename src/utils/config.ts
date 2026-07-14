@@ -694,8 +694,8 @@ export type GlobalConfig = {
    * Proactive message budget limit in tokens.
    * When set to a positive number, old redundant Read/Write/Edit tool results
    * are stripped to stay under this budget, keeping response times fast.
-   * 0 or undefined = disabled (send full context, original behavior).
-   * Recommended range: 25_000–100_000. Default: 0 (disabled).
+   * 0 = disabled (send full context, original behavior).
+   * Default: 100_000. Recommended range: 25_000–200_000.
    * Set via /config or settings.json.
    */
   proactiveBudgetLimit?: number
@@ -750,6 +750,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
+    proactiveBudgetLimit: 100_000,
     // Omitted by default so callers can distinguish "unset" from an explicit
     // persisted "off"; normalizeMaxMessagesCompactionThreshold keeps the
     // effective default disabled.

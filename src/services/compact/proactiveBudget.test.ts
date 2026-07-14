@@ -9,7 +9,7 @@ import {
   getFilePathFromInput,
   isLargeContent,
   pruneRedundantToolOutputs,
-  STRIPPED_MARKER,
+  strippedMarker,
   stripToolResultContent,
 } from './proactiveBudget.js'
 
@@ -168,8 +168,8 @@ describe('isLargeContent', () => {
 describe('stripToolResultContent', () => {
   test('replaces string content with marker', () => {
     const block = { type: 'tool_result', tool_use_id: 't1', content: 'old content' }
-    stripToolResultContent(block)
-    expect(block.content).toBe(STRIPPED_MARKER)
+    stripToolResultContent(block, '/a.ts')
+    expect(block.content).toBe(strippedMarker('/a.ts'))
   })
 
   test('replaces array content with marker array', () => {
@@ -178,9 +178,9 @@ describe('stripToolResultContent', () => {
       tool_use_id: 't1',
       content: [{ type: 'text', text: 'old content' }],
     }
-    stripToolResultContent(block)
+    stripToolResultContent(block, '/b.ts')
     expect(Array.isArray(block.content)).toBe(true)
-    expect((block.content as Array<{ text: string }>)[0]!.text).toBe(STRIPPED_MARKER)
+    expect((block.content as Array<{ text: string }>)[0]!.text).toBe(strippedMarker('/b.ts'))
   })
 })
 
@@ -205,7 +205,7 @@ describe('pruneRedundantToolOutputs', () => {
     expect(strippedCount).toBe(1)
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(STRIPPED_MARKER)
+    ).toBe(strippedMarker('/a.ts'))
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
     ).toBe('y'.repeat(500))
@@ -229,7 +229,7 @@ describe('pruneRedundantToolOutputs', () => {
     // First Read of /a.ts stripped
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(STRIPPED_MARKER)
+    ).toBe(strippedMarker('/a.ts'))
     // Read of /b.ts preserved
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
@@ -294,7 +294,7 @@ describe('pruneRedundantToolOutputs', () => {
     expect(strippedCount).toBe(1)
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(STRIPPED_MARKER)
+    ).toBe(strippedMarker('/a.ts'))
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
     ).toBe('y'.repeat(500))
@@ -314,7 +314,7 @@ describe('pruneRedundantToolOutputs', () => {
     expect(strippedCount).toBe(1)
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(STRIPPED_MARKER)
+    ).toBe(strippedMarker('/a.ts'))
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
     ).toBe('y'.repeat(500))
@@ -352,7 +352,7 @@ describe('pruneRedundantToolOutputs', () => {
     expect(strippedCount).toBe(1)
     const oldContent = (result[1]!.message.content as Array<{ content: Array<{ text: string }> }>)[0]!.content
     expect(Array.isArray(oldContent)).toBe(true)
-    expect((oldContent as Array<{ text: string }>)[0]!.text).toBe(STRIPPED_MARKER)
+    expect((oldContent as Array<{ text: string }>)[0]!.text).toBe(strippedMarker('/a.ts'))
 
     const newContent = (result[3]!.message.content as Array<{ content: Array<{ text: string }> }>)[0]!.content
     expect(Array.isArray(newContent)).toBe(true)

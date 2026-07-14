@@ -38,10 +38,12 @@ import { getGlobalConfig } from '../../utils/config.js'
 
 /**
  * Default target token budget for the pruned message list.
- * Users can override this via the `proactiveBudgetLimit` config setting.
- * 0 = disabled (send full context, original behavior).
+ * 100K = safe default: strips old redundant reads while preserving
+ * full context awareness (content-aware pruning never drops messages).
+ * Users can override via the `proactiveBudgetLimit` config setting.
+ * Set to 0 to disable (send full context, original behavior).
  */
-export const PROACTIVE_BUDGET_TARGET_TOKENS_DEFAULT = 0
+export const PROACTIVE_BUDGET_TARGET_TOKENS_DEFAULT = 100_000
 
 /**
  * Tools whose outputs contain file contents that become stale between turns.
@@ -49,8 +51,14 @@ export const PROACTIVE_BUDGET_TARGET_TOKENS_DEFAULT = 0
  */
 export const FILE_CONTENT_TOOLS = new Set(['Read', 'Write', 'Edit'])
 
-/** Marker placed in stripped tool results. Kept short to minimize token overhead. */
-export const STRIPPED_MARKER = '[Content from earlier read — see latest result]'
+/**
+ * Generate a marker for a stripped tool result.
+ * Includes the file path so the model can locate the latest read in context.
+ * Kept short to minimize token overhead.
+ */
+export function strippedMarker(filePath: string): string {
+  return `[Content from earlier read of ${filePath} — see latest result in context]`
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,14 +157,18 @@ export function isLargeContent(content: unknown): boolean {
 }
 
 /**
- * Replace a tool_result block's content with a short marker.
+ * Replace a tool_result block's content with a file-aware marker.
  * Modifies the block in-place.
  */
-export function stripToolResultContent(block: Record<string, unknown>): void {
+export function stripToolResultContent(
+  block: Record<string, unknown>,
+  filePath: string,
+): void {
+  const marker = strippedMarker(filePath)
   if (typeof block.content === 'string') {
-    block.content = STRIPPED_MARKER
+    block.content = marker
   } else if (Array.isArray(block.content)) {
-    block.content = [{ type: 'text', text: STRIPPED_MARKER }]
+    block.content = [{ type: 'text', text: marker }]
   }
 }
 
@@ -233,7 +245,10 @@ export function pruneRedundantToolOutputs(
           if (!workingContent) {
             workingContent = structuredClone(content) as typeof content
           }
-          stripToolResultContent(workingContent[bi] as unknown as Record<string, unknown>)
+          stripToolResultContent(
+            workingContent[bi] as unknown as Record<string, unknown>,
+            filePath,
+          )
           changed = true
           strippedCount++
         }
@@ -252,10 +267,6 @@ export function pruneRedundantToolOutputs(
 
   return { messages: result.reverse(), strippedCount }
 }
-
-// ---------------------------------------------------------------------------
-// Phase 2: Head/tail fallback
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Public API
