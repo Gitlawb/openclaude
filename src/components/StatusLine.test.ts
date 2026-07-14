@@ -3,6 +3,7 @@ import { resetStateForTests } from '../cost-tracker.js'
 import { getUnreportedSessionUsage } from '../utils/tokens.js'
 import {
   buildStatusLineCommandInput,
+  resolveStatusLineUpdateAction,
   resolveStatusLineTokenTotals,
 } from './StatusLine.js'
 import type { AssistantMessage, Message } from '../types/message.js'
@@ -67,6 +68,32 @@ describe('resolveStatusLineTokenTotals', () => {
       totalOutputTokens: 320,
       totalTokensAreEstimated: true,
     })
+  })
+})
+
+describe('resolveStatusLineUpdateAction', () => {
+  it('cancels pending work and records a refresh when hidden', () => {
+    expect(resolveStatusLineUpdateAction({ active: false, hasRun: true, needsRefresh: false, stateChanged: false, commandChanged: false, hasPendingUpdate: true })).toEqual({ action: 'cancel', needsRefresh: true })
+  })
+
+  it('runs once when first activated with pending changes', () => {
+    expect(resolveStatusLineUpdateAction({ active: true, hasRun: false, needsRefresh: true, stateChanged: true, commandChanged: false, hasPendingUpdate: false })).toEqual({ action: 'run' })
+  })
+
+  it('runs immediately when reactivated after hidden changes', () => {
+    expect(resolveStatusLineUpdateAction({ active: true, hasRun: true, needsRefresh: true, stateChanged: false, commandChanged: false, hasPendingUpdate: false })).toEqual({ action: 'run' })
+  })
+
+  it('debounces ordinary visible state changes', () => {
+    expect(resolveStatusLineUpdateAction({ active: true, hasRun: true, needsRefresh: false, stateChanged: true, commandChanged: false, hasPendingUpdate: false })).toEqual({ action: 'schedule' })
+  })
+
+  it('does nothing when active and nothing changed', () => {
+    expect(resolveStatusLineUpdateAction({ active: true, hasRun: true, needsRefresh: false, stateChanged: false, commandChanged: false, hasPendingUpdate: false })).toEqual({ action: 'none' })
+  })
+
+  it('runs immediately when the statusline command changes', () => {
+    expect(resolveStatusLineUpdateAction({ active: true, hasRun: true, needsRefresh: false, stateChanged: false, commandChanged: true, hasPendingUpdate: false })).toEqual({ action: 'run' })
   })
 })
 
