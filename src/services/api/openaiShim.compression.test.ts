@@ -698,6 +698,43 @@ test('non-chat transports do not invoke the Chat message converter', () => {
   expect(selectMessages('chat_completions', () => chatMessages)).toBe(chatMessages)
 })
 
+test('Anthropic and Gemini transports do not invoke tool history compression', () => {
+  const selectMessages = __test.getCompressedMessagesForTransport
+  const rawMessages = [{ role: 'user', content: 'hello' }]
+  const compressedMessages = [{ role: 'user', content: 'compressed' }]
+  let compressionCalls = 0
+  const compress = () => {
+    compressionCalls++
+    return compressedMessages
+  }
+
+  expect(selectMessages('anthropic_messages', rawMessages, compress)).toBe(rawMessages)
+  expect(selectMessages('gemini', rawMessages, compress)).toBe(rawMessages)
+  expect(compressionCalls).toBe(0)
+
+  expect(selectMessages('responses', rawMessages, compress)).toBe(compressedMessages)
+  expect(selectMessages('responses_compat', rawMessages, compress)).toBe(compressedMessages)
+  expect(selectMessages('chat_completions', rawMessages, compress)).toBe(compressedMessages)
+  expect(compressionCalls).toBe(3)
+})
+
+test('Gemini image detection requires an image MIME type', () => {
+  const containsImages = __test.requestBodyContainsImages
+
+  expect(containsImages({
+    contents: [{ parts: [{ inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } }] }],
+  })).toBe(true)
+  expect(containsImages({
+    contents: [{ parts: [{ fileData: { mimeType: 'image/jpeg', fileUri: 'gs://bucket/image.jpg' } }] }],
+  })).toBe(true)
+  expect(containsImages({
+    contents: [{ parts: [{ inlineData: { mimeType: 'audio/wav', data: 'aGVsbG8=' } }] }],
+  })).toBe(false)
+  expect(containsImages({
+    contents: [{ parts: [{ fileData: { mimeType: 'application/pdf', fileUri: 'gs://bucket/file.pdf' } }] }],
+  })).toBe(false)
+})
+
 test('Responses conversion stays single-pass when error classification inspects images', async () => {
   mockState.enabled = false
   setCompressionEnabledForTest(false)
@@ -736,12 +773,14 @@ test('Responses conversion stays single-pass when error classification inspects 
   expect(contentReads).toBe(1)
 })
 
-test('image error classification follows the serialized body for local self-healing', async () => {
+test('local self-healing follows the serialized image-free Chat body', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:8000'
   const requestUrls: string[] = []
+  const requestBodies: string[] = []
 
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     requestUrls.push(String(input))
+    requestBodies.push(String(init?.body))
     if (requestUrls.length === 1) {
       return new Response('Not Found', { status: 404 })
     }
@@ -774,6 +813,8 @@ test('image error classification follows the serialized body for local self-heal
     'http://localhost:8000/chat/completions',
     'http://localhost:8000/v1/chat/completions',
   ])
+  expect(requestBodies[0]).not.toContain('"type":"image_url"')
+  expect(requestBodies[1]).toBe(requestBodies[0])
 })
 
 test('image error classification follows JSON-normalized Anthropic content', async () => {

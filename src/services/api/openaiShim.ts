@@ -1322,11 +1322,17 @@ function requestBodyContainsImages(
   return Array.isArray(contents) && contents.some(item => {
     if (!item || typeof item !== 'object') return false
     const parts = (item as Record<string, unknown>).parts
-    return Array.isArray(parts) && parts.some(part =>
-      part &&
-      typeof part === 'object' &&
-      ('inlineData' in part || 'fileData' in part),
-    )
+    return Array.isArray(parts) && parts.some(part => {
+      if (!part || typeof part !== 'object') return false
+      const record = part as Record<string, unknown>
+      return ['inlineData', 'fileData'].some(key => {
+        const data = record[key]
+        if (!data || typeof data !== 'object') return false
+        const mimeType = (data as Record<string, unknown>).mimeType
+        return typeof mimeType === 'string' &&
+          mimeType.trim().toLowerCase().startsWith('image/')
+      })
+    })
   })
 }
 
@@ -1857,6 +1863,16 @@ function getChatMessagesForTransport<T>(
   convert: () => T,
 ): T | undefined {
   return transport === 'chat_completions' ? convert() : undefined
+}
+
+function getCompressedMessagesForTransport<T>(
+  transport: string,
+  rawMessages: T,
+  compress: () => T,
+): T {
+  return transport === 'anthropic_messages' || transport === 'gemini'
+    ? rawMessages
+    : compress()
 }
 
 /**
@@ -4283,9 +4299,6 @@ class OpenAIShimMessages {
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>
-    const compressedMessages = fastPath.skipToolHistoryCompression
-      ? rawMessages
-      : compressToolHistory(rawMessages, request.resolvedModel)
     const runtimeShimContext = resolveOpenAIShimRuntimeContext({
       processEnv: requestProcessEnv,
       baseUrl: request.baseUrl,
@@ -4306,6 +4319,13 @@ class OpenAIShimMessages {
         : shimConfig.endpointPath?.startsWith('/models/gemini-')
           ? 'gemini'
           : request.transport
+    const compressedMessages = getCompressedMessagesForTransport(
+      effectiveTransport,
+      rawMessages,
+      () => fastPath.skipToolHistoryCompression
+        ? rawMessages
+        : compressToolHistory(rawMessages, request.resolvedModel),
+    )
     const useNativeOllamaChat =
       effectiveTransport === 'chat_completions' &&
       !shimConfig.endpointPath &&
@@ -5053,8 +5073,13 @@ class OpenAIShimMessages {
             payload as Record<string, unknown>,
           )
         }
-      } catch {
-        // Request serialization already succeeded before this error path.
+      } catch (error) {
+        // Request serialization already succeeded before this error path, so
+        // parsing should only fail if a future caller passes a different body.
+        logForDebugging(
+          `[OpenAIShim] failed to inspect serialized request body for images: ${error instanceof Error ? error.message : String(error)}`,
+          { level: 'warn' },
+        )
       }
 
       imageClassificationCache = {
@@ -5640,6 +5665,8 @@ export const __test = {
   convertMessages,
   getApiTimeoutMs,
   getChatMessagesForTransport,
+  getCompressedMessagesForTransport,
+  requestBodyContainsImages,
   getStreamIdleTimeoutMs,
   readWithIdleTimeout,
   StreamIdleTimeoutError,
