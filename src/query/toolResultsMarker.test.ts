@@ -269,6 +269,45 @@ test('marker-only then real text completes after one nudge', async () => {
   expect(terminal.reason).toBe('completed')
 })
 
+test('marker text followed by real continuation text is NOT withheld', async () => {
+  const callModel: QueryDeps['callModel'] = async function* () {
+    yield createAssistantMessage({
+      id: 'assistant-1',
+      content: [
+        { type: 'text', text: `${TOOL_RESULTS_RECEIVED_MARKER}\n\nI have more work to do.` },
+      ],
+      model: 'test-model',
+      stop_reason: 'end_turn',
+      role: 'assistant',
+    } as any)
+  }
+
+  const yielded: any[] = []
+  const terminal = await (async () => {
+    const params = makeQueryParams(callModel as any)
+    params.deps!.callModel = callModel as any
+    const generator = query(params)
+    while (true) {
+      const next = await generator.next()
+      if (next.done) return next.value
+      yielded.push(next.value)
+    }
+  })()
+
+  // Marker is present but real continuation text remains, so the message
+  // is yielded to the UI (not withheld) and no marker-only stall nudge fires.
+  expect(terminal.reason).toBe('completed')
+  const assistantMsgs = yielded.filter((item: any) => item.type === 'assistant')
+  expect(assistantMsgs.length).toBeGreaterThanOrEqual(1)
+  // The text content should include the non-marker portion.
+  const textParts = assistantMsgs.flatMap((msg: any) =>
+    msg.message?.content
+      ?.filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text) || [],
+  )
+  expect(textParts.some((t) => t.includes('I have more work to do.'))).toBe(true)
+})
+
 test('marker constant matches shim injection', async () => {
   expect(TOOL_RESULTS_RECEIVED_MARKER).toBe('[Tool results received]')
 })

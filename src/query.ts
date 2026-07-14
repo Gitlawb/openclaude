@@ -1490,12 +1490,12 @@ async function* queryLoop(
               // block below sees a clean text tail and the capped nudge
               // path handles the stall (max 20 retries).
               if (hasToolResultsMarker && msgToolUseBlocks.length === 0) {
-                withheld = true
-                markerOnlyStall = true
-                // Strip marker from the stored message so it doesn't appear
-                // in messagesForQuery for subsequent turns.
-                const remaining = message.message.content.map(
-                  (content: unknown) => {
+                // Compute remaining text after removing the marker.  Only
+                // withhold / stall when there is no substantive text left;
+                // a message containing real continuation text should stay
+                // visible even without tool_use blocks.
+                let remaining = message.message.content
+                  .map((content: unknown) => {
                     if (
                       typeof content === 'object' &&
                       content !== null &&
@@ -1511,8 +1511,16 @@ async function* queryLoop(
                       return cleaned ? { ...textBlock, text: cleaned } : null
                     }
                     return content
-                  },
-                ).filter(Boolean) as typeof message.message.content
+                  })
+                  .filter(Boolean) as typeof message.message.content
+                const remainingText = remaining
+                  .filter(b => typeof b === 'object' && b !== null && 'text' in b && (b as { text: string }).text.trim().length > 0)
+                  .map(b => (b as { text: string }).text)
+                  .join(' ')
+                if (remainingText.trim().length === 0) {
+                  withheld = true
+                  markerOnlyStall = true
+                }
                 message.message.content = remaining
               } else if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
