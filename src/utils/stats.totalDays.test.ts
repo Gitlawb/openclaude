@@ -37,4 +37,20 @@ describe('inclusiveCalendarDaySpan', () => {
       ),
     ).toBe(2)
   })
+
+  test('returns 0 instead of throwing on an unparseable persisted date', () => {
+    // A same-version stats cache can carry a corrupt firstSessionDate/last date
+    // (e.g. "not-a-date"). Feeding that to toDateString → toISOString throws
+    // RangeError and aborts /stats; the helper must degrade to 0 for either end.
+    expect(() =>
+      inclusiveCalendarDaySpan('not-a-date', '2026-07-15T06:00:00.000Z'),
+    ).not.toThrow()
+    expect(
+      inclusiveCalendarDaySpan('not-a-date', '2026-07-15T06:00:00.000Z'),
+    ).toBe(0)
+    expect(
+      inclusiveCalendarDaySpan('2026-07-13T22:00:00.000Z', 'not-a-date'),
+    ).toBe(0)
+    expect(inclusiveCalendarDaySpan('not-a-date', 'also-bad')).toBe(0)
+  })
 })

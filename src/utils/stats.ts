@@ -855,8 +855,17 @@ export function inclusiveCalendarDaySpan(
   firstIso: string,
   lastIso: string,
 ): number {
-  const firstDay = new Date(toDateString(new Date(firstIso))).getTime()
-  const lastDay = new Date(toDateString(new Date(lastIso))).getTime()
+  const firstMs = Date.parse(firstIso)
+  const lastMs = Date.parse(lastIso)
+  // A persisted cache can carry a structurally-valid but unparseable date (e.g.
+  // "not-a-date"). Passing that to `new Date(...).toISOString()` throws
+  // RangeError, which would abort the whole `/stats` render, so bail out to the
+  // same 0 the callers already use when an endpoint is missing.
+  if (Number.isNaN(firstMs) || Number.isNaN(lastMs)) {
+    return 0
+  }
+  const firstDay = new Date(toDateString(new Date(firstMs))).getTime()
+  const lastDay = new Date(toDateString(new Date(lastMs))).getTime()
   return Math.round((lastDay - firstDay) / (1000 * 60 * 60 * 24)) + 1
 }
 
