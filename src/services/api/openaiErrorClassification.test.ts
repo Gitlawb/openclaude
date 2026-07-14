@@ -184,11 +184,21 @@ test.each([
   "Parameter 'tool_stream' is unknown",
   "'tool_stream' is an unknown parameter",
   'Invalid "tool_stream" parameter',
+  'tool_stream is unsupported',
   '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
   '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
   'Additional properties are not allowed ("tool_stream" was unexpected)',
 ])('classifies quoted tool_stream parameter rejections: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
+test('classifies a FastAPI validation rejection at its normal 422 status', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 422,
+    body: '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
+  })
 
   expect(failure.category).toBe('tool_stream_unsupported')
 })
@@ -209,6 +219,8 @@ test.each([
   'Function: tool_stream is invalid',
   'tool_stream is unsupported as a function',
   'Additional properties are not allowed in function tool_stream',
+  'The tool named "tool_stream" is unsupported',
+  'Function name tool_stream is invalid',
 ])('does not classify a tool name error as a tool_stream parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
@@ -228,6 +240,24 @@ test('does not classify a structured validation error that merely references too
   const failure = classifyOpenAIHttpFailure({
     status: 400,
     body: '{"error":{"message":"Parameter is required","param":"tool_stream"}}',
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test('does not classify a structured validation error for a tool named tool_stream', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"detail":[{"type":"extra_forbidden","loc":["body","tools",0,"function","name"],"msg":"Extra inputs are not permitted","input":"tool_stream"}]}',
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test('does not classify a structured validation error for a tool-schema property named tool_stream', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"detail":[{"type":"extra_forbidden","loc":["body","tools",0,"function","parameters","properties","tool_stream"],"msg":"Extra inputs are not permitted","input":{}}]}',
   })
 
   expect(failure.category).not.toBe('tool_stream_unsupported')

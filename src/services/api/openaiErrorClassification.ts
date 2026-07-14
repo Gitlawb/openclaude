@@ -149,18 +149,42 @@ function isToolCompatibilityMessage(body: string): boolean {
   )
 }
 
+function getStructuredToolStreamValidationError(body: string): boolean | undefined {
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    if (!Array.isArray(parsed.detail)) return undefined
+    const locations: unknown[][] = []
+    for (const detail of parsed.detail) {
+      if (!detail || typeof detail !== 'object') continue
+      const loc = (detail as { loc?: unknown }).loc
+      if (Array.isArray(loc)) locations.push(loc)
+    }
+    if (locations.some(loc => loc.includes('tools'))) return false
+    if (locations.some(loc => loc.length === 2 && loc[0] === 'body' && loc[1] === 'tool_stream')) return true
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
 // Detect a gateway rejecting the Z.AI-proprietary `tool_stream` parameter
 // (e.g. NVIDIA NIM: `400 Unsupported parameter(s): tool_stream`). The
 // `tool_call` substring in isToolCompatibilityMessage does NOT match
 // `tool_stream`, so this needs its own matcher.
 function isToolStreamUnsupportedMessage(body: string): boolean {
   const normalized = body.toLowerCase().replace(/['"`]/g, '')
-  if (/(?:function|tool)\s+tool_stream\b/.test(normalized)) return false
+  const structuredValidation = getStructuredToolStreamValidationError(body)
+  if (
+    /(?:function|tool)\s*:?\s+tool_stream\b/.test(normalized) ||
+    structuredValidation === false
+  ) return false
+  if (structuredValidation === true) return true
   return (
     /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*tool_stream\b/.test(normalized) ||
     /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
     /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
+    /(?:^|\n)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?function\b)/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
     /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|not\s+supported)/.test(normalized) ||
     /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
@@ -486,7 +510,10 @@ export function classifyOpenAIHttpFailure(options: {
   // intact (issue #1950). Match liberally on the parameter name plus an
   // unsupported/unknown-parameter signal so provider-specific wording still
   // triggers the fallback.
-  if (options.status === 400 && isToolStreamUnsupportedMessage(body)) {
+  if (
+    (options.status === 400 || options.status === 422) &&
+    isToolStreamUnsupportedMessage(body)
+  ) {
     return {
       source: 'http',
       category: 'tool_stream_unsupported',
