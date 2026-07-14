@@ -129,6 +129,7 @@ import { buildQueryConfig } from './query/config.js'
 import {
   MAX_MESSAGES_COMPACTION_THRESHOLDS,
   getGlobalConfig,
+  isValidMaxMessagesCompactionThreshold,
   normalizeMaxMessagesCompactionThreshold,
 } from './utils/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
@@ -827,9 +828,7 @@ async function* queryLoop(
         : maxMessagesCompactionThreshold
     const hasExplicitMessageCountThreshold =
       configuredMaxMessagesCompactionThreshold !== undefined &&
-      MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
-        configuredMaxMessagesCompactionThreshold,
-      ) &&
+      isValidMaxMessagesCompactionThreshold(configuredMaxMessagesCompactionThreshold) &&
       configuredMaxMessagesCompactionThreshold !== 'off'
     const hasActiveMessageLimitOverride =
       hasExplicitMessageCountThreshold ||

@@ -197,12 +197,18 @@ export const MAX_MESSAGES_COMPACTION_THRESHOLDS = [
 export type MaxMessagesCompactionThreshold =
   (typeof MAX_MESSAGES_COMPACTION_THRESHOLDS)[number]
 
-export function normalizeMaxMessagesCompactionThreshold(
+export function isValidMaxMessagesCompactionThreshold(
   value: unknown,
-): MaxMessagesCompactionThreshold {
+): value is MaxMessagesCompactionThreshold {
   return MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
     value as MaxMessagesCompactionThreshold,
   )
+}
+
+export function normalizeMaxMessagesCompactionThreshold(
+  value: unknown,
+): MaxMessagesCompactionThreshold {
+  return isValidMaxMessagesCompactionThreshold(value)
     ? (value as MaxMessagesCompactionThreshold)
     : '200'
 }
@@ -1156,9 +1162,7 @@ function migrateConfigFields(config: GlobalConfig): GlobalConfig {
   const { maxMessagesCompactionThreshold, ...restConfig } = config
   const hasValidMaxMessagesCompactionThreshold =
     maxMessagesCompactionThreshold !== undefined &&
-    MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
-      maxMessagesCompactionThreshold as MaxMessagesCompactionThreshold,
-    )
+    isValidMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold)
   const normalizedConfig = {
     ...restConfig,
     ...(!hasValidMaxMessagesCompactionThreshold
