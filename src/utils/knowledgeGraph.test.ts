@@ -65,6 +65,7 @@ describe('knowledgeGraph legacy migration', () => {
     removeProjectArtifacts()
     setOriginalFsImplementation()
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    setGovernancePolicySettingsForSourceForTesting(null)
   })
 
   it('does not write to memdir when auto-memory is disabled (P1#2)', () => {
