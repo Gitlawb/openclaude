@@ -14,6 +14,7 @@ import {
 } from './services/compact/autoCompact.js'
 import { consumeCompactionRequest } from './utils/memoryPressure.js'
 import { buildPostCompactMessages } from './services/compact/compact.js'
+import { applyProactiveBudget } from './services/compact/proactiveBudget.js'
 import type { MicrocompactResult } from './services/compact/microCompact.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const reactiveCompact = feature('REACTIVE_COMPACT')
@@ -671,6 +672,18 @@ async function* queryLoop(
       messagesForQuery.push(
         ...pendingToolFailureAdvisories.map(advisory => advisory.message),
       )
+    }
+
+    // Apply proactive message budgeting: strip old redundant tool outputs while
+    // preserving all user messages and assistant reasoning. Runs BEFORE all other
+    // compaction — this is a content-level optimization that reduces raw token
+    // count so subsequent passes (autocompact, microcompact, snip) have less work.
+    // No-ops when feature flag is off.
+    {
+      const budgetResult = applyProactiveBudget(messagesForQuery)
+      if (budgetResult.wasPruned) {
+        messagesForQuery = budgetResult.messages
+      }
     }
 
     // Extract facts and update phase from the latest message (user input or tool result)

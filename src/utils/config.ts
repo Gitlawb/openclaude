@@ -689,6 +689,16 @@ export type GlobalConfig = {
   // Use a different (e.g. cheaper/faster) model for compaction.
   // Defaults to mainLoopModel when unset.
   compactModel?: string
+
+  /**
+   * Proactive message budget limit in tokens.
+   * When set to a positive number, old redundant Read/Write/Edit tool results
+   * are stripped to stay under this budget, keeping response times fast.
+   * 0 or undefined = disabled (send full context, original behavior).
+   * Recommended range: 25_000–100_000. Default: 0 (disabled).
+   * Set via /config or settings.json.
+   */
+  proactiveBudgetLimit?: number
 }
 
 /**
@@ -798,6 +808,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'logoColor',
   'maxMessagesCompactionThreshold',
   'compactModel',
+  'proactiveBudgetLimit',
 ] as const
 
 export type GlobalConfigKey = (typeof GLOBAL_CONFIG_KEYS)[number]

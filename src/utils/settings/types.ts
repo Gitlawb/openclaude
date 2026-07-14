@@ -982,6 +982,18 @@ export const SettingsSchema = lazySchema(() =>
           'Custom directory for plan files, relative to project root. ' +
             'If not set, defaults to ~/.openclaude/plans/',
         ),
+      proactiveBudgetLimit: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          'Proactive message budget limit in tokens. ' +
+            'When set to a positive number (e.g. 50000), old redundant Read/Write/Edit tool results ' +
+            'are stripped to stay under this budget, keeping response times fast. ' +
+            '0 or undefined = disabled (send full context, original behavior). ' +
+            'Recommended range: 25000–100000.',
+        ),
       ...(process.env.USER_TYPE === 'ant'
         ? {
             classifierPermissionsEnabled: z
