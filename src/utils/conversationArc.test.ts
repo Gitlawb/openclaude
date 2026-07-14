@@ -24,6 +24,7 @@ import {
 } from '../test/sharedMutationLock.js'
 import { getOrchestratedMemory } from './knowledgeGraph.js'
 import { getAutoMemPath } from '../memdir/paths.js'
+import { setGovernancePolicySettingsForSourceForTesting } from './governancePolicy.js'
 
 function createMessage(role: string, content: string): any {
   return {
@@ -48,12 +49,19 @@ describe('conversationArc', () => {
     memDir = mkdtempSync(join(tmpdir(), 'conversation-arc-test-'))
     resetArc()
     resetGlobalGraph()
+    // Disable memory-write approval for tests so arc persistence, fact
+    // extraction, and vector-index writes behave as they do in production
+    // when the policy is set to require-approval=false.
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
   })
 
   afterEach(() => {
     try {
       resetArc()
       resetGlobalGraph()
+      setGovernancePolicySettingsForSourceForTesting(null)
       if (originalConfigDir === undefined) {
         delete process.env.CLAUDE_CONFIG_DIR
       } else {
@@ -283,10 +291,16 @@ describe('conversationArc', () => {
     })
   })
 
-  describe('production pipeline integration', () => {
+  describe('turn lifecycle integration', () => {
     // Exercises the same calls query.ts makes when
     // CONVERSATION_ARC + knowledgeGraphEnabled are both on:
     //   updateArcPhase → finalizeArcTurn → getArcSummary → getOrchestratedMemory
+    //
+    // NOTE: query.ts does NOT call initializeArc, addGoal, addDecision, or
+    // updateGoalStatus directly. Goals and decisions are auto-extracted by
+    // updateArcPhase from user-message content patterns. These tests drive
+    // the helper interface directly (not through query.ts) to validate the
+    // arc/memory behavior independent of query.ts feature gates.
 
     it('processes a full conversation turn through arc + memory', async () => {
       // Use the auto-memory path so getOrchestratedMemory can find the files.
@@ -300,7 +314,8 @@ describe('conversationArc', () => {
       const arc = getArc()!
       expect(arc.currentPhase).toBe('exploring')
 
-      // Add a goal and complete it (query.ts calls addGoal + updateGoalStatus)
+      // Add a goal and complete it (query.ts does NOT call addGoal directly;
+      // this test adds one manually so we can exercise the completed-goal path)
       const goal = addGoal('Fix login bug')
       updateGoalStatus(goal.id, 'completed')
       expect(goal.status).toBe('completed')
@@ -348,7 +363,7 @@ describe('conversationArc', () => {
       }
     })
 
-    it('query.ts path: arc memory is appended to system prompt when features enabled', async () => {
+    it('arc memory is appended to system prompt when features enabled', async () => {
       // P2 requirement: verify the actual query.ts code path that calls these
       // functions behind the feature gates and includes results in system prompt.
       const autoMemDir = getAutoMemPath()

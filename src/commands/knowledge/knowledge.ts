@@ -53,7 +53,7 @@ export const call: LocalCommandCall = async (args, _context) => {
     }
     return { 
       type: 'text', 
-      value: '🗑️ Knowledge graph memory has been cleared for this session.' 
+      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, and legacy JSON/SQLite stores removed; backups archived alongside originals).' 
     };
   }
 

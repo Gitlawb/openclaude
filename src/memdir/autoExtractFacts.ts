@@ -277,15 +277,19 @@ export async function extractFactsIntoMemdir(
   //     conversation arc provided via addGlobalRule(): surface explicit
   //     directives ("Always use pnpm", "Never commit secrets", "Prefer SQLite
   //     WAL") as durable facts so they are injected into later prompts.
+  //     Operates on scrubbedContent (not raw content) and rejects secret-like
+  //     rule bodies so that "Always use sk-ant-..." does not persist a token.
   const rulePatterns = [
     /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
     /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
     /\b(?:prefer)\b\s+([^.!?]+)/gi,
   ]
   for (const pattern of rulePatterns) {
-    for (const match of content.matchAll(pattern)) {
+    for (const match of scrubbedContent.matchAll(pattern)) {
       const rule = match[0].trim().replace(/\s+/g, ' ')
       if (rule.length > 4 && rule.length < 200) {
+        if (redactSecretSubstringsForDisplay(rule) !== rule) continue
+        if (looksLikeSecret(rule)) continue
         cappedWrite(dir, 'rule', rule, `Project rule: ${rule}`, { source: 'auto_discovery' })
       }
     }
