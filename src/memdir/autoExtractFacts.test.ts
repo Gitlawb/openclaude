@@ -19,6 +19,7 @@ describe('autoExtractFacts', () => {
   })
 
   afterEach(() => {
+    setGovernancePolicySettingsForSourceForTesting(null)
     rmSync(memDir, { recursive: true, force: true })
   })
 
@@ -206,6 +207,7 @@ describe('autoExtractFacts governance gate (P1#1, P2#6)', () => {
   })
 
   afterEach(() => {
+    setGovernancePolicySettingsForSourceForTesting(null)
     rmSync(memDir, { recursive: true, force: true })
   })
 
