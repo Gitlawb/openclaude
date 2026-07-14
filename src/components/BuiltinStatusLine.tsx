@@ -190,8 +190,8 @@ function BuiltinStatusLineInner({
       exceeds200kTokens
     });
     const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
-    const contextPercentages = calculateContextPercentages(getCurrentUsage(msgs), contextWindowSize);
     const currentUsage = getCurrentUsage(msgs);
+    const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
     const inputTokens = currentUsage
       ? currentUsage.input_tokens + currentUsage.cache_creation_input_tokens + currentUsage.cache_read_input_tokens
       : null;
