@@ -658,8 +658,8 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
       expect(src).toContain(
         '_pendingConnect.dangerouslySkipPermissions = hasDangerousSkipFlag(rawCliArgs)',
       )
-      expect(src).toContain('.filter(arg => !isDangerousSkipFlag(arg))')
-      expect(src).toContain('if (rawCliArgs.some(isDangerousSkipFlag))')
+      expect(src).toContain('stripDangerousSkipFlags(rawCliArgs)')
+      expect(src).toContain('if (hasDangerousSkipFlag(rawCliArgs))')
     })
 
     it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
@@ -669,13 +669,13 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
       const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
       const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
       const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
-      const ccOccurrences = ccBlock.split('isDangerousSkipFlag').length - 1
-      expect(ccOccurrences).toBeGreaterThanOrEqual(3)
+      const ccOccurrences = ccBlock.split('stripDangerousSkipFlags').length - 1
+      expect(ccOccurrences).toBeGreaterThanOrEqual(2)
 
       const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
       const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
       const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
-      expect(sshBlock).toContain('if (rawCliArgs.some(isDangerousSkipFlag))')
+      expect(sshBlock).toContain('if (hasDangerousSkipFlag(rawCliArgs))')
     })
 
     it('registers --yolo via .option() on the main command and ssh subcommand', async () => {
@@ -684,6 +684,12 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
         ...src.matchAll(/\.option\(\s*'--yolo, --dangerously-skip-permissions'/g),
       ]
       expect(optionCalls).toHaveLength(2)
+      // `ssh --yolo` is consumed by the pre-scan before commander (ssh --help
+      // renders the root help), so the ssh subcommand's --yolo is handled there
+      // via the shared alias helper rather than by the commander option. The
+      // helper's strip-all behavior has its own runtime test in
+      // utils/dangerousSkipFlags.test.ts.
+      expect(src).toContain('if (hasDangerousSkipFlag(rawCliArgs))')
     })
 
     it('is recognized by the skills leading scan so --yolo skills list routes', async () => {

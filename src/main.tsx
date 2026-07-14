@@ -7,6 +7,7 @@
 //    sequentially via sync spawn inside applySafeConfigEnvironmentVariables()
 //    (~65ms on every macOS startup)
 import { profileCheckpoint, profileReport } from './utils/startupProfiler.js';
+import { hasDangerousSkipFlag, stripDangerousSkipFlags } from './utils/dangerousSkipFlags.js';
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 profileCheckpoint('main_tsx_entry');
@@ -553,16 +554,6 @@ const _pendingSSH: PendingSSH | undefined = feature('SSH_REMOTE') ? {
   extraCliArgs: []
 } : undefined;
 
-// --yolo is a registered commander alias of --dangerously-skip-permissions, so
-// the pre-commander argv scanners (direct-connect and ssh rewrites below) must
-// recognize either spelling.
-const DANGEROUS_SKIP_FLAGS = ['--dangerously-skip-permissions', '--yolo'];
-const isDangerousSkipFlag = (arg: string): boolean =>
-  DANGEROUS_SKIP_FLAGS.includes(arg);
-const hasDangerousSkipFlag = (argv: readonly string[]): boolean =>
-  argv.some(isDangerousSkipFlag);
-const stripDangerousSkipFlags = (argv: string[]): string[] =>
-  argv.filter(arg => !isDangerousSkipFlag(arg));
 
 export async function main() {
   profileCheckpoint('main_function_start');
@@ -605,17 +596,15 @@ export async function main() {
         // Headless: rewrite to internal `open` subcommand. Strip both the
         // canonical flag and its alias — the `open` stub does not register
         // either, and passing both would leave one behind as an unknown option.
-        const stripped = rawCliArgs
-          .filter((_, i) => i !== ccIdx)
-          .filter(arg => !isDangerousSkipFlag(arg));
+        const stripped = stripDangerousSkipFlags(rawCliArgs)
+          .filter((_, i) => i !== ccIdx);
         process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...stripped];
       } else {
         // Interactive: strip cc:// URL and both bypass spellings, run main command
         _pendingConnect.url = parsed.serverUrl;
         _pendingConnect.authToken = parsed.authToken;
-        const stripped = rawCliArgs
-          .filter((_, i) => i !== ccIdx)
-          .filter(arg => !isDangerousSkipFlag(arg));
+        const stripped = stripDangerousSkipFlags(rawCliArgs)
+          .filter((_, i) => i !== ccIdx);
         process.argv = [process.argv[0]!, process.argv[1]!, ...stripped];
       }
     }
@@ -697,15 +686,14 @@ export async function main() {
         _pendingSSH.local = true;
         rawCliArgs.splice(localIdx, 1);
       }
-      if (rawCliArgs.some(isDangerousSkipFlag)) {
+      if (hasDangerousSkipFlag(rawCliArgs)) {
         _pendingSSH.dangerouslySkipPermissions = true;
         // Remove every dangerous-skip token (--yolo and the canonical spelling,
         // including repeats) so none survives into the rewritten argv and
-        // silently re-enables bypass after the ssh command is stripped.
-        let dspIdx: number;
-        while ((dspIdx = rawCliArgs.findIndex(isDangerousSkipFlag)) !== -1) {
-          rawCliArgs.splice(dspIdx, 1);
-        }
+        // silently re-enables bypass after the ssh command is stripped. Replace
+        // the array contents in place — subsequent flag extraction below indexes
+        // into the same rawCliArgs reference.
+        rawCliArgs.splice(0, rawCliArgs.length, ...stripDangerousSkipFlags(rawCliArgs));
       }
       const pmIdx = rawCliArgs.indexOf('--permission-mode');
       if (pmIdx !== -1 && rawCliArgs[pmIdx + 1] && !rawCliArgs[pmIdx + 1]!.startsWith('-')) {
