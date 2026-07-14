@@ -1,5 +1,6 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { getEventListeners } from 'node:events'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
@@ -6802,6 +6803,26 @@ test('strips credentials and query params from URL in fetch network error messag
   expect(message).not.toContain('token=abc123')
 })
 
+test('redacts configured secret substrings from fetch network error messages', async () => {
+  const secret = 'route/key+AbC123'
+  process.env.OPENAI_API_KEY = secret
+
+  globalThis.fetch = asMockFetch(mock(async () => {
+    throw new TypeError(`fetch failed while routing ${secret}`)
+  }))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).rejects.not.toThrow(secret)
+})
+
 test('classifies localhost transport failures with actionable category marker', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
@@ -6912,7 +6933,10 @@ test('classifies a pre-header API timeout without replaying the request', async 
   process.env.OPENROUTER_API_KEY = escapeLookingSecret
   process.env.DEEPSEEK_API_KEY = malformedUtf8Secret
   process.env.OPENAI_BASE_URL =
-    `https://user:password@slow.example.test/v1/invalid%ZZ/${doubleEncodedPathSecret}/${encodedEscapeLookingSecret}/%E0%A4${encodedMalformedUtf8Secret}?token=secret`
+    `https://user:password@slow.example.test/v1/invalid%ZZ/${doubleEncodedPathSecret}/${encodedEscapeLookingSecret}/%E0%A4${encodedMalformedUtf8Secret}` +
+    `?prompt=${encodedPathSecret}&nested=${doubleEncodedPathSecret}` +
+    `&escape=${encodedEscapeLookingSecret}&malformed=%E0%A4${encodedMalformedUtf8Secret}` +
+    '&token=secret'
   let fetchCalls = 0
   let completedGenerations = 0
   const receivedBodies: string[] = []
@@ -7111,6 +7135,41 @@ test('manual signal fallback preserves caller cancellation after headers arrive'
     expect(fetchSignals[0].aborted).toBe(true)
   } finally {
     stalled.close()
+    if (originalAbortSignalAny) {
+      Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    }
+  }
+})
+
+test('manual signal fallback removes caller forwarding after the body settles', async () => {
+  process.env.API_TIMEOUT_MS = '200'
+  globalThis.fetch = asMockFetch(mock(async () =>
+    makeChatCompletionResponse('gpt-4o-mini')))
+
+  const caller = new AbortController()
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const originalAbortSignalAny = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'any',
+  )
+  Object.defineProperty(AbortSignal, 'any', {
+    value: undefined,
+    configurable: true,
+  })
+  try {
+    for (let request = 0; request < 2; request++) {
+      await client.beta.messages.create(
+        {
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: 'hello' }],
+          max_tokens: 64,
+          stream: false,
+        },
+        { signal: caller.signal },
+      )
+      expect(getEventListeners(caller.signal, 'abort')).toHaveLength(0)
+    }
+  } finally {
     if (originalAbortSignalAny) {
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
     }

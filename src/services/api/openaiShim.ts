@@ -245,6 +245,7 @@ function combineRequestSignals(
   signal: AbortSignal
   cleanupAfterHeaders: () => void
   cleanup: () => void
+  cleanupAfterBody?: () => void
 } {
   if (!callerSignal) {
     return {
@@ -256,6 +257,8 @@ function combineRequestSignals(
 
   if (typeof AbortSignal.any === 'function') {
     return {
+      // The deadline controller is request-local and its timer is the only
+      // abort source, so clearing that timer after headers permanently disarms it.
       signal: AbortSignal.any([callerSignal, deadlineSignal]),
       cleanupAfterHeaders: () => {},
       cleanup: () => {},
@@ -287,7 +290,69 @@ function combineRequestSignals(
     abortFromDeadline()
   }
 
-  return { signal: combined.signal, cleanupAfterHeaders, cleanup }
+  return {
+    signal: combined.signal,
+    cleanupAfterHeaders,
+    cleanup,
+    cleanupAfterBody: cleanup,
+  }
+}
+
+function wrapResponseBodyWithCleanup(
+  response: Response,
+  cleanup: () => void,
+): Response {
+  if (!response.body) {
+    cleanup()
+    return response
+  }
+
+  const reader = response.body.getReader()
+  let cleanedUp = false
+  const cleanupOnce = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    cleanup()
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          cleanupOnce()
+          controller.close()
+        } else {
+          controller.enqueue(result.value)
+        }
+      } catch (error) {
+        cleanupOnce()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        cleanupOnce()
+      }
+    },
+  })
+  const wrapped = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+  for (const property of ['url', 'type', 'redirected'] as const) {
+    try {
+      Object.defineProperty(wrapped, property, {
+        value: response[property],
+        configurable: true,
+      })
+    } catch {
+      /* non-fatal: standard response metadata remains available */
+    }
+  }
+  return wrapped
 }
 
 async function fetchWithHeadersDeadline(
@@ -303,10 +368,12 @@ async function fetchWithHeadersDeadline(
     options.timeoutMs,
     redactUrlForDiagnostics(url),
   )
-  const { signal, cleanupAfterHeaders, cleanup } = combineRequestSignals(
-    options.callerSignal,
-    deadlineController.signal,
-  )
+  const {
+    signal,
+    cleanupAfterHeaders,
+    cleanup,
+    cleanupAfterBody,
+  } = combineRequestSignals(options.callerSignal, deadlineController.signal)
   const timer = setTimeout(
     () => deadlineController.abort(timeoutReason),
     options.timeoutMs,
@@ -317,7 +384,9 @@ async function fetchWithHeadersDeadline(
   try {
     const response = await fetchWithProxyRetry(url, { ...init, signal })
     headersReceived = true
-    return response
+    return cleanupAfterBody
+      ? wrapResponseBodyWithCleanup(response, cleanupAfterBody)
+      : response
   } catch (error) {
     if (options.callerSignal?.aborted) {
       throw preserveCallerAbortError(error, options.callerSignal)
@@ -589,16 +658,18 @@ function decodeValidUrlEscapesOnce(value: string): string {
   return value.replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeValidPercentRun)
 }
 
-function redactDecodedPathSecrets(value: string): string {
+function redactDecodedUrlComponentSecrets(value: string): string {
   let decoded = value
+  let foundSecret = false
   while (true) {
     const redacted =
       redactSecretSubstringsForDisplay(
         decoded,
         process.env as SecretValueSource,
       ) ?? decoded
+    if (redacted !== decoded) foundSecret = true
     const next = decodeValidUrlEscapesOnce(redacted)
-    if (next === redacted) return redacted
+    if (next === redacted) return foundSecret ? redacted : value
     decoded = next
   }
 }
@@ -607,13 +678,20 @@ function redactUrlForDiagnostics(url: string): string {
   let redacted = redactUrlForDisplay(url)
   try {
     const parsed = new URL(redacted)
-    const redactedPathname = redactDecodedPathSecrets(parsed.pathname)
+    const redactedPathname = redactDecodedUrlComponentSecrets(parsed.pathname)
+    const redactedSearch = redactDecodedUrlComponentSecrets(parsed.search)
+    let componentRedacted = false
     if (redactedPathname !== parsed.pathname) {
       parsed.pathname = redactedPathname
-      redacted = parsed.toString()
+      componentRedacted = true
     }
+    if (redactedSearch !== parsed.search) {
+      parsed.search = redactedSearch
+      componentRedacted = true
+    }
+    if (componentRedacted) redacted = parsed.toString()
   } catch {
-    // Keep the URL-level redaction when the pathname is not decodable.
+    // Keep the URL-level redaction when the URL cannot be parsed.
   }
   const redactedSubstrings =
     redactSecretSubstringsForDisplay(
@@ -644,9 +722,14 @@ function createClassifiedTransportError(
       url: requestUrl,
     })
   const redactedUrl = redactUrlForDiagnostics(requestUrl)
+  const redactedMessage =
+    redactSecretSubstringsForDisplay(
+      redactUrlsInMessage(failure.message),
+      process.env as SecretValueSource,
+    ) ?? 'Request failed'
   const safeMessage =
     redactSecretValueForDisplay(
-      redactUrlsInMessage(failure.message),
+      redactedMessage,
       process.env as SecretValueSource,
     ) || 'Request failed'
 
