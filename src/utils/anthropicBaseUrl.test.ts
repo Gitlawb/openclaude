@@ -9,4 +9,12 @@ describe('isFirstPartyAnthropicBaseUrlForEnv', () => {
       }),
     ).toBe(true)
   })
+
+  test('rejects a non-default port on an Anthropic host', () => {
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com:444',
+      }),
+    ).toBe(false)
+  })
 })
