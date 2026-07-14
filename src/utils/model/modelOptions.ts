@@ -24,7 +24,12 @@ import {
 } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
-import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
+import {
+  getAPIProvider,
+  isCustomAnthropicProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
+} from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
@@ -145,12 +150,9 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
-  const is3P =
-    getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()
+  const is3P = !isFirstPartyAnthropicProvider()
   const currentDefaultModel =
-    getAPIProvider() === 'firstParty' &&
-    !isFirstPartyAnthropicBaseUrl() &&
-    process.env.ANTHROPIC_MODEL
+    isCustomAnthropicProvider() && process.env.ANTHROPIC_MODEL
       ? process.env.ANTHROPIC_MODEL
       : getDefaultMainLoopModelSetting()
 

@@ -9,8 +9,7 @@ import { AbortError } from '../../utils/errors.js'
 import { getWebFetchUserAgent } from '../../utils/http.js'
 import { logError } from '../../utils/log.js'
 import {
-  getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
 } from '../../utils/model/providers.js'
 import {
   isBinaryContentType,
@@ -182,7 +181,7 @@ export async function checkDomainBlocklist(
   domain: string,
 ): Promise<DomainCheckResult> {
   // Third-party providers should not consult the first-party domain policy.
-  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
+  if (!isFirstPartyAnthropicProvider()) {
     return { status: 'allowed' }
   }
 

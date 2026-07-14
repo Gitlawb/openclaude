@@ -10,7 +10,11 @@ import {
 import { getCanonicalName } from './model/model.js'
 import { resolveAntModel } from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
-import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './model/providers.js'
+import {
+  getAPIProvider,
+  isCustomAnthropicProvider,
+  isFirstPartyAnthropicProvider,
+} from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
 import { isEnvTruthy } from './envUtils.js'
 
@@ -132,7 +136,7 @@ export function modelSupportsThinking(model: string): boolean {
   // 1P and Foundry: all Claude 4+ models (including Haiku 4.5)
   if (
     provider === 'foundry' ||
-    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+    isFirstPartyAnthropicProvider() || isCustomAnthropicProvider()
   ) {
     return !canonical.includes('claude-3-')
   }
@@ -188,7 +192,8 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   // for their model strings.
   const provider = getAPIProvider()
   return (
-    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) ||
+    isFirstPartyAnthropicProvider() ||
+    isCustomAnthropicProvider() ||
     provider === 'foundry'
   )
 }

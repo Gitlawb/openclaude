@@ -4,8 +4,7 @@ import {
 } from '../bootstrap/state.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import {
-  getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
 } from '../utils/model/providers.js'
 import {
   getSettingsForSource,
@@ -27,7 +26,7 @@ import {
  * tracked by a completion flag in global config.
  */
 export function migrateSonnet1mToSonnet45(): void {
-  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
+  if (!isFirstPartyAnthropicProvider()) {
     return
   }
 

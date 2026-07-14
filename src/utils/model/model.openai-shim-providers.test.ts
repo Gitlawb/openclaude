@@ -400,6 +400,18 @@ test('getDefaultMainLoopModelSetting keeps the configured custom Anthropic model
   expect(getDefaultMainLoopModelSetting()).toBe('tenant-model')
 })
 
+test('custom Anthropic endpoints retain their configured model and conservative defaults', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultOpusModel, getDefaultSonnetModel, getSmallFastModel } =
+    await importFreshModelModule()
+
+  expect(getSmallFastModel()).toBe('tenant-model')
+  expect(getDefaultOpusModel()).toBe('claude-opus-4-7')
+  expect(getDefaultSonnetModel()).toBe('claude-sonnet-4-5-20250929')
+})
+
 test('default helpers do not leak claude-* names to shim providers', async () => {
   // Umbrella guard: for each OpenAI-shim provider, none of the default-model
   // helpers may return an Anthropic-branded model name. That was the source

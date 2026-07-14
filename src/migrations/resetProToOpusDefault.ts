@@ -27,6 +27,10 @@ export function resetProToOpusDefault(): void {
   }
 
   if (!isFirstPartyAnthropicBaseUrl()) {
+    saveGlobalConfig(current => ({
+      ...current,
+      opusProMigrationComplete: true,
+    }))
     logEvent('tengu_reset_pro_to_opus_default', { skipped: true })
     return
   }
