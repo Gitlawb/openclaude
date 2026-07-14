@@ -157,20 +157,6 @@ describe('formatReachabilityFailureDetail', () => {
     )
   })
 
-  test('reports explicit off without a legacy message-count override', () => {
-    const results = buildMemoryGuardChecks({
-      autoCompactEnabled: true,
-      maxMessagesCompactionThreshold: 'off',
-      env: {},
-    })
-
-    expect(results).toContainEqual({
-      ok: true,
-      label: 'Auto-compact guard',
-      detail: `Enabled; message-count threshold off; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
-    })
-  })
-
   test('redacts credentials and sensitive query parameters in endpoint details', () => {
     const detail = formatReachabilityFailureDetail(
       'http://user:pass@localhost:11434/v1/models?token=abc123&mode=test',
@@ -672,6 +658,20 @@ describe('system-check WebSearch diagnostics', () => {
 })
 
 describe('system-check memory guard diagnostics', () => {
+  test('reports explicit off without a legacy message-count override', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: 'off',
+      env: {},
+    })
+
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Auto-compact guard',
+      detail: `Enabled; message-count threshold off; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+    })
+  })
+
   test('reports the effective default auto-compact and hard-cap guards', () => {
     const results = buildMemoryGuardChecks({
       autoCompactEnabled: true,
