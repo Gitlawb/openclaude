@@ -136,7 +136,7 @@ import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
 import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
-import { InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
+import { buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
@@ -2917,7 +2917,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = []) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -3056,6 +3056,7 @@ export function REPL({
     let expectedAutoCompactTracking = queryAutoCompactTracking;
     for await (const event of query({
       messages: messagesIncludingNewMessages,
+      requestOnlyMessages,
       systemPrompt,
       userContext,
       systemContext,
@@ -3142,7 +3143,12 @@ export function REPL({
       // Idempotent with respect to the end-of-turn reset — double-reset
       // is a no-op.
       resetCurrentTurn();
-      setMessages(oldMessages => [...oldMessages, ...newMessages]);
+      const {
+        persistentMessages,
+        persistentNewMessages,
+        requestOnlyMessages
+      } = buildInterruptionCorrectionMessageViews(messagesRef.current, newMessages);
+      setMessages(persistentMessages);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
         const parsedBudget = input ? parseTokenBudget(input) : null;
@@ -3158,14 +3164,11 @@ export function REPL({
         isInterruptionCorrectionEligible,
         queryId: queryContext.queryId,
         run: async () => {
-          // messagesRef is updated synchronously by the setMessages wrapper
-          // above, so it already includes newMessages from the append at the
-          // top of this try block.  No reconstruction needed, no waiting for
-          // React's scheduler (previously cost 20-56ms per prompt; the 56ms
-          // case was a GC pause caught during the await).
-          const latestMessages = messagesRef.current;
+          // Request-only context is passed separately to query(), so compaction,
+          // tools, transcript logging, later turns, and resume never persist it.
+          const latestMessages = persistentMessages;
           if (input) {
-            await mrOnBeforeQuery(input, latestMessages, newMessages.length);
+            await mrOnBeforeQuery(input, latestMessages, persistentNewMessages.length);
           }
 
           // Pass full conversation history to callback
@@ -3175,7 +3178,7 @@ export function REPL({
               return;
             }
           }
-          await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
+          await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
         }
       });
     } catch (error) {

@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test'
 import {
+  buildInterruptionCorrectionMessageViews,
   consumeInterruptionCorrectionReminder,
   InterruptionCorrectionTracker,
   shouldMarkInterruptionCorrection,
 } from './interruptionCorrection.js'
+import { createUserMessage } from './messages/factories.js'
 import { QueryGuard } from './QueryGuard.js'
 
 test('only marks a local user cancellation of the active model query', () => {
@@ -35,15 +37,32 @@ test('clears a pending reminder when the interrupted context is rewritten', () =
     queryGuard,
     () => 'session-a',
   )
-  const turn = queryGuard.tryStart({
-    queryId: 'auto-restored-turn',
+  const proofTurn = queryGuard.tryStart({
+    queryId: 'proof-turn',
     querySource: 'repl_main_thread',
     startedAt: 1,
   })!
   tracker.bindModelTurn({
     shouldQuery: true,
     isInterruptionCorrectionEligible: true,
-    queryId: turn.context.queryId,
+    queryId: proofTurn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+  expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
+
+  const rewrittenTurn = queryGuard.tryStart({
+    queryId: 'auto-restored-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 2,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: rewrittenTurn.context.queryId,
   })
   tracker.handleCancellation({
     isUserInitiated: true,
@@ -85,4 +104,45 @@ The previous assistant turn was interrupted by the user. Treat the user's latest
   expect(
     consumeInterruptionCorrectionReminder('session-a', 'session-b'),
   ).toEqual({ pendingSessionId: null, reminder: null })
+})
+
+test('keeps the correction reminder in one request without persisting it', () => {
+  const priorMessage = createUserMessage({ content: 'start with X' })
+  const reminder = consumeInterruptionCorrectionReminder(
+    'session-a',
+    'session-a',
+  ).reminder!
+  const otherMetaMessage = createUserMessage({
+    content: '<system-reminder>keep this context</system-reminder>',
+    isMeta: true,
+  })
+  const correction = createUserMessage({ content: 'do Y instead' })
+
+  const correctionTurn = buildInterruptionCorrectionMessageViews(
+    [priorMessage],
+    [otherMetaMessage, reminder, correction],
+  )
+  expect(correctionTurn.persistentMessages).toEqual([
+    priorMessage,
+    otherMetaMessage,
+    correction,
+  ])
+  expect(correctionTurn.persistentNewMessages).toEqual([
+    otherMetaMessage,
+    correction,
+  ])
+  expect(correctionTurn.requestOnlyMessages).toEqual([reminder])
+
+  const laterPrompt = createUserMessage({ content: 'unrelated follow-up' })
+  const laterTurn = buildInterruptionCorrectionMessageViews(
+    correctionTurn.persistentMessages,
+    [laterPrompt],
+  )
+  expect(laterTurn.persistentMessages).toEqual([
+    priorMessage,
+    otherMetaMessage,
+    correction,
+    laterPrompt,
+  ])
+  expect(laterTurn.requestOnlyMessages).toEqual([])
 })

@@ -41,6 +41,7 @@ import type {
   UserMessage,
   TombstoneMessage,
 } from './types/message.js'
+import { isHumanTurn } from './utils/messagePredicates.js'
 import { logError } from './utils/log.js'
 import {
   getProviderMaxTokensCapFromMessage,
@@ -422,6 +423,11 @@ function isWithheldProviderMaxTokensCap(
 
 export type QueryParams = {
   messages: Message[]
+  /**
+   * Model-visible context for this query call only. Never compacted, yielded,
+   * exposed to tools, or written to transcript state.
+   */
+  requestOnlyMessages?: Message[]
   systemPrompt: SystemPrompt
   userContext: { [k: string]: string }
   systemContext: { [k: string]: string }
@@ -443,6 +449,22 @@ export type QueryParams = {
   taskBudget?: { total: number }
   agentStepLimit?: AgentStepLimitConfig
   deps?: QueryDeps
+}
+
+function injectRequestOnlyMessages(
+  messages: readonly Message[],
+  requestOnlyMessages: readonly Message[] | undefined,
+): Message[] {
+  if (!requestOnlyMessages?.length) return [...messages]
+  const latestUserIndex = messages.findLastIndex(isHumanTurn)
+  const insertionIndex = latestUserIndex === -1
+    ? messages.length
+    : latestUserIndex
+  return [
+    ...messages.slice(0, insertionIndex),
+    ...requestOnlyMessages,
+    ...messages.slice(insertionIndex),
+  ]
 }
 
 // -- query loop state
@@ -1256,7 +1278,13 @@ async function* queryLoop(
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
           for await (const message of deps.callModel({
-            messages: prependUserContext(messagesForQuery, userContext),
+            messages: prependUserContext(
+              injectRequestOnlyMessages(
+                messagesForQuery,
+                params.requestOnlyMessages,
+              ),
+              userContext,
+            ),
             systemPrompt: fullSystemPrompt,
             thinkingConfig: toolUseContext.options.thinkingConfig,
             tools: toolsForModel,

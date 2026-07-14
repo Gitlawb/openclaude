@@ -1,4 +1,4 @@
-import type { UserMessage } from '../types/message.js'
+import type { Message, UserMessage } from '../types/message.js'
 import { createUserMessage } from './messages/factories.js'
 
 export const INTERRUPTION_CORRECTION_REMINDER = `<system-reminder>
@@ -39,6 +39,35 @@ export function consumeInterruptionCorrectionReminder(
           isMeta: true,
         })
       : null,
+  }
+}
+
+function isInterruptionCorrectionReminder(message: Message): boolean {
+  return (
+    message.type === 'user' &&
+    message.isMeta === true &&
+    message.message.content === INTERRUPTION_CORRECTION_REMINDER
+  )
+}
+
+export function buildInterruptionCorrectionMessageViews(
+  history: readonly Message[],
+  newMessages: readonly Message[],
+): {
+  persistentMessages: Message[]
+  persistentNewMessages: Message[]
+  requestOnlyMessages: Message[]
+} {
+  const persistentNewMessages = newMessages.filter(
+    message => !isInterruptionCorrectionReminder(message),
+  )
+  const requestOnlyMessages = newMessages.filter(
+    isInterruptionCorrectionReminder,
+  )
+  return {
+    persistentMessages: [...history, ...persistentNewMessages],
+    persistentNewMessages,
+    requestOnlyMessages,
   }
 }
 
