@@ -376,13 +376,15 @@ describe('persisted tool-result preview integration', () => {
     expectWithinBudget(result.preview, PREVIEW_SIZE_BYTES)
 
     const message = buildLargeToolResultMessage(result)
-    expect(message).toContain(`Output size: ${formatFileSize(result.originalSize)}`)
+    expect(message).toContain(
+      `Output size: ${result.originalSize.toLocaleString('en-US')} bytes (${formatFileSize(result.originalSize)})`,
+    )
     expect(message).toContain(`Full output saved to: ${result.filepath}`)
     expect(message).toContain(
       'UTF-8-safe head-only partial serialized JSON fragment',
     )
     expect(message).toContain('may not be valid JSON')
-    expect(message).toContain('2KB total budget')
+    expect(message).toContain('2,000-byte total budget')
     expect(message).not.toContain('Preview (first')
   })
 

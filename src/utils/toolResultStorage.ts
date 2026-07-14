@@ -222,8 +222,12 @@ export function buildLargeToolResultMessage(
         : result.strategy === 'head-only'
           ? 'UTF-8-safe head-only partial output'
           : 'complete available inline output'
-  message += `Output size: ${formatFileSize(result.originalSize)}. ${savedDescription}\n`
-  message += `Preview: ${previewDescription}, within a ${formatFileSize(PREVIEW_SIZE_BYTES)} total budget:\n`
+  message +=
+    `Output size: ${result.originalSize.toLocaleString('en-US')} bytes ` +
+    `(${formatFileSize(result.originalSize)}). ${savedDescription}\n`
+  message +=
+    `Preview: ${previewDescription}, within a ` +
+    `${PREVIEW_SIZE_BYTES.toLocaleString('en-US')}-byte total budget:\n`
   message += result.preview
   message += '\n'
   message += PERSISTED_OUTPUT_CLOSING_TAG
