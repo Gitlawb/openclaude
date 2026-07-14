@@ -21,6 +21,29 @@ export type SedEditInfo = {
   extendedRegex: boolean
 }
 
+// BRE metacharacters that are special only when escaped: `\+ \? \| \( \)` are
+// the operator forms and the bare characters are literal — the reverse of JS.
+// Braces are handled separately because they only form an operator (the
+// interval quantifier) when they enclose a valid count.
+const BRE_ESCAPE_FLIP_METACHARS = '+?|()'
+
+/**
+ * Translate the body of a BRE interval `\{...\}` to its JS quantifier form,
+ * or null when the body is not a legal interval. GNU sed accepts `n`, `n,`,
+ * `n,m`, and the extension `,m`; anything else (empty, extra commas,
+ * non-numeric) is a literal brace run in sed, so we must not turn it into a
+ * quantifier. `,m` has no JS spelling, so it is normalized to `{0,m}`.
+ */
+function breIntervalBodyToJs(body: string): string | null {
+  if (/^[0-9]+(,[0-9]*)?$/.test(body)) {
+    return `{${body}}`
+  }
+  if (/^,[0-9]+$/.test(body)) {
+    return `{0${body}}`
+  }
+  return null
+}
+
 function convertBrePatternToJs(pattern: string): string {
   let result = ''
 
@@ -33,12 +56,32 @@ function convertBrePatternToJs(pattern: string): string {
         result += '\\\\'
         continue
       }
+      if (next === '{') {
+        // `\{...\}` is the BRE interval quantifier, but only when the body is a
+        // legal count. Otherwise sed treats the braces as literals, so keep them
+        // escaped instead of emitting a bogus JS quantifier.
+        const close = pattern.indexOf('\\}', i + 2)
+        if (close !== -1) {
+          const js = breIntervalBodyToJs(pattern.slice(i + 2, close))
+          if (js !== null) {
+            result += js
+            i = close + 1 // consume through the closing `\}`
+            continue
+          }
+        }
+        result += '\\{'
+        i++
+        continue
+      }
+      if (next === '}') {
+        // A stray escaped closing brace with no matching interval open: literal.
+        result += '\\}'
+        i++
+        continue
+      }
       if (next === '\\') {
         result += '\\\\'
-      } else if ('+?|(){}'.includes(next)) {
-        // BRE metacharacters that are special only when escaped: unescape them
-        // for JS. Braces belong here too — in BRE `\{n,m\}` is the interval
-        // quantifier and a bare `{` is literal, the reverse of JS.
+      } else if (BRE_ESCAPE_FLIP_METACHARS.includes(next)) {
         result += next
       } else {
         result += `\\${next}`
@@ -47,7 +90,13 @@ function convertBrePatternToJs(pattern: string): string {
       continue
     }
 
-    if ('+?|(){}'.includes(char)) {
+    if (BRE_ESCAPE_FLIP_METACHARS.includes(char)) {
+      result += `\\${char}`
+      continue
+    }
+
+    // Bare braces are literal in BRE (the reverse of JS), so escape them.
+    if (char === '{' || char === '}') {
       result += `\\${char}`
       continue
     }

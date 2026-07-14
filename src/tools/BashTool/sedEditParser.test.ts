@@ -60,3 +60,68 @@ test('BRE mode supports escaped interval ranges', () => {
   const result = applySedSubstitution('bbbc', sedInfo('b\\{1,3\\}', 'X'))
   expect(result).toBe('Xc')
 })
+
+test('BRE mode supports the open lower-bound interval \\{,m\\}', () => {
+  // GNU sed accepts `\{,3\}` (up to three). JS has no `{,3}` quantifier, so it
+  // must be normalized to `{0,3}`; otherwise the preview showed no change while
+  // sed rewrote the run. A single (non-global) substitution isolates the
+  // upper-bound behaviour from `{0,m}`'s zero-width matches.
+  const result = applySedSubstitution('aaaab', {
+    filePath: 'example.txt',
+    pattern: 'a\\{,3\\}',
+    replacement: 'X',
+    flags: '',
+    extendedRegex: false,
+  })
+  expect(result).toBe('Xab')
+})
+
+test('BRE mode supports the open upper-bound interval \\{n,\\}', () => {
+  const result = applySedSubstitution('aaab', sedInfo('a\\{2,\\}', 'X'))
+  expect(result).toBe('Xb')
+})
+
+test('BRE mode treats an empty interval \\{\\} as literal braces', () => {
+  // `\{\}` is not a legal count, so sed matches the literal `{}` characters.
+  const result = applySedSubstitution('a{} and aa', sedInfo('a\\{\\}', 'X'))
+  expect(result).toBe('X and aa')
+})
+
+test('BRE mode treats a malformed interval \\{n,m,k\\} as literal braces', () => {
+  const result = applySedSubstitution(
+    'a{1,2,3} and aa',
+    sedInfo('a\\{1,2,3\\}', 'X'),
+  )
+  expect(result).toBe('X and aa')
+})
+
+test('BRE mode treats escaped alternation as an operator', () => {
+  const result = applySedSubstitution(
+    'cat and dog',
+    sedInfo('cat\\|dog', 'X'),
+  )
+  expect(result).toBe('X and X')
+})
+
+test('BRE mode treats escaped groups and question marks as operators', () => {
+  const result = applySedSubstitution('abab', sedInfo('\\(ab\\)\\+', 'X'))
+  expect(result).toBe('X')
+
+  const optional = applySedSubstitution('ac abc', sedInfo('ab\\?c', 'X'))
+  expect(optional).toBe('X X')
+})
+
+test('BRE mode applies g across multiple interval quantifiers', () => {
+  const result = applySedSubstitution(
+    'aabb aabb',
+    sedInfo('a\\{2\\}b\\{2\\}', 'X'),
+  )
+  expect(result).toBe('X X')
+})
+
+test('ERE mode uses native brace intervals', () => {
+  // Under -E the braces are already the JS quantifier form and must pass
+  // through untouched.
+  const result = applySedSubstitution('aaab', sedInfo('a{2}', 'X', true))
+  expect(result).toBe('Xab')
+})
