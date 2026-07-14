@@ -1586,27 +1586,27 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
 })
 
 test('providerOverride OpenAI gpt effort does not fall back to ambient provider', async () => {
+  let requestUrl = ''
   let requestBody: Record<string, unknown> | undefined
 
-  globalThis.fetch = (async (_input, init) => {
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input)
     requestBody = JSON.parse(String(init?.body))
 
     return new Response(
       JSON.stringify({
-        id: 'chatcmpl-provider-override-openai',
+        id: 'resp-provider-override-openai',
         model: 'gpt-5.4',
-        choices: [
+        output: [
           {
-            message: {
-              role: 'assistant',
-              content: 'ok',
-            },
-            finish_reason: 'stop',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
           },
         ],
         usage: {
-          prompt_tokens: 8,
-          completion_tokens: 3,
+          input_tokens: 8,
+          output_tokens: 3,
           total_tokens: 11,
         },
       }),
@@ -1636,7 +1636,11 @@ test('providerOverride OpenAI gpt effort does not fall back to ambient provider'
     stream: false,
   })
 
-  expect(requestBody?.reasoning_effort).toBe('xhigh')
+  // gpt-5.4 on api.openai.com auto-routes to the Responses API, where effort
+  // is nested as reasoning.effort rather than top-level reasoning_effort.
+  expect(requestUrl.endsWith('/responses')).toBe(true)
+  expect(requestBody?.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' })
+  expect(requestBody).not.toHaveProperty('reasoning_effort')
 })
 test('providerOverride custom OpenAI-compatible gpt effort uses legacy support', async () => {
   let requestBody: Record<string, unknown> | undefined

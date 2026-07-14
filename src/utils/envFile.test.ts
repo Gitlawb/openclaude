@@ -20,6 +20,7 @@ const TEST_ENV_KEYS = [
   'CODEX_HOME',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENCLAUDE_OLLAMA_NUM_CTX',
@@ -283,6 +284,17 @@ describe('loadEnvFile', () => {
     expect(process.env.AZURE_OPENAI_API_VERSION).toBe('2024-12-01-preview')
     expect(loaded).toEqual({
       AZURE_OPENAI_API_VERSION: '2024-12-01-preview',
+    })
+  })
+
+  it('loads documented Azure-style handling flag values', () => {
+    const filePath = writeTempEnvFile('OPENAI_AZURE_STYLE=1')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
+    expect(loaded).toEqual({
+      OPENAI_AZURE_STYLE: '1',
     })
   })
 

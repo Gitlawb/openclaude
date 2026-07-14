@@ -431,14 +431,16 @@ export function modelRequiresResponsesApi(model: string): boolean {
 }
 
 // The responses auto-route only fires for the OpenAI first-party surface
-// (api.openai.com / the default base) and Azure OpenAI hosts, where
+// (the default base, api.openai.com, and its OpenAI-controlled subdomains
+// like the eu./us. regional endpoints) and Azure OpenAI hosts, where
 // /v1/responses is known to exist. Arbitrary OpenAI-compatible gateways
 // (OpenRouter-style proxies) often lack it, so those keep chat/completions
 // unless the user opts in via OPENAI_API_FORMAT / apiFormat.
 function isDefaultOrDirectOpenAIBaseUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl || baseUrl === DEFAULT_OPENAI_BASE_URL) return true
   try {
-    return new URL(baseUrl).hostname.toLowerCase() === 'api.openai.com'
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'api.openai.com' || hostname.endsWith('.api.openai.com')
   } catch {
     return false
   }

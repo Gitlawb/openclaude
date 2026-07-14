@@ -428,6 +428,19 @@ test('auto-routes gpt-5.6 to responses on the default OpenAI base', () => {
   })
 })
 
+test('auto-routes gpt-5.6 to responses on regional OpenAI subdomains', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://eu.api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    resolvedModel: 'gpt-5.6-sol',
+    baseUrl: 'https://eu.api.openai.com/v1',
+  })
+})
+
 test('explicit chat_completions overrides the gpt-5.6 responses auto-route', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
