@@ -79,11 +79,14 @@ export async function persistPowerShellOutputFile(
         await copyFile(sourcePath, dest);
       }
     }
+    const previewSourcePath = truncated ? sourcePath : dest;
     const previewResult = await generateFilePreview(
-      sourcePath,
-      size,
+      previewSourcePath,
       PREVIEW_SIZE_BYTES,
-    ).catch(() => undefined);
+    ).catch(error => {
+      logError(error instanceof Error ? error : new Error(getErrorMessage(error)));
+      return undefined;
+    });
     return {
       path: dest,
       size,
@@ -698,15 +701,14 @@ export const PowerShellTool = buildTool({
         PREVIEW_SIZE_BYTES,
         'head-only',
       ).preview;
+      const strategy = persistedOutputPreviewStrategy ?? 'head-only';
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
         preview,
-        hasMore: true,
-        strategy: persistedOutputPreviewStrategy ?? (
-          persistedOutputPreview ? 'head-tail' : 'head-only'
-        ),
+        hasMore: strategy !== 'complete',
+        strategy,
         truncated: persistedOutputTruncated
       });
     } else if (normalizedStdout) {

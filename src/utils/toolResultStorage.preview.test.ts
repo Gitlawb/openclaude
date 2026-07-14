@@ -43,7 +43,11 @@ function expectExactOmittedByteCount(
   content: string,
   preview: string,
 ): void {
-  const match = preview.match(/… (\d+) bytes omitted …/)
+  const matches = [...preview.matchAll(/… (\d+) bytes omitted …/g)]
+  const match = matches.find(candidate => {
+    const retainedBytes = byteLength(preview) - byteLength(candidate[0])
+    return Number(candidate[1]) === byteLength(content) - retainedBytes
+  })
   expect(match).not.toBeNull()
   const marker = match![0]
   const retainedBytes = byteLength(preview) - byteLength(marker)
@@ -204,7 +208,6 @@ describe('generatePreview head and tail selection', () => {
     try {
       const result = await generateFilePreview(
         filepath,
-        byteLength(content),
         200,
       )
 
@@ -216,6 +219,55 @@ describe('generatePreview head and tail selection', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  test('derives the preview size from the opened file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tool-file-preview-size-'))
+    const filepath = join(dir, 'large-output.txt')
+    const content = `COMMAND CONTEXT\n${'routine output\n'.repeat(80)}FAILURE ROOT\n`
+    await writeFile(filepath, content, 'utf8')
+
+    try {
+      const result = await generateFilePreview(filepath, 96)
+
+      expect(result.strategy).toBe('head-tail')
+      expect(result.preview).toStartWith('COMMAND CONTEXT\n')
+      expect(result.preview).toContain('FAILURE ROOT')
+      expectWithinBudget(result.preview, 96)
+      expectExactOmittedByteCount(content, result.preview)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports actual omitted bytes for a short file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tool-file-preview-stale-size-'))
+    const filepath = join(dir, 'large-output.txt')
+    const content = `HEAD\n${'middle\n'.repeat(30)}REAL TAIL\n`
+    await writeFile(filepath, content, 'utf8')
+
+    try {
+      const result = await generateFilePreview(filepath, 96)
+
+      expect(result.preview).toContain('REAL TAIL')
+      expectWithinBudget(result.preview, 96)
+      expectExactOmittedByteCount(content, result.preview)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('distinguishes a generated omission marker from marker-like output', () => {
+    const content = [
+      'COMMAND: printf "… 1 bytes omitted …"',
+      ...Array.from({ length: 100 }, (_, index) => `middle-${index}`),
+      'REAL TAIL',
+    ].join('\n')
+    const result = generatePreview(content, 120)
+
+    expect(result.preview).toContain('… 1 bytes omitted …')
+    expect(result.preview).toContain('REAL TAIL')
+    expectExactOmittedByteCount(content, result.preview)
   })
 })
 

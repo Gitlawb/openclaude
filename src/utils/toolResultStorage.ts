@@ -497,19 +497,19 @@ async function readFileBytes(
 
 /**
  * Build the same bounded text preview from a file without loading the full
- * spill into memory. The caller supplies the stat size so the marker reports
- * omitted bytes from the exact source that was persisted.
+ * spill into memory. Size is derived from the opened handle so callers cannot
+ * provide stale metadata that would make the omitted-byte marker inaccurate.
  */
 export async function generateFilePreview(
   filepath: string,
-  originalSizeBytes: number,
   maxBytes: number,
 ): Promise<PreviewResult> {
   const byteLimit = Math.max(0, Math.floor(maxBytes))
   const handle = await open(filepath, 'r')
   try {
-    if (originalSizeBytes <= byteLimit) {
-      const content = await readFileBytes(handle, 0, originalSizeBytes)
+    const fileSizeBytes = (await handle.stat()).size
+    if (fileSizeBytes <= byteLimit) {
+      const content = await readFileBytes(handle, 0, fileSizeBytes)
       return {
         preview: content.toString('utf8'),
         hasMore: false,
@@ -517,12 +517,12 @@ export async function generateFilePreview(
       }
     }
 
-    const targets = getHeadTailTargets(originalSizeBytes, byteLimit)
+    const targets = getHeadTailTargets(fileSizeBytes, byteLimit)
     if (targets === null) {
       const head = await readFileBytes(
         handle,
         0,
-        Math.min(originalSizeBytes, byteLimit + 3),
+        Math.min(fileSizeBytes, byteLimit + 3),
       )
       const headEnd = safeHeadEnd(head, byteLimit)
       return {
@@ -534,9 +534,9 @@ export async function generateFilePreview(
 
     // Up to three lookahead bytes are enough to detect whether a requested
     // boundary falls inside a four-byte UTF-8 code point.
-    const headReadLength = Math.min(originalSizeBytes, targets.head + 3)
-    const tailReadLength = Math.min(originalSizeBytes, targets.tail + 3)
-    const tailReadStart = originalSizeBytes - tailReadLength
+    const headReadLength = Math.min(fileSizeBytes, targets.head + 3)
+    const tailReadLength = Math.min(fileSizeBytes, targets.tail + 3)
+    const tailReadStart = fileSizeBytes - tailReadLength
     const [head, tail] = await Promise.all([
       readFileBytes(handle, 0, headReadLength),
       readFileBytes(handle, tailReadStart, tailReadLength),

@@ -18,6 +18,10 @@ import {
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { ShellError } from '../../utils/errors.js'
 import { formatError } from '../../utils/toolErrors.js'
+import {
+  generatePreview,
+  PREVIEW_SIZE_BYTES,
+} from '../../utils/toolResultStorage.js'
 
 // Regression for #1231 — non-zero exit must not hide captured stdout/stderr.
 // The Bash tool runs with a merged-fd setup (both streams to one file), so
@@ -52,7 +56,8 @@ async function expectShellError(command: string): Promise<ShellError> {
 
 describe('BashTool error output (#1231)', () => {
   test('uses the persisted file preview for the model-facing success result', () => {
-    const preview = 'COMMAND CONTEXT\n… 42,000 bytes omitted …\nFAILURE ROOT'
+    const fullOutput = `COMMAND CONTEXT\n${'routine output\n'.repeat(300)}FAILURE ROOT\n`
+    const preview = generatePreview(fullOutput, PREVIEW_SIZE_BYTES).preview
     const mapped = BashTool.mapToolResultToToolResultBlockParam(
       {
         stdout: 'captured head only',
@@ -69,6 +74,9 @@ describe('BashTool error output (#1231)', () => {
     expect(String(mapped.content)).toContain(preview)
     expect(String(mapped.content)).toContain('UTF-8-safe head and tail')
     expect(String(mapped.content)).not.toContain('complete available inline output')
+    expect(Buffer.byteLength(preview, 'utf8')).toBeLessThanOrEqual(
+      PREVIEW_SIZE_BYTES,
+    )
   })
 
   test('labels a small captured-only fallback as partial, not complete', () => {
@@ -85,6 +93,23 @@ describe('BashTool error output (#1231)', () => {
 
     expect(String(mapped.content)).toContain('UTF-8-safe head-only partial output')
     expect(String(mapped.content)).not.toContain('complete available inline output')
+  })
+
+  test('under-claims a supplied preview when its strategy is missing', () => {
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'captured head only',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+        persistedOutputPreview: 'preview with unknown provenance',
+      } as never,
+      'toolu_preview_without_strategy',
+    )
+
+    expect(String(mapped.content)).toContain('UTF-8-safe head-only partial output')
+    expect(String(mapped.content)).not.toContain('UTF-8-safe head and tail')
   })
 
   test('captured stdout/stderr appear in formatted error on non-zero exit', async () => {
@@ -311,6 +336,9 @@ describe('BashTool error output (#1231)', () => {
       expect(persisted!.preview).toStartWith('A')
       expect(persisted!.preview).toEndWith('B'.repeat(790))
       expect(persisted!.preview).toMatch(/… \d+ bytes omitted …/)
+      expect(Buffer.byteLength(persisted!.preview!, 'utf8')).toBeLessThanOrEqual(
+        PREVIEW_SIZE_BYTES,
+      )
       const saved = readFileSync(dest, 'utf8')
       expect(saved.length).toBe(cap)
       expect(saved).toBe(head) // exactly the head, no tail byte leaked in

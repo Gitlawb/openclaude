@@ -21,12 +21,13 @@ import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/
 import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
-import { isENOENT, ShellError } from '../../utils/errors.js';
+import { isENOENT, ShellError, toError } from '../../utils/errors.js';
 import { detectFileEncoding, detectLineEndings, getFileModificationTime, writeTextContent } from '../../utils/file.js';
 import { fileHistoryEnabled, fileHistoryTrackEdit } from '../../utils/fileHistory.js';
 import { truncate } from '../../utils/format.js';
 import { getFsImplementation } from '../../utils/fsOperations.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { logError } from '../../utils/log.js';
 import { expandPath } from '../../utils/path.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { maybeRecordPluginHint } from '../../utils/plugins/hintRecommendation.js';
@@ -382,11 +383,14 @@ export async function persistShellOutputFile(
     // reports as the output total. `truncated` tells the error path that the
     // saved file is capped at MAX_PERSISTED_SHELL_OUTPUT_SIZE so it does not
     // describe a partial file as the full output.
+    const previewSourcePath = truncated ? sourcePath : dest;
     const previewResult = await generateFilePreview(
-      sourcePath,
-      size,
+      previewSourcePath,
       PREVIEW_SIZE_BYTES,
-    ).catch(() => undefined);
+    ).catch(error => {
+      logError(toError(error));
+      return undefined;
+    });
     return {
       path: dest,
       size,
@@ -428,6 +432,7 @@ export function appendPersistedOutputHint(
     ? generatePreview(
       sandboxDiagnostics,
       MAX_SANDBOX_DIAGNOSTIC_PREVIEW_BYTES,
+      'text',
     ).preview
     : '';
   const capturedFallback = preview
@@ -736,15 +741,14 @@ export const BashTool = buildTool({
         PREVIEW_SIZE_BYTES,
         'head-only',
       ).preview;
+      const strategy = persistedOutputPreviewStrategy ?? 'head-only';
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
         preview,
-        hasMore: true,
-        strategy: persistedOutputPreviewStrategy ?? (
-          persistedOutputPreview ? 'head-tail' : 'head-only'
-        ),
+        hasMore: strategy !== 'complete',
+        strategy,
         truncated: persistedOutputTruncated
       });
     }
