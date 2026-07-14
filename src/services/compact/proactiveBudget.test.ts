@@ -438,17 +438,19 @@ describe('applyProactiveBudget', () => {
       userWithToolResult('tool-2', 'y'.repeat(500)),
     ]
 
-    const result = applyProactiveBudget(messages)
+    try {
+      const result = applyProactiveBudget(messages)
 
-    expect(result.wasPruned).toBe(true)
-    expect(result.strippedCount).toBe(1)
-    expect(result.messages).not.toBe(messages)
-
-    // Clean up config state for subsequent tests
-    saveGlobalConfig((c) => {
-      delete (c as Record<string, unknown>).proactiveBudgetLimit
-      return { ...c }
-    })
+      expect(result.wasPruned).toBe(true)
+      expect(result.strippedCount).toBe(1)
+      expect(result.messages).not.toBe(messages)
+    } finally {
+      // Clean up config state for subsequent tests
+      saveGlobalConfig((c) => {
+        delete (c as Record<string, unknown>).proactiveBudgetLimit
+        return { ...c }
+      })
+    }
   })
 
   test('no-op when config limit is explicitly 0 (disabled)', () => {
@@ -462,16 +464,18 @@ describe('applyProactiveBudget', () => {
       userWithToolResult('tool-2', 'y'.repeat(500)),
     ]
 
-    const result = applyProactiveBudget(messages)
+    try {
+      const result = applyProactiveBudget(messages)
 
-    expect(result.wasPruned).toBe(false)
-    expect(result.strippedCount).toBe(0)
-    expect(result.messages).toBe(messages)
-
-    // Clean up config state for subsequent tests
-    saveGlobalConfig((c) => {
-      delete (c as Record<string, unknown>).proactiveBudgetLimit
-      return { ...c }
-    })
+      expect(result.wasPruned).toBe(false)
+      expect(result.strippedCount).toBe(0)
+      expect(result.messages).toBe(messages)
+    } finally {
+      // Clean up config state for subsequent tests
+      saveGlobalConfig((c) => {
+        delete (c as Record<string, unknown>).proactiveBudgetLimit
+        return { ...c }
+      })
+    }
   })
 })
