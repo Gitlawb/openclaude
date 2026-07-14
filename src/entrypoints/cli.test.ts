@@ -653,15 +653,13 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
 
     it('is recognized by the cc:// and ssh raw-argv scans', async () => {
       const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-      // cc:// sets remote state via includes(); the rewrites and ssh path strip
-      // both spellings from the forwarded argv.
+      // cc:// sets remote state via the shared helper; the rewrites and ssh path
+      // strip both spellings from the forwarded argv using the same helper.
       expect(src).toContain(
-        "rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo')",
+        '_pendingConnect.dangerouslySkipPermissions = hasDangerousSkipFlag(rawCliArgs)',
       )
-      expect(src).toContain("arg !== '--dangerously-skip-permissions' && arg !== '--yolo'")
-      expect(src).toContain(
-        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
-      )
+      expect(src).toContain('.filter(arg => !isDangerousSkipFlag(arg))')
+      expect(src).toContain('if (rawCliArgs.some(isDangerousSkipFlag))')
     })
 
     it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
@@ -671,17 +669,21 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
       const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
       const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
       const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
-      const ccOccurrences =
-        ccBlock.split("'--dangerously-skip-permissions'").length - 1 +
-        ccBlock.split("'--yolo'").length - 1
-      expect(ccOccurrences).toBeGreaterThanOrEqual(4)
+      const ccOccurrences = ccBlock.split('isDangerousSkipFlag').length - 1
+      expect(ccOccurrences).toBeGreaterThanOrEqual(3)
 
       const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
       const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
       const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
-      expect(sshBlock).toContain(
-        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
-      )
+      expect(sshBlock).toContain('if (rawCliArgs.some(isDangerousSkipFlag))')
+    })
+
+    it('registers --yolo via .option() on the main command and ssh subcommand', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      const optionCalls = [
+        ...src.matchAll(/\.option\(\s*'--yolo, --dangerously-skip-permissions'/g),
+      ]
+      expect(optionCalls).toHaveLength(2)
     })
 
     it('is recognized by the skills leading scan so --yolo skills list routes', async () => {
@@ -726,4 +728,3 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
       }
     })
   })
-})
