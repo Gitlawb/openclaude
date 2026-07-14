@@ -98,7 +98,10 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
-import { redactSecretSubstringsForDisplay } from '../../utils/providerSecrets.js'
+import {
+  redactEncodedSecretSubstringsForDisplay,
+  redactSecretSubstringsForDisplay,
+} from '../../utils/providerSecrets.js'
 import {
   redactUrlForDisplay,
   shouldRedactUrlQueryParam,
@@ -722,9 +725,14 @@ function createClassifiedTransportError(
       url: requestUrl,
     })
   const redactedUrl = redactUrlForDiagnostics(requestUrl)
+  const encodedSecretRedactedMessage =
+    redactEncodedSecretSubstringsForDisplay(
+      redactUrlsInMessage(failure.message),
+      process.env as SecretValueSource,
+    ) ?? 'Request failed'
   const redactedMessage =
     redactSecretSubstringsForDisplay(
-      redactUrlsInMessage(failure.message),
+      encodedSecretRedactedMessage,
       process.env as SecretValueSource,
     ) ?? 'Request failed'
   const safeMessage =

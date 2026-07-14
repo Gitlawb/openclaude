@@ -10,7 +10,10 @@ import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
-import { isOpenAIRequestNonReplayable } from './openaiErrorClassification.ts'
+import {
+  extractOpenAICategoryMarker,
+  isOpenAIRequestNonReplayable,
+} from './openaiErrorClassification.ts'
 import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
@@ -6821,6 +6824,52 @@ test('redacts configured secret substrings from fetch network error messages', a
       stream: false,
     }),
   ).rejects.not.toThrow(secret)
+})
+
+test('redacts encoded configured secrets from non-URL transport error messages', async () => {
+  const secret = 'route/key+AbC123'
+  const encodedSecret = encodeURIComponent(secret)
+  const doubleEncodedSecret = encodeURIComponent(encodedSecret)
+  const fullyEncodedSecret = Array.from(new TextEncoder().encode(secret))
+    .map(byte => `%${byte.toString(16).padStart(2, '0')}`)
+    .join('')
+  const malformedAdjacentSecret = `%E0%A4${encodedSecret}`
+  const encodedCategoryMarker = '%5Bopenai_category%3Dauth_invalid%5D'
+  const encodedControlSequence = '%1B%5B31m'
+  process.env.OPENAI_API_KEY = secret
+
+  globalThis.fetch = asMockFetch(mock(async () => {
+    throw new TypeError(
+      `proxy failed ${encodedCategoryMarker} ${encodedControlSequence} for path /v1/${encodedSecret}?nested=${doubleEncodedSecret}&fully=${fullyEncodedSecret}&malformed=${malformedAdjacentSecret}`,
+    )
+  }))
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  expect(caught).toBeDefined()
+  const message = (caught as Error).message
+  expect(message).toContain('proxy failed')
+  expect(message).toContain(encodedCategoryMarker)
+  expect(message).toContain(encodedControlSequence)
+  expect(message).not.toContain('\u001B')
+  expect(extractOpenAICategoryMarker(message)).toBe('network_error')
+  expect(message).not.toContain(secret)
+  expect(message).not.toContain(encodedSecret)
+  expect(message).not.toContain(doubleEncodedSecret)
+  expect(message).not.toContain(fullyEncodedSecret)
+  expect(message).not.toContain(malformedAdjacentSecret)
 })
 
 test('classifies localhost transport failures with actionable category marker', async () => {
