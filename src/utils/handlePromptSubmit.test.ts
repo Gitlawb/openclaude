@@ -91,6 +91,170 @@ describe('handlePromptSubmit', () => {
     expect(queriedMessages).toEqual([[reminderMessage, correctionMessage]])
   })
 
+  it('consumes but does not append a reminder when a normal prompt is blocked', async () => {
+    const correctionMessage = createUserMessage({ content: 'do Y instead' })
+    const reminderMessage = createUserMessage({
+      content: '<system-reminder>interrupted</system-reminder>',
+      isMeta: true,
+    })
+    mock.module('./processUserInput/processUserInput.js', () => ({
+      processUserInput: async () => ({
+        messages: [correctionMessage],
+        shouldQuery: false,
+      }),
+    }))
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+
+    let reminderTakeCount = 0
+    const queriedMessages: unknown[][] = []
+    await handlePromptSubmit({
+      input: 'do Y instead',
+      mode: 'prompt',
+      pastedContents: {},
+      helpers: {
+        setCursorOffset: () => {},
+        clearBuffer: () => {},
+        resetHistory: () => {},
+      },
+      onInputChange: () => {},
+      setPastedContents: () => {},
+      takeInterruptionCorrectionReminder: () => {
+        reminderTakeCount++
+        return reminderMessage
+      },
+      queryGuard: {
+        isActive: false,
+        reserve: () => true,
+        cancelReservation: () => {},
+      } as never,
+      isExternalLoading: false,
+      commands: [],
+      messages: [],
+      mainLoopModel: 'sonnet',
+      ideSelection: undefined,
+      querySource: 'repl' as never,
+      setToolJSX: () => {},
+      getToolUseContext: () => ({}) as never,
+      setUserInputOnProcessing: () => {},
+      setAbortController: () => {},
+      onQuery: async newMessages => {
+        queriedMessages.push(newMessages)
+      },
+      setAppState: () => ({}) as never,
+    })
+
+    expect(reminderTakeCount).toBe(1)
+    expect(queriedMessages).toEqual([[correctionMessage]])
+  })
+
+  it('re-arms an injected reminder when the query guard declines ownership', async () => {
+    const correctionMessage = createUserMessage({ content: 'do Y instead' })
+    const reminderMessage = createUserMessage({
+      content: '<system-reminder>interrupted</system-reminder>',
+      isMeta: true,
+    })
+    mock.module('./processUserInput/processUserInput.js', () => ({
+      processUserInput: async () => ({
+        messages: [correctionMessage],
+        shouldQuery: true,
+      }),
+    }))
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+
+    let restoreCount = 0
+    await handlePromptSubmit({
+      input: 'do Y instead',
+      mode: 'prompt',
+      pastedContents: {},
+      helpers: {
+        setCursorOffset: () => {},
+        clearBuffer: () => {},
+        resetHistory: () => {},
+      },
+      onInputChange: () => {},
+      setPastedContents: () => {},
+      takeInterruptionCorrectionReminder: () => reminderMessage,
+      restoreInterruptionCorrectionReminder: () => {
+        restoreCount++
+      },
+      queryGuard: {
+        isActive: false,
+        reserve: () => true,
+        cancelReservation: () => {},
+      } as never,
+      isExternalLoading: false,
+      commands: [],
+      messages: [],
+      mainLoopModel: 'sonnet',
+      ideSelection: undefined,
+      querySource: 'repl' as never,
+      setToolJSX: () => {},
+      getToolUseContext: () => ({}) as never,
+      setUserInputOnProcessing: () => {},
+      setAbortController: () => {},
+      onQuery: async () => false,
+      setAppState: () => ({}) as never,
+    } as never)
+
+    expect(restoreCount).toBe(1)
+  })
+
+  it('consumes a reminder when processing the normal prompt throws', async () => {
+    const reminderMessage = createUserMessage({
+      content: '<system-reminder>interrupted</system-reminder>',
+      isMeta: true,
+    })
+    mock.module('./processUserInput/processUserInput.js', () => ({
+      processUserInput: async () => {
+        throw new Error('hook failed')
+      },
+    }))
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+
+    let reminderTakeCount = 0
+    let restoreCount = 0
+    const submission = handlePromptSubmit({
+      input: 'do Y instead',
+      mode: 'prompt',
+      pastedContents: {},
+      helpers: {
+        setCursorOffset: () => {},
+        clearBuffer: () => {},
+        resetHistory: () => {},
+      },
+      onInputChange: () => {},
+      setPastedContents: () => {},
+      takeInterruptionCorrectionReminder: () => {
+        reminderTakeCount++
+        return reminderMessage
+      },
+      restoreInterruptionCorrectionReminder: () => {
+        restoreCount++
+      },
+      queryGuard: {
+        isActive: false,
+        reserve: () => true,
+        cancelReservation: () => {},
+      } as never,
+      isExternalLoading: false,
+      commands: [],
+      messages: [],
+      mainLoopModel: 'sonnet',
+      ideSelection: undefined,
+      querySource: 'repl' as never,
+      setToolJSX: () => {},
+      getToolUseContext: () => ({}) as never,
+      setUserInputOnProcessing: () => {},
+      setAbortController: () => {},
+      onQuery: async () => {},
+      setAppState: () => ({}) as never,
+    } as never)
+
+    await expect(submission).rejects.toThrow('hook failed')
+    expect(reminderTakeCount).toBe(1)
+    expect(restoreCount).toBe(0)
+  })
+
   it('preserves a reminder across a queued slash command and injects it once', async () => {
     const reminderMessage = createUserMessage({
       content: '<system-reminder>interrupted</system-reminder>',
@@ -221,6 +385,24 @@ describe('handlePromptSubmit', () => {
     for (const prompt of ineligiblePrompts) {
       expect(isNormalLocalUserPrompt?.(prompt)).toBe(false)
     }
+  })
+
+  it('preserves local prompt provenance when a concurrent turn is requeued', async () => {
+    const { buildConcurrentRequeuedPrompt } =
+      await import('./handlePromptSubmit.js')
+
+    expect(buildConcurrentRequeuedPrompt('do Y instead', true)).toEqual({
+      value: 'do Y instead',
+      preExpansionValue: 'do Y instead',
+      allowInterruptionCorrection: true,
+      mode: 'prompt',
+    })
+    expect(buildConcurrentRequeuedPrompt('remote prompt', false)).toEqual({
+      value: 'remote prompt',
+      preExpansionValue: undefined,
+      allowInterruptionCorrection: false,
+      mode: 'prompt',
+    })
   })
 
   it('marks only normal local prompts as correction-eligible model turns', async () => {
