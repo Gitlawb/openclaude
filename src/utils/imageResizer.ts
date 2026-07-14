@@ -183,12 +183,12 @@ export async function maybeResizeAndDownsampleImageBuffer(
     const image = sharp(imageBuffer)
     const metadata = await image.metadata()
 
-    const mediaType = metadata.format ?? ext
-    // Normalize "jpg" to "jpeg" for media type compatibility
-    const normalizedMediaType = mediaType === 'jpg' ? 'jpeg' : mediaType
-
-    // If dimensions aren't available from metadata
-    if (!metadata.width || !metadata.height) {
+    // Dimensions may be unavailable when the native image connector fails or
+    // returns an undefined metadata object (e.g. image_processor_napi crashes
+    // on Windows). Guard against undefined and skip the dimension logic — the
+    // API resizes large images server-side, so the raw buffer can still be
+    // passed through to keep paste working.
+    if (!metadata?.width || !metadata.height) {
       if (originalSize > IMAGE_TARGET_RAW_SIZE) {
         // Create fresh sharp instance for compression
         const compressedBuffer = await sharp(imageBuffer)
@@ -196,9 +196,17 @@ export async function maybeResizeAndDownsampleImageBuffer(
           .toBuffer()
         return { buffer: compressedBuffer, mediaType: 'jpeg' }
       }
-      // Return without dimensions if we can't determine them
-      return { buffer: imageBuffer, mediaType: normalizedMediaType }
+      // No metadata: detect format from magic bytes instead of trusting `ext`,
+      // and return the buffer without dimensions.
+      const detected = detectImageFormatFromBuffer(imageBuffer)
+      const detectedExt = detected.slice(6)
+      const normalizedExt = detectedExt === 'jpg' ? 'jpeg' : detectedExt
+      return { buffer: imageBuffer, mediaType: normalizedExt }
     }
+
+    const mediaType = metadata.format ?? ext
+    // Normalize "jpg" to "jpeg" for media type compatibility
+    const normalizedMediaType = mediaType === 'jpg' ? 'jpeg' : mediaType
 
     // Store original dimensions (guaranteed to be defined here)
     const originalWidth = metadata.width
@@ -398,9 +406,11 @@ export async function maybeResizeAndDownsampleImageBuffer(
     // Calculate the base64 size (API limit is on base64-encoded length)
     const base64Size = Math.ceil((originalSize * 4) / 3)
 
-    // Size-under-5MB does not imply dimensions-under-cap. Don't return the
-    // raw buffer if the PNG header says it's oversized — fall through to
-    // ImageResizeError instead. PNG sig is 8 bytes, IHDR dims at 16-24.
+    // The API only rejects images on the base64 byte-size limit; it resizes
+    // oversized dimensions (> 1568px) server-side. So a dimensionally-large
+    // but base64-small image is allowed through here rather than throwing.
+    // PNG sig is 8 bytes, IHDR dims at 16-24. `overDim` is still used below to
+    // pick the right error message when the base64 limit is also exceeded.
     const overDim =
       imageBuffer.length >= 24 &&
       imageBuffer[0] === 0x89 &&
@@ -411,7 +421,7 @@ export async function maybeResizeAndDownsampleImageBuffer(
         imageBuffer.readUInt32BE(20) > IMAGE_MAX_HEIGHT)
 
     // If original image's base64 encoding is within API limit, allow it through uncompressed
-    if (base64Size <= API_IMAGE_MAX_BASE64_SIZE && !overDim) {
+    if (base64Size <= API_IMAGE_MAX_BASE64_SIZE) {
       logEvent('tengu_image_resize_fallback', {
         original_size_bytes: originalSize,
         base64_size_bytes: base64Size,
