@@ -115,7 +115,7 @@ test('marker-only response (no tool_use blocks) forces continuation nudge then c
   // marker so the nudge fires up to MAX_CONTINUATION_NUDGES (20) then
   // the cap terminates the loop.
   expect(modelCalls).toBe(21) // 1 initial + 20 nudges
-  expect(terminal.reason).toBe('completed')
+  expect(terminal.reason).toBe('marker_stall_exhausted')
   // Marker text should have been stripped from yielded messages.
   const markerTexts = yielded.filter(
     item =>
@@ -222,7 +222,7 @@ test('repeated marker-only responses hit nudge cap', async () => {
   // Marker-only text is stripped; markerOnlyStall forces a nudge.
   // Model keeps echoing the marker so it loops up to MAX_CONTINUATION_NUDGES.
   expect(modelCalls).toBe(21) // 1 initial + 20 nudges
-  expect(terminal.reason).toBe('completed')
+  expect(terminal.reason).toBe('marker_stall_exhausted')
 })
 
 test('marker-only then real text completes after one nudge', async () => {
@@ -310,4 +310,94 @@ test('marker text followed by real continuation text is NOT withheld', async () 
 
 test('marker constant matches shim injection', async () => {
   expect(TOOL_RESULTS_RECEIVED_MARKER).toBe('[Tool results received]')
+})
+
+test('mid-sentence marker is stripped without corrupting adjacent text (S1)', async () => {
+  let modelCalls = 0
+
+  const callModel: QueryDeps['callModel'] = async function* () {
+    modelCalls++
+    if (modelCalls === 1) {
+      yield createAssistantMessage({
+        id: `assistant-1`,
+        content: [
+          {
+            type: 'text',
+            text: 'Please continue [Tool results received] and finish',
+          },
+        ],
+        model: 'test-model',
+        stop_reason: 'end_turn',
+        role: 'assistant',
+      } as any)
+    } else {
+      yield createAssistantMessage({
+        id: `assistant-2`,
+        content: [{ type: 'text', text: 'done' }],
+        model: 'test-model',
+        stop_reason: 'end_turn',
+        role: 'assistant',
+      } as any)
+    }
+  }
+
+  const yielded: any[] = []
+  const terminal = await (async () => {
+    const params = makeQueryParams(callModel as any)
+    params.deps!.callModel = callModel as any
+    const generator = query(params)
+    while (true) {
+      const next = await generator.next()
+      if (next.done) return next.value
+      yielded.push(next.value)
+    }
+  })()
+
+  // Marker is embedded mid-sentence, not marker-only — should NOT be withheld.
+  // The stripped remaining text has no continuation signal and no tool_use,
+  // so the generator completes after a single call.
+  expect(terminal.reason).toBe('completed')
+  expect(modelCalls).toBe(1)
+
+  // The stripped text should preserve adjacent words: "Please continue  and finish"
+  // (double space is ok — the marker consumed its surrounding whitespace but
+  // the stripPattern only removes the literal marker itself).
+  const assistantMsgs = yielded.filter((item: any) => item.type === 'assistant')
+  const textParts = assistantMsgs.flatMap((msg: any) =>
+    msg.message?.content
+      ?.filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text) || [],
+  )
+  // After strip: "Please continue  and finish" — must NOT be "Please continueand finish"
+  const cleaned = textParts[0]
+  expect(cleaned).toMatch(/continue[\s]+and/)
+  expect(cleaned).not.toContain('continueand')
+})
+
+test('marker stall exhausted returns distinct reason (S3)', async () => {
+  let modelCalls = 0
+
+  const callModel: QueryDeps['callModel'] = async function* () {
+    modelCalls++
+    yield createAssistantMessage({
+      id: `assistant-${modelCalls}`,
+      content: [{ type: 'text', text: TOOL_RESULTS_RECEIVED_MARKER }],
+      model: 'test-model',
+      stop_reason: 'end_turn',
+      role: 'assistant',
+    } as any)
+  }
+
+  const terminal = await (async () => {
+    const params = makeQueryParams(callModel as any)
+    params.deps!.callModel = callModel as any
+    const generator = query(params)
+    while (true) {
+      const next = await generator.next()
+      if (next.done) return next.value
+    }
+  })()
+
+  expect(modelCalls).toBe(21) // 1 initial + 20 nudges
+  expect(terminal.reason).toBe('marker_stall_exhausted')
 })

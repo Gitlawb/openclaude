@@ -16,6 +16,7 @@ export type Terminal =
       maxSteps: number
     }
   | { reason: 'tool_failure_loop' }
+  | { reason: 'marker_stall_exhausted' }
 
 export type Continue =
   | { reason: 'collapse_drain_retry'; committed: number }

@@ -1462,8 +1462,6 @@ async function* queryLoop(
               withheld = true
             }
             if (message.type === 'assistant') {
-              assistantMessages.push(message)
-
               const msgToolUseBlocks = message.message.content.filter(
                 content => content.type === 'tool_use',
               ) as ToolUseBlock[]
@@ -1473,9 +1471,29 @@ async function* queryLoop(
               // handled correctly.  Use the same whitespace-tolerant pattern
               // as the strip logic below so detection and removal stay in
               // sync even when the server wraps the marker in newlines.
+              // Detection pattern: \s* greedily matches surrounding
+              // whitespace/newlines so we find the marker even when the
+              // provider wraps it in formatting.
               const markerPattern = new RegExp(
                 `\\s*${TOOL_RESULTS_RECEIVED_MARKER
                   .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`,
+                'g',
+              )
+              // Strip pattern: matches only the escaped literal marker,
+              // without consuming adjacent whitespace.  This prevents
+              // mid-sentence corruption when the marker is embedded in
+              // larger text (e.g. "continue [Marker] and finish" →
+              // "continue  and finish" instead of "continueand finish").
+              // Strip pattern: matches only the escaped literal marker,
+              // without consuming adjacent whitespace.  This prevents
+              // mid-sentence corruption when the marker is embedded in
+              // larger text (e.g. "continue [Marker] and finish" →
+              // "continue  and finish" instead of "continueand finish").
+              const stripPattern = new RegExp(
+                TOOL_RESULTS_RECEIVED_MARKER.replace(
+                  /[.*+?^${}()|[\]\\]/g,
+                  '\\$&',
+                ),
                 'g',
               )
               const hasToolResultsMarker = message.message.content.some(
@@ -1494,7 +1512,7 @@ async function* queryLoop(
                 // withhold / stall when there is no substantive text left;
                 // a message containing real continuation text should stay
                 // visible even without tool_use blocks.
-                let remaining = message.message.content
+                const remaining = message.message.content
                   .map((content: unknown) => {
                     if (
                       typeof content === 'object' &&
@@ -1505,10 +1523,12 @@ async function* queryLoop(
                     ) {
                       const textBlock = content as { text: string }
                       const cleaned = textBlock.text.replace(
-                        markerPattern,
+                        stripPattern,
                         '',
                       )
-                      return cleaned ? { ...textBlock, text: cleaned } : null
+                      return cleaned.trim().length > 0
+                        ? { ...textBlock, text: cleaned }
+                        : null
                     }
                     return content
                   })
@@ -1520,12 +1540,22 @@ async function* queryLoop(
                 if (remainingText.trim().length === 0) {
                   withheld = true
                   markerOnlyStall = true
+                        }
+                if (remaining.length === 0) {
+                  // Drop the empty message entirely rather than mutating
+                  // it in place — preserves the "original message untouched"
+                  // invariant and prevents content:[] from reaching the wire.
+                  // Use `as typeof message.message.content` to avoid BetaTextBlock
+                  // citations requirement on the placeholder block.
+                  message.message.content = [{ type: 'text' as const, text: '' }] as typeof message.message.content
+                } else {
+                  message.message.content = remaining
                 }
-                message.message.content = remaining
               } else if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true
               }
+              assistantMessages.push(message)
               if (!withheld) {
                 yield yieldMessage
               }
@@ -2402,6 +2432,17 @@ async function* queryLoop(
           stepsUsed: agentStepLimit.stepsUsed,
           maxSteps: agentStepLimit.maxSteps,
         }
+      }
+
+      // Nudge cap hit and last message was marker-only: the model produced
+      // zero real output but the cap guard skipped the nudge block. Report
+      // a distinct reason so a stuck self-hosted endpoint isn't masked as
+      // a successful completion.
+      if (markerOnlyStall && state.continuationNudgeCount >= MAX_CONTINUATION_NUDGES) {
+        logForDebugging(
+          `Marker-only stall exhausted (${MAX_CONTINUATION_NUDGES} nudges) — model produced no real output`,
+        )
+        return { reason: 'marker_stall_exhausted' }
       }
 
       return { reason: 'completed' }

@@ -242,4 +242,92 @@ describe('goal query continuation', () => {
       ),
     ).toBe(false)
   })
+
+  test('stop hook blocking error forces continuation nudge (stop_hook_active)', async () => {
+    const { query } = await import('../query.js')
+    let modelCalls = 0
+    let stopHookCalls = 0
+    const observedStopHookActive: boolean[] = []
+    const modelRequestMessages: any[][] = []
+    const appStateRef = {
+      current: {
+        ...getDefaultAppState(),
+      },
+    }
+
+    const terminal = await (async () => {
+      const generator = query({
+        messages: [],
+        systemPrompt: asSystemPrompt([]),
+        userContext: {},
+        systemContext: {},
+        canUseTool: async () => ({ behavior: 'allow' }),
+        toolUseContext: makeToolUseContext(appStateRef),
+        querySource: 'sdk',
+        deps: {
+          uuid: () => `uuid-${modelCalls}`,
+          microcompact: async messages => ({ messages }),
+          autocompact: async () => ({ wasCompacted: false }),
+          goalEvaluationDeps: {
+            evaluateGoal: async () => ({
+              complete: true,
+              confidence: 0.9,
+              decision: 'complete' as const,
+              reason: 'Done.',
+              nextInstruction: null,
+            }),
+            saveGoalState: async () => {},
+          },
+          stopHookExecutionDeps: {
+            executeStopHooks: async function* (
+              _permissionMode: string | undefined,
+              _signal: AbortSignal | undefined,
+              _timeoutMs: number | undefined,
+              stopHookActive: boolean,
+            ) {
+              observedStopHookActive.push(stopHookActive)
+              stopHookCalls++
+              // Produce a blocking error only on the first stop hook call.
+              // This sets stopHookActive=true for the next turn.
+              if (stopHookCalls === 1) {
+                yield {
+                  blockingError: { blockingError: 'hook blocked' },
+                } as any
+                return
+              }
+              // Subsequent calls produce no blocking errors.
+            },
+            getStopHookMessage: () => 'stop hook blocked the turn',
+            isTeammate: () => false,
+          },
+          callModel: async function* ({ messages }: any) {
+            modelCalls++
+            modelRequestMessages.push(JSON.parse(JSON.stringify(messages)))
+            yield assistant(
+              `assistant-${modelCalls}`,
+              'Tasks done.',
+            )
+          },
+        } as any,
+      })
+      while (true) {
+        const next = await generator.next()
+        if (next.done) return next.value
+      }
+    })()
+
+    expect(modelCalls).toBeGreaterThanOrEqual(2)
+    // First call: stop hook blocks → stopHookActive set to true
+    expect(observedStopHookActive[0]).toBe(false)
+    // Second call (after stop_hook_blocking transition): stopHookActive = true
+    expect(observedStopHookActive[1]).toBe(true)
+    // The model returned text without tool calls → stop_hook_active forces
+    // a continuation nudge.
+    expect(terminal.reason).toBe('completed')
+    // Verify the nudge user message was injected into the second model call.
+    const nudgeMessages = modelRequestMessages[1].filter(
+      (m: any) => m.type === 'user' && m.isMeta,
+    )
+    expect(nudgeMessages.length).toBeGreaterThan(0)
+  })
 })
