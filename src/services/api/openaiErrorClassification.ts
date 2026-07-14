@@ -154,10 +154,11 @@ function isToolCompatibilityMessage(body: string): boolean {
 // `tool_call` substring in isToolCompatibilityMessage does NOT match
 // `tool_stream`, so this needs its own matcher.
 function isToolStreamUnsupportedMessage(body: string): boolean {
+  const normalized = body.toLowerCase().replace(/['"`]/g, '')
   return (
-    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s*[:=]?\s*['"`]?tool_stream['"`]?|['"`]?tool_stream['"`]?\s+(?:parameter|request\s+argument))/i.test(body) ||
-    /(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s+['"`]?tool_stream['"`]?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body) ||
-    /['"`]?tool_stream['"`]?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body)
+      /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*tool_stream\b/.test(normalized) ||
+      /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
+      /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized)
   )
 }
 

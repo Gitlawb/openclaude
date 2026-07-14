@@ -180,7 +180,9 @@ test.each([
   "Unknown parameter: 'tool_stream'",
   'Invalid parameter: "tool_stream"',
   "Parameter 'tool_stream' is not supported",
-  '"tool_stream" is unsupported',
+  'Unsupported parameters: tool_stream',
+  "Parameter 'tool_stream' is unknown",
+  "'tool_stream' is an unknown parameter",
 ])('classifies quoted tool_stream parameter rejections: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
@@ -192,6 +194,15 @@ test('does not classify a generic 400 as tool_stream_unsupported', () => {
     status: 400,
     body: 'Invalid request: missing required field `messages`',
   })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test.each([
+  'Tool "tool_stream" is unsupported',
+  "Function 'tool_stream' is invalid",
+])('does not classify a tool name error as a tool_stream parameter rejection: %s', body => {
+  const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
   expect(failure.category).not.toBe('tool_stream_unsupported')
 })
