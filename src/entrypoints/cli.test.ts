@@ -585,6 +585,72 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
       )
     })
 
+    it('passes args through to cliMain verbatim — no per-token --yolo rewrite', async () => {
+      // Regression guard for the six correctness bugs the old pre-parse argv
+      // rewrite caused: --yolo must reach commander untouched, whatever position
+      // it sits in (after a value flag, after `--`, or on a subcommand), so
+      // commander — not a hand-rolled scanner — resolves it.
+      const cases = [
+        ['--yolo', '-p', 'hi'],
+        ['--system-prompt', '--yolo'],
+        ['-p', '--', '--yolo'],
+        ['mcp', 'add', '--yolo', 'srv', 'cmd'],
+      ]
+      for (const argv of cases) {
+        clearRuntimeMocks()
+        process.argv = ['node', 'openclaude', ...argv]
+        let argvSeenByCliMain: string[] | undefined
+        mockCliMain.mockImplementationOnce(async () => {
+          argvSeenByCliMain = [...process.argv]
+        })
+
+        await runCliEntrypoint(argv, options)
+
+        expect(argvSeenByCliMain).toEqual(['node', 'openclaude', ...argv])
+      }
+    })
+
+    it('mirrors programmatic args onto process.argv so cliMain honors them', async () => {
+      // cliMain parses process.argv, so an explicit args array must be reflected
+      // there — otherwise a programmatic main(args) call silently runs the host's
+      // argv. The exec/script slots are preserved.
+      process.argv = ['node', 'openclaude', 'stale-host-arg']
+      let argvSeenByCliMain: string[] | undefined
+      mockCliMain.mockImplementationOnce(async () => {
+        argvSeenByCliMain = [...process.argv]
+      })
+
+      await runCliEntrypoint(['--yolo', '-p', 'hi'], options)
+
+      expect(argvSeenByCliMain).toEqual([
+        'node',
+        'openclaude',
+        '--yolo',
+        '-p',
+        'hi',
+      ])
+      // Set once, never restored: one consistent argv for the whole session.
+      expect(process.argv).toEqual(['node', 'openclaude', '--yolo', '-p', 'hi'])
+    })
+
+    it('pads the exec/script slots when the host argv has fewer than two entries', async () => {
+      // e.g. an embedded caller under `node -e` where process.argv is ['node'].
+      process.argv = ['node']
+      let argvSeenByCliMain: string[] | undefined
+      mockCliMain.mockImplementationOnce(async () => {
+        argvSeenByCliMain = [...process.argv]
+      })
+
+      await runCliEntrypoint(['--dangerously-skip-permissions', '-p', 'hi'], options)
+
+      // commander slices off argv[0]/argv[1]; the flag must survive in slot >= 2.
+      expect(argvSeenByCliMain?.slice(2)).toEqual([
+        '--dangerously-skip-permissions',
+        '-p',
+        'hi',
+      ])
+    })
+
     it('is recognized by the cc:// and ssh raw-argv scans', async () => {
       const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
       // cc:// sets remote state via includes(); the rewrites and ssh path strip
