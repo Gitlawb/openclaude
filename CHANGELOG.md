@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.24.0](https://github.com/Gitlawb/openclaude/compare/v0.23.0...v0.24.0) (2026-07-14)
+
+
+### Features
+
+* add ultrathink keyword detection and ultracode effort level ([#1551](https://github.com/Gitlawb/openclaude/issues/1551)) ([#1630](https://github.com/Gitlawb/openclaude/issues/1630)) ([fb11372](https://github.com/Gitlawb/openclaude/commit/fb1137275a23c821d6f4bf55cbb88c08c65211fa))
+* **aimlapi:** add guided top-up and key provisioning ([#1886](https://github.com/Gitlawb/openclaude/issues/1886)) ([9a53290](https://github.com/Gitlawb/openclaude/commit/9a532905886fc2fe1684a283d435bca0f361bbe2))
+* **codex-oauth:** manual callback URL paste for SSH / remote sessions ([#1288](https://github.com/Gitlawb/openclaude/issues/1288)) ([#1414](https://github.com/Gitlawb/openclaude/issues/1414)) ([c3db07f](https://github.com/Gitlawb/openclaude/commit/c3db07f1f255ed42afe3fc6c74a338ff235f28fd))
+* **doctor:** add WebSearch backend diagnostics ([#1884](https://github.com/Gitlawb/openclaude/issues/1884)) ([e204d5a](https://github.com/Gitlawb/openclaude/commit/e204d5ad363d8bdafd8ed84460f26d49b1a72d9e))
+* **model-picker:** surface inactive provider profiles in /model ([#1119](https://github.com/Gitlawb/openclaude/issues/1119) piece 2) ([#1164](https://github.com/Gitlawb/openclaude/issues/1164)) ([db01038](https://github.com/Gitlawb/openclaude/commit/db01038d5ce397e1cd4228f55075ef7b21cc2553))
+* **provider:** add Cloudflare Workers AI integration ([#1100](https://github.com/Gitlawb/openclaude/issues/1100)) ([#1178](https://github.com/Gitlawb/openclaude/issues/1178)) ([eeed68f](https://github.com/Gitlawb/openclaude/commit/eeed68f4fd6ffbdc4ac13928e943a3e93141b210))
+* **settings:** add settings-based subscription override and agy terminal support ([#1731](https://github.com/Gitlawb/openclaude/issues/1731)) ([a5b2779](https://github.com/Gitlawb/openclaude/commit/a5b277971d078ffc62fea7fb1be6deba367bfe29))
+* **settings:** per-model context_window and max_output_tokens overrides ([#1234](https://github.com/Gitlawb/openclaude/issues/1234)) ([06e0ae6](https://github.com/Gitlawb/openclaude/commit/06e0ae6e0b6f7db5b3311f407c009e8af27405c1))
+
+
+### Bug Fixes
+
+* **bg:** match background-session command args on token boundaries ([#1834](https://github.com/Gitlawb/openclaude/issues/1834)) ([67bebbd](https://github.com/Gitlawb/openclaude/commit/67bebbdaca9efc93f4fd5ecfe75dfda9b9a49bed))
+* **bg:** revalidate process identity before signals ([#1937](https://github.com/Gitlawb/openclaude/issues/1937)) ([af0885d](https://github.com/Gitlawb/openclaude/commit/af0885d8ec3aac08259a37f42b51818a2576f91c))
+* **cache:** use a monotonic clock for conversation-cache LRU recency ([#1965](https://github.com/Gitlawb/openclaude/issues/1965)) ([9fc8806](https://github.com/Gitlawb/openclaude/commit/9fc8806f8d79858bf9c2433178687e674f2510b1))
+* **clipboard:** fall back to image retrieval after Windows probe failure ([#1922](https://github.com/Gitlawb/openclaude/issues/1922)) ([218064e](https://github.com/Gitlawb/openclaude/commit/218064e37673364afe2178a9ccb9be5d0b66c00d))
+* **command-semantics:** cover remaining linter runner exits ([#1700](https://github.com/Gitlawb/openclaude/issues/1700)) ([3b41cf3](https://github.com/Gitlawb/openclaude/commit/3b41cf3adb4c6a6dcadd113a83277ddc95fc2052))
+* **command-semantics:** treat linter exit 1 as violations, not an error ([#1846](https://github.com/Gitlawb/openclaude/issues/1846)) ([2f98208](https://github.com/Gitlawb/openclaude/commit/2f98208eafdc121f3d8308060016ee7363519ac7))
+* **commands:** escape named-argument names before building the regex ([#1914](https://github.com/Gitlawb/openclaude/issues/1914)) ([3f85b25](https://github.com/Gitlawb/openclaude/commit/3f85b255ddf85db76d99a04b4df4baba81485ec0))
+* **config:** recover from a healthy backup when the global config is corrupt ([#1819](https://github.com/Gitlawb/openclaude/issues/1819)) ([5105dff](https://github.com/Gitlawb/openclaude/commit/5105dff5f4fe05d1fd177bc62c7712c9ff5374e0))
+* **context:** order pruned messages by envelope timestamp, not phantom field ([#1934](https://github.com/Gitlawb/openclaude/issues/1934)) ([2970b5f](https://github.com/Gitlawb/openclaude/commit/2970b5fd5f94ffd5a5121ebe5dc655c079b2ec51))
+* **diff:** count dropped lines correctly in truncated diff snippet ([#1916](https://github.com/Gitlawb/openclaude/issues/1916)) ([87c457c](https://github.com/Gitlawb/openclaude/commit/87c457c2fa610ec563132af561ec5858d7683eaa))
+* **diff:** don't overcount new-file additions by the trailing newline ([#1873](https://github.com/Gitlawb/openclaude/issues/1873)) ([8d90849](https://github.com/Gitlawb/openclaude/commit/8d90849fe6567b82b8e0915b5f5b9c5de6e690b5))
+* **diff:** number diff-snippet hunks by their new-file position ([#1917](https://github.com/Gitlawb/openclaude/issues/1917)) ([0369c86](https://github.com/Gitlawb/openclaude/commit/0369c86e3ba2c1ae44a707af981ce52a67ec0250))
+* **editor:** account for NFC boundary composition in insert offset ([#1954](https://github.com/Gitlawb/openclaude/issues/1954)) ([ed3927d](https://github.com/Gitlawb/openclaude/commit/ed3927d0f547ddee44ee584e58858942490649de))
+* **editor:** guard editor-override lookup against prototype keys ([#1915](https://github.com/Gitlawb/openclaude/issues/1915)) ([de751f3](https://github.com/Gitlawb/openclaude/commit/de751f369c8348a8ed0561011a311903e8780839))
+* **effort:** keep effort indicator visible in prompt footer ([#1919](https://github.com/Gitlawb/openclaude/issues/1919)) ([b588c26](https://github.com/Gitlawb/openclaude/commit/b588c26db2bd097db72706b1fb366e48e9cb346e))
+* **env:** align WebSearch and Ollama env docs ([#1904](https://github.com/Gitlawb/openclaude/issues/1904)) ([ae9a765](https://github.com/Gitlawb/openclaude/commit/ae9a765fb5fb1fd188ccd81c7848bc84a85dbaa3))
+* **gitdiff:** apply the 1MB diff cap in bytes, not UTF-16 char length ([#1932](https://github.com/Gitlawb/openclaude/issues/1932)) ([ffc5a6e](https://github.com/Gitlawb/openclaude/commit/ffc5a6e8fca3afc39ed2a7cede30b7891836a20f))
+* **installer:** gate native-binary install behind NATIVE_PACKAGE_URL ([#1838](https://github.com/Gitlawb/openclaude/issues/1838)) ([780f703](https://github.com/Gitlawb/openclaude/commit/780f7037470521f9f6f705e21bce10d811541eeb))
+* keep footer mounted across slash suggestions ([#1943](https://github.com/Gitlawb/openclaude/issues/1943)) ([4faf666](https://github.com/Gitlawb/openclaude/commit/4faf666cbab729a4f93493f8d4137d4bc0a29776))
+* **mcp:** preserve ":-" inside ${VAR:-default} default values ([#1933](https://github.com/Gitlawb/openclaude/issues/1933)) ([9bf9926](https://github.com/Gitlawb/openclaude/commit/9bf9926805cefbef627398dad6b69ac1bb640cb3))
+* **model:** default NVIDIA NIM main loop model ([#1928](https://github.com/Gitlawb/openclaude/issues/1928)) ([5918e33](https://github.com/Gitlawb/openclaude/commit/5918e330b294e3957eee3d41e93c77ffe607279c))
+* **nvidia-nim:** enable reasoning template kwargs ([#1893](https://github.com/Gitlawb/openclaude/issues/1893)) ([de97295](https://github.com/Gitlawb/openclaude/commit/de9729500bd4a16f3e61e5abc0577eac95af1024))
+* **openai-shim:** guard tool-arg field lookup against prototype keys ([#1880](https://github.com/Gitlawb/openclaude/issues/1880)) ([aac2d8c](https://github.com/Gitlawb/openclaude/commit/aac2d8cdc8368d404bb1fba56bf69a9da5279e19))
+* **permissions:** resolve relative worktree edit paths ([#1930](https://github.com/Gitlawb/openclaude/issues/1930)) ([4f971a1](https://github.com/Gitlawb/openclaude/commit/4f971a1316c3773c1b1691133b15533e0d78ea17))
+* **powershell:** make CMDLET_PATH_CONFIG prototype-safe ([#1913](https://github.com/Gitlawb/openclaude/issues/1913)) ([7995b9f](https://github.com/Gitlawb/openclaude/commit/7995b9f4920248a20a139d5d8b11ec10b6a07223))
+* **provider:** add Use Anthropic option to switch back from third-party profiles ([#1429](https://github.com/Gitlawb/openclaude/issues/1429)) ([f7d472e](https://github.com/Gitlawb/openclaude/commit/f7d472e826d28d798931f48d0cf09c23387bcc2f))
+* **proxy:** bypass subdomains for a bare NO_PROXY domain entry ([#1848](https://github.com/Gitlawb/openclaude/issues/1848)) ([a46046e](https://github.com/Gitlawb/openclaude/commit/a46046ee90a4efe292d7c0b404c58382f7e43133))
+* **query-guard:** exclude human-interaction wait from session timeout ([#1879](https://github.com/Gitlawb/openclaude/issues/1879)) ([2047fb2](https://github.com/Gitlawb/openclaude/commit/2047fb250f1a1178f81430d1a381c4c64d631ab2))
+* **query:** warn before repeated tool failures stop ([#1927](https://github.com/Gitlawb/openclaude/issues/1927)) ([2448ea9](https://github.com/Gitlawb/openclaude/commit/2448ea9bfe99171d2ae9e3a8513f373fb46c7d4f))
+* **read:** report zero lines for an empty file ([#1881](https://github.com/Gitlawb/openclaude/issues/1881)) ([cde6e09](https://github.com/Gitlawb/openclaude/commit/cde6e090d31d376f8009d3a7af850350a99b60b2))
+* **safety:** relax over-restrictive safety checks for benign coding tasks ([#1897](https://github.com/Gitlawb/openclaude/issues/1897)) ([e086e8c](https://github.com/Gitlawb/openclaude/commit/e086e8c35a3b4ceea6ada5d71ad403c5e85e0861))
+* **shim:** don't infer Z.AI tool_stream for non-catalog GLM gateways ([#1908](https://github.com/Gitlawb/openclaude/issues/1908)) ([2259c80](https://github.com/Gitlawb/openclaude/commit/2259c809f7e36a419e787cb0397ba3727b6e25c4))
+* suspend footer work during ctrl-c feedback ([#1963](https://github.com/Gitlawb/openclaude/issues/1963)) ([f961ae7](https://github.com/Gitlawb/openclaude/commit/f961ae743264d432ff1cc742385b5085f54e86df))
+* **tokens:** include attachments in incremental cache key ([#800](https://github.com/Gitlawb/openclaude/issues/800)) ([5afd4f4](https://github.com/Gitlawb/openclaude/commit/5afd4f4d1061961bc667e7f4f0fabf76ca235e4d))
+* **tools:** keep HY3 tool schemas inline ([#1923](https://github.com/Gitlawb/openclaude/issues/1923)) ([64d164d](https://github.com/Gitlawb/openclaude/commit/64d164d207cb5d10ec0d08120b13bcf9c05cdfb7))
+* **update:** avoid upstream package commands for custom builds ([#1944](https://github.com/Gitlawb/openclaude/issues/1944)) ([85cf2ac](https://github.com/Gitlawb/openclaude/commit/85cf2ac55a3ccceae2fc8e522443fbdc9b1304e8))
+* **websearch:** add built-in provider request timeouts ([#1874](https://github.com/Gitlawb/openclaude/issues/1874)) ([8599560](https://github.com/Gitlawb/openclaude/commit/8599560b8265f793df2d06041993f25c21dbf190))
+* **websearch:** match allowed/blocked domains case-insensitively ([#1872](https://github.com/Gitlawb/openclaude/issues/1872)) ([2308881](https://github.com/Gitlawb/openclaude/commit/230888181a42c71fc452539cf8802189e28bb297))
+
+
+### Performance Improvements
+
+* bound file IO concurrency ([#1948](https://github.com/Gitlawb/openclaude/issues/1948)) ([c11c88b](https://github.com/Gitlawb/openclaude/commit/c11c88bd91c971a4ce401e0444fdbe70eec33ff6))
+
 ## [0.23.0](https://github.com/Gitlawb/openclaude/compare/v0.22.0...v0.23.0) (2026-07-07)
 
 
