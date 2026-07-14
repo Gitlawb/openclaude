@@ -34,6 +34,7 @@ import type { PermissionDecision } from '../../utils/permissions/PermissionResul
 import {
   checkPlanModePermissions,
   checkRuleBasedPermissions,
+  revalidatePlanModePermissionAllow,
   samePermissionAskConstraint,
 } from '../../utils/permissions/permissions.js'
 import {
@@ -234,6 +235,9 @@ function createPermissionContext(
             if (tool.name !== BASH_TOOL_NAME || !pendingClassifierCheck) {
               return null
             }
+            const planModeWasActive =
+              toolUseContext.getAppState().toolPermissionContext.mode ===
+              'plan'
             const classifierDecision = await awaitClassifierAutoApproval(
               pendingClassifierCheck,
               toolUseContext.abortController.signal,
@@ -241,6 +245,18 @@ function createPermissionContext(
             )
             if (!classifierDecision) {
               return null
+            }
+            const finalInput = updatedInput ?? input
+            const planModeDecision =
+              await revalidatePlanModePermissionAllow(
+                tool,
+                input,
+                finalInput,
+                toolUseContext,
+                planModeWasActive,
+              )
+            if (planModeDecision) {
+              return planModeDecision
             }
             if (
               feature('TRANSCRIPT_CLASSIFIER') &&
@@ -260,7 +276,7 @@ function createPermissionContext(
             )
             return {
               behavior: 'allow' as const,
-              updatedInput: updatedInput ?? input,
+              updatedInput: finalInput,
               userModified: false,
               decisionReason: classifierDecision,
             }
@@ -400,9 +416,31 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       contentBlocks?: ContentBlockParam[],
       decisionReason?: PermissionDecisionReason,
-    ): Promise<PermissionAllowDecision> {
+    ): Promise<PermissionDecision> {
+      const planModeWasActive =
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      const revalidation = await revalidatePlanModePermissionAllow(
+        tool,
+        input,
+        updatedInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+      if (revalidation) {
+        return revalidation
+      }
       const acceptedPermanentUpdates =
-        await this.persistPermissions(permissionUpdates)
+        await this.persistPermissions(permissionUpdates, planModeWasActive)
+      const finalRevalidation = await revalidatePlanModePermissionAllow(
+        tool,
+        input,
+        updatedInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+      if (finalRevalidation) {
+        return finalRevalidation
+      }
       this.logDecision(
         {
           decision: 'accept',
@@ -426,9 +464,21 @@ function createPermissionContext(
       permissionUpdates: PermissionUpdate[],
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
-    ): Promise<PermissionAllowDecision> {
+    ): Promise<PermissionDecision> {
       const acceptedPermanentUpdates =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
+      const postUpdatePlanModeDecision =
+        await revalidatePlanModePermissionAllow(
+          tool,
+          input,
+          finalInput,
+          toolUseContext,
+          planModeWasActive ||
+            toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
+        )
+      if (postUpdatePlanModeDecision) {
+        return postUpdatePlanModeDecision
+      }
       this.logDecision(
         {
           decision: 'accept',
@@ -439,6 +489,28 @@ function createPermissionContext(
       return this.buildAllow(finalInput, {
         decisionReason: { type: 'hook', hookName: 'PermissionRequest' },
       })
+    },
+    async handleClassifierAllow(
+      finalInput: Record<string, unknown>,
+      decisionReason: PermissionDecisionReason,
+      permissionPromptStartTimeMs?: number,
+      planModeWasActive = false,
+    ): Promise<PermissionDecision> {
+      const planModeDecision = await revalidatePlanModePermissionAllow(
+        tool,
+        input,
+        finalInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+      if (planModeDecision) {
+        return planModeDecision
+      }
+      this.logDecision(
+        { decision: 'accept', source: { type: 'classifier' } },
+        { input: finalInput, permissionPromptStartTimeMs },
+      )
+      return this.buildAllow(finalInput, { decisionReason })
     },
     pushToQueue(item: ToolUseConfirm) {
       queueOps?.push(item)

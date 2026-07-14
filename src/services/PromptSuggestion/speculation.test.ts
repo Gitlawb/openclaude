@@ -8,6 +8,7 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js'
+import { asSystemPrompt } from '../../utils/systemPromptType.js'
 
 let startSpeculation: typeof import('./speculation.js').startSpeculation
 let abortSpeculation: typeof import('./speculation.js').abortSpeculation
@@ -68,13 +69,16 @@ describe('startSpeculation', () => {
     const setAppState = (update: (prev: AppState) => AppState) => {
       appState = update(appState)
     }
-    const context = {
+    const context: REPLHookContext = {
       messages: [],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
       toolUseContext: {
         abortController: new AbortController(),
         getAppState: () => appState,
       } as unknown as ToolUseContext,
-    } as unknown as REPLHookContext
+    }
     capturedDecision = undefined
 
     try {

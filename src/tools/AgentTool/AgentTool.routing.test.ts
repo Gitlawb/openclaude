@@ -90,6 +90,28 @@ test('normal subagent prompt metadata uses routed effective model', async () => 
   )
 })
 
+test('plan-mode one-shot agents cannot be forced into background execution', async () => {
+  const { AgentTool } = await importAgentToolWithRoutingMocks()
+  const exploreAgent = {
+    ...createAgentDefinition(),
+    agentType: 'Explore',
+    background: true,
+  }
+
+  const result = await AgentTool.call(
+    {
+      description: 'Inspect implementation',
+      prompt: 'Find the bug',
+      subagent_type: 'Explore',
+    },
+    createToolUseContext('parent-model', [exploreAgent], 'plan'),
+    mock(async () => ({ behavior: 'allow' })) as never,
+    { requestId: 'req-plan' } as never,
+  )
+
+  expect(result.data.status).toBe('completed')
+})
+
 async function importAgentToolWithRoutingMocks(): Promise<{
   AgentTool: AgentToolModule['AgentTool']
   promptModels: string[]
@@ -159,10 +181,11 @@ function createAgentDefinition(): AgentDefinition {
 function createToolUseContext(
   mainLoopModel: string,
   activeAgents: AgentDefinition[],
+  mode = 'default',
 ): ToolUseContext {
   const appState = {
     toolPermissionContext: {
-      mode: 'default',
+      mode,
       additionalWorkingDirectories: new Map<string, string>(),
       alwaysAllowRules: {},
       alwaysDenyRules: {},

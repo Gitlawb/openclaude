@@ -4446,7 +4446,7 @@ export function createCanUseToolWithPermissionPrompt(
         'Permission prompt tool returned an invalid result. Expected a single text block param with type="text" and a string text value.',
       )
     }
-    return permissionPromptToolResultToPermissionDecision(
+    return await permissionPromptToolResultToPermissionDecision(
       permissionToolOutputSchema().parse(
         safeParseJSON(permissionToolResultBlockParam.content[0].text),
       ),

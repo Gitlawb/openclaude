@@ -38,6 +38,7 @@ import {
   checkPlanModePermissions,
   checkRuleBasedPermissions,
   hasPermissionsToUseTool,
+  revalidatePlanModePermissionAllow,
   samePermissionAskConstraint,
 } from 'src/utils/permissions/permissions.js'
 import { writeToStdout } from 'src/utils/process.js'
@@ -632,7 +633,7 @@ export class StructuredIO {
           }
           // Hook passed through (no decision) — wait for the SDK prompt
           const sdkResult = await sdkPromise
-          return permissionPromptToolResultToPermissionDecision(
+          return await permissionPromptToolResultToPermissionDecision(
             sdkResult.result,
             tool,
             input,
@@ -642,14 +643,14 @@ export class StructuredIO {
 
         // SDK prompt responded first — use its result (hook still running
         // in background but its result will be ignored)
-        return permissionPromptToolResultToPermissionDecision(
+        return await permissionPromptToolResultToPermissionDecision(
           winner.result,
           tool,
           input,
           toolUseContext,
         )
       } catch (error) {
-        return permissionPromptToolResultToPermissionDecision(
+        return await permissionPromptToolResultToPermissionDecision(
           {
             behavior: 'deny',
             message: `Tool permission request failed: ${error}`,
@@ -879,6 +880,20 @@ async function executePermissionRequestHooksForSDK(
             return { ...prev, toolPermissionContext: updatedContext }
           })
           persistPermissionUpdates(permissionUpdates)
+        }
+
+        const postUpdatePlanModeDecision =
+          await revalidatePlanModePermissionAllow(
+            tool,
+            input,
+            finalInput,
+            toolUseContext,
+            enforcePlanMode ||
+              toolUseContext.getAppState().toolPermissionContext.mode ===
+                'plan',
+          )
+        if (postUpdatePlanModeDecision) {
+          return postUpdatePlanModeDecision
         }
 
         return {

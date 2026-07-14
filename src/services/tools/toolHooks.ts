@@ -482,7 +482,6 @@ export async function resolveHookPermissionDecision(
       }
       if (
         finalRuleDecision?.behavior === 'ask' &&
-        decision.behavior === 'allow' &&
         !samePermissionAskConstraint(candidateRuleDecision, finalRuleDecision)
       ) {
         if (remainingRuleApprovalReplays === 0) {

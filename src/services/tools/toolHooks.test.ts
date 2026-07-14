@@ -12,6 +12,9 @@ import {
   type ToolUseContext,
 } from '../../Tool.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
+import { AgentTool } from '../../tools/AgentTool/AgentTool.js'
+import { EXPLORE_AGENT } from '../../tools/AgentTool/built-in/exploreAgent.js'
+import { PLAN_AGENT } from '../../tools/AgentTool/built-in/planAgent.js'
 import { BashTool } from '../../tools/BashTool/BashTool.js'
 import { resolveHookPermissionDecision } from './toolHooks.js'
 
@@ -81,7 +84,12 @@ function contextForPlan(
         ...overrides,
       },
     }),
-    options: {},
+    options: {
+      agentDefinitions: {
+        activeAgents: [EXPLORE_AGENT, PLAN_AGENT],
+        allAgents: [EXPLORE_AGENT, PLAN_AGENT],
+      },
+    },
   } as unknown as ToolUseContext
 }
 
@@ -227,6 +235,35 @@ describe('resolveHookPermissionDecision', () => {
     )
 
     expect(result.input).toEqual({ operation: 'write' })
+    expect(result.decision).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+    expect(canUseTool).not.toHaveBeenCalled()
+  })
+
+  test('plan mode rejects hook-rewritten Agent cwd even when the schema strips it', async () => {
+    const canUseTool = vi.fn(async () => ({
+      behavior: 'allow' as const,
+    })) as unknown as CanUseToolFn
+    const originalInput = {
+      description: 'Inspect code',
+      prompt: 'Read only',
+      subagent_type: 'Explore',
+    }
+    const rewrittenInput = { ...originalInput, cwd: '/tmp/escape' }
+
+    const result = await resolveHookPermissionDecision(
+      { behavior: 'allow', updatedInput: rewrittenInput },
+      AgentTool,
+      originalInput,
+      contextForPlan(),
+      canUseTool,
+      assistantMessage,
+      'agent-cwd-rewrite',
+    )
+
+    expect(result.input).toEqual(rewrittenInput)
     expect(result.decision).toMatchObject({
       behavior: 'deny',
       decisionReason: { type: 'mode', mode: 'plan' },

@@ -548,7 +548,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
   return null
 }
 
-export const hasPermissionsToUseTool: CanUseToolFn = async (
+const hasPermissionsToUseToolWithModeHandling: CanUseToolFn = async (
   tool,
   input,
   context,
@@ -556,7 +556,6 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   toolUseID,
 ): Promise<PermissionDecision> => {
   const result = await hasPermissionsToUseToolInner(tool, input, context)
-
 
   // Reset consecutive denials on any allowed tool use in auto mode.
   // This ensures that a successful tool use (even one auto-allowed by rules)
@@ -1031,6 +1030,50 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   return result
 }
 
+export const hasPermissionsToUseTool: CanUseToolFn = async (
+  tool,
+  input,
+  context,
+  assistantMessage,
+  toolUseID,
+): Promise<PermissionDecision> => {
+  const planModeWasActive =
+    context.getAppState().toolPermissionContext.mode === 'plan'
+  const result = await hasPermissionsToUseToolWithModeHandling(
+    tool,
+    input,
+    context,
+    assistantMessage,
+    toolUseID,
+  )
+  if (result.behavior !== 'allow') {
+    return result
+  }
+
+  const finalInput = result.updatedInput ?? input
+  let planModeDecision = await revalidatePlanModePermissionAllow(
+    tool,
+    input,
+    finalInput,
+    context,
+    planModeWasActive,
+  )
+  if (
+    !planModeDecision &&
+    !planModeWasActive &&
+    context.getAppState().toolPermissionContext.mode === 'plan'
+  ) {
+    planModeDecision = await revalidatePlanModePermissionAllow(
+      tool,
+      input,
+      finalInput,
+      context,
+      true,
+    )
+  }
+  return planModeDecision ?? result
+}
+
 /**
  * Persist denial tracking state. For async subagents with localDenialTracking,
  * mutate the local state in place (since setAppState is a no-op). Otherwise,
@@ -1268,6 +1311,69 @@ export function samePermissionAskConstraint(
   )
 }
 
+/**
+ * Revalidates an externally approved input when plan mode is active. The
+ * original ask constraint may be satisfied by the approval, but a rewritten
+ * input cannot introduce a different ask/deny constraint or cross the
+ * mechanical plan-mode boundary.
+ */
+export async function revalidatePlanModePermissionAllow(
+  tool: Tool,
+  originalInput: { [key: string]: unknown },
+  finalInput: { [key: string]: unknown },
+  context: ToolUseContext,
+  planModeWasActive = false,
+): Promise<PermissionDecision | null> {
+  // Some SDK embedders provide a minimal context when no local permission
+  // mode is configured. There is no plan-mode state to enforce in that case.
+  if (typeof context.getAppState !== 'function') {
+    return null
+  }
+  if (
+    !planModeWasActive &&
+    context.getAppState().toolPermissionContext.mode !== 'plan'
+  ) {
+    return null
+  }
+
+  const candidateRuleDecision = await checkRuleBasedPermissions(
+    tool,
+    originalInput,
+    context,
+  )
+  if (candidateRuleDecision?.behavior === 'deny') {
+    return candidateRuleDecision
+  }
+
+  const finalRuleDecision = await checkRuleBasedPermissions(
+    tool,
+    finalInput,
+    context,
+  )
+  if (finalRuleDecision?.behavior === 'deny') {
+    return finalRuleDecision
+  }
+
+  const planModeDecision = await checkPlanModePermissions(
+    tool,
+    finalInput,
+    context,
+    true,
+  )
+  if (planModeDecision) {
+    return planModeDecision
+  }
+
+  if (
+    finalRuleDecision?.behavior === 'ask' &&
+    !samePermissionAskConstraint(candidateRuleDecision, finalRuleDecision)
+  ) {
+    return { ...finalRuleDecision, updatedInput: finalInput }
+  }
+
+  return null
+}
+
 function planModeDenial(toolName: string): PermissionDenyDecision {
   return {
     behavior: 'deny',
@@ -1326,6 +1432,7 @@ export async function checkPlanModePermissions(
 
   if (tool.name === AGENT_TOOL_NAME) {
     const agentInput = parsed.data as Record<string, unknown>
+    const rawAgentInput = input as Record<string, unknown>
     const agentType = agentInput.subagent_type
     const definition =
       typeof agentType === 'string'
@@ -1338,11 +1445,12 @@ export async function checkPlanModePermissions(
       ONE_SHOT_BUILTIN_AGENT_TYPES.has(agentType) &&
       definition?.source === 'built-in'
     const hasUnsafeWrapperOptions =
-      agentInput.name !== undefined ||
-      agentInput.team_name !== undefined ||
-      agentInput.mode !== undefined ||
-      agentInput.isolation !== undefined ||
-      agentInput.cwd !== undefined
+      rawAgentInput.name !== undefined ||
+      rawAgentInput.team_name !== undefined ||
+      rawAgentInput.mode !== undefined ||
+      rawAgentInput.isolation !== undefined ||
+      rawAgentInput.cwd !== undefined ||
+      rawAgentInput.run_in_background === true
 
     return isSafeOneShot && !hasUnsafeWrapperOptions
       ? null

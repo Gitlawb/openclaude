@@ -54,6 +54,34 @@ function toolUseContextForPermissionMode(mode: string) {
   } as any
 }
 
+function mutableToolUseContextForPermissionMode(initialMode: string) {
+  let mode = initialMode
+  return {
+    context: {
+      abortController: new AbortController(),
+      getAppState: () => ({
+        toolPermissionContext: {
+          ...getEmptyToolPermissionContext(),
+          mode,
+          isBypassPermissionsModeAvailable:
+            mode === 'bypassPermissions' || mode === 'fullAccess',
+        },
+      }),
+    } as any,
+    setMode(nextMode: string) {
+      mode = nextMode
+    },
+  }
+}
+
+const sdkConditionalTool = {
+  name: 'SDKConditionalTool',
+  inputSchema: z.object({ operation: z.enum(['read', 'write']) }),
+  isReadOnly(input: { operation: 'read' | 'write' }) {
+    return input.operation === 'read'
+  },
+} as any
+
 describe('buildPermissionContext', () => {
   test('returns default mode when no permissionMode specified', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp' })
@@ -315,6 +343,67 @@ describe('createDefaultCanUseTool', () => {
 })
 
 describe('createExternalCanUseTool synchronous host response', () => {
+  test('user callback cannot rewrite a plan-mode read into a mutation', async () => {
+    const state = mutableToolUseContextForPermissionMode('plan')
+    const canUseTool = createExternalCanUseTool(
+      async () => ({
+        behavior: 'allow' as const,
+        updatedInput: { operation: 'write' },
+      }),
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      createPermissionTarget(),
+    )
+
+    const result = await canUseTool(
+      sdkConditionalTool,
+      { operation: 'read' },
+      state.context,
+      {} as any,
+      'plan-user-callback-rewrite',
+      undefined,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('async host approval is denied when plan mode starts while it is pending', async () => {
+    const permissionTarget = createPermissionTarget()
+    const state = mutableToolUseContextForPermissionMode('default')
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      message => {
+        state.setMode('plan')
+        permissionTarget.pendingPermissionPrompts
+          .get(message.tool_use_id)!
+          .resolve({
+            behavior: 'allow',
+            updatedInput: { operation: 'write' },
+          })
+      },
+      undefined,
+      50,
+    )
+
+    const result = await canUseTool(
+      sdkConditionalTool,
+      { operation: 'read' },
+      state.context,
+      {} as any,
+      'pending-plan-host-rewrite',
+      undefined,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
   test('synchronous host response from onPermissionRequest is received', async () => {
     // Regression test: onPermissionRequest must fire AFTER registerPendingPermission
     // so a host that responds synchronously finds the entry in the map.

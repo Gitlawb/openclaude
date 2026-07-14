@@ -311,7 +311,7 @@ function handleInteractivePermission(
       const signal = ctx.toolUseContext.abortController.signal
       const unsubscribe = bridgeCallbacks.onResponse(
         bridgeRequestId,
-        response => {
+        async response => {
           if (!claim()) return // Local user/hook/classifier already responded
           signal.removeEventListener('abort', unsubscribe)
           clearClassifierChecking(ctx.toolUseID)
@@ -320,20 +320,14 @@ function handleInteractivePermission(
           channelUnsubscribe?.()
 
           if (response.behavior === 'allow') {
-            if (response.updatedPermissions?.length) {
-              void ctx.persistPermissions(response.updatedPermissions)
-            }
-            ctx.logDecision(
-              {
-                decision: 'accept',
-                source: {
-                  type: 'user',
-                  permanent: !!response.updatedPermissions?.length,
-                },
-              },
-              { permissionPromptStartTimeMs },
+            resolveOnce(
+              await ctx.handleUserAllow(
+                response.updatedInput ?? displayInput,
+                response.updatedPermissions ?? [],
+                undefined,
+                permissionPromptStartTimeMs,
+              ),
             )
-            resolveOnce(ctx.buildAllow(response.updatedInput ?? displayInput))
           } else {
             ctx.logDecision(
               {
@@ -424,7 +418,7 @@ function handleInteractivePermission(
         // idempotent), but it held the closure alive.
         const mapUnsub = channelCallbacks.onResponse(
           channelRequestId,
-          response => {
+          async response => {
             if (!claim()) return // Another racer won
             channelUnsubscribe?.() // both: map delete + listener remove
             clearClassifierChecking(ctx.toolUseID)
@@ -436,14 +430,14 @@ function handleInteractivePermission(
             }
 
             if (response.behavior === 'allow') {
-              ctx.logDecision(
-                {
-                  decision: 'accept',
-                  source: { type: 'user', permanent: false },
-                },
-                { permissionPromptStartTimeMs },
+              resolveOnce(
+                await ctx.handleUserAllow(
+                  displayInput,
+                  [],
+                  undefined,
+                  permissionPromptStartTimeMs,
+                ),
               )
-              resolveOnce(ctx.buildAllow(displayInput))
             } else {
               ctx.logDecision(
                 {
@@ -499,6 +493,8 @@ function handleInteractivePermission(
       ctx.tool.name === BASH_TOOL_NAME &&
       !awaitAutomatedChecksBeforeDialog
     ) {
+      const classifierPlanModeWasActive =
+        ctx.toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
       // UI indicator for "classifier running" — set here (not in
       // toolExecution.ts) so commands that auto-allow via prefix rules
       // don't flash the indicator for a split second before allow returns.
@@ -513,13 +509,25 @@ function handleInteractivePermission(
             clearClassifierChecking(ctx.toolUseID)
             clearClassifierIndicator()
           },
-          onAllow: decisionReason => {
+          onAllow: async decisionReason => {
             if (!claim()) return
             if (bridgeCallbacks && bridgeRequestId) {
               bridgeCallbacks.cancelRequest(bridgeRequestId)
             }
             channelUnsubscribe?.()
             clearClassifierChecking(ctx.toolUseID)
+
+            const classifierDecision = await ctx.handleClassifierAllow(
+              ctx.input,
+              decisionReason,
+              permissionPromptStartTimeMs,
+              classifierPlanModeWasActive,
+            )
+            if (classifierDecision.behavior !== 'allow') {
+              ctx.removeFromQueue()
+              resolveOnce(classifierDecision)
+              return
+            }
 
             const matchedRule =
               decisionReason.type === 'classifier'
@@ -548,11 +556,7 @@ function handleInteractivePermission(
               }
             }
 
-            ctx.logDecision(
-              { decision: 'accept', source: { type: 'classifier' } },
-              { permissionPromptStartTimeMs },
-            )
-            resolveOnce(ctx.buildAllow(ctx.input, { decisionReason }))
+            resolveOnce(classifierDecision)
 
             // Keep checkmark visible, then remove dialog.
             // 3s if terminal is focused (user can see it), 1s if not.

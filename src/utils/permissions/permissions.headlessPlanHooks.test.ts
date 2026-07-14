@@ -7,6 +7,7 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import type { PermissionDecision } from './PermissionResult.js'
+import { permissionPromptToolResultToPermissionDecision } from './PermissionPromptToolResultSchema.js'
 import type { PermissionUpdate } from './PermissionUpdateSchema.js'
 
 type HookDecision = PermissionDecision & {
@@ -98,6 +99,298 @@ const assistantMessage = {} as Parameters<
 >[3]
 
 describe('headless plan-mode PermissionRequest hooks', () => {
+  test('interactive user approval cannot rewrite a read into a mutation', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'InteractiveUserConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-user-input-rewrite',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow(
+      { operation: 'write' },
+      [],
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('interactive user approval cannot persist permission updates in plan mode', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'InteractiveUserReadTool',
+      isReadOnly: () => true,
+    })
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      readTool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-user-mode-update',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow({}, [
+      { type: 'setMode', mode: 'fullAccess', destination: 'session' },
+    ])
+
+    expect(result.behavior).toBe('allow')
+    expect(state.getPermissionContext().mode).toBe('plan')
+  })
+
+  test('interactive classifier approval is denied after entering plan mode', async () => {
+    const mutationTool = createToolFixture(z.object({}), {
+      name: 'InteractiveClassifierMutationTool',
+      isReadOnly: () => false,
+    })
+    const state = planContext({ mode: 'default' })
+    const permissionContext = createPermissionContext(
+      mutationTool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-classifier-enter-plan-mode',
+      state.setPermissionContext,
+    )
+    state.setPermissionContext({
+      ...state.getPermissionContext(),
+      mode: 'plan',
+    })
+
+    const result = await permissionContext.handleClassifierAllow(
+      {},
+      {
+        type: 'classifier',
+        classifier: 'bash_allow',
+        reason: 'Allowed by classifier',
+      },
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('interactive user approval preserves an explicit deny on rewritten input', async () => {
+    const tool = createToolFixture(
+      z.object({ target: z.enum(['review', 'restricted']) }),
+      {
+        name: 'InteractiveUserDenyTool',
+        isReadOnly: () => true,
+        async checkPermissions(input) {
+          return input.target === 'restricted'
+            ? {
+                behavior: 'deny' as const,
+                message: 'Restricted target',
+                decisionReason: {
+                  type: 'other' as const,
+                  reason: 'Restricted target',
+                },
+              }
+            : { behavior: 'ask' as const, message: 'Review target' }
+        },
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      tool,
+      { target: 'review' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-user-deny-rewrite',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow(
+      { target: 'restricted' },
+      [],
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Restricted target',
+    })
+  })
+
+  test('interactive user approval preserves a changed ask constraint', async () => {
+    const tool = createToolFixture(
+      z.object({ target: z.enum(['review', 'sensitive']) }),
+      {
+        name: 'InteractiveUserAskTool',
+        isReadOnly: () => true,
+        async checkPermissions(input) {
+          return {
+            behavior: 'ask' as const,
+            message: `Approval required for ${input.target}`,
+            decisionReason: {
+              type: 'rule' as const,
+              rule: {
+                source: 'session' as const,
+                ruleBehavior: 'ask' as const,
+                ruleValue: {
+                  toolName: 'InteractiveUserAskTool',
+                  ruleContent: input.target,
+                },
+              },
+            },
+          }
+        },
+      },
+    )
+    const state = planContext()
+    const permissionContext = createPermissionContext(
+      tool,
+      { target: 'review' },
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-user-ask-rewrite',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow(
+      { target: 'sensitive' },
+      [],
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'ask',
+      message: 'Approval required for sensitive',
+    })
+  })
+
+  test('SDK permission prompt approval rechecks rewritten input and drops plan-mode updates', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'SDKPromptConditionalTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext()
+
+    const result = await permissionPromptToolResultToPermissionDecision(
+      {
+        behavior: 'allow',
+        updatedInput: { operation: 'write' },
+        updatedPermissions: [
+          { type: 'setMode', mode: 'fullAccess', destination: 'session' },
+        ],
+      },
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+    expect(state.getPermissionContext().mode).toBe('plan')
+  })
+
+  test('SDK permission prompt keeps a read-only approval but drops plan-mode updates', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'SDKPromptReadTool',
+      isReadOnly: () => true,
+    })
+    const state = planContext()
+
+    const result = await permissionPromptToolResultToPermissionDecision(
+      {
+        behavior: 'allow',
+        updatedInput: {},
+        updatedPermissions: [
+          { type: 'setMode', mode: 'fullAccess', destination: 'session' },
+        ],
+      },
+      readTool,
+      {},
+      state.context,
+    )
+
+    expect(result).toMatchObject({ behavior: 'allow', updatedInput: {} })
+    expect(
+      result.behavior === 'allow' ? result.updatedPermissions : undefined,
+    ).toBeUndefined()
+    expect(state.getPermissionContext().mode).toBe('plan')
+  })
+
+  test('SDK permission prompt rechecks plan mode after approval normalization', async () => {
+    const conditionalTool = createToolFixture(
+      z.object({ operation: z.enum(['read', 'write']) }),
+      {
+        name: 'SDKPromptTransitionTool',
+        isReadOnly: input => input.operation === 'read',
+      },
+    )
+    const state = planContext({ mode: 'default' })
+    const promptResult = {
+      behavior: 'allow' as const,
+      get updatedInput() {
+        queueMicrotask(() => {
+          state.setPermissionContext({
+            ...state.getPermissionContext(),
+            mode: 'plan',
+          })
+        })
+        return { operation: 'write' }
+      },
+    }
+
+    const result = await permissionPromptToolResultToPermissionDecision(
+      promptResult,
+      conditionalTool,
+      { operation: 'read' },
+      state.context,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('SDK permission prompt rechecks a mutation after its update enters plan mode', async () => {
+    const mutationTool = createToolFixture(z.object({}), {
+      name: 'SDKPromptUpdateTransitionTool',
+      isReadOnly: () => false,
+    })
+    const state = planContext({ mode: 'default' })
+
+    const result = await permissionPromptToolResultToPermissionDecision(
+      {
+        behavior: 'allow',
+        updatedInput: {},
+        updatedPermissions: [
+          { type: 'setMode', mode: 'plan', destination: 'session' },
+        ],
+      },
+      mutationTool,
+      {},
+      state.context,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+    expect(state.getPermissionContext().mode).toBe('plan')
+  })
+
   test('denies input rewritten into an explicit deny', async () => {
     const tool = createToolFixture(
       z.object({ target: z.enum(['review', 'restricted']) }),
@@ -721,6 +1014,64 @@ describe('headless plan-mode PermissionRequest hooks', () => {
       } finally {
         beforeHookDecision = undefined
       }
+    },
+  )
+
+  test.each(['SDK', 'interactive', 'headless'] as const)(
+    '%s hooks recheck a mutation after their update enters plan mode',
+    async executionPath => {
+      const mutationTool = createToolFixture(z.object({}), {
+        name: `${executionPath}HookUpdateTransitionTool`,
+        isReadOnly: () => false,
+        async checkPermissions() {
+          return { behavior: 'ask' as const, message: 'Review mutation' }
+        },
+      })
+      const state = planContext({ mode: 'default' })
+      const structuredIO = new StructuredIO(
+        (async function* () {
+          yield* []
+        })(),
+      )
+      hookDecision = {
+        behavior: 'allow',
+        updatedPermissions: [
+          { type: 'setMode', mode: 'plan', destination: 'session' },
+        ],
+      }
+
+      const result =
+        executionPath === 'SDK'
+          ? await structuredIO.createCanUseTool()(
+              mutationTool,
+              {},
+              state.context,
+              assistantMessage,
+              'sdk-hook-update-enter-plan-mode',
+              { behavior: 'ask', message: 'Review mutation' },
+            )
+          : executionPath === 'headless'
+            ? await hasPermissionsToUseTool(
+                mutationTool,
+                {},
+                state.context,
+                assistantMessage,
+                'headless-hook-update-enter-plan-mode',
+              )
+            : await createPermissionContext(
+                mutationTool,
+                {},
+                state.context,
+                { message: { id: 'assistant-message' } } as never,
+                'interactive-hook-update-enter-plan-mode',
+                state.setPermissionContext,
+              ).runHooks(undefined, undefined)
+
+      expect(result).toMatchObject({
+        behavior: 'deny',
+        decisionReason: { type: 'mode', mode: 'plan' },
+      })
+      expect(state.getPermissionContext().mode).toBe('plan')
     },
   )
 })

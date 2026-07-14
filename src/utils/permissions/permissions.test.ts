@@ -759,6 +759,7 @@ describe('plan mode mechanical read-only policy', () => {
     { description: 'Team', prompt: 'Work', subagent_type: 'Plan', team_name: 'team' },
     { description: 'Mode', prompt: 'Work', subagent_type: 'Plan', mode: 'plan' },
     { description: 'Isolate', prompt: 'Work', subagent_type: 'Explore', isolation: 'worktree' },
+    { description: 'Background', prompt: 'Work', subagent_type: 'Explore', run_in_background: true },
   ])('denies unsafe Agent form %#', async input => {
     const result = await hasPermissionsToUseTool(
       AgentTool,
