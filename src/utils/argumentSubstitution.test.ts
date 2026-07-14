@@ -32,3 +32,30 @@ describe('substituteArguments named-argument regex safety', () => {
     )
   })
 })
+
+describe('substituteArguments $-token literalness', () => {
+  test('inserts $$ in $ARGUMENTS verbatim rather than collapsing it', () => {
+    // String.replaceAll treats `$$` in the replacement as an escaped `$`.
+    expect(substituteArguments('cost $ARGUMENTS', 'is 100$$')).toBe(
+      'cost is 100$$',
+    )
+  })
+
+  test('inserts match-reference tokens in $ARGUMENTS verbatim', () => {
+    // $&, $` and $' are all String.replace match references; they must stay
+    // literal when they come from user-supplied argument text.
+    expect(substituteArguments('run $ARGUMENTS now', 'deploy $& svc')).toBe(
+      'run deploy $& svc now',
+    )
+    expect(substituteArguments('x $ARGUMENTS y', 'a $` b')).toBe('x a $` b y')
+    expect(substituteArguments('x $ARGUMENTS y', "a $' b")).toBe("x a $' b y")
+  })
+
+  test('inserts $$ in a named argument value verbatim', () => {
+    // parseArguments preserves `100$$` as a single token; the substitution must
+    // not then let String.replace collapse the `$$` to a single `$`.
+    expect(substituteArguments('v=$name', '100$$', false, ['name'])).toBe(
+      'v=100$$',
+    )
+  })
+})

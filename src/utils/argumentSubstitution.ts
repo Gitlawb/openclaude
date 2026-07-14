@@ -119,9 +119,13 @@ export function substituteArguments(
     // containing regex metacharacters would otherwise throw (unbalanced `(`/`[`)
     // or over-match (`a.` matching `$ab`) — parseArgumentNames does not restrict
     // the character set beyond rejecting empty/numeric-only names.
+    // Use a function replacer so `$`-sequences in the user's argument value
+    // (`$$`, `$&`, `` $` ``, `$'`, `$n`) are inserted verbatim rather than
+    // interpreted by String.replace as match references.
+    const value = parsedArgs[i] ?? ''
     content = content.replace(
       new RegExp(`\\$${escapeRegExp(name)}(?![\\[\\w])`, 'g'),
-      parsedArgs[i] ?? '',
+      () => value,
     )
   }
 
@@ -137,8 +141,10 @@ export function substituteArguments(
     return parsedArgs[index] ?? ''
   })
 
-  // Replace $ARGUMENTS with the full arguments string
-  content = content.replaceAll('$ARGUMENTS', args)
+  // Replace $ARGUMENTS with the full arguments string. A function replacer
+  // keeps `$`-sequences in the user's args (`$$`, `$&`, `` $` ``, `$'`) literal
+  // instead of letting String.replaceAll treat them as match references.
+  content = content.replaceAll('$ARGUMENTS', () => args)
 
   // If no placeholders were found and appendIfNoPlaceholder is true, append
   // But only if args is non-empty (empty string means command invoked with no args)
