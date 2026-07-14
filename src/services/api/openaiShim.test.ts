@@ -8892,6 +8892,55 @@ test('Shim self-heals `tool_stream` rejection by retrying without it (#1950)', a
   expect(Array.isArray(requestBodies[1]?.tools)).toBe(true)
 })
 
+test('Shim retries a tool_stream rejection with the same pooled credential (#1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  const authorizations: Array<string | null> = []
+  let callCount = 0
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    callCount += 1
+    if (callCount === 1) {
+      return new Response(
+        '{"error":{"message":"Validation: Unsupported parameter(s): `tool_stream`"}}',
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [{
+      name: 'Bash',
+      description: 'Run a shell command',
+      input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+    }],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-a'])
+})
+
 test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'

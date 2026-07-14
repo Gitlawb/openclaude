@@ -154,15 +154,9 @@ function isToolCompatibilityMessage(body: string): boolean {
 // `tool_call` substring in isToolCompatibilityMessage does NOT match
 // `tool_stream`, so this needs its own matcher.
 function isToolStreamUnsupportedMessage(body: string): boolean {
-  const lower = body.toLowerCase()
   return (
-    lower.includes('tool_stream') &&
-    (lower.includes('unsupported') ||
-      lower.includes('unknown parameter') ||
-      lower.includes('unrecognized request argument') ||
-      lower.includes('unrecognized parameter') ||
-      lower.includes('not supported') ||
-      lower.includes('invalid'))
+    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:(?:request\s+argument(?:\s+supplied)?|parameter(?:\(s\))?)\s*[:=]?\s*`?tool_stream`?|`?tool_stream`?\s+(?:parameter|request\s+argument))/i.test(body) ||
+    /`?tool_stream`?\s+(?:is\s+)?(?:unsupported|not\s+supported)\b/i.test(body)
   )
 }
 

@@ -185,6 +185,15 @@ test('does not classify a generic 400 as tool_stream_unsupported', () => {
   expect(failure.category).not.toBe('tool_stream_unsupported')
 })
 
+test('does not classify an invalid schema for a tool named tool_stream as a parameter rejection', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: "Invalid schema for function 'tool_stream': properties must be an object",
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
 test('embeds and extracts category markers in formatted messages', () => {
   const marker = formatOpenAICategoryMarker('endpoint_not_found')
   expect(marker).toBe('[openai_category=endpoint_not_found]')

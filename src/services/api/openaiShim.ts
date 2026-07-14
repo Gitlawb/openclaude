@@ -4489,6 +4489,7 @@ class OpenAIShimMessages {
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
     let didRetryWithoutTools = false
     let didRetryWithoutToolStream = false
+    let retryCredentialLease: CredentialLease | null = null
     let didRefreshCopilotToken = false
     let refreshedCopilotToken: string | undefined
 
@@ -4679,7 +4680,8 @@ class OpenAIShimMessages {
       : 'openai'
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const credentialLease = credentialPool?.next() ?? null
+      const credentialLease = retryCredentialLease ?? credentialPool?.next() ?? null
+      retryCredentialLease = null
       if (credentialPool && !credentialLease) {
         throw APIError.generate(
           401,
@@ -4964,6 +4966,10 @@ class OpenAIShimMessages {
         maxAttempts += 1
         delete body.tool_stream
         refreshSerializedBody()
+        // This retry only changes request formatting. Reuse the credential that
+        // received the rejection so a pool with unequal model access cannot
+        // turn a recoverable 400 into an unrelated authorization failure.
+        retryCredentialLease = credentialLease
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=tool_stream_unsupported method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
