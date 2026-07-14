@@ -183,6 +183,9 @@ test.each([
   'Unsupported parameters: tool_stream',
   "Parameter 'tool_stream' is unknown",
   "'tool_stream' is an unknown parameter",
+  'Invalid "tool_stream" parameter',
+  '`tool_stream` is not supported',
+  '{"error":{"message":"Invalid parameter","param":"tool_stream"}}',
 ])('classifies quoted tool_stream parameter rejections: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
