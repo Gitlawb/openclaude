@@ -658,7 +658,7 @@ describe('system-check WebSearch diagnostics', () => {
 })
 
 describe('system-check memory guard diagnostics', () => {
-  test('reports safe default auto-compact and hard-cap guards', () => {
+  test('reports the effective default auto-compact and hard-cap guards', () => {
     const results = buildMemoryGuardChecks({
       autoCompactEnabled: true,
       maxMessagesCompactionThreshold: undefined,
@@ -668,7 +668,7 @@ describe('system-check memory guard diagnostics', () => {
     expect(results).toContainEqual({
       ok: true,
       label: 'Auto-compact guard',
-      detail: `Enabled; message-count threshold off; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+      detail: `Enabled; message-count threshold 200; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
     })
     expect(results).toContainEqual({
       ok: true,
@@ -677,6 +677,36 @@ describe('system-check memory guard diagnostics', () => {
     })
     expect(results.find(result => result.label === 'Memory pressure guard'))
       .toMatchObject({ ok: true })
+  })
+
+  test('reports the legacy message-count override when the setting is unset or off', () => {
+    for (const maxMessagesCompactionThreshold of [undefined, 'off']) {
+      const results = buildMemoryGuardChecks({
+        autoCompactEnabled: true,
+        maxMessagesCompactionThreshold,
+        env: { OPENCLAUDE_MAX_ACTIVE_MESSAGES: '500' },
+      })
+
+      expect(results).toContainEqual({
+        ok: true,
+        label: 'Auto-compact guard',
+        detail: `Enabled; message-count threshold 500; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+      })
+    }
+  })
+
+  test('reports an explicit message-count setting ahead of the legacy override', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: '100',
+      env: { OPENCLAUDE_MAX_ACTIVE_MESSAGES: '500' },
+    })
+
+    expect(results).toContainEqual({
+      ok: true,
+      label: 'Auto-compact guard',
+      detail: `Enabled; message-count threshold 100; hard cap ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`,
+    })
   })
 
   test('falls back to the default hard cap when the override is malformed', () => {

@@ -36,6 +36,7 @@ import {
   DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP,
   getMaxActiveMessagesHardCap,
 } from '../src/utils/maxActiveMessages.js'
+import { normalizeMaxMessagesCompactionThreshold } from '../src/utils/config.js'
 import {
   getAvailableProviders,
   getProviderChain,
@@ -120,19 +121,22 @@ export function buildMemoryGuardChecks(
     input.autoCompactEnabled && !disableCompact && !disableAutoCompact
   const hardCapOverride = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
   const hardCap = getMaxActiveMessagesHardCap(env)
-  const configuredLimit =
-    input.maxMessagesCompactionThreshold &&
-    input.maxMessagesCompactionThreshold !== 'off'
-      ? input.maxMessagesCompactionThreshold
-      : undefined
   const legacyLimit = parsePositiveInteger(env.OPENCLAUDE_MAX_ACTIVE_MESSAGES)
+  const configuredLimit =
+    ((input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+      legacyLimit > 0)
+      ? legacyLimit
+      : normalizeMaxMessagesCompactionThreshold(
+          input.maxMessagesCompactionThreshold,
+        )
   const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
 
   results.push(
     autoCompactAvailable
       ? pass(
           'Auto-compact guard',
-          `Enabled; message-count threshold ${configuredLimit ?? (legacyLimit > 0 ? legacyLimit : 'off')}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
+          `Enabled; message-count threshold ${configuredLimit}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
         )
       : fail(
           'Auto-compact guard',
