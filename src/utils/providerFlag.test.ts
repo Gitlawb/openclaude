@@ -218,14 +218,14 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 
-  test('clears inherited API keys when selecting the custom provider explicitly', () => {
+  test('preserves native API-key authentication when selecting the custom provider', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
-    process.env.ANTHROPIC_API_KEY = 'stale-first-party-key'
+    process.env.ANTHROPIC_API_KEY = 'native-proxy-key'
 
     const result = applyProviderFlag('custom-anthropic', [])
 
     expect(result.error).toBeUndefined()
-    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('native-proxy-key')
   })
 })
 
