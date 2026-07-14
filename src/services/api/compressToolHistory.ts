@@ -97,6 +97,103 @@ function extractText(content: unknown): string {
   return ''
 }
 
+function replaceTextContent(
+  block: ToolResultBlock,
+  replacementText: string,
+): ToolResultBlock {
+  if (!Array.isArray(block.content)) {
+    return {
+      ...block,
+      content: [{ type: 'text', text: replacementText }],
+    }
+  }
+
+  let replacedText = false
+  const content = block.content.flatMap(part => {
+    if (
+      part &&
+      typeof part === 'object' &&
+      (part as { type?: string }).type === 'text'
+    ) {
+      if (replacedText) return []
+      replacedText = true
+      return [{ ...part, text: replacementText }]
+    }
+    return [part]
+  })
+
+  if (!replacedText && content.length === 0) {
+    return {
+      ...block,
+      content: [{ type: 'text', text: replacementText }],
+    }
+  }
+
+  return { ...block, content }
+}
+
+function truncateTextContent(
+  block: ToolResultBlock,
+  maxChars: number,
+  originalLength: number,
+): ToolResultBlock {
+  const marker = `\n[…truncated ${originalLength - maxChars} chars from tool history]`
+  if (!Array.isArray(block.content)) {
+    const text = typeof block.content === 'string' ? block.content : ''
+    return {
+      ...block,
+      content: [{ type: 'text', text: `${text.slice(0, maxChars)}${marker}` }],
+    }
+  }
+
+  const content: unknown[] = []
+  let remaining = maxChars
+  let sawText = false
+  let truncated = false
+  let lastTextIndex = -1
+
+  const appendMarker = (): void => {
+    const part = content[lastTextIndex] as { text?: string } | undefined
+    if (part && typeof part.text === 'string') {
+      content[lastTextIndex] = { ...part, text: `${part.text}${marker}` }
+    }
+  }
+
+  for (const part of block.content) {
+    if (
+      !part ||
+      typeof part !== 'object' ||
+      (part as { type?: string }).type !== 'text' ||
+      typeof (part as { text?: unknown }).text !== 'string'
+    ) {
+      content.push(part)
+      continue
+    }
+    if (truncated) continue
+
+    const text = (part as { text: string }).text
+    const separatorChars = sawText ? 1 : 0
+    sawText = true
+    if (remaining <= separatorChars) {
+      appendMarker()
+      truncated = true
+      continue
+    }
+
+    remaining -= separatorChars
+    const retained = text.slice(0, remaining)
+    remaining -= retained.length
+    content.push({ ...part, text: retained })
+    lastTextIndex = content.length - 1
+    if (retained.length < text.length || remaining === 0) {
+      appendMarker()
+      truncated = true
+    }
+  }
+
+  return { ...block, content }
+}
+
 // Old-tier compression strategy. Replaces content entirely with a one-line
 // metadata marker ~10× more token-efficient than a 500-char truncation AND
 // unambiguous — partial truncations can look authoritative to the model. The
@@ -112,15 +209,10 @@ function buildStub(
   const args = toolUse?.input
     ? JSON.stringify(toolUse.input).slice(0, STUB_ARGS_MAX_CHARS)
     : '{}'
-  return {
-    ...block,
-    content: [
-      {
-        type: 'text',
-        text: `[${name} args=${args} → ${original.length} chars omitted]`,
-      },
-    ],
-  }
+  return replaceTextContent(
+    block,
+    `[${name} args=${args} → ${original.length} chars omitted]`,
+  )
 }
 
 // Mid-tier compression. The trailing marker is load-bearing: without it, the
@@ -133,16 +225,7 @@ function truncateBlock(
 ): ToolResultBlock {
   const text = extractText(block.content)
   if (text.length <= maxChars) return block
-  const omitted = text.length - maxChars
-  return {
-    ...block,
-    content: [
-      {
-        type: 'text',
-        text: `${text.slice(0, maxChars)}\n[…truncated ${omitted} chars from tool history]`,
-      },
-    ],
-  }
+  return truncateTextContent(block, maxChars, text.length)
 }
 
 function getInner(msg: AnyMessage): { role?: string; content?: unknown } {

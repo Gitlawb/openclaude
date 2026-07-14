@@ -243,6 +243,35 @@ test('mid tier: short content (< MID_MAX_CHARS) untouched', () => {
   }
 })
 
+test('mid tier: preserves structured-part order across multiple text blocks', () => {
+  const messages = buildConversation(10, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.content = [
+    { type: 'text', text: 'a'.repeat(1_000) },
+    {
+      type: 'image',
+      source: { type: 'url', url: 'https://example.com/result.png' },
+    },
+    { type: 'text', text: 'b'.repeat(1_500) },
+    { type: 'tool_reference', tool_name: 'mcp__example' },
+  ]
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  const content = getResultBlock(getResultMessages(result)[0]).content as Block[]
+
+  expect(content.map(part => part.type)).toEqual([
+    'text',
+    'image',
+    'text',
+    'tool_reference',
+  ])
+  expect(content[0].text).toBe('a'.repeat(1_000))
+  expect(content[2].text).toBe(
+    `${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+  )
+  expect((firstResult.content as Block[])[2].text).toBe('b'.repeat(1_500))
+})
+
 test('old tier: content replaced with stub [name args={...} → N chars omitted]', () => {
   // 100k → recent=5, mid=10, old=rest. 20 exchanges → 5 old + 10 mid + 5 recent.
   const messages = buildConversation(20, 5_000)
@@ -390,6 +419,17 @@ test('empty content array handled gracefully', () => {
     ...buildConversation(20, 100).slice(1),
   ]
   expect(() => compressToolHistoryForTest(messages, 'gpt-4o')).not.toThrow()
+})
+
+test('old tool_result with empty content array retains an omission stub', () => {
+  const messages = buildConversation(20, 100)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.content = []
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  const text = getResultText(getResultMessages(result)[0])
+
+  expect(text).toMatch(/^\[Read args=.*→ 0 chars omitted\]$/)
 })
 
 // ---------- message shape compatibility ----------

@@ -571,6 +571,75 @@ test('Responses compression preserves structured history and materially reduces 
   expect(compressedSize).toBeLessThan(uncompressedSize * 0.5)
 })
 
+test('Responses compression preserves structured parts while compressing old and mid text', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const messages = buildLongConversation(30, 5_000)
+  messages[2] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_0',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'url', url: 'https://example.com/old-image.png' },
+          },
+        ],
+      },
+    ],
+  }
+  messages[4] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_1',
+        content: [
+          { type: 'text', text: 'Screenshot from the old result.' },
+          {
+            type: 'image',
+            source: { type: 'url', url: 'https://example.com/mixed-result.png' },
+          },
+        ],
+      },
+    ],
+  }
+  messages[32] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_15',
+        content: [
+          { type: 'text', text: bigText(5_000) },
+          {
+            type: 'image',
+            source: { type: 'url', url: 'https://example.com/mid-result.png' },
+          },
+        ],
+      },
+    ],
+  }
+
+  const body = await captureResponsesRequestBody(messages, MID_TIER_MODEL)
+  const outputs = new Map(
+    getResponsesFunctionOutputs(body).map(item => [item.call_id, item.output ?? '']),
+  )
+  const oldMixedOutput = outputs.get('toolu_1') ?? ''
+  const midMixedOutput = outputs.get('toolu_15') ?? ''
+
+  expect(outputs.get('toolu_0')).toBe('[Image](https://example.com/old-image.png)')
+  expect(outputs.get('toolu_0')).not.toContain('chars omitted')
+  expect(oldMixedOutput).toMatch(/^\[Read args=.*31 chars omitted\]/)
+  expect(oldMixedOutput).toContain('[Image](https://example.com/mixed-result.png)')
+  expect(oldMixedOutput.length).toBeLessThan(200)
+  expect(midMixedOutput).toContain('[…truncated 3000 chars from tool history]')
+  expect(midMixedOutput).toContain('[Image](https://example.com/mid-result.png)')
+  expect(midMixedOutput.length).toBeLessThan(2_200)
+})
+
 test('Responses local fast path preserves the uncompressed request', async () => {
   mockState.enabled = true
   mockState.effectiveWindow = 100_000
