@@ -13,6 +13,7 @@ describe('autoExtractFacts', () => {
     // Extraction respects the memory-write approval policy; tests opt in so
     // facts are actually persisted.
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    delete process.env.CLAUDE_CODE_SIMPLE
     setGovernancePolicySettingsForSourceForTesting(() => ({
       memory: { requireApprovalBeforeWrite: false },
     }))
