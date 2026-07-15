@@ -161,15 +161,6 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     expect(notice).toContain('--dangerously-skip-permissions')
   })
 
-  test('does not fire for a positional --yolo after the -- end-of-options marker', () => {
-    // `openclaude -p -- --yolo` — the --yolo is prompt text; commander would
-    // not enable bypass, so the notice must not false-fire.
-    process.argv = [...process.argv, '-p', '--', '--yolo']
-    expect(activeIds(buildContext())).not.toContain(
-      'dangerously-skip-permissions-no-sandbox',
-    )
-  })
-
   test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',

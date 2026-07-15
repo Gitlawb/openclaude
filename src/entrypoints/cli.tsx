@@ -312,23 +312,6 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
-  // cliMain() in main.tsx parses process.argv directly (commander parseAsync,
-  // plus the connect/ssh/print raw-argv checks), so mirror the resolved args
-  // onto process.argv once here. For the normal binary launch — args defaulted
-  // from process.argv.slice(2) — this is a value-identical no-op. For a
-  // programmatic caller that passes an explicit args array it makes cliMain and
-  // every downstream raw-argv reader honor those args instead of silently using
-  // the host's argv. Set once and never restored: the process outlives main()
-  // (see the Node-24 regression test), so a scoped restore would flip argv out
-  // from under late readers such as the SIGINT handler and the bypass-safety
-  // notice — one consistent argv for the whole session is required. The exec and
-  // script slots are preserved, padded when the host argv is shorter than two
-  // entries (e.g. `node -e`), so commander's argv.slice(2) stays correct.
-  process.argv = [
-    process.argv[0] ?? 'node',
-    process.argv[1] ?? 'openclaude',
-    ...args,
-  ]
   // --yolo is registered as a native commander alias of
   // --dangerously-skip-permissions on the commands that support it (see
   // main.tsx), so commander resolves it and all opts().dangerouslySkipPermissions
@@ -336,6 +319,13 @@ export async function main(
   // from process.argv (skills pre-parse below, the connect/ssh strip blocks and
   // the safety notice in main.tsx / statusNoticeDefinitions.tsx) each accept the
   // --yolo spelling too, so no per-token rewrite is needed here.
+  //
+  // main() does NOT mirror `args` onto process.argv: cliMain() parses the global
+  // process.argv, and the sole production entry (the auto-run at the tail of
+  // this file) calls main() with no args, so `args` already equals
+  // process.argv.slice(2). Keeping a caller's args out of the process-global
+  // argv avoids leaking a programmatic invocation's arguments (including a
+  // permission-bypass flag) into an overlapping call or the host process.
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}

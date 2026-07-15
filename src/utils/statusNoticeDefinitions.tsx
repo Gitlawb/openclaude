@@ -294,8 +294,9 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // See issue #244 finding 2.
 function hasDangerouslySkipPermissionsArg(): boolean {
   // --yolo is a registered alias of --dangerously-skip-permissions; this reads
-  // raw argv (before commander), so it must match either spelling — but only in
-  // an option position, so a positional `-- --yolo` prompt does not false-fire.
+  // raw argv (before commander), so it must match either spelling. Presence-only
+  // detection mirrors the canonical flag's long-standing behavior (see
+  // dangerousSkipFlags.ts on why it does not model commander's option arity).
   return hasDangerousSkipFlag(process.argv);
 }
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
