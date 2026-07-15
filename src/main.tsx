@@ -28,6 +28,7 @@ import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { getOauthConfig } from './constants/oauth.js';
 import { hasDangerousSkipFlag, stripDangerousSkipFlags } from './utils/dangerousSkipFlags.js';
+import { parseSshFlags } from './utils/sshPreParse.js';
 import { getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
 import { init, initializeTelemetryAfterTrust } from './entrypoints/init.js';
@@ -681,68 +682,16 @@ export async function main() {
     // --permission-mode auto` are equivalent. The host check below only needs
     // to guard against `-h`/`--help` (which commander should handle).
     if (rawCliArgs[0] === 'ssh') {
-      const localIdx = rawCliArgs.indexOf('--local');
-      if (localIdx !== -1) {
-        _pendingSSH.local = true;
-        rawCliArgs.splice(localIdx, 1);
+      // Flag pre-parse (arity-aware; see parseSshFlags) lives in a pure helper
+      // so the security-sensitive handling is unit-tested.
+      const parsed = parseSshFlags(rawCliArgs);
+      _pendingSSH.local = parsed.local;
+      if (parsed.permissionMode !== undefined) {
+        _pendingSSH.permissionMode = parsed.permissionMode;
       }
-      if (hasDangerousSkipFlag(rawCliArgs)) {
-        _pendingSSH.dangerouslySkipPermissions = true;
-        // Remove every dangerous-skip token (--yolo and the canonical spelling,
-        // including repeats) so none survives into the rewritten argv and
-        // silently re-enables bypass after the ssh command is stripped. Replace
-        // the array contents in place — subsequent flag extraction below indexes
-        // into the same rawCliArgs reference.
-        rawCliArgs.splice(0, rawCliArgs.length, ...stripDangerousSkipFlags(rawCliArgs));
-      }
-      const pmIdx = rawCliArgs.indexOf('--permission-mode');
-      if (pmIdx !== -1 && rawCliArgs[pmIdx + 1] && !rawCliArgs[pmIdx + 1]!.startsWith('-')) {
-        _pendingSSH.permissionMode = rawCliArgs[pmIdx + 1];
-        rawCliArgs.splice(pmIdx, 2);
-      }
-      const pmEqIdx = rawCliArgs.findIndex(a => a.startsWith('--permission-mode='));
-      if (pmEqIdx !== -1) {
-        _pendingSSH.permissionMode = rawCliArgs[pmEqIdx]!.split('=')[1];
-        rawCliArgs.splice(pmEqIdx, 1);
-      }
-      // Forward session-resume + model flags to the remote CLI's initial spawn.
-      // --continue/-c and --resume <uuid> operate on the REMOTE session history
-      // (which persists under the remote's ~/.claude/projects/<cwd>/).
-      // --model controls which model the remote uses.
-      const extractFlag = (flag: string, opts: {
-        hasValue?: boolean;
-        as?: string;
-      } = {}) => {
-        const i = rawCliArgs.indexOf(flag);
-        if (i !== -1) {
-          _pendingSSH.extraCliArgs.push(opts.as ?? flag);
-          const val = rawCliArgs[i + 1];
-          if (opts.hasValue && val && !val.startsWith('-')) {
-            _pendingSSH.extraCliArgs.push(val);
-            rawCliArgs.splice(i, 2);
-          } else {
-            rawCliArgs.splice(i, 1);
-          }
-        }
-        const eqI = rawCliArgs.findIndex(a => a.startsWith(`${flag}=`));
-        if (eqI !== -1) {
-          _pendingSSH.extraCliArgs.push(opts.as ?? flag, rawCliArgs[eqI]!.slice(flag.length + 1));
-          rawCliArgs.splice(eqI, 1);
-        }
-      };
-      extractFlag('-c', {
-        as: '--continue'
-      });
-      extractFlag('--continue');
-      extractFlag('--resume', {
-        hasValue: true
-      });
-      extractFlag('--model', {
-        hasValue: true
-      });
-      extractFlag('--fallback-model', {
-        hasValue: true
-      });
+      _pendingSSH.dangerouslySkipPermissions = parsed.dangerouslySkipPermissions;
+      _pendingSSH.extraCliArgs.push(...parsed.extraCliArgs);
+      rawCliArgs.splice(0, rawCliArgs.length, ...parsed.remaining);
     }
     // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
     // (commander handles) or an unknown-to-ssh flag (fall through to commander
