@@ -319,14 +319,23 @@ function resolveCatalogReasoningMetadata(
 
   ensureIntegrationsLoaded()
   const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
-  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
-  const entry = entries.find(catalogEntry =>
+  const matchesModel = (catalogEntry: ModelCatalogEntry): boolean =>
     catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
     catalogEntry.id.trim().toLowerCase() === normalizedModel ||
     (catalogEntry.aliases ?? []).some(alias =>
       alias.trim().split('?', 1)[0]?.trim().toLowerCase() === normalizedModel,
-    ),
-  )
+    )
+
+  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
+  let entry = entries.find(matchesModel)
+  if (!entry && routeId === 'custom') {
+    // Azure and regional/first-party OpenAI surfaces resolve to route 'custom'
+    // (their host is not a registered route; see resolveActiveRouteIdFromEnv),
+    // whose catalog is empty. Consult the openai vendor catalog by model name so
+    // reasoning models (gpt-5.6) carry their advertised metadata (default 'high',
+    // xhigh) on those routes instead of falling back to incidental legacy controls.
+    entry = getCatalogEntriesForRoute('openai').find(matchesModel)
+  }
 
   if (!entry) {
     return undefined

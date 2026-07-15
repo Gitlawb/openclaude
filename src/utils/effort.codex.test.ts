@@ -147,6 +147,40 @@ test('gpt-5.4 on the OpenAI provider still supports effort selection', async () 
   ])
 })
 
+test('gpt-5.6 on an Azure custom-route base carries its default high effort from metadata', async () => {
+  // Azure (and regional *.api.openai.com) bases resolve to route 'custom',
+  // whose catalog is empty; the openai-catalog fallback must supply gpt-5.6's
+  // advertised default 'high' instead of the legacy undefined. FAILS pre-fix
+  // (getDefaultEffortForModel returns undefined on route 'custom').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel, getAvailableEffortLevels } =
+      await importFreshEffortModule({
+        provider: 'openai',
+        supportsCodexReasoningEffort: true,
+      })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+    expect(getAvailableEffortLevels('gpt-5.6-sol')).toContain('xhigh')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
 test('gpt-5.3-codex-spark stays without effort controls', async () => {
   const { getAvailableEffortLevels, modelSupportsEffort } =
     await importFreshEffortModule({
