@@ -498,7 +498,11 @@ export async function getAnthropicClient({
     (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) ||
     usesCustomAnthropicAuthToken
   ) {
-    await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
+    await configureApiKeyHeaders(
+      defaultHeaders,
+      getIsNonInteractiveSession(),
+      usesCustomAnthropicAuthToken ? anthropicAuthToken : undefined,
+    )
   } else if (apiProvider === 'firstParty' && !isFirstPartyBaseUrl) {
     removeManagedAnthropicAuthHeaders(defaultHeaders)
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim()
@@ -763,9 +767,13 @@ export async function getAnthropicClient({
           (!isFirstPartyBaseUrl
             ? process.env.ANTHROPIC_API_KEY?.trim()
             : getAnthropicApiKey()),
+    // Pass an explicit null for non-Bearer routes so the SDK cannot fall back
+    // to ANTHROPIC_AUTH_TOKEN from its own environment lookup.
     authToken: isClaudeAiSubscriber
       ? getClaudeAIOAuthTokens()?.accessToken
-      : undefined,
+      : usesCustomAnthropicAuthToken
+        ? anthropicAuthToken
+        : null,
     // Set baseURL from OAuth config when using staging OAuth
     ...(process.env.USER_TYPE === 'ant' &&
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
@@ -783,10 +791,9 @@ export async function getAnthropicClient({
 async function configureApiKeyHeaders(
   headers: Record<string, string>,
   isNonInteractiveSession: boolean,
+  authToken?: string,
 ): Promise<void> {
-  const token =
-    process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
-    (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
+  const token = authToken || (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
   if (token) {
     removeManagedAnthropicAuthHeaders(headers)
     headers['Authorization'] = `Bearer ${token}`

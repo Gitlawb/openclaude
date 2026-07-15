@@ -354,6 +354,46 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   expect(capturedHeaders?.get('x-tenant')).toBe('tenant-a')
 })
 
+test('does not forward a custom bearer token to the first-party Anthropic endpoint', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
+  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+
+  const fetchOverride = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_first_party_key', type: 'message', role: 'assistant',
+        model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn', stop_sequence: null, container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({
+    apiKey: 'first-party-api-key',
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+    fetchOverride,
+  })
+  await client.messages.create({
+    model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64,
+  })
+
+  expect(capturedHeaders?.get('authorization')).not.toBe(
+    'Bearer custom-anthropic-token',
+  )
+  expect(capturedHeaders?.get('x-api-key')).toBe('first-party-api-key')
+})
+
 test('routes a custom Anthropic endpoint with native x-api-key authentication', async () => {
   let capturedHeaders: Headers | undefined
 
