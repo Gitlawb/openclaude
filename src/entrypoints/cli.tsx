@@ -320,12 +320,15 @@ export async function main(
   // the safety notice in main.tsx / statusNoticeDefinitions.tsx) each accept the
   // --yolo spelling too, so no per-token rewrite is needed here.
   //
-  // main() does NOT mirror `args` onto process.argv: cliMain() parses the global
-  // process.argv, and the sole production entry (the auto-run at the tail of
-  // this file) calls main() with no args, so `args` already equals
-  // process.argv.slice(2). Keeping a caller's args out of the process-global
-  // argv avoids leaking a programmatic invocation's arguments (including a
-  // permission-bypass flag) into an overlapping call or the host process.
+  // main() does NOT mirror the caller's `args` array onto process.argv for the
+  // general cliMain flow: cliMain() parses the global process.argv, and the sole
+  // production entry (the auto-run at the tail of this file) calls main() with no
+  // args, so `args` already equals process.argv.slice(2). Keeping a caller's args
+  // out of the process-global argv avoids leaking a programmatic invocation's
+  // arguments (including a permission-bypass flag) into an overlapping call or
+  // the host process. (The `skills` and `--update` fast-paths below do rewrite
+  // process.argv, but only to re-route to their own subcommand, not to inject the
+  // caller's args.)
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}
