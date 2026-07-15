@@ -34,6 +34,13 @@ type ClaudeAIMcpServersResponse = {
 const FETCH_TIMEOUT_MS = 5000
 const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 
+function getClaudeAIMcpConfigsCacheKey(): string {
+  // Provider selection can change during a process lifetime. Keep the
+  // first-party result separate from a custom-endpoint no-op so an in-process
+  // switch cannot expose stale organization MCP configuration.
+  return `${getAPIProvider()}:${process.env.ANTHROPIC_BASE_URL ?? ''}`
+}
+
 /**
  * Fetches MCP server configurations from Claude.ai org configs.
  * These servers are managed by the organization via Claude.ai.
@@ -152,6 +159,7 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
       return {}
     }
   },
+  getClaudeAIMcpConfigsCacheKey,
 )
 
 /**
