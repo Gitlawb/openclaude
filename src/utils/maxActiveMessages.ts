@@ -31,11 +31,11 @@ export function getMaxActiveMessagesHardCap(
 }
 
 export function resolveMaxActiveMessagesLimit(
-  configSetting: string,
+  configSetting: string | undefined,
   envSetting: string | undefined,
 ): number {
   const configuredLimit =
-    configSetting !== 'off'
+    configSetting !== undefined && configSetting !== 'off'
       ? parseMaxActiveMessagesLimit(configSetting)
       : parseMaxActiveMessagesLimit(envSetting)
   const hardCap = getMaxActiveMessagesHardCap()

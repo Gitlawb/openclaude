@@ -37,6 +37,10 @@ import {
   getMaxActiveMessagesHardCap,
 } from '../src/utils/maxActiveMessages.js'
 import {
+  isValidMaxMessagesCompactionThreshold,
+  normalizeMaxMessagesCompactionThreshold,
+} from '../src/utils/config.js'
+import {
   getAvailableProviders,
   getProviderChain,
   getProviderMode,
@@ -120,28 +124,48 @@ export function buildMemoryGuardChecks(
     input.autoCompactEnabled && !disableCompact && !disableAutoCompact
   const hardCapOverride = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
   const hardCap = getMaxActiveMessagesHardCap(env)
-  const configuredLimit =
-    input.maxMessagesCompactionThreshold &&
-    input.maxMessagesCompactionThreshold !== 'off'
-      ? input.maxMessagesCompactionThreshold
-      : undefined
   const legacyLimit = parsePositiveInteger(env.OPENCLAUDE_MAX_ACTIVE_MESSAGES)
+  const configuredLimit =
+    ((input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+      legacyLimit > 0)
+      ? legacyLimit
+      : normalizeMaxMessagesCompactionThreshold(
+          input.maxMessagesCompactionThreshold,
+        )
+  const hasExplicitMessageCountGuard =
+    input.maxMessagesCompactionThreshold !== undefined &&
+    isValidMaxMessagesCompactionThreshold(
+      input.maxMessagesCompactionThreshold,
+    ) &&
+    input.maxMessagesCompactionThreshold !== 'off'
+  const hasLegacyMessageCountGuard =
+    (input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+    legacyLimit > 0
   const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
+  const hasIndependentMessageCountGuard =
+    configuredLimit !== 'off' &&
+    (hasExplicitMessageCountGuard || hasLegacyMessageCountGuard)
+  const autoCompactDisabledReason =
+    [
+      input.autoCompactEnabled ? undefined : 'settings disabled',
+      disableCompact ? 'DISABLE_COMPACT is set' : undefined,
+      disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
+    ].filter(Boolean).join('; ') || 'Disabled by configuration.'
 
   results.push(
     autoCompactAvailable
       ? pass(
           'Auto-compact guard',
-          `Enabled; message-count threshold ${configuredLimit ?? (legacyLimit > 0 ? legacyLimit : 'off')}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
+          `Enabled; message-count threshold ${configuredLimit}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
         )
       : fail(
           'Auto-compact guard',
-          [
-            input.autoCompactEnabled ? undefined : 'settings disabled',
-            disableCompact ? 'DISABLE_COMPACT is set' : undefined,
-            disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
-          ].filter(Boolean).join('; ') ||
-            'Disabled by configuration.',
+          autoCompactDisabledReason +
+            (hasIndependentMessageCountGuard
+              ? `; message-count threshold ${configuredLimit} remains active.`
+              : ''),
         ),
   )
 
