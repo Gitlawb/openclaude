@@ -50,8 +50,12 @@ export async function fetchWithProxyRetry(
       return response
     } catch (error) {
       lastError = error
+      if (init?.signal?.aborted) {
+        throw error instanceof Error && error.name === 'AbortError'
+          ? error
+          : (init.signal.reason ?? error)
+      }
       if (
-        init?.signal?.aborted ||
         attempt >= maxAttempts ||
         !isRetryableFetchError(error)
       ) {

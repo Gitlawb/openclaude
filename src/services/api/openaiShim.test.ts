@@ -7112,14 +7112,16 @@ test('deadline wins when an abort-ignoring fetch resolves 504 afterward', async 
 
 test('bounds nested URL decoding while retaining encoded secret redaction', async () => {
   const secret = 'route/key+AbC123'
-  let encodedSecret = secret
+  const secretVariants = [secret]
   for (let layer = 0; layer < 4; layer++) {
-    encodedSecret = encodeURIComponent(encodedSecret)
+    secretVariants.push(
+      encodeURIComponent(secretVariants[secretVariants.length - 1]!),
+    )
   }
   const deeplyNestedValue = `%${'25'.repeat(200)}`
   process.env.OPENAI_API_KEY = secret
   process.env.OPENAI_BASE_URL =
-    `https://slow.example.test/v1/${deeplyNestedValue}/${encodedSecret}`
+    `https://slow.example.test/v1/${deeplyNestedValue}/${secretVariants[4]}`
   globalThis.fetch = asMockFetch(mock(async () => {
     throw new TypeError('fetch failed')
   }))
@@ -7147,18 +7149,20 @@ test('bounds nested URL decoding while retaining encoded secret redaction', asyn
   }
 
   expect(caught).toBeDefined()
-  expect((caught as Error).message).not.toContain(secret)
-  expect((caught as Error).message).not.toContain(encodedSecret)
+  for (const secretVariant of secretVariants) {
+    expect((caught as Error).message).not.toContain(secretVariant)
+  }
   expect(decodeCalls).toBeLessThanOrEqual(32)
 })
 
 test('decodes malformed URL escape runs in linear work', async () => {
   const secret = 'route/key+AbC123'
+  const encodedSecret = encodeURIComponent(secret)
   const malformedEscapeCount = 200
   const malformedUtf8Run = '%80'.repeat(malformedEscapeCount)
   process.env.OPENAI_API_KEY = secret
   process.env.OPENAI_BASE_URL =
-    `https://slow.example.test/v1/${malformedUtf8Run}/${encodeURIComponent(secret)}`
+    `https://slow.example.test/v1/${malformedUtf8Run}/${encodedSecret}`
   globalThis.fetch = asMockFetch(mock(async () => {
     throw new TypeError('fetch failed')
   }))
@@ -7187,6 +7191,7 @@ test('decodes malformed URL escape runs in linear work', async () => {
 
   expect(caught).toBeDefined()
   expect((caught as Error).message).not.toContain(secret)
+  expect((caught as Error).message).not.toContain(encodedSecret)
   expect(malformedDecodeCalls).toBeLessThanOrEqual(malformedEscapeCount * 10)
 })
 
