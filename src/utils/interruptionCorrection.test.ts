@@ -1,12 +1,15 @@
 import { expect, test } from 'bun:test'
 import {
+  applyInterruptionCorrectionAwareMessageUpdate,
   buildInterruptionCorrectionMessageViews,
   consumeInterruptionCorrectionReminder,
   InterruptionCorrectionTracker,
   shouldMarkInterruptionCorrection,
 } from './interruptionCorrection.js'
 import { createUserMessage } from './messages/factories.js'
+import { createCompactBoundaryMessage } from './messages/systemFactories.js'
 import { QueryGuard } from './QueryGuard.js'
+import type { Message } from '../types/message.js'
 
 test('only marks a local user cancellation of the active model query', () => {
   const localUserCancellation = {
@@ -72,6 +75,115 @@ test('clears a pending reminder when the interrupted context is rewritten', () =
 
   tracker.handleConversationRewrite()
 
+  expect(tracker.takeReminder()).toBeNull()
+})
+
+test('clears a pending reminder when a full compact boundary is applied', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const turn = queryGuard.tryStart({
+    queryId: 'interrupted-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const messagesRef = { current: [] }
+  applyInterruptionCorrectionAwareMessageUpdate(
+    messagesRef,
+    [createCompactBoundaryMessage('manual', 100)],
+    tracker,
+  )
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
+test('keeps a pending reminder when messages retain the existing compact boundary', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const boundary = createCompactBoundaryMessage('manual', 100)
+  const turn = queryGuard.tryStart({
+    queryId: 'post-compact-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const messagesRef = { current: [boundary] }
+  applyInterruptionCorrectionAwareMessageUpdate(
+    messagesRef,
+    [boundary, createUserMessage({ content: 'new correction' })],
+    tracker,
+  )
+
+  expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
+})
+
+test('clears a pending reminder when a later compaction replaces an existing boundary', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const previousBoundary = createCompactBoundaryMessage('manual', 100)
+  const turn = queryGuard.tryStart({
+    queryId: 'repeat-compact-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const messagesRef: { current: Message[] } = { current: [previousBoundary] }
+  const nextBoundary = createCompactBoundaryMessage('manual', 200)
+  const transition = applyInterruptionCorrectionAwareMessageUpdate(
+    messagesRef,
+    previousMessages => [
+      ...previousMessages.slice(0, -1),
+      nextBoundary,
+      createUserMessage({ content: 'compact summary' }),
+    ],
+    tracker,
+  )
+
+  expect(transition.previousMessages).toEqual([previousBoundary])
+  expect(transition.nextMessages).toEqual([
+    nextBoundary,
+    expect.objectContaining({ type: 'user' }),
+  ])
+  expect(messagesRef.current).toBe(transition.nextMessages)
   expect(tracker.takeReminder()).toBeNull()
 })
 

@@ -1,5 +1,6 @@
 import type { Message, UserMessage } from '../types/message.js'
 import { createUserMessage } from './messages/factories.js'
+import { isCompactBoundaryMessage } from './messages/systemFactories.js'
 
 export const INTERRUPTION_CORRECTION_REMINDER = `<system-reminder>
 The previous assistant turn was interrupted by the user. Treat the user's latest message as a correction and do not continue the interrupted plan unless explicitly asked.
@@ -69,6 +70,36 @@ export function buildInterruptionCorrectionMessageViews(
     persistentNewMessages,
     requestOnlyMessages,
   }
+}
+
+function handleInterruptionCorrectionMessageUpdate(
+  previousMessages: readonly Message[],
+  nextMessages: readonly Message[],
+  tracker: { handleConversationRewrite(): void },
+): void {
+  const previousBoundary = previousMessages.findLast(isCompactBoundaryMessage)
+  const nextBoundary = nextMessages.findLast(isCompactBoundaryMessage)
+  if (nextBoundary && nextBoundary.uuid !== previousBoundary?.uuid) {
+    tracker.handleConversationRewrite()
+  }
+}
+
+export function applyInterruptionCorrectionAwareMessageUpdate(
+  messagesRef: { current: Message[] },
+  action: Message[] | ((messages: Message[]) => Message[]),
+  tracker: { handleConversationRewrite(): void },
+): { previousMessages: Message[]; nextMessages: Message[] } {
+  const previousMessages = messagesRef.current
+  const nextMessages = typeof action === 'function'
+    ? action(previousMessages)
+    : action
+  handleInterruptionCorrectionMessageUpdate(
+    previousMessages,
+    nextMessages,
+    tracker,
+  )
+  messagesRef.current = nextMessages
+  return { previousMessages, nextMessages }
 }
 
 export class InterruptionCorrectionTracker {
