@@ -1653,6 +1653,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       (isSetupPlaceholder(nextDraft.baseUrl) ||
         isFirstPartyAnthropicBaseUrlForEnv({
           ANTHROPIC_BASE_URL: nextDraft.baseUrl,
+          USER_TYPE: process.env.USER_TYPE,
         }))
     ) {
       setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')

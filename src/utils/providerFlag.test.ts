@@ -48,6 +48,7 @@ const ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_CUSTOM_HEADERS',
+  'USER_TYPE',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -94,6 +95,7 @@ const RESET_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_CUSTOM_HEADERS',
+  'USER_TYPE',
 ] as const
 
 beforeEach(() => {
@@ -194,6 +196,16 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
 
   test('rejects the first-party Anthropic endpoint instead of forwarding a custom credential', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toContain('non-Anthropic ANTHROPIC_BASE_URL')
+  })
+
+  test('rejects the internal first-party Anthropic staging endpoint', () => {
+    process.env.USER_TYPE = 'ant'
+    process.env.ANTHROPIC_BASE_URL = 'https://api-staging.anthropic.com'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
 
     const result = applyProviderFlag('custom-anthropic', [])
