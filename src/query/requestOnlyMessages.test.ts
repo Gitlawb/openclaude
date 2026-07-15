@@ -167,6 +167,26 @@ test('keeps request-only context in every model call but out of tool context', a
   )
 })
 
+test('leaves model messages unchanged when request-only context is absent', async () => {
+  const originalMessages = [createUserMessage({ content: 'ordinary prompt' })]
+  const modelCalls: Message[][] = []
+  const callModel: QueryDeps['callModel'] = async function* ({ messages }) {
+    modelCalls.push(messages)
+    yield createAssistantMessage({ content: 'done' })
+  }
+  const params = baseParams(
+    callModel,
+    async () => ({ wasCompacted: false }),
+  )
+  params.messages = originalMessages
+  params.requestOnlyMessages = undefined
+
+  await collect(params)
+
+  expect(modelCalls).toHaveLength(1)
+  expect(modelCalls[0]).toEqual(originalMessages)
+})
+
 for (const preserveCorrection of [false, true]) {
   test(`reapplies request-only context after ${
     preserveCorrection ? 'suffix-preserving' : 'full'
