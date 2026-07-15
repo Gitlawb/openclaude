@@ -12,8 +12,6 @@ import { resolveAntModel } from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
   getAPIProvider,
-  isCustomAnthropicProvider,
-  isFirstPartyAnthropicProvider,
 } from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -134,10 +132,7 @@ export function modelSupportsThinking(model: string): boolean {
   const canonical = getCanonicalName(model)
   const provider = getAPIProvider()
   // 1P and Foundry: all Claude 4+ models (including Haiku 4.5)
-  if (
-    provider === 'foundry' ||
-    isFirstPartyAnthropicProvider() || isCustomAnthropicProvider()
-  ) {
+  if (provider === 'foundry' || provider === 'firstParty') {
     return !canonical.includes('claude-3-')
   }
   if (
@@ -191,11 +186,7 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   // is a proxy). Do not default to true for other 3P as they have different formats
   // for their model strings.
   const provider = getAPIProvider()
-  return (
-    isFirstPartyAnthropicProvider() ||
-    isCustomAnthropicProvider() ||
-    provider === 'foundry'
-  )
+  return provider === 'firstParty' || provider === 'foundry'
 }
 
 export function shouldEnableThinkingByDefault(): boolean {
