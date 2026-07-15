@@ -1334,10 +1334,26 @@ function buildOpenAICompatibleStartupEnv(
     }
   }
 
+  // Persist OPENAI_API_FORMAT only when the resolver-level capability route
+  // supports selection — local gateways (ollama / lmstudio / loopback)
+  // expose neither the chat/responses shim selection nor the auth-header shim
+  // for which it would be serialized. applyProviderProfileToProcessEnv and
+  // resolveProviderRequest already drop apiFormat for local routes; mirror
+  // that gate here so the persisted .openclaude-profile.json does not carry a
+  // field the runtime never re-reads (LOW-3).
+  const capabilityRouteId = resolveProfileCapabilityRouteId(
+    activeProfile.provider,
+    activeProfile.baseUrl,
+  )
+  const supportsApiFormat =
+    routeSupportsApiFormatSelection(capabilityRouteId)
+
   const env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
-    ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
+    ...(supportsApiFormat && activeProfile.apiFormat
+      ? { OPENAI_API_FORMAT: activeProfile.apiFormat }
+      : {}),
     ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
     ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
     ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),

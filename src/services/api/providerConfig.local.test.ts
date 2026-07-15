@@ -171,8 +171,11 @@ test('uses responses transport when OpenAI-compatible API format requests respon
 })
 
 test.each([
-  'http://203.0.113.5:11434/v1',
-  'http://my-ollama-server.example.com:11434/v1',
+  // Tightened remote-Ollama classifier: only `ollama.corp.example.com` (a host
+  // whose dot-label is exactly `ollama`) keeps the Ollama route's chat-only
+  // transport. A non-loopback :11434 port (`203.0.113.5:11434`) or a
+  // dash-embedded label (`my-ollama-server`) no longer matches the Ollama
+  // route, so `OPENAI_API_FORMAT=responses` is honoured instead.
   'https://ollama.corp.example.com/v1',
 ])(
   'keeps remote Ollama endpoint %s on chat completions when API format is set',
@@ -184,6 +187,26 @@ test.each([
 
     expect(resolveProviderRequest()).toMatchObject({
       transport: 'chat_completions',
+      requestedModel: 'llama3.1:8b',
+      resolvedModel: 'llama3.1:8b',
+      baseUrl,
+    })
+  },
+)
+
+test.each([
+  'http://203.0.113.5:11434/v1',
+  'http://my-ollama-server.example.com:11434/v1',
+])(
+  'non-Ollama remote endpoint %s honours OPENAI_API_FORMAT after classifier tightening',
+  baseUrl => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = baseUrl
+    process.env.OPENAI_MODEL = 'llama3.1:8b'
+    process.env.OPENAI_API_FORMAT = 'responses'
+
+    expect(resolveProviderRequest()).toMatchObject({
+      transport: 'responses',
       requestedModel: 'llama3.1:8b',
       resolvedModel: 'llama3.1:8b',
       baseUrl,

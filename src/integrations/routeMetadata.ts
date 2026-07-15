@@ -140,10 +140,13 @@ function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
   return null
 }
 
+// Match a single dot-label exactly, NOT a dash-split sub-token. Splitting a
+// label like `ollama-corp` on `[-_]+` would `includes('ollama')` it as a
+// sub-token and misclassify any third-party host whose label merely embeds
+// `ollama`. Exact dot-label match keeps `ollama` and `ollama.example.com`
+// matching while excluding `ollama-corp.example.com` / `my-ollama.example.com`.
 function hostnameContainsRouteToken(hostname: string, token: string): boolean {
-  return hostname
-    .split('.')
-    .some(label => label.split(/[-_]+/).includes(token))
+  return hostname.split('.').some(label => label === token)
 }
 
 function resolveRemoteOllamaRouteIdFromBaseUrl(baseUrl?: string): string | null {
@@ -159,10 +162,10 @@ function resolveRemoteOllamaRouteIdFromBaseUrl(baseUrl?: string): string | null 
       return null
     }
 
-    if (parsed.protocol === 'http:' && parsed.port === '11434') {
-      return 'ollama'
-    }
-
+    // No host-agnostic :11434 rule: a reverse proxy / vLLM / LM Studio tunnel
+    // bound to 11434 from a remote host would silently inherit Ollama's
+    // local-shim catalog + responses-API-format selection. Loopback :11434 is
+    // already handled by the strict resolver (resolveKnownLocalRouteIdFromBaseUrl).
     if (hostnameContainsRouteToken(hostname, 'ollama')) {
       return 'ollama'
     }

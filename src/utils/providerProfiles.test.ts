@@ -703,6 +703,10 @@ describe('applyProviderProfileToProcessEnv', () => {
       'OPENAI_AUTH_SCHEME',
       'OPENAI_AUTH_HEADER_VALUE',
       'OPENAI_API_FORMAT',
+      'OPENAI_MODEL',
+      'CLAUDE_CODE_USE_OPENAI',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
     ] as const
     const savedEnv = Object.fromEntries(
       envKeys.map(key => [key, process.env[key]]),
@@ -753,8 +757,6 @@ describe('applyProviderProfileToProcessEnv', () => {
   })
 
   test.each([
-    'http://203.0.113.5:11434/v1',
-    'http://my-ollama-server.example.com:11434/v1',
     'https://ollama.corp.example.com/v1',
   ])(
     'remote Ollama profile %s applies auth headers without API-format selection',
@@ -765,6 +767,10 @@ describe('applyProviderProfileToProcessEnv', () => {
         'OPENAI_AUTH_SCHEME',
         'OPENAI_AUTH_HEADER_VALUE',
         'OPENAI_API_FORMAT',
+        'OPENAI_MODEL',
+        'CLAUDE_CODE_USE_OPENAI',
+        'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+        'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
       ] as const
       const savedEnv = Object.fromEntries(
         envKeys.map(key => [key, process.env[key]]),
@@ -802,6 +808,68 @@ describe('applyProviderProfileToProcessEnv', () => {
           transport: 'chat_completions',
           baseUrl,
         })
+      } finally {
+        for (const key of envKeys) {
+          if (savedEnv[key] === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = savedEnv[key]
+          }
+        }
+      }
+    },
+  )
+
+  test.each([
+    // Tightened remote-Ollama classifier: only a host whose dot-label is
+    // exactly `ollama` keeps Ollama route identity. A non-loopback :11434
+    // port or a dash-embedded `my-ollama-server` label no longer matches the
+    // Ollama route, so as a non-local OpenAI-compatible profile they DO carry
+    // OPENAI_API_FORMAT (the `openai` route supports responses selection).
+    'http://203.0.113.5:11434/v1',
+    'http://my-ollama-server.example.com:11434/v1',
+  ])(
+    'non-Ollama remote profile %s applies API-format selection',
+    async baseUrl => {
+      const envKeys = [
+        'OPENAI_BASE_URL',
+        'OPENAI_AUTH_HEADER',
+        'OPENAI_AUTH_SCHEME',
+        'OPENAI_AUTH_HEADER_VALUE',
+        'OPENAI_API_FORMAT',
+        'OPENAI_MODEL',
+        'CLAUDE_CODE_USE_OPENAI',
+        'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+        'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+      ] as const
+      const savedEnv = Object.fromEntries(
+        envKeys.map(key => [key, process.env[key]]),
+      ) as Record<(typeof envKeys)[number], string | undefined>
+
+      try {
+        const { applyProviderProfileToProcessEnv } =
+          await importFreshProviderProfileModules()
+
+        applyProviderProfileToProcessEnv(
+          buildProfile({
+            name: 'Remote Generic OpenAI-compatible',
+            provider: 'openai',
+            baseUrl,
+            model: 'gpt-oss-120b',
+            apiFormat: 'responses',
+            authHeader: 'X-API-Key',
+            authScheme: 'raw',
+            authHeaderValue: 'generic-secret',
+          }),
+        )
+
+        expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+        expect(process.env.OPENAI_AUTH_HEADER).toBe('X-API-Key')
+        expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+        expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('generic-secret')
+        // The resolved capability route is `openai` (supportsApiFormatSelection
+        // is true), so the responses format is applied.
+        expect(process.env.OPENAI_API_FORMAT).toBe('responses')
       } finally {
         for (const key of envKeys) {
           if (savedEnv[key] === undefined) {

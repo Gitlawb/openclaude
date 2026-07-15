@@ -6984,7 +6984,11 @@ test('uses native Ollama chat endpoint when local base URL omits /v1', async () 
 })
 
 test('keeps remote Ollama-named gateways on chat completions', async () => {
-  process.env.OPENAI_BASE_URL = 'https://ollama-gateway.example.com/v1'
+  // Tightened remote-Ollama classifier: only a host whose dot-label is exactly
+  // `ollama` (e.g. `ollama.example.com`) inherits the Ollama shim's chat-only
+  // transport. Hosts whose label merely embeds `ollama` after a dash (e.g.
+  // `ollama-gateway`) no longer match the Ollama route.
+  process.env.OPENAI_BASE_URL = 'https://ollama.example.com/v1'
 
   const requestUrls: string[] = []
   globalThis.fetch = (async (input, init) => {
@@ -7009,7 +7013,7 @@ test('keeps remote Ollama-named gateways on chat completions', async () => {
   ).resolves.toBeDefined()
 
   expect(requestUrls).toEqual([
-    'https://ollama-gateway.example.com/v1/chat/completions',
+    'https://ollama.example.com/v1/chat/completions',
   ])
 })
 

@@ -23,7 +23,7 @@ import {
   getVendor,
   isCloudflareBaseUrl,
   resolveProfileRoute,
-  resolveRouteIdFromBaseUrl,
+  resolveLocalCompatibleRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
@@ -178,8 +178,13 @@ function getConfiguredOpenAIBaseUrl(): string | undefined {
   return normalizeBaseUrlEnv(process.env.OPENAI_API_BASE)
 }
 
+// Aligned with the runtime capability path (resolveActiveRouteIdFromEnv
+// → resolveLocalCompatibleRouteIdFromBaseUrl): a remote Ollama URL identified
+// by hostname token is recognized as a known provider route for replacement,
+// so switching to a different provider also retargets it instead of leaving
+// the new provider's traffic routed at the old Ollama host.
 function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
-  const currentRouteId = resolveRouteIdFromBaseUrl(
+  const currentRouteId = resolveLocalCompatibleRouteIdFromBaseUrl(
     getConfiguredOpenAIBaseUrl(),
   )
   if (!currentRouteId) {
@@ -234,6 +239,16 @@ function applyOpenAIBaseUrlDefault(
     !!configuredBaseUrl && shouldReplaceStaleKnownBaseUrl(provider)
 
   if (!configuredBaseUrl || replacedStaleKnownBaseUrl) {
+    // The stale source may have been the OPENAI_API_BASE alias (no
+    // OPENAI_BASE_URL set): migrate it so request-time resolution picks up the
+    // new host and no lingering alias shadows the replacement (LOW-1).
+    if (
+      replacedStaleKnownBaseUrl &&
+      !process.env.OPENAI_BASE_URL &&
+      normalizeBaseUrlEnv(process.env.OPENAI_API_BASE) === configuredBaseUrl
+    ) {
+      delete process.env.OPENAI_API_BASE
+    }
     process.env.OPENAI_BASE_URL = normalizedBaseUrl
     return { replacedStaleKnownBaseUrl }
   }
@@ -260,21 +275,6 @@ function applyOpenAIModelDefault(
     process.env.OPENAI_MODEL = normalizedDefaultModel
   } else {
     process.env.OPENAI_MODEL ??= normalizedDefaultModel
-  }
-}
-
-function resetOpenAIModelDefaultWhenStaleBaseUrlReplaced(
-  defaultModel: string | undefined,
-  baseUrlDefault: OpenAIBaseUrlDefaultResult,
-  model: string | null,
-): void {
-  if (model) {
-    process.env.OPENAI_MODEL = model
-    return
-  }
-
-  if (baseUrlDefault.replacedStaleKnownBaseUrl && defaultModel?.trim()) {
-    process.env.OPENAI_MODEL = defaultModel.trim()
   }
 }
 
@@ -483,7 +483,11 @@ export function applyProviderFlag(
           provider,
           defaultBaseUrl ?? 'http://localhost:11434/v1',
         )
-        resetOpenAIModelDefaultWhenStaleBaseUrlReplaced(
+        // Align with the other descriptor-backed providers: apply the default
+        // model on a fresh selection (`??=`) rather than only when a stale base
+        // URL was replaced, so `openclaude --provider ollama` with no prior
+        // OPENAI_MODEL still lands on the default tag (LOW-2).
+        applyOpenAIModelDefault(
           defaultModel ?? 'llama3.1:8b',
           baseUrlDefault,
           model,

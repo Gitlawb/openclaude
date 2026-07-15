@@ -600,6 +600,61 @@ describe('applyProviderFlag - explicit provider base URL defaults', () => {
   }
 })
 
+describe('applyProviderFlag - loopback-port known routes are replaced on provider switch', () => {
+  // Loopback local-gateway ports (ollama :11434, lmstudio :1234) resolve to
+  // known provider routes via the strict resolver, so switching to a different
+  // descriptor-backed provider replaces them — unlike a non-loopback remote
+  // host on the same port, which is preserved as a custom URL. This confirms
+  // the loopback-port half of the cross-provider replacement contract (LOW-5).
+  const loopbackStaleBaseUrls = [
+    'http://localhost:11434/v1',
+    'http://127.0.0.1:11434/v1',
+    'http://[::1]:11434/v1',
+    'http://localhost:1234/v1',
+    'http://127.0.0.1:1234/v1',
+  ] as const
+  const targetProviders: ReadonlyArray<{
+    provider: string
+    expectedBaseUrl: string
+  }> = [
+    {
+      provider: 'xai',
+      expectedBaseUrl: 'https://api.x.ai/v1',
+    },
+    {
+      provider: 'nvidia-nim',
+      expectedBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    },
+  ]
+
+  for (const { provider, expectedBaseUrl } of targetProviders) {
+    for (const staleBaseUrl of loopbackStaleBaseUrls) {
+      test(`${provider} replaces stale loopback ${staleBaseUrl}`, () => {
+        process.env.OPENAI_BASE_URL = staleBaseUrl
+
+        const result = applyProviderFlag(provider, [])
+
+        expect(result.error).toBeUndefined()
+        expect(process.env.OPENAI_BASE_URL).toBe(expectedBaseUrl)
+      })
+    }
+  }
+
+  test('loopback-port stale replacement clears the OPENAI_API_BASE alias when it was the source', () => {
+    // Source is the alias, no OPENAI_BASE_URL set: replacement must migrate the
+    // alias so a stale OPENAI_API_BASE does not linger alongside the new URL
+    // (LOW-1).
+    delete process.env.OPENAI_BASE_URL
+    process.env.OPENAI_API_BASE = 'http://localhost:11434/v1'
+
+    const result = applyProviderFlag('xai', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL!).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_API_BASE).toBeUndefined()
+  })
+})
+
 describe('applyProviderFlag - descriptor-backed openai-compatible routes', () => {
   test('deepseek applies generic openai-compatible routing with descriptor defaults', () => {
     const result = applyProviderFlag('deepseek', [])

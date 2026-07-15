@@ -125,21 +125,41 @@ test('resolveRouteIdFromBaseUrl preserves custom URLs that resemble local routes
 })
 
 test('remote Ollama-compatible URLs keep Ollama route identity for runtime decisions', () => {
-  expect(
-    resolveLocalCompatibleRouteIdFromBaseUrl('http://203.0.113.5:11434/v1'),
-  ).toBe('ollama')
-  expect(
-    resolveLocalCompatibleRouteIdFromBaseUrl(
-      'http://my-ollama-server.example.com:11434/v1',
-    ),
-  ).toBe('ollama')
+  // Tightened from the pre-PR broad matcher: only a host whose dot-label is
+  // exactly `ollama` (e.g. `ollama.corp.example.com`) keeps the Ollama route
+  // for runtime decisions. A :11434 port on a non-loopback host no longer
+  // classifies as Ollama — it would otherwise silently route vLLM / LM Studio
+  // tunnels through the local-shim catalog and drop responses-API-format
+  // selection. Likewise `my-ollama-server` (label `my-ollama-server`) and
+  // `myollama` (no `ollama` dot-label) no longer match.
   expect(
     resolveLocalCompatibleRouteIdFromBaseUrl(
       'https://ollama.corp.example.com/v1',
     ),
   ).toBe('ollama')
   expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl('https://ollama.example.com/v1'),
+  ).toBe('ollama')
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl('http://203.0.113.5:11434/v1'),
+  ).toBe(null)
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'http://my-ollama-server.example.com:11434/v1',
+    ),
+  ).toBe(null)
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'https://my-ollama.example.com/v1',
+    ),
+  ).toBe(null)
+  expect(
     resolveLocalCompatibleRouteIdFromBaseUrl('https://myollama.example.com/v1'),
+  ).toBe(null)
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'https://ollama-corp.example.com/v1',
+    ),
   ).toBe(null)
   expect(
     resolveLocalCompatibleRouteIdFromBaseUrl(
@@ -152,6 +172,21 @@ test('remote Ollama-compatible URLs keep Ollama route identity for runtime decis
       CLAUDE_CODE_USE_OPENAI: '1',
       OPENAI_BASE_URL: 'https://ollama.corp.example.com/v1',
     }),
+  ).toBe('ollama')
+})
+
+test('xai --provider replaces a stale remote Ollama URL identified by hostname token', () => {
+  // Loopback-port cross-provider replacement is exercised by the
+  // `${provider} replaces a stale known provider base URL` test in
+  // providerFlag.test.ts (the loopback :11434 path resolves to the `ollama`
+  // route via the strict resolver). This companion covers the remote
+  // hostname-token form kept by resolveLocalCompatibleRouteIdFromBaseUrl: a
+  // `ollama.corp.example.com` URL must also be replaced on provider switch,
+  // confirming MEDIUM-2's resolver alignment (LOW-5).
+  expect(
+    resolveLocalCompatibleRouteIdFromBaseUrl(
+      'https://ollama.corp.example.com/v1',
+    ),
   ).toBe('ollama')
 })
 
