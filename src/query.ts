@@ -1302,7 +1302,7 @@ async function* queryLoop(
               }
             }
             // Scan backward from end, looking for user message with tool_result
-            for (let i = messagesForQuery.length - 2; i >= 0; i--) {
+            for (let i = messagesForQuery.length - 1; i >= 0; i--) {
               const msg = messagesForQuery[i]
               if (i < mostRecentToolUseIndex && mostRecentToolUseIndex !== -1) {
                 break // stopped at most recent tool_use
