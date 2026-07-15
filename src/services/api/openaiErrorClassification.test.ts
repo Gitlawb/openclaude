@@ -161,7 +161,7 @@ test('classifies tool_stream rejection as tool_stream_unsupported (#1950)', () =
 test('prioritizes tool_stream rejection over accompanying tool-call wording', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 400,
-    body: 'Invalid parameter tool_stream for this tool_call request',
+    body: 'Invalid parameter tool_stream; tool_calls are not supported by this model',
   })
 
   expect(failure.category).toBe('tool_stream_unsupported')
@@ -188,6 +188,7 @@ test.each([
   "'tool_stream' is an unknown parameter",
   'Invalid "tool_stream" parameter',
   'tool_stream is unsupported',
+  'Unsupported parameter(s): tool_stream. Tools are available only in non-streaming mode.',
   '{"error":{"message":"tool_stream is unsupported"}}',
   '{"error":{"message":"tool_stream is not supported"}}',
   '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
@@ -265,6 +266,11 @@ test('does not classify a tool-schema error whose location follows the parameter
 test.each([
   'Invalid schema: param=tool_stream',
   'Malformed tool schema: unexpected property tool_stream',
+  'Additional properties are not allowed: tool_stream in tool definition',
+  'Invalid parameter tool_stream in function definition',
+  'Additional properties are not allowed (tool_stream was unexpected) in the function parameters',
+  'Invalid parameter tool_stream in function Bash',
+  'Invalid parameter tool_stream for tool Bash',
 ])('does not classify a generic schema diagnostic as a parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 

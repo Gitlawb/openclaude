@@ -8892,6 +8892,43 @@ test('Shim self-heals a JSON `tool_stream` rejection by retrying without it (#19
   expect(Array.isArray(requestBodies[1]?.tools)).toBe(true)
 })
 
+test('Shim stops after one tool_stream self-heal retry when the retry also fails (#1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+    return new Response(
+      '{"error":{"message":"tool_stream is unsupported"}}',
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'glm-5.2',
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools: [{
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      }],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(2)
+  expect(requestBodies[0]?.tool_stream).toBe(true)
+  expect(requestBodies[1]?.tool_stream).toBeUndefined()
+})
+
 test('Shim retries a tool_stream rejection with the same pooled credential (#1950)', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEYS = 'key-a,key-b'

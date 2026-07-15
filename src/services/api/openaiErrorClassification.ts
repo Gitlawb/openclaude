@@ -200,7 +200,11 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /\b(?:function|tool)\b.*?\b(?:schema|properties?)\b.*?\btool_stream\b/.test(normalized) ||
     /\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b.*?\btool_stream\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b/.test(normalized) ||
-    /\btool_stream\b.*?\b(?:tools|function|schema|properties?)\b/.test(normalized) ||
+    /\b(?:tool|function)\s+definition\b.*?\btool_stream\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:function|tool)\b.*?\b(?:parameters?|properties?|schema)\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:in|for)\s+(?:an?\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
     structuredValidation === false
   ) return false
   if (structuredValidation === true) return true
