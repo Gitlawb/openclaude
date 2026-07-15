@@ -396,7 +396,7 @@ export async function setup(
     ) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.error(
-        `--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons`,
+        `--dangerously-skip-permissions (alias --yolo) cannot be used with root/sudo privileges for security reasons`,
       )
       process.exit(1)
     }
