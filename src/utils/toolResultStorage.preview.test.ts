@@ -24,6 +24,7 @@ import { jsonStringify } from './slowOperations.ts'
 import {
   applyToolResultReplacementsToMessages,
   buildLargeToolResultMessage,
+  formatOmissionMarker,
   generateFilePreview,
   generatePreview,
   isPersistError,
@@ -251,6 +252,7 @@ describe('generatePreview head and tail selection', () => {
       )
       expect(result.hasMore).toBe(true)
       expect(result.strategy).toBe('head-tail')
+      expect(result.retainedBytesValidUtf8).toBe(false)
       expect(marker).not.toBeNull()
       expect(Number(marker![1])).toBe(size - retainedSourceBytes)
     } finally {
@@ -305,6 +307,15 @@ describe('generatePreview head and tail selection', () => {
     expect(result.preview).toContain('… 1 bytes omitted …')
     expect(result.preview).toContain('REAL TAIL')
     expectExactOmittedByteCount(content, result.preview)
+    expect(result.omittedBytes).toBeDefined()
+    expect(result.markerStart).toBeDefined()
+    const generatedMarker = formatOmissionMarker(result.omittedBytes!)
+    expect(
+      result.preview.slice(
+        result.markerStart!,
+        result.markerStart! + generatedMarker.length,
+      ),
+    ).toBe(generatedMarker)
   })
 })
 

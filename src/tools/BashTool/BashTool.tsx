@@ -18,7 +18,7 @@ import type { AgentId } from '../../types/ids.js';
 import type { AssistantMessage } from '../../types/message.js';
 import { parseForSecurity } from '../../utils/bash/ast.js';
 import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/bash/commands.js';
-import { extractClaudeCodeHints, type ClaudeCodeHint } from '../../utils/claudeCodeHints.js';
+import { extractClaudeCodeHints, extractClaudeCodeHintsFromPreview, type ClaudeCodeHint } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { isENOENT, ShellError, toError } from '../../utils/errors.js';
@@ -393,14 +393,14 @@ export async function persistShellOutputFile(
       return undefined;
     });
     const previewExtraction = previewResult
-      ? extractClaudeCodeHints(previewResult.preview, command)
+      ? extractClaudeCodeHintsFromPreview(previewResult, command)
       : undefined;
     return {
       path: dest,
       size,
       truncated,
-      preview: previewExtraction?.stripped,
-      previewStrategy: previewResult?.strategy,
+      preview: previewExtraction?.previewResult.preview,
+      previewStrategy: previewExtraction?.previewResult.strategy,
       previewHints: previewExtraction?.hints,
     };
   } catch {
@@ -428,8 +428,11 @@ export function appendPersistedOutputHint(
   previewStrategy?: PreviewStrategy,
   sandboxDiagnostics?: string,
 ): string {
+  const capDetail = previewStrategy === 'head-tail'
+    ? 'capped; preview may include tail bytes not saved at that path'
+    : 'capped, tail not saved';
   const hint = truncated
-    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
+    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (${capDetail}); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
   const previewStrategyLabel = previewStrategy === 'head-tail'
     ? 'head and tail'

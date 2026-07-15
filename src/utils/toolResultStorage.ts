@@ -3,6 +3,7 @@
  */
 
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
+import { isUtf8 } from 'node:buffer'
 import { mkdir, open, writeFile, type FileHandle } from 'fs/promises'
 import { join } from 'path'
 import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
@@ -121,6 +122,12 @@ export type PreviewResult = {
   preview: string
   hasMore: boolean
   strategy: PreviewStrategy
+  /** Raw source bytes excluded by a generated head/tail marker. */
+  omittedBytes?: number
+  /** UTF-16 offset of the generated marker within preview. */
+  markerStart?: number
+  /** False when retained raw file bytes required replacement during decoding. */
+  retainedBytesValidUtf8?: false
 }
 
 /**
@@ -393,6 +400,14 @@ function decodedByteLength(buffer: Buffer): number {
   return Buffer.byteLength(buffer.toString('utf8'), 'utf8')
 }
 
+function invalidRetainedUtf8Metadata(
+  ...buffers: Buffer[]
+): Pick<PreviewResult, 'retainedBytesValidUtf8'> {
+  return buffers.every(buffer => isUtf8(buffer))
+    ? {}
+    : { retainedBytesValidUtf8: false }
+}
+
 function fitHeadEnd(buffer: Buffer, targetBytes: number): number {
   let end = safeHeadEnd(buffer, Math.min(buffer.length, targetBytes))
   while (
@@ -436,7 +451,7 @@ function chooseTailStart(buffer: Buffer, targetBytes: number): number {
   return lineBytes >= targetBytes * 0.5 ? lineStart : hardStart
 }
 
-function omissionMarker(omittedBytes: number): string {
+export function formatOmissionMarker(omittedBytes: number): string {
   return `… ${omittedBytes} bytes omitted …`
 }
 
@@ -445,7 +460,7 @@ function getHeadTailTargets(
   maxBytes: number,
 ): { head: number; tail: number } | null {
   const reservedMarkerBytes = Buffer.byteLength(
-    omissionMarker(totalBytes),
+    formatOmissionMarker(totalBytes),
     'utf8',
   )
   if (reservedMarkerBytes > maxBytes) return null
@@ -464,23 +479,32 @@ function generateHeadTailPreview(
   const targets = getHeadTailTargets(buffer.length, maxBytes)
   if (targets === null) {
     const end = chooseHeadEnd(buffer, maxBytes)
+    const retained = buffer.subarray(0, end)
     return {
-      preview: buffer.subarray(0, end).toString('utf8'),
+      preview: retained.toString('utf8'),
       hasMore: true,
       strategy: 'head-only',
+      ...invalidRetainedUtf8Metadata(retained),
     }
   }
 
   const headEnd = chooseHeadEnd(buffer, targets.head)
   const tailStart = chooseTailStart(buffer, targets.tail)
-  const exactMarker = omissionMarker(tailStart - headEnd)
+  const omittedBytes = tailStart - headEnd
+  const exactMarker = formatOmissionMarker(omittedBytes)
+  const headBuffer = buffer.subarray(0, headEnd)
+  const tailBuffer = buffer.subarray(tailStart)
+  const head = headBuffer.toString('utf8')
   return {
     preview:
-      buffer.subarray(0, headEnd).toString('utf8') +
+      head +
       exactMarker +
-      buffer.subarray(tailStart).toString('utf8'),
+      tailBuffer.toString('utf8'),
     hasMore: true,
     strategy: 'head-tail',
+    omittedBytes,
+    markerStart: head.length,
+    ...invalidRetainedUtf8Metadata(headBuffer, tailBuffer),
   }
 }
 
@@ -555,6 +579,7 @@ export async function generateFilePreview(
         preview: decoded,
         hasMore: false,
         strategy: 'complete',
+        ...invalidRetainedUtf8Metadata(content),
       }
     }
 
@@ -566,10 +591,12 @@ export async function generateFilePreview(
         Math.min(fileSizeBytes, byteLimit + 3),
       )
       const headEnd = chooseHeadEnd(head, byteLimit)
+      const retained = head.subarray(0, headEnd)
       return {
-        preview: head.subarray(0, headEnd).toString('utf8'),
+        preview: retained.toString('utf8'),
         hasMore: true,
         strategy: 'head-only',
+        ...invalidRetainedUtf8Metadata(retained),
       }
     }
 
@@ -585,14 +612,21 @@ export async function generateFilePreview(
     const headEnd = chooseHeadEnd(head, targets.head)
     const localTailStart = chooseTailStart(tail, targets.tail)
     const tailStart = tailReadStart + localTailStart
-    const marker = omissionMarker(tailStart - headEnd)
+    const omittedBytes = tailStart - headEnd
+    const marker = formatOmissionMarker(omittedBytes)
+    const headBuffer = head.subarray(0, headEnd)
+    const tailBuffer = tail.subarray(localTailStart)
+    const headPreview = headBuffer.toString('utf8')
     return {
       preview:
-        head.subarray(0, headEnd).toString('utf8') +
+        headPreview +
         marker +
-        tail.subarray(localTailStart).toString('utf8'),
+        tailBuffer.toString('utf8'),
       hasMore: true,
       strategy: 'head-tail',
+      omittedBytes,
+      markerStart: headPreview.length,
+      ...invalidRetainedUtf8Metadata(headBuffer, tailBuffer),
     }
   } finally {
     await handle.close()

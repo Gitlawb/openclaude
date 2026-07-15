@@ -270,6 +270,19 @@ describe('BashTool error output (#1231)', () => {
     expect(hint).toContain('/tmp/out')
   })
 
+  test('capped hint distinguishes preview tail bytes from saved bytes', () => {
+    const hint = appendPersistedOutputHint(
+      'captured output',
+      '/tmp/out',
+      MAX_PERSISTED_SHELL_OUTPUT_SIZE + 4096,
+      true,
+      'COMMAND CONTEXT\n… 4096 bytes omitted …\nFAILURE ROOT',
+      'head-tail',
+    )
+
+    expect(hint).toContain('preview may include tail bytes not saved at that path')
+  })
+
   test('hint keeps "full output" wording when the roll file fit under the cap', () => {
     const hint = appendPersistedOutputHint('preview', '/tmp/out', 1234, false)
     expect(hint).toMatch(/full output \(1234 bytes\) saved to \/tmp\/out; read with the Read tool/)
@@ -396,6 +409,13 @@ describe('BashTool error output (#1231)', () => {
       dest = persisted!.path
       expect(persisted!.preview).toContain('FAILURE ROOT')
       expect(persisted!.preview).not.toContain('<claude-code-hint')
+      const marker = persisted!.preview!.match(/… (\d+) bytes omitted …/)
+      expect(marker).toBeDefined()
+      const displayedOutput = persisted!.preview!.replace(marker![0], '')
+      expect(Number(marker![1])).toBe(
+        Buffer.byteLength(body, 'utf8') -
+        Buffer.byteLength(displayedOutput, 'utf8'),
+      )
       expect(persisted!.previewHints).toEqual([
         {
           v: 1,
@@ -405,6 +425,85 @@ describe('BashTool error output (#1231)', () => {
         },
       ])
       expect(readFileSync(dest, 'utf8')).toBe(body)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('downgrades a complete preview when a hint line is removed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bash-persist-complete-hint-'))
+    const source = join(dir, 'roll.txt')
+    const hint =
+      '<claude-code-hint v="1" type="plugin" value="example@claude-plugins-official" />'
+    const body = `COMMAND CONTEXT\n${hint}\nFAILURE ROOT\n`
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistShellOutputFile(
+        source,
+        'persist-complete-hint-test',
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.previewStrategy).toBe('head-only')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+
+      const mapped = BashTool.mapToolResultToToolResultBlockParam(
+        {
+          stdout: 'captured head only',
+          stderr: '',
+          interrupted: false,
+          persistedOutputPath: persisted!.path,
+          persistedOutputSize: persisted!.size,
+          persistedOutputPreview: persisted!.preview,
+          persistedOutputPreviewStrategy: persisted!.previewStrategy,
+        } as never,
+        'toolu_sanitized_complete_preview',
+      )
+      expect(String(mapped.content)).toContain(
+        'UTF-8-safe head-only partial output',
+      )
+      expect(String(mapped.content)).not.toContain(
+        'complete available inline output',
+      )
+      expect(readFileSync(dest, 'utf8')).toBe(body)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('falls back to head-only when a retained hint contains malformed UTF-8', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bash-persist-malformed-hint-'))
+    const source = join(dir, 'roll.txt')
+    const body = Buffer.concat([
+      Buffer.from(`COMMAND CONTEXT\n${'routine output\n'.repeat(300)}`),
+      Buffer.from('<claude-code-hint v="1" type="plugin" value="example'),
+      Buffer.from([0xff]),
+      Buffer.from('@claude-plugins-official" />\nFAILURE ROOT\n'),
+    ])
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistShellOutputFile(
+        source,
+        'persist-malformed-hint-test',
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.previewStrategy).toBe('head-only')
+      expect(persisted!.preview).toContain('COMMAND CONTEXT')
+      expect(persisted!.preview).not.toContain('FAILURE ROOT')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+      expect(persisted!.preview).not.toMatch(/… \d+ bytes omitted …/)
+      expect(readFileSync(dest)).toEqual(body)
     } finally {
       if (dest && existsSync(dest)) rmSync(dest, { force: true })
       rmSync(dir, { recursive: true, force: true })
