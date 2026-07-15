@@ -16,7 +16,7 @@ import {
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Command } from 'commander'
+import { Command } from '@commander-js/extra-typings'
 import {
   applyLoadedEnvFileValues,
   loadEnvFile,
