@@ -1602,14 +1602,19 @@ async function* queryLoop(
                   markerOnlyStall = true
                         }
                 if (remaining.length === 0) {
-                  // Drop the empty message entirely rather than mutating
-                  // it in place — preserves the "original message untouched"
-                  // invariant and prevents content:[] from reaching the wire.
-                  // Use `as typeof message.message.content` to avoid BetaTextBlock
-                  // citations requirement on the placeholder block.
-                  message.message.content = [{ type: 'text' as const, text: '' }] as typeof message.message.content
+                  // Create a separate clone so yieldMessage sees the
+                  // placeholder while message.message stays untouched for
+                  // transcript / prompt-cache.  Use `as typeof ...` to avoid
+                  // BetaTextBlock citations requirement on the placeholder block.
+                  yieldMessage = {
+                    ...yieldMessage,
+                    message: { ...yieldMessage.message, content: [{ type: 'text' as const, text: '' }] as typeof message.message.content },
+                  }
                 } else {
-                  message.message.content = remaining
+                  yieldMessage = {
+                    ...yieldMessage,
+                    message: { ...yieldMessage.message, content: remaining },
+                  }
                 }
               } else if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
