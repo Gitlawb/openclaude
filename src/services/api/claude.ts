@@ -1118,6 +1118,7 @@ async function* queryModel(
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
   if (
+    isFirstPartyAnthropicBaseUrl() &&
     !isClaudeAISubscriber() &&
     isNonCustomOpusModel(options.model) &&
     (
