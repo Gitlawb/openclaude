@@ -142,6 +142,7 @@ import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
 import {
   matchingRuleForInput,
   pathInAllowedWorkingPath,
+  pathInWorkingPath,
 } from './permissions/filesystem.js'
 import {
   generateTaskAttachments,
@@ -1765,9 +1766,14 @@ export function getDirectoriesToProcess(
   const nestedDirs: string[] = []
   let currentDir = targetDir
 
-  // Walk up from target directory to original CWD
+  // Walk up from target directory to original CWD.
+  // Containment must be tested on path boundaries, not string prefixes: a
+  // sibling whose name merely starts with the CWD's name (cwd `/work/myapp`,
+  // target in `/work/myapp-backend`) is not "between CWD and targetPath", but
+  // startsWith accepts it — so its CLAUDE.md loaded as Project memory purely
+  // because of how the directory happened to be spelled.
   while (currentDir !== originalCwd && currentDir !== parse(currentDir).root) {
-    if (currentDir.startsWith(originalCwd)) {
+    if (pathInWorkingPath(currentDir, originalCwd)) {
       nestedDirs.push(currentDir)
     }
     currentDir = dirname(currentDir)
