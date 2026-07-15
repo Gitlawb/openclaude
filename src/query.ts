@@ -1602,19 +1602,30 @@ async function* queryLoop(
                   markerOnlyStall = true
                         }
                 if (remaining.length === 0) {
-                  // Create a separate clone so yieldMessage sees the
-                  // placeholder while message.message stays untouched for
-                  // transcript / prompt-cache.  Use `as typeof ...` to avoid
-                  // BetaTextBlock citations requirement on the placeholder block.
+                  // Strip the marker from message.message so subsequent
+                  // query iterations (after a continuation nudge) don't
+                  // re-inject the shim marker — the model already echoed
+                  // it, and re-injecting causes an infinite echo loop.
+                  // The yielded placeholder is empty to keep transcript clean.
+                  message.message = {
+                    ...message.message,
+                    content: [{ type: 'text' as const, text: '' }] as typeof message.message.content,
+                  } as typeof message.message
                   yieldMessage = {
                     ...yieldMessage,
-                    message: { ...yieldMessage.message, content: [{ type: 'text' as const, text: '' }] as typeof message.message.content },
+                    message: message.message,
                   }
                 } else {
                   yieldMessage = {
                     ...yieldMessage,
                     message: { ...yieldMessage.message, content: remaining },
                   }
+                  // Also strip the marker from message.message to prevent
+                  // the shim from re-injecting it on the next iteration.
+                  message.message = {
+                    ...message.message,
+                    content: remaining,
+                  } as typeof message.message
                 }
               } else if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
