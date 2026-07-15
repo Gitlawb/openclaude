@@ -185,6 +185,8 @@ test.each([
   "'tool_stream' is an unknown parameter",
   'Invalid "tool_stream" parameter',
   'tool_stream is unsupported',
+  '{"error":{"message":"tool_stream is unsupported"}}',
+  '{"error":{"message":"tool_stream is not supported"}}',
   '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
   '{"error":{"message":"Invalid parameter","param":"tool_stream"}}',
   '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
@@ -242,6 +244,15 @@ test('does not classify a raw tool-schema property error as a parameter rejectio
     status: 400,
     body: "Invalid schema for function 'Bash': Additional properties are not allowed ('tool_stream' was unexpected)",
   })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test.each([
+  'Invalid schema: param=tool_stream',
+  'Malformed tool schema: unexpected property tool_stream',
+])('does not classify a generic schema diagnostic as a parameter rejection: %s', body => {
+  const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
   expect(failure.category).not.toBe('tool_stream_unsupported')
 })

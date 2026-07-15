@@ -8833,7 +8833,7 @@ test('NVIDIA NIM Z.AI GLM streaming request with tools does not send tool_stream
 // Here we exercise the generic self-heal using a Z.AI-contract gateway that
 // actually sends `tool_stream`, then rejects it — proving the retry drops the
 // parameter rather than surfacing a hard error.
-test('Shim self-heals `tool_stream` rejection by retrying without it (#1950)', async () => {
+test('Shim self-heals a JSON `tool_stream` rejection by retrying without it (#1950)', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'
 
@@ -8844,7 +8844,7 @@ test('Shim self-heals `tool_stream` rejection by retrying without it (#1950)', a
     callCount += 1
     if (callCount === 1) {
       return new Response(
-        '{"error":{"message":"Validation: Unsupported parameter(s): `tool_stream`"}}',
+        '{"error":{"message":"tool_stream is unsupported"}}',
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       )
     }
