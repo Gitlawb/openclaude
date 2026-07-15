@@ -246,18 +246,19 @@ function indexToolUses(messages: AnyMessage[]): Map<string, ToolUseBlock> {
   return map
 }
 
-function indexToolResultMessages(messages: AnyMessage[]): number[] {
-  const indices: number[] = []
+function indexToolResults(
+  messages: AnyMessage[],
+): Array<{ messageIndex: number; blockIndex: number }> {
+  const indices: Array<{ messageIndex: number; blockIndex: number }> = []
   for (let i = 0; i < messages.length; i++) {
     const inner = getInner(messages[i])
     const role = inner.role ?? messages[i].role
     const content = inner.content
-    if (
-      role === 'user' &&
-      Array.isArray(content) &&
-      content.some((b: { type?: string }) => b?.type === 'tool_result')
-    ) {
-      indices.push(i)
+    if (role !== 'user' || !Array.isArray(content)) continue
+    for (let blockIndex = 0; blockIndex < content.length; blockIndex++) {
+      if ((content[blockIndex] as { type?: string })?.type === 'tool_result') {
+        indices.push({ messageIndex: i, blockIndex })
+      }
     }
   }
   return indices
@@ -313,36 +314,45 @@ export function compressToolHistory<T extends AnyMessage>(
     options.effectiveContextWindowSize ?? getEffectiveContextWindowSize(model),
   )
 
-  const toolResultIndices = indexToolResultMessages(messages)
-  const total = toolResultIndices.length
+  const toolResults = indexToolResults(messages)
+  const total = toolResults.length
   // If every tool-result fits in the recent tier, no boundary crosses; return
   // the same reference for the same copy-elision reason.
   if (total <= tiers.recent) return messages
 
-  // O(1) lookup: messageIndex → tool-result position (0 = oldest). Replaces
-  // the naive Array.indexOf(i) that was O(n²) across the .map below.
-  const positionByIndex = new Map<number, number>()
-  for (let pos = 0; pos < toolResultIndices.length; pos++) {
-    positionByIndex.set(toolResultIndices[pos], pos)
+  // O(1) lookup within each carrier message: blockIndex → tool-result position
+  // (0 = oldest). Parallel results share a message but receive distinct tiers.
+  const positionsByMessage = new Map<number, Map<number, number>>()
+  for (let pos = 0; pos < toolResults.length; pos++) {
+    const { messageIndex, blockIndex } = toolResults[pos]
+    let positions = positionsByMessage.get(messageIndex)
+    if (!positions) {
+      positions = new Map<number, number>()
+      positionsByMessage.set(messageIndex, positions)
+    }
+    positions.set(blockIndex, pos)
   }
 
   const toolUsesById = indexToolUses(messages)
 
   return messages.map((msg, i) => {
-    const pos = positionByIndex.get(i)
-    if (pos === undefined) return msg
+    const positions = positionsByMessage.get(i)
+    if (!positions) return msg
+    const firstPos = positions.values().next().value
+    if (firstPos === undefined || total - 1 - firstPos < tiers.recent) return msg
 
-    const fromEnd = total - 1 - pos
-    if (fromEnd < tiers.recent) return msg
-
-    const inMidWindow = fromEnd < tiers.recent + tiers.mid
     const content = getInner(msg).content as unknown[]
-    const newContent = content.map(block => {
+    const newContent = content.map((block, blockIndex) => {
+      const pos = positions.get(blockIndex)
+      if (pos === undefined) return block
+      const fromEnd = total - 1 - pos
+      if (fromEnd < tiers.recent) return block
+
       const b = block as { type?: string }
       if (b?.type !== 'tool_result') return block
       const tr = block as ToolResultBlock
       if (!shouldCompressBlock(tr, toolUsesById)) return block
-      return inMidWindow
+      return fromEnd < tiers.recent + tiers.mid
         ? truncateBlock(tr, MID_MAX_CHARS)
         : buildStub(tr, toolUsesById)
     })

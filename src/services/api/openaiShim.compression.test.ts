@@ -114,6 +114,37 @@ function buildLongConversation(numExchanges: number, resultLength = 5_000) {
   return out
 }
 
+function buildParallelToolConversation(
+  numBatches: number,
+  batchSize: number,
+  resultLength = 5_000,
+) {
+  const out: Array<{ role: string; content: unknown }> = [
+    { role: 'user', content: 'start the parallel work' },
+  ]
+  for (let batch = 0; batch < numBatches; batch++) {
+    const firstId = batch * batchSize
+    out.push({
+      role: 'assistant',
+      content: Array.from({ length: batchSize }, (_, offset) => ({
+        type: 'tool_use',
+        id: `toolu_${firstId + offset}`,
+        name: 'Read',
+        input: { file_path: `/path/to/file${firstId + offset}.ts` },
+      })),
+    })
+    out.push({
+      role: 'user',
+      content: Array.from({ length: batchSize }, (_, offset) => ({
+        type: 'tool_result',
+        tool_use_id: `toolu_${firstId + offset}`,
+        content: bigText(resultLength),
+      })),
+    })
+  }
+  return out
+}
+
 function makeFakeResponse(): Response {
   return new Response(
     JSON.stringify({
@@ -537,12 +568,12 @@ test('Responses compression preserves structured history and materially reduces 
   expect(compressedByCallId.get('toolu_0')).toBe(
     '[Old tool result content cleared]',
   )
-  for (let i = 1; i <= 14; i++) {
+  for (let i = 1; i <= 15; i++) {
     expect(compressedByCallId.get(`toolu_${i}`)).toMatch(
       /^\[Read args=.*chars omitted\]$/,
     )
   }
-  for (let i = 15; i <= 24; i++) {
+  for (let i = 16; i <= 24; i++) {
     expect(compressedByCallId.get(`toolu_${i}`)).toContain('[…truncated')
   }
   expect(compressedByCallId.get('toolu_16_extra')).toContain('[…truncated')
@@ -569,6 +600,38 @@ test('Responses compression preserves structured history and materially reduces 
   })
 
   expect(compressedSize).toBeLessThan(uncompressedSize * 0.5)
+})
+
+test('Responses compression assigns tiers per parallel tool result', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const messages = buildParallelToolConversation(5, 6)
+
+  const body = await captureResponsesRequestBody(messages, MID_TIER_MODEL)
+  const functionCalls = getResponsesFunctionCalls(body)
+  const functionOutputs = getResponsesFunctionOutputs(body)
+  const outputs = new Map(
+    functionOutputs.map(item => [item.call_id, item.output ?? '']),
+  )
+
+  expect(functionCalls).toHaveLength(30)
+  expect(functionOutputs).toHaveLength(30)
+  expect(functionCalls.map(item => item.call_id)).toEqual(
+    functionOutputs.map(item => item.call_id),
+  )
+  for (let i = 0; i < 15; i++) {
+    expect(outputs.get(`toolu_${i}`)).toMatch(
+      /^\[Read args=.*5000 chars omitted\]$/,
+    )
+  }
+  for (let i = 15; i < 25; i++) {
+    expect(outputs.get(`toolu_${i}`)).toContain(
+      '[…truncated 3000 chars from tool history]',
+    )
+  }
+  for (let i = 25; i < 30; i++) {
+    expect(outputs.get(`toolu_${i}`)).toHaveLength(5_000)
+  }
 })
 
 test('Responses compression preserves structured parts while compressing old and mid text', async () => {
@@ -767,7 +830,7 @@ test('non-chat transports do not invoke the Chat message converter', () => {
   expect(selectMessages('chat_completions', () => chatMessages)).toBe(chatMessages)
 })
 
-test('Anthropic and Gemini transports do not invoke tool history compression', () => {
+test('only OpenAI-compatible transports invoke tool history compression', () => {
   const selectMessages = __test.getCompressedMessagesForTransport
   const rawMessages = [{ role: 'user', content: 'hello' }]
   const compressedMessages = [{ role: 'user', content: 'compressed' }]
@@ -779,6 +842,7 @@ test('Anthropic and Gemini transports do not invoke tool history compression', (
 
   expect(selectMessages('anthropic_messages', rawMessages, compress)).toBe(rawMessages)
   expect(selectMessages('gemini', rawMessages, compress)).toBe(rawMessages)
+  expect(selectMessages('future_transport', rawMessages, compress)).toBe(rawMessages)
   expect(compressionCalls).toBe(0)
 
   expect(selectMessages('responses', rawMessages, compress)).toBe(compressedMessages)

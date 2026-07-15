@@ -1870,9 +1870,11 @@ function getCompressedMessagesForTransport<T>(
   rawMessages: T,
   compress: () => T,
 ): T {
-  return transport === 'anthropic_messages' || transport === 'gemini'
-    ? rawMessages
-    : compress()
+  return transport === 'chat_completions' ||
+    transport === 'responses' ||
+    transport === 'responses_compat'
+    ? compress()
+    : rawMessages
 }
 
 /**
