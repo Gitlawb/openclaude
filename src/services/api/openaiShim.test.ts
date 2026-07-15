@@ -7271,11 +7271,15 @@ test('native signal composition preserves the caller abort reason when fetch rej
     { signal: caller.signal },
   )
 
-  setTimeout(() => caller.abort(callerReason), 10)
+  const abortTimer = setTimeout(() => caller.abort(callerReason), 10)
 
-  await expect(
-    waitForPromise(request, 500, 'caller abort did not settle'),
-  ).rejects.toBe(callerReason)
+  try {
+    await expect(
+      waitForPromise(request, 500, 'caller abort did not settle'),
+    ).rejects.toBe(callerReason)
+  } finally {
+    clearTimeout(abortTimer)
+  }
   expect(fetchCalls).toBe(1)
 })
 
