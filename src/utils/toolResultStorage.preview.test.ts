@@ -48,7 +48,7 @@ function expectExactOmittedByteCount(
     const retainedBytes = byteLength(preview) - byteLength(candidate[0])
     return Number(candidate[1]) === byteLength(content) - retainedBytes
   })
-  expect(match).not.toBeNull()
+  expect(match).toBeDefined()
   const marker = match![0]
   const retainedBytes = byteLength(preview) - byteLength(marker)
   expect(Number(match![1])).toBe(byteLength(content) - retainedBytes)
@@ -180,6 +180,16 @@ describe('generatePreview head and tail selection', () => {
     expect(result.strategy).toBe('head-tail')
   })
 
+  test('falls back to a bounded head-only preview when the marker cannot fit', () => {
+    const content = 'x'.repeat(100)
+    const result = generatePreview(content, 1)
+
+    expect(result.preview).toBe('x')
+    expect(result.hasMore).toBe(true)
+    expect(result.strategy).toBe('head-only')
+    expectWithinBudget(result.preview, 1)
+  })
+
   test('does not duplicate content when the potential head and tail are close', () => {
     const content = '0123456789'.repeat(5)
     const result = generatePreview(content, 49)
@@ -216,6 +226,33 @@ describe('generatePreview head and tail selection', () => {
       expect(result.preview).toContain('FAILURE ROOT: src/index.ts:42')
       expectWithinBudget(result.preview, 200)
       expectExactOmittedByteCount(content, result.preview)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test.each([
+    ['raw bytes over the limit', 3_000],
+    ['raw bytes under the limit that expand when decoded', 1_000],
+  ])('bounds malformed UTF-8 after decoding: %s', async (_label, size) => {
+    const dir = await mkdtemp(join(tmpdir(), 'tool-file-preview-invalid-utf8-'))
+    const filepath = join(dir, 'invalid-output.bin')
+    await writeFile(filepath, Buffer.alloc(size, 0xff))
+
+    try {
+      const result = await generateFilePreview(filepath, 2_000)
+      const marker = result.preview.match(/… (\d+) bytes omitted …/)
+      const retainedSourceBytes = [...result.preview].filter(
+        character => character === '\uFFFD',
+      ).length
+
+      expect(Buffer.byteLength(result.preview, 'utf8')).toBeLessThanOrEqual(
+        2_000,
+      )
+      expect(result.hasMore).toBe(true)
+      expect(result.strategy).toBe('head-tail')
+      expect(marker).not.toBeNull()
+      expect(Number(marker![1])).toBe(size - retainedSourceBytes)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

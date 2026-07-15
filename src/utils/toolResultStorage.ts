@@ -207,6 +207,18 @@ export async function persistToolResult(
 /**
  * Build a message for large tool results with preview
  */
+function describePreviewStrategy(result: PersistedToolResult): string {
+  if (result.strategy === 'head-tail') {
+    return 'UTF-8-safe head and tail with an exact omitted-byte marker'
+  }
+  if (result.strategy === 'head-only') {
+    return result.isJson
+      ? 'UTF-8-safe head-only partial serialized JSON fragment (may not be valid JSON)'
+      : 'UTF-8-safe head-only partial output'
+  }
+  return 'complete available inline output'
+}
+
 export function buildLargeToolResultMessage(
   result: PersistedToolResult,
 ): string {
@@ -214,14 +226,7 @@ export function buildLargeToolResultMessage(
   const savedDescription = result.truncated
     ? `Partial output saved to: ${result.filepath} (output was capped — the tail was not saved)`
     : `Full output saved to: ${result.filepath}`
-  const previewDescription =
-    result.strategy === 'head-tail'
-      ? 'UTF-8-safe head and tail with an exact omitted-byte marker'
-      : result.strategy === 'head-only' && result.isJson
-        ? 'UTF-8-safe head-only partial serialized JSON fragment (may not be valid JSON)'
-        : result.strategy === 'head-only'
-          ? 'UTF-8-safe head-only partial output'
-          : 'complete available inline output'
+  const previewDescription = describePreviewStrategy(result)
   message +=
     `Output size: ${result.originalSize.toLocaleString('en-US')} bytes ` +
     `(${formatFileSize(result.originalSize)}). ${savedDescription}\n`
@@ -384,23 +389,51 @@ function safeTailStart(buffer: Buffer, maxBytes: number): number {
   return start
 }
 
+function decodedByteLength(buffer: Buffer): number {
+  return Buffer.byteLength(buffer.toString('utf8'), 'utf8')
+}
+
+function fitHeadEnd(buffer: Buffer, targetBytes: number): number {
+  let end = safeHeadEnd(buffer, Math.min(buffer.length, targetBytes))
+  while (
+    end > 0 &&
+    decodedByteLength(buffer.subarray(0, end)) > targetBytes
+  ) {
+    end = safeHeadEnd(buffer, end - 1)
+  }
+  return end
+}
+
+function fitTailStart(buffer: Buffer, targetBytes: number): number {
+  let start = safeTailStart(buffer, Math.min(buffer.length, targetBytes))
+  while (
+    start < buffer.length &&
+    decodedByteLength(buffer.subarray(start)) > targetBytes
+  ) {
+    start = safeTailStart(buffer, buffer.length - start - 1)
+  }
+  return start
+}
+
 function chooseHeadEnd(buffer: Buffer, targetBytes: number): number {
-  const hardEnd = safeHeadEnd(buffer, targetBytes)
+  const hardEnd = fitHeadEnd(buffer, targetBytes)
   if (hardEnd === 0) return 0
   const newline = buffer.lastIndexOf(0x0a, hardEnd - 1)
   const lineEnd = newline + 1
-  return lineEnd >= targetBytes * 0.5 ? lineEnd : hardEnd
+  const lineBytes = decodedByteLength(buffer.subarray(0, lineEnd))
+  return lineBytes >= targetBytes * 0.5 ? lineEnd : hardEnd
 }
 
 function chooseTailStart(buffer: Buffer, targetBytes: number): number {
   if (targetBytes <= 0) return buffer.length
-  const hardStart = safeTailStart(buffer, targetBytes)
+  const hardStart = fitTailStart(buffer, targetBytes)
   const newline = buffer.indexOf(0x0a, hardStart)
   if (newline === -1) return hardStart
   const lineStart = newline > hardStart && buffer[newline - 1] === 0x0d
     ? newline - 1
     : newline
-  return lineStart - hardStart <= targetBytes * 0.5 ? lineStart : hardStart
+  const lineBytes = decodedByteLength(buffer.subarray(lineStart))
+  return lineBytes >= targetBytes * 0.5 ? lineStart : hardStart
 }
 
 function omissionMarker(omittedBytes: number): string {
@@ -430,7 +463,7 @@ function generateHeadTailPreview(
   // but can never make the preview exceed the budget.
   const targets = getHeadTailTargets(buffer.length, maxBytes)
   if (targets === null) {
-    const end = safeHeadEnd(buffer, maxBytes)
+    const end = chooseHeadEnd(buffer, maxBytes)
     return {
       preview: buffer.subarray(0, end).toString('utf8'),
       hasMore: true,
@@ -514,8 +547,12 @@ export async function generateFilePreview(
     const fileSizeBytes = (await handle.stat()).size
     if (fileSizeBytes <= byteLimit) {
       const content = await readFileBytes(handle, 0, fileSizeBytes)
+      const decoded = content.toString('utf8')
+      if (Buffer.byteLength(decoded, 'utf8') > byteLimit) {
+        return generateHeadTailPreview(content, byteLimit)
+      }
       return {
-        preview: content.toString('utf8'),
+        preview: decoded,
         hasMore: false,
         strategy: 'complete',
       }
@@ -528,7 +565,7 @@ export async function generateFilePreview(
         0,
         Math.min(fileSizeBytes, byteLimit + 3),
       )
-      const headEnd = safeHeadEnd(head, byteLimit)
+      const headEnd = chooseHeadEnd(head, byteLimit)
       return {
         preview: head.subarray(0, headEnd).toString('utf8'),
         hasMore: true,

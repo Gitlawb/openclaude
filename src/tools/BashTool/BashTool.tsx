@@ -18,7 +18,7 @@ import type { AgentId } from '../../types/ids.js';
 import type { AssistantMessage } from '../../types/message.js';
 import { parseForSecurity } from '../../utils/bash/ast.js';
 import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/bash/commands.js';
-import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
+import { extractClaudeCodeHints, type ClaudeCodeHint } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { isENOENT, ShellError, toError } from '../../utils/errors.js';
@@ -345,7 +345,8 @@ export async function persistShellOutputFile(
   sourcePath: string,
   taskId: string,
   maxSize: number = MAX_PERSISTED_SHELL_OUTPUT_SIZE,
-): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy } | null> {
+  command: string = '',
+): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy; previewHints?: ClaudeCodeHint[] } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
@@ -391,12 +392,16 @@ export async function persistShellOutputFile(
       logError(toError(error));
       return undefined;
     });
+    const previewExtraction = previewResult
+      ? extractClaudeCodeHints(previewResult.preview, command)
+      : undefined;
     return {
       path: dest,
       size,
       truncated,
-      preview: previewResult?.preview,
+      preview: previewExtraction?.stripped,
       previewStrategy: previewResult?.strategy,
+      previewHints: previewExtraction?.hints,
     };
   } catch {
     // File may already be gone — caller's stdout preview is sufficient.
@@ -420,13 +425,19 @@ export function appendPersistedOutputHint(
   persistedSize: number,
   truncated: boolean,
   preview?: string,
+  previewStrategy?: PreviewStrategy,
   sandboxDiagnostics?: string,
 ): string {
   const hint = truncated
     ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  const previewStrategyLabel = previewStrategy === 'head-tail'
+    ? 'head and tail'
+    : previewStrategy === 'complete'
+      ? 'complete'
+      : 'head-only partial';
   const previewBlock = preview
-    ? `Persisted output preview (UTF-8-safe head and tail, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
+    ? `Persisted output preview (UTF-8-safe ${previewStrategyLabel}, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
     : '';
   const boundedSandboxDiagnostics = preview && sandboxDiagnostics
     ? generatePreview(
@@ -910,19 +921,42 @@ export const BashTool = buildTool({
         // the truncated chunk and has no signal that the rest exists. The
         // persist step is identical to the success-path block below; both
         // sites resolve the same `result.outputFilePath` / outputTaskId.
-        let errorStdout = outputWithSbFailures
+        const errorExtraction = extractClaudeCodeHints(
+          outputWithSbFailures,
+          input.command,
+        )
+        let errorStdout = errorExtraction.stripped
+        if (isMainThread) {
+          for (const hint of errorExtraction.hints) {
+            maybeRecordPluginHint(hint)
+          }
+        }
         if (result.outputFilePath && result.outputTaskId) {
           const persistedForError = await persistShellOutputFile(
             result.outputFilePath,
             result.outputTaskId,
+            MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+            input.command,
           )
           if (persistedForError) {
+            if (isMainThread) {
+              for (const hint of persistedForError.previewHints ?? []) {
+                const alreadyCaptured = errorExtraction.hints.some(
+                  captured =>
+                    captured.v === hint.v &&
+                    captured.type === hint.type &&
+                    captured.value === hint.value,
+                )
+                if (!alreadyCaptured) maybeRecordPluginHint(hint)
+              }
+            }
             errorStdout = appendPersistedOutputHint(
               errorStdout,
               persistedForError.path,
               persistedForError.size,
               persistedForError.truncated,
               persistedForError.preview,
+              persistedForError.previewStrategy,
               sandboxDiagnostics,
             )
           }
@@ -949,17 +983,21 @@ export const BashTool = buildTool({
     let persistedOutputSize: number | undefined;
     let persistedOutputPreview: string | undefined;
     let persistedOutputPreviewStrategy: PreviewStrategy | undefined;
+    let persistedOutputPreviewHints: ClaudeCodeHint[] = [];
     let persistedOutputTruncated: boolean | undefined;
     if (result.outputFilePath && result.outputTaskId) {
       const persisted = await persistShellOutputFile(
         result.outputFilePath,
         result.outputTaskId,
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        input.command,
       );
       if (persisted) {
         persistedOutputPath = persisted.path;
         persistedOutputSize = persisted.size;
         persistedOutputPreview = persisted.preview;
         persistedOutputPreviewStrategy = persisted.previewStrategy;
+        persistedOutputPreviewHints = persisted.previewHints ?? [];
         persistedOutputTruncated = persisted.truncated;
       }
     }
@@ -1000,6 +1038,17 @@ export const BashTool = buildTool({
     strippedStdout = extracted.stripped;
     if (isMainThread && extracted.hints.length > 0) {
       for (const hint of extracted.hints) maybeRecordPluginHint(hint);
+    }
+    if (isMainThread && persistedOutputPreviewHints.length > 0) {
+      for (const hint of persistedOutputPreviewHints) {
+        const alreadyCaptured = extracted.hints.some(
+          captured =>
+            captured.v === hint.v &&
+            captured.type === hint.type &&
+            captured.value === hint.value,
+        );
+        if (!alreadyCaptured) maybeRecordPluginHint(hint);
+      }
     }
     let isImage = isImageOutput(strippedStdout);
 

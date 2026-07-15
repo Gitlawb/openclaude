@@ -103,11 +103,26 @@ describe('PowerShellTool persisted error output', () => {
       42_100,
       false,
       preview,
+      'head-tail',
     )
 
     expect(hint).toContain(preview)
     expect(hint).not.toContain('captured duplicate')
     expect(Buffer.byteLength(hint, 'utf8')).toBeLessThan(3_000)
+  })
+
+  test('labels a head-only persisted preview honestly', () => {
+    const hint = appendPersistedPowerShellOutputHint(
+      'captured output',
+      '/tmp/out',
+      42_100,
+      false,
+      'COMMAND CONTEXT',
+      'head-only',
+    )
+
+    expect(hint).toContain('UTF-8-safe head-only partial')
+    expect(hint).not.toContain('UTF-8-safe head and tail')
   })
 
   test('caps the destination copy and leaves the rolled-output source intact', async () => {
@@ -157,6 +172,41 @@ describe('PowerShellTool persisted error output', () => {
       expect(saved.length).toBe(cap)
       expect(saved).toBe(head)
       expect(saved).not.toContain('B')
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('strips and reports a retained-tail Claude Code hint without changing the saved file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'powershell-persist-hint-'))
+    const source = join(dir, 'roll.txt')
+    const hint =
+      '<claude-code-hint v="1" type="plugin" value="example@claude-plugins-official" />'
+    const body = `COMMAND CONTEXT\n${'routine output\n'.repeat(300)}${hint}\nFAILURE ROOT\n`
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistPowerShellOutputFile(
+        source,
+        'powershell-persist-hint-test',
+        MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.preview).toContain('FAILURE ROOT')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+      expect(persisted!.previewHints).toEqual([
+        {
+          v: 1,
+          type: 'plugin',
+          value: 'example@claude-plugins-official',
+          sourceCommand: 'example-cli',
+        },
+      ])
+      expect(readFileSync(dest, 'utf8')).toBe(body)
     } finally {
       if (dest && existsSync(dest)) rmSync(dest, { force: true })
       rmSync(dir, { recursive: true, force: true })

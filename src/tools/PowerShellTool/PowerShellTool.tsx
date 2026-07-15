@@ -15,7 +15,7 @@ import { buildTool, type ToolDef } from '../../Tool.js';
 import { backgroundExistingForegroundTask, markTaskNotified, registerForeground, spawnShellTask, unregisterForeground } from '../../tasks/LocalShellTask/LocalShellTask.js';
 import type { AgentId } from '../../types/ids.js';
 import type { AssistantMessage } from '../../types/message.js';
-import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
+import { extractClaudeCodeHints, type ClaudeCodeHint } from '../../utils/claudeCodeHints.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { errorMessage as getErrorMessage, ShellError } from '../../utils/errors.js';
 import { truncate } from '../../utils/format.js';
@@ -55,7 +55,8 @@ export async function persistPowerShellOutputFile(
   sourcePath: string,
   taskId: string,
   maxSize: number = MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
-): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy } | null> {
+  command: string = '',
+): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy; previewHints?: ClaudeCodeHint[] } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
@@ -87,12 +88,16 @@ export async function persistPowerShellOutputFile(
       logError(error instanceof Error ? error : new Error(getErrorMessage(error)));
       return undefined;
     });
+    const previewExtraction = previewResult
+      ? extractClaudeCodeHints(previewResult.preview, command)
+      : undefined;
     return {
       path: dest,
       size,
       truncated,
-      preview: previewResult?.preview,
+      preview: previewExtraction?.stripped,
       previewStrategy: previewResult?.strategy,
+      previewHints: previewExtraction?.hints,
     };
   } catch {
     return null;
@@ -105,12 +110,18 @@ export function appendPersistedPowerShellOutputHint(
   persistedSize: number,
   truncated: boolean,
   preview?: string,
+  previewStrategy?: PreviewStrategy,
 ): string {
   const hint = truncated
     ? `[output truncated above — first ${MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  const previewStrategyLabel = previewStrategy === 'head-tail'
+    ? 'head and tail'
+    : previewStrategy === 'complete'
+      ? 'complete'
+      : 'head-only partial';
   const previewBlock = preview
-    ? `Persisted output preview (UTF-8-safe head and tail, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
+    ? `Persisted output preview (UTF-8-safe ${previewStrategyLabel}, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
     : '';
   const capturedFallback = preview
     ? ''
@@ -890,14 +901,28 @@ export const PowerShellTool = buildTool({
           const persistedForError = await persistPowerShellOutputFile(
             result.outputFilePath,
             result.outputTaskId,
+            MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
+            input.command,
           );
           if (persistedForError) {
+            if (isMainThread) {
+              for (const hint of persistedForError.previewHints ?? []) {
+                const alreadyCaptured = extracted.hints.some(
+                  captured =>
+                    captured.v === hint.v &&
+                    captured.type === hint.type &&
+                    captured.value === hint.value,
+                );
+                if (!alreadyCaptured) maybeRecordPluginHint(hint);
+              }
+            }
             errorStdout = appendPersistedPowerShellOutputHint(
               errorStdout,
               persistedForError.path,
               persistedForError.size,
               persistedForError.truncated,
               persistedForError.preview,
+              persistedForError.previewStrategy,
             );
           }
         }
@@ -920,6 +945,8 @@ export const PowerShellTool = buildTool({
         const persisted = await persistPowerShellOutputFile(
           result.outputFilePath,
           result.outputTaskId,
+          MAX_PERSISTED_POWERSHELL_OUTPUT_SIZE,
+          input.command,
         );
         if (persisted) {
           persistedOutputPath = persisted.path;
@@ -927,6 +954,17 @@ export const PowerShellTool = buildTool({
           persistedOutputPreview = persisted.preview;
           persistedOutputPreviewStrategy = persisted.previewStrategy;
           persistedOutputTruncated = persisted.truncated;
+          if (isMainThread) {
+            for (const hint of persisted.previewHints ?? []) {
+              const alreadyCaptured = extracted.hints.some(
+                captured =>
+                  captured.v === hint.v &&
+                  captured.type === hint.type &&
+                  captured.value === hint.value,
+              );
+              if (!alreadyCaptured) maybeRecordPluginHint(hint);
+            }
+          }
         }
       }
 
