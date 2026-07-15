@@ -80,6 +80,8 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_SELF_HOSTED_TOOLS',
+  'OPENAI_PARSE_TEXT_TOOL_CALLS',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
@@ -167,6 +169,10 @@ export type ProfileEnv = {
   OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEYS?: string
   OPENAI_API_KEY?: string
+  /** Set from active profile.selfHostedTools — not meant for manual shell use. */
+  OPENAI_SELF_HOSTED_TOOLS?: string
+  /** Historical alias still cleared/applied with profile env swaps. */
+  OPENAI_PARSE_TEXT_TOOL_CALLS?: string
   GITHUB_COPILOT_KEY?: string
   GITHUB_ENTERPRISE_URL?: string
   CODEX_API_KEY?: string

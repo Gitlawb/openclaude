@@ -100,6 +100,9 @@ import {
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  shouldUseSelfHostedToolCompat,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
   type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
@@ -1563,12 +1566,15 @@ function convertMessages(
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
     supportsImageInputs?: boolean
+    injectToolResultSemanticBoundary?: boolean
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
   const supportsImageInputs = options?.supportsImageInputs
+  const injectToolResultSemanticBoundary =
+    options?.injectToolResultSemanticBoundary === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -1825,15 +1831,19 @@ function convertMessages(
   for (const msg of result) {
     const prev = coalesced[coalesced.length - 1]
 
-    // Mistral/Devstral: 'tool' message must be followed by an 'assistant' message.
-    // If a 'tool' result is followed by a 'user' message, inject a neutral
-    // assistant boundary to satisfy the strict role sequence without implying
-    // that the user interrupted or cancelled anything:
-    // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
-    if (prev && prev.role === 'tool' && msg.role === 'user') {
+    // Mistral/Devstral only: 'tool' must be followed by 'assistant' before
+    // 'user'. llama-server / Qwen / Ollama / OpenAI must NOT get this —
+    // the synthetic assistant content is echoed as a real reply and stalls
+    // the tool loop (visible "[Tool results received]" in the UI).
+    if (
+      injectToolResultSemanticBoundary &&
+      prev &&
+      prev.role === 'tool' &&
+      msg.role === 'user'
+    ) {
       coalesced.push({
         role: 'assistant',
-        content: '[Tool results received]',
+        content: TOOL_RESULT_SEMANTIC_PLACEHOLDER,
       })
     }
 
@@ -2893,6 +2903,25 @@ function convertNonStreamingResponseToAnthropicMessage(
         }
         return
       }
+
+      // JSON-in-text tool calls (llama-server / Ollama / local models that
+      // cannot emit structured tool_calls). Safe for all non-stream paths:
+      // only name+arguments objects are accepted.
+      const { calls: textToolCalls, toolCallRanges: textRanges } =
+        parseTextToolCalls(strippedContent)
+      if (textToolCalls.length > 0) {
+        const visibleText = stripRanges(strippedContent, textRanges).trim()
+        if (visibleText) content.push({ type: 'text', text: visibleText })
+        for (const toolCall of textToolCalls) {
+          content.push({
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.name,
+            input: toolCall.arguments,
+          })
+        }
+        return
+      }
     }
 
     const rawToolCalls = hasStructuredToolCalls
@@ -2997,6 +3026,12 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  /**
+   * When true, buffer text until finish and recover JSON-in-text tool calls
+   * (self-hosted llama-server / Ollama / local OpenAI-compat with tools).
+   * Parameter name is historical (`isOllama`); any self-hosted tool path
+   * may set it.
+   */
   isOllama = false,
   requestUrl?: string,
 ): AsyncGenerator<AnthropicStreamEvent> {
@@ -3020,13 +3055,11 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
-  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
+  // Accumulated text for self-hosted text-based tool call fallback parsing
   let accumulatedText = ''
-  // Use the resolved value threaded from the call site (resolveProviderRequest)
-  // rather than re-reading env vars inside the generator.
+  // Self-hosted / Ollama: buffer text so raw tool-call JSON is not shown
+  // before extraction at finish_reason=stop.
   const isOllamaStream = isOllama
-  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
-  // before extraction at finish_reason=stop (P2 fix for #1053).
   let ollamaTextBuffer = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
@@ -3573,10 +3606,10 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
-          // Ollama text-based tool call fallback (#1053):
+          // Self-hosted / Ollama text-based tool call fallback (#1053):
           // Must run before closeActiveContentBlock so the text buffer can be flushed
-          // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
-          // JSON text; scan accumulated text on any terminal finish reason with no
+          // with tool-call JSON stripped (P2). Local models often emit tool calls as
+          // raw JSON text; scan accumulated text on any terminal finish reason with no
           // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
           // so the JSON fallback remains scoped to normal completions.
           const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
@@ -3606,7 +3639,7 @@ async function* openaiStreamToAnthropic(
                 }
                 yield* closeActiveContentBlock()
               } else if (strippedVisible) {
-                // Text was buffered (Ollama path, hasEmittedContentStart === false).
+                // Text was buffered (self-hosted path, hasEmittedContentStart === false).
                 // Open a text block, emit the visible prose before the tool call, close it.
                 throwIfStreamAborted(signal)
                 yield {
@@ -3668,9 +3701,10 @@ async function* openaiStreamToAnthropic(
             }
           }
 
-          // XML tool-call fallback for non-Ollama OpenAI-compatible providers
-          // (GLM/Qwen emit `<tool_call><function=…>` as text). Mirror the Ollama
-          // path: convert buffered XML to tool_use blocks and strip the raw XML.
+          // XML tool-call fallback for cloud OpenAI-compatible providers
+          // (GLM/Qwen emit `<tool_call><function=…>` as text). Self-hosted
+          // buffering path above already handles JSON; XML still runs here
+          // when text was streamed live (non-self-hosted).
           let xmlClosedContentBlock = false
           if (!isOllamaStream && xmlToolCallText !== null) {
             const buffered = xmlToolCallText
@@ -4070,7 +4104,20 @@ class OpenAIShimMessages {
                 ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
                 : isGeminiStream
                   ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
-                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl), response.url || undefined),
+                  : openaiStreamToAnthropic(
+                      response,
+                      request.resolvedModel,
+                      streamSignal,
+                      // Buffer + JSON text-tool recovery:
+                      // - Ollama: always (historical #1053 path)
+                      // - other self-hosted (llama-server local/LAN or
+                      //   OPENAI_SELF_HOSTED_TOOLS=1): only when tools are
+                      //   advertised so plain chat stays live-streamed
+                      isLikelyOllamaEndpoint(request.baseUrl) ||
+                        (Boolean(params.tools?.length) &&
+                          shouldUseSelfHostedToolCompat(request.baseUrl)),
+                      response.url || undefined,
+                    ),
           options?.signal,
           cancelBeforeIteration,
         )
@@ -4374,6 +4421,10 @@ class OpenAIShimMessages {
           request.baseUrl,
         ),
         supportsImageInputs: shimConfig.supportsImageInputs,
+        injectToolResultSemanticBoundary: shouldInjectToolResultSemanticBoundary({
+          baseUrl: request.baseUrl,
+          model: request.resolvedModel,
+        }),
       }),
     )
 

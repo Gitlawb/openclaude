@@ -37,6 +37,8 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_SELF_HOSTED_TOOLS',
+  'OPENAI_PARSE_TEXT_TOOL_CALLS',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
   'CODEX_API_KEY',
@@ -324,6 +326,35 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
     expect(getFreshAPIProvider()).toBe('openai')
   }, 20_000)
+
+  test('selfHostedTools on profile sets OPENAI_SELF_HOSTED_TOOLS only while active', async () => {
+    const {
+      applyProviderProfileToProcessEnv,
+      clearProviderProfileEnvFromProcessEnv,
+    } = await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        selfHostedTools: true,
+        baseUrl: 'http://172.16.30.12:8081/v1',
+        model: 'qwen3.6:35b',
+      }),
+    )
+    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://172.16.30.12:8081/v1')
+
+    clearProviderProfileEnvFromProcessEnv()
+    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBeUndefined()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        selfHostedTools: false,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    )
+    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBeUndefined()
+  })
 
   test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {
     const { applyProviderProfileToProcessEnv } =
