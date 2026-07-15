@@ -73,6 +73,8 @@ const originalEnv = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  USER_TYPE: process.env.USER_TYPE,
+  USE_STAGING_OAUTH: process.env.USE_STAGING_OAUTH,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
@@ -123,6 +125,8 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.USER_TYPE
+  delete process.env.USE_STAGING_OAUTH
 }
 
 beforeEach(async () => {
@@ -207,6 +211,8 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
     restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('USER_TYPE', originalEnv.USER_TYPE)
+    restoreEnv('USE_STAGING_OAUTH', originalEnv.USE_STAGING_OAUTH)
     restoreEnv(
       'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
       originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
@@ -310,6 +316,8 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
   process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api/v1'
+  process.env.USER_TYPE = 'ant'
+  process.env.USE_STAGING_OAUTH = '1'
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a\nauthorization: stale-value'
 
   const fetchOverride = (async (input, init) => {

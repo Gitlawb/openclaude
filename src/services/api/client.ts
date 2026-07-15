@@ -775,7 +775,8 @@ export async function getAnthropicClient({
         ? anthropicAuthToken
         : null,
     // Set baseURL from OAuth config when using staging OAuth
-    ...(process.env.USER_TYPE === 'ant' &&
+    ...(shouldUseFirstPartyAuth &&
+    process.env.USER_TYPE === 'ant' &&
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : process.env.ANTHROPIC_BASE_URL
