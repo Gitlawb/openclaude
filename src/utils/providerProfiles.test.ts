@@ -2101,6 +2101,115 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(saved?.model).toBe('glm-5.2')
   })
 
+  test('uses saved Codex /model choice when rehydrating the Codex OAuth profile', async () => {
+    // Regression: the Codex OAuth profile is created with a single
+    // `codexplan` model entry, so profileSupportsModel rejected any other
+    // Codex model saved via /model (e.g. gpt-5.6-terra) and the next startup
+    // silently reverted to codexplan → gpt-5.5. Codex-backend profiles must
+    // accept every Codex alias model and gpt-5.x free-text picks.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+      getProviderProfiles,
+    } = await importFreshProviderProfileModules()
+    _setSavedModelOverrideForTesting('gpt-5.6-terra')
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(applied?.id).toBe(activeProfile.id)
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://chatgpt.com/backend-api/codex',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.6-terra')
+    // The profile's configured model list is never mutated by /model.
+    const saved = getProviderProfiles({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
+    expect(saved?.model).toBe('codexplan')
+  })
+
+  test('accepts a non-alias gpt-5.x free-text pick on a Codex profile, but not a foreign model', async () => {
+    // gpt-5.1-codex is served by the Codex backend but is not a
+    // CODEX_ALIAS_MODELS key (only its -max/-mini variants are), so it is
+    // only reachable via free-text /model — which live-validates against
+    // the backend before persisting. It must survive restart. A stale
+    // non-GPT model from another provider must NOT leak in.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+    const config = {
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any
+
+    _setSavedModelOverrideForTesting('gpt-5.1-codex')
+    applyActiveProviderProfileFromConfig(config)
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.1-codex')
+
+    // Simulate a cold start for the second scenario — leftover provider env
+    // from the first application counts as explicit startup intent and would
+    // short-circuit applyActiveProviderProfileFromConfig.
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    _setSavedModelOverrideForTesting('kimi-k2.6')
+    applyActiveProviderProfileFromConfig(config)
+    expect(String(process.env.OPENAI_MODEL)).toBe('codexplan')
+
+    // gpt-5-mini/-nano are API-only tiers the Codex backend does not serve;
+    // a stale pick from a direct-OpenAI profile must fall back too, not 400.
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    _setSavedModelOverrideForTesting('gpt-5-mini')
+    applyActiveProviderProfileFromConfig(config)
+    expect(String(process.env.OPENAI_MODEL)).toBe('codexplan')
+  })
+
+  test('a [1m]-tagged saved Codex pick survives restart', async () => {
+    // The [1m] tag is a client-side context opt-in, not part of the model
+    // identity: profileSupportsModel must match the tagged value against the
+    // untagged alias/profile entry instead of dropping the override.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+
+    _setSavedModelOverrideForTesting('codexplan[1m]')
+    applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+    expect(process.env.OPENAI_MODEL).toBe('codexplan[1m]')
+  })
+
   test('cold start on the Anthropic sentinel stays on built-in Anthropic and does not fall back to the OpenGateway default (#1429)', async () => {
     // Regression: after clearActiveProviderProfile() records the Anthropic
     // sentinel and deletes the startup profile mirror, a restart must keep the

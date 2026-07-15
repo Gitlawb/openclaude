@@ -218,3 +218,32 @@ test('resolveProviderRequest uses ClinePass model when no explicit base URL is s
   expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
+
+test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
+  const sol = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv: {} })
+  expect(sol.resolvedModel).toBe('gpt-5.6-sol')
+  expect(sol.transport).toBe('codex_responses')
+  expect(sol.reasoning).toEqual({ effort: 'high' })
+
+  const terra = resolveProviderRequest({ model: 'gpt-5.6-terra', processEnv: {} })
+  expect(terra.resolvedModel).toBe('gpt-5.6-terra')
+  expect(terra.reasoning).toEqual({ effort: 'medium' })
+
+  const luna = resolveProviderRequest({ model: 'gpt-5.6-luna', processEnv: {} })
+  expect(luna.resolvedModel).toBe('gpt-5.6-luna')
+  expect(luna.reasoning).toEqual({ effort: 'medium' })
+
+  // Bare version resolves to the flagship tier, like the Codex CLI.
+  const bare = resolveProviderRequest({ model: 'gpt-5.6', processEnv: {} })
+  expect(bare.resolvedModel).toBe('gpt-5.6-sol')
+  expect(bare.reasoning).toEqual({ effort: 'high' })
+})
+
+test('resolveProviderRequest honors reasoning query overrides on GPT-5.6 aliases', () => {
+  const request = resolveProviderRequest({
+    model: 'gpt-5.6-sol?reasoning=medium',
+    processEnv: {},
+  })
+  expect(request.resolvedModel).toBe('gpt-5.6-sol')
+  expect(request.reasoning).toEqual({ effort: 'medium' })
+})

@@ -1,7 +1,9 @@
 import { randomBytes } from 'crypto'
 import {
   getAdditionalModelOptionsCacheScope,
+  isCodexAlias,
   isCodexBaseUrl,
+  isCodexEligibleGpt5Model,
   parseOpenAICompatibleApiFormat,
 } from '../services/api/providerConfig.js'
 import {
@@ -244,7 +246,13 @@ function resolveProfileCapabilityRouteId(
 }
 
 function normalizeProfileModelLookupKey(model: string | undefined): string {
-  return model?.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+  // Strip a trailing [1m] tag along with any ?query suffix: the tag is a
+  // client-side context opt-in, not part of the model's identity, so a saved
+  // `codexplan[1m]` must still match a profile/catalog entry of `codexplan`.
+  return (
+    model?.trim().split('?', 1)[0]?.trim().toLowerCase().replace(/\[1m]$/, '') ??
+    ''
+  )
 }
 
 function profileSupportsModel(profile: ProviderProfile, model: string): boolean {
@@ -259,6 +267,26 @@ function profileSupportsModel(profile: ProviderProfile, model: string): boolean 
     )
   ) {
     return true
+  }
+
+  // Codex-backend profiles (ChatGPT OAuth) are created with a single
+  // `codexplan` entry, but the backend accepts every Codex alias model and
+  // the wider gpt-5.x family (free-text /model picks like `gpt-5.1-codex`
+  // pass live validation before being persisted). Without this, a saved
+  // pick like `gpt-5.6-terra` is rejected here at the next startup, so the
+  // profile's default silently wins and the choice appears to not stick.
+  // Deliberately NOT a blanket allow: a stale non-GPT model saved under a
+  // different provider (e.g. `kimi-k2.6`) — or an API-only gpt-5-mini/-nano
+  // tier the Codex backend does not serve — must still fall back to the
+  // profile default rather than 400 against the Codex backend. The gate is
+  // authoritative for Codex profiles: falling through to the catalog check
+  // would consult the `openai` route catalog (the profile's provider is
+  // 'openai'), which describes api.openai.com's model set, not the ChatGPT
+  // Codex backend's.
+  if (isCodexBaseUrl(profile.baseUrl)) {
+    return (
+      isCodexAlias(normalizedModel) || isCodexEligibleGpt5Model(normalizedModel)
+    )
   }
 
   const routeId = resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl)

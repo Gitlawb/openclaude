@@ -82,6 +82,24 @@ const CODEX_ALIAS_MODELS: Record<
     model: 'gpt-5.5',
     reasoningEffort: 'high',
   },
+  // GPT-5.6 family (July 2026). `gpt-5.6` follows the Codex CLI convention of
+  // resolving the bare version to the flagship tier (Sol).
+  'gpt-5.6': {
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+  },
+  'gpt-5.6-sol': {
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+  },
+  'gpt-5.6-terra': {
+    model: 'gpt-5.6-terra',
+    reasoningEffort: 'medium',
+  },
+  'gpt-5.6-luna': {
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'medium',
+  },
   'gpt-5.5': {
     model: 'gpt-5.5',
     reasoningEffort: 'high',
@@ -160,6 +178,11 @@ type ModelDescriptor = {
   reasoning?: {
     effort: ReasoningEffort
   }
+  // True when `reasoning` is the CODEX_ALIAS_MODELS default rather than an
+  // explicit ?reasoning= query pick. Alias defaults are a Codex convention:
+  // they must not leak onto non-Codex transports (an OPENAI_API_BASE gateway
+  // serving gpt-5.6 must not inherit first-party effort metadata).
+  reasoningFromAlias?: boolean
   thinking?: {
     type: ThinkingType
   }
@@ -350,6 +373,7 @@ function parseModelDescriptor(model: string): ModelDescriptor {
         reasoning: aliasConfig.reasoningEffort
           ? { effort: aliasConfig.reasoningEffort }
           : undefined,
+        reasoningFromAlias: Boolean(aliasConfig.reasoningEffort),
       }
     }
     return {
@@ -365,8 +389,9 @@ function parseModelDescriptor(model: string): ModelDescriptor {
     ? CODEX_ALIAS_MODELS[alias]
     : undefined
   const resolvedBaseModel = aliasConfig?.model ?? baseModel
+  const queryReasoning = parseReasoningEffort(params.get('reasoning') ?? undefined)
   const reasoning =
-    parseReasoningEffort(params.get('reasoning') ?? undefined) ??
+    queryReasoning ??
     (aliasConfig?.reasoningEffort
       ? { effort: aliasConfig.reasoningEffort }
       : undefined)
@@ -376,6 +401,8 @@ function parseModelDescriptor(model: string): ModelDescriptor {
     raw: trimmed,
     baseModel: resolvedBaseModel,
     reasoning: typeof reasoning === 'string' ? { effort: reasoning } : reasoning,
+    reasoningFromAlias:
+      queryReasoning === undefined && Boolean(aliasConfig?.reasoningEffort),
     thinking: thinking ? { type: thinking } : undefined,
   }
 }
@@ -428,7 +455,22 @@ function shouldUseGithubResponsesApi(model: string): boolean {
 export function modelRequiresResponsesApi(model: string): boolean {
   const normalized = model.trim().toLowerCase().split('?', 1)[0] ?? ''
   return /^gpt-5\.[4-6](?!\d)/.test(normalized) &&
-    !/(?:^|[-.])(?:mini|nano)(?:[-.]|$)/.test(normalized)
+    !GPT5_MINI_NANO_RE.test(normalized)
+}
+
+// The gpt-5 family boundary: gpt-5, gpt-5-*, gpt-5.x — without matching
+// gpt-50-style ids. Shared by supportsCodexReasoningEffort and the Codex
+// profile model gate so the family shape lives in one place.
+const GPT5_FAMILY_RE = /^gpt-5(?:[.-]|$)/
+const GPT5_MINI_NANO_RE = /(?:^|[-.])(?:mini|nano)(?:[-.]|$)/
+
+// gpt-5 family models the ChatGPT Codex backend can serve. The -mini/-nano
+// tiers are API-only (never exposed through the Codex transport), so a
+// stale gpt-5-mini pick saved under a direct-OpenAI profile must fall back
+// to the Codex profile's default rather than be sent to the backend and 400.
+export function isCodexEligibleGpt5Model(model: string): boolean {
+  const base = model.trim().toLowerCase().split('?', 1)[0] ?? ''
+  return GPT5_FAMILY_RE.test(base) && !GPT5_MINI_NANO_RE.test(base)
 }
 
 // The responses auto-route only fires for the OpenAI first-party surface
@@ -1062,9 +1104,20 @@ export function resolveProviderRequest(options?: {
         ? requestedApiFormat
         : 'chat_completions'
 
+  // The gpt-5.6 alias defaults are Codex-transport-only: off the Codex
+  // transport the 5.6 family's effort metadata is owned by the route catalog
+  // (#1961), and an OPENAI_API_BASE gateway must not inherit the first-party
+  // default. Explicit picks (the /effort override or a ?reasoning= query)
+  // still flow on every transport, and the older aliases (gpt-5.4/5.5,
+  // codexplan) keep the pre-5.6 legacy behavior of carrying their default
+  // effort everywhere.
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
-    : descriptor.reasoning
+    : descriptor.reasoningFromAlias &&
+        transport !== 'codex_responses' &&
+        /^gpt-5\.6/.test(descriptor.baseModel)
+      ? undefined
+      : descriptor.reasoning
 
   return {
     transport,
@@ -1398,5 +1451,5 @@ export function supportsCodexReasoningEffort(model: string): boolean {
     return true
   }
 
-  return /^gpt-5(?:[.-]|$)/.test(base)
+  return GPT5_FAMILY_RE.test(base)
 }

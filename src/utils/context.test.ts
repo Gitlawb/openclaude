@@ -404,6 +404,39 @@ test('gpt-5.5 uses conservative Codex-route context window (issue #1118)', () =>
   expect(getContextWindowForModel('gpt-5.5')).toBe(272_000)
 })
 
+test('gpt-5.6 family pins the Codex effective input limit on the Codex route', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  // Same rationale as gpt-5.5 above, but scoped to the Codex transport: the
+  // Codex base URL resolves to a catalog-less route, so the gpt.ts
+  // descriptor (pinned to the ~272k effective input boundary, issue #1118)
+  // is what sizes the context there.
+  for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    expect(getContextWindowForModel(model)).toBe(272_000)
+    expect(getModelMaxOutputTokens(model)).toEqual({
+      default: 128_000,
+      upperLimit: 128_000,
+    })
+  }
+})
+
+test('gpt-5.6 family keeps the full window on the direct-OpenAI route', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  // Unlike gpt-5.5 (Codex-only, blanket-capped in the vendor catalog), the
+  // gpt-5.6 family is also served directly by api.openai.com /v1/responses
+  // at its true 1.05M window; the openai-route catalog entry preserves it.
+  for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    expect(getContextWindowForModel(model)).toBe(1_050_000)
+  }
+})
+
 test('gpt-5.4 family uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS

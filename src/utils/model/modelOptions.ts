@@ -425,6 +425,21 @@ function getCodexSparkOption(): ModelOption {
 function getCodexModelOptions(): ModelOption[] {
   return [
     {
+      value: 'gpt-5.6-sol',
+      label: 'gpt-5.6-sol',
+      description: 'GPT-5.6 Sol · Flagship for complex work, high reasoning',
+    },
+    {
+      value: 'gpt-5.6-terra',
+      label: 'gpt-5.6-terra',
+      description: 'GPT-5.6 Terra · Balanced everyday workhorse',
+    },
+    {
+      value: 'gpt-5.6-luna',
+      label: 'gpt-5.6-luna',
+      description: 'GPT-5.6 Luna · Fast and cost-effective',
+    },
+    {
       value: 'gpt-5.5',
       label: 'gpt-5.5',
       description: 'GPT-5.5 with high reasoning',
@@ -1039,7 +1054,27 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])
-  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
+  }
+
+  // Persisted Codex model while a non-Codex provider is active (the Codex
+  // options were not appended above): surface the curated option instead
+  // of a generic "Custom model" entry, mirroring the gpt-5.5/spark cases
+  // for every Codex picker model. Match on the [1m]-stripped base so a
+  // tagged pick still gets its curated entry, but keep the persisted value
+  // on the option so selection matching stays exact.
+  const customCodexBase = customModel.replace(/\[1m]$/i, '')
+  const customCodexOption = getCodexModelOptions().find(
+    opt => opt.value === customCodexBase,
+  )
+  if (customCodexOption) {
+    return filterModelOptionsByAllowlist([
+      ...options,
+      customCodexBase === customModel
+        ? customCodexOption
+        : { ...customCodexOption, value: customModel },
+    ])
+  }
+  if (customModel === 'opus' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMaxOpusOption(fastMode),
