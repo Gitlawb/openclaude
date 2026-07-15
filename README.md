@@ -403,10 +403,6 @@ The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](
 
 If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/chart?repos=gitlawb/openclaude&type=date&legend=top-left)](https://www.star-history.com/?repos=gitlawb%2Fopenclaude&type=date&legend=top-left)
-
 ## Community
 
 - Use [GitHub Discussions](https://github.com/Gitlawb/openclaude/discussions) for Q&A, ideas, and community conversation
