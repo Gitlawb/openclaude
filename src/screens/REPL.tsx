@@ -38,6 +38,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { resolveReplMaxTurns } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -570,7 +571,6 @@ function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras
 }
 // Default per-prompt cap for every local interactive REPL entrypoint. Headless
 // and SDK callers retain their explicit maxTurns contracts.
-const DEFAULT_REPL_MAX_TURNS = 50
 export type Props = {
   commands: Command[];
   debug: boolean;
@@ -651,8 +651,9 @@ export function REPL({
   sshSession,
   thinkingConfig,
   fallbackModel,
-  maxTurns = DEFAULT_REPL_MAX_TURNS
+  maxTurns: maxTurnsProp
 }: Props): React.ReactNode {
+  const maxTurns = resolveReplMaxTurns(maxTurnsProp)
   const isRemoteSession = !!remoteSessionConfig;
 
   // Env-var gates hoisted to mount-time — isEnvTruthy does toLowerCase+trim+

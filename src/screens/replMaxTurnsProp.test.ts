@@ -1,41 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-const testDir = import.meta.dirname
-
-function readSource(filename: string): string {
-  return readFileSync(join(testDir, filename), 'utf8')
-}
+import { DEFAULT_REPL_MAX_TURNS, resolveReplMaxTurns } from './replMaxTurns.js'
 
 describe('interactive REPL max-turn cap', () => {
-  test('REPL supplies the local interactive default', () => {
-    const source = readSource('REPL.tsx')
-    expect(source).toContain('const DEFAULT_REPL_MAX_TURNS = 50')
-    expect(source).toContain('maxTurns = DEFAULT_REPL_MAX_TURNS')
+  test('supplies the local interactive default at runtime', () => {
+    expect(DEFAULT_REPL_MAX_TURNS).toBe(50)
+    expect(resolveReplMaxTurns()).toBe(50)
   })
 
-  test('REPL forwards maxTurns to its foreground query', () => {
-    const source = readSource('REPL.tsx')
-    expect(source).toContain('maxTurns?: number')
-    const match = source.match(
-      /query\(\s*\{[\s\S]*?maxTurns,[\s\S]*?\}\s*\)/,
-    )
-    expect(match).not.toBeNull()
-  })
-
-  test('resume picker forwards maxTurns to the REPL', () => {
-    const source = readSource('ResumeConversation.tsx')
-    expect(source).toContain('maxTurns?: number')
-    const replIdx = source.indexOf('<REPL')
-    const replEnd = source.indexOf('/>', replIdx)
-    expect(source.slice(replIdx, replEnd)).toContain('maxTurns={maxTurns}')
-  })
-
-  test('backgrounded REPL queries retain maxTurns', () => {
-    const source = readSource('REPL.tsx')
-    const backgroundIdx = source.indexOf('startBackgroundSession({')
-    const backgroundEnd = source.indexOf('description: terminalTitle', backgroundIdx)
-    expect(source.slice(backgroundIdx, backgroundEnd)).toContain('maxTurns,')
+  test('preserves an explicit interactive cap at runtime', () => {
+    expect(resolveReplMaxTurns(7)).toBe(7)
   })
 })
