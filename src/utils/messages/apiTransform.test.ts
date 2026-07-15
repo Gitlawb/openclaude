@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
+import { feature } from 'bun:bundle'
 import {
+  createAssistantAPIErrorMessage,
   createUserMessage,
   mergeUserMessages,
   normalizeMessagesForAPI,
 } from '../messages.js'
+import { getImageTooLargeErrorMessage } from '../../services/api/errors.js'
 import {
   appendMessageTagToUserMessage,
   deriveShortMessageId,
@@ -14,6 +17,7 @@ import type { UserMessage } from '../../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
+const testWithoutHistorySnip = feature('HISTORY_SNIP') ? test.skip : test
 
 function tagFor(uuid: string): string {
   return `snip_id=${deriveShortMessageId(uuid)}`
@@ -26,16 +30,47 @@ function countTags(out: UserMessage): number {
 }
 
 describe('appendMessageTagToUserMessage', () => {
-  test('normalizing meta context with real user input produces a non-meta message', () => {
+  test('normalizing meta context honors snip merge semantics', () => {
     const reminder = createUserMessage({ content: 'context', isMeta: true })
     const correction = createUserMessage({ content: 'do Y instead' })
 
     const [merged] = normalizeMessagesForAPI([reminder, correction])
 
-    expect(merged?.isMeta).toBeUndefined()
+    expect(merged?.isMeta).toBe(feature('HISTORY_SNIP') ? undefined : true)
     expect(JSON.stringify(merged?.message.content)).toContain('context')
     expect(JSON.stringify(merged?.message.content)).toContain('do Y instead')
   })
+
+  testWithoutHistorySnip(
+    'non-snip retries strip a rejected meta image after it merged with a prompt',
+    () => {
+      const attachment = createUserMessage({
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'oversized-image',
+            },
+          },
+        ],
+        isMeta: true,
+      })
+      const prompt = createUserMessage({ content: 'describe this image' })
+      const [failedRequest] = normalizeMessagesForAPI([attachment, prompt])
+      const imageError = createAssistantAPIErrorMessage({
+        content: getImageTooLargeErrorMessage(),
+      })
+
+      const retry = normalizeMessagesForAPI([failedRequest!, imageError])
+      const retryContent = JSON.stringify(retry[0]?.message.content)
+
+      expect(retryContent).toContain('describe this image')
+      expect(retryContent).not.toContain('oversized-image')
+      expect(retryContent).not.toContain('"type":"image"')
+    },
+  )
 
   test('appends internal snip metadata to string content', () => {
     const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
