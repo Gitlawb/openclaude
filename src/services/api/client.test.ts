@@ -396,9 +396,7 @@ test('does not forward a custom bearer token to the first-party Anthropic endpoi
     model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64,
   })
 
-  expect(capturedHeaders?.get('authorization')).not.toBe(
-    'Bearer custom-anthropic-token',
-  )
+  expect(capturedHeaders?.get('authorization')).toBeNull()
   expect(capturedHeaders?.get('x-api-key')).toBe('first-party-api-key')
 })
 

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { getWebFetchUserAgent } from './http.js'
 
@@ -18,7 +18,9 @@ const originalEnv = new Map(
 )
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 
-;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
+beforeEach(() => {
+  ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
+})
 
 afterEach(() => {
   for (const key of ROUTING_ENV_KEYS) {
@@ -29,9 +31,6 @@ afterEach(() => {
       process.env[key] = value
     }
   }
-})
-
-afterAll(() => {
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
 })
 
