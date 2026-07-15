@@ -328,6 +328,9 @@ test.each([
   'Invalid parameter tool_stream in the function Bash',
   'Invalid parameter tool_stream for tool Bash',
   'At body.tools[0].function.parameters: Extra inputs are not permitted: tool_stream',
+  'Unexpected field tool_stream in tool schema',
+  'Extra inputs are not permitted: tool_stream in function parameters',
+  'tool_stream unexpected field in tool schema',
 ])('does not classify a generic schema diagnostic as a parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 

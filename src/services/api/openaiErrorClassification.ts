@@ -210,6 +210,8 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
     /\b(?:body\.)?tools?\s*(?:\.|\[).*?\btool_stream\b/.test(normalized) ||
+    /(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\btool_stream\b.*?\b(?:in|at|for)\s+(?:(?:an?|the)\s+)?(?:tool|function)?\s*(?:schema|parameters?|properties?)\b/.test(normalized) ||
+    /\btool_stream\b.*?(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\b(?:tool|function)\s+(?:schema|parameters?|properties?)\b/.test(normalized) ||
     /\b(?:invalid|malformed)\s+parameter\s+tool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
     /\badditional properties?\b.*?\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
     structuredValidation === false
