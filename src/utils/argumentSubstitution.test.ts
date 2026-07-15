@@ -58,4 +58,25 @@ describe('substituteArguments $-token literalness', () => {
       'v=100$$',
     )
   })
+
+  test('does not re-scan an inserted named value for later placeholders', () => {
+    // parseArguments preserves the first argument as the literal `$1`. Once it
+    // has been substituted for $name it is a value, not a placeholder — the
+    // later `$n` pass must not rewrite it into the second argument.
+    expect(
+      substituteArguments('v=$name', '"$1" second', false, ['name']),
+    ).toBe('v=$1')
+  })
+
+  test('does not re-scan an inserted indexed value for later placeholders', () => {
+    expect(substituteArguments('v=$ARGUMENTS[0]', '"$1" second', false)).toBe(
+      'v=$1',
+    )
+  })
+
+  test('keeps $n tokens literal through $ARGUMENTS', () => {
+    expect(substituteArguments('v=$ARGUMENTS', '"$1" second', false)).toBe(
+      'v="$1" second',
+    )
+  })
 })
