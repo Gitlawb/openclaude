@@ -45,6 +45,26 @@ describe('parseSshFlags', () => {
     expect(r.remaining).toEqual(['ssh', 'host'])
   })
 
+  it('treats flags after -- as positional: no bypass, no --local', () => {
+    // `ssh host -- --yolo` / `ssh host -- --local` — everything after -- is
+    // positional and must not be parsed as options.
+    const y = parseSshFlags(['ssh', 'host', '--', '--yolo'])
+    expect(y.dangerouslySkipPermissions).toBe(false)
+    expect(y.remaining).toEqual(['ssh', 'host', '--', '--yolo'])
+
+    const l = parseSshFlags(['ssh', 'host', '--', '--local', '--permission-mode', 'x'])
+    expect(l.local).toBe(false)
+    expect(l.permissionMode).toBeUndefined()
+    expect(l.dangerouslySkipPermissions).toBe(false)
+    expect(l.remaining).toEqual(['ssh', 'host', '--', '--local', '--permission-mode', 'x'])
+  })
+
+  it('still parses flags before -- while leaving the rest positional', () => {
+    const r = parseSshFlags(['ssh', '--yolo', 'host', '--', '--model', 'x'])
+    expect(r.dangerouslySkipPermissions).toBe(true)
+    expect(r.remaining).toEqual(['ssh', 'host', '--', '--model', 'x'])
+  })
+
   it('parses --local and forwards resume/model flags', () => {
     const r = parseSshFlags(['ssh', '--local', 'host', '--model', 'gpt', '--continue'])
     expect(r.local).toBe(true)

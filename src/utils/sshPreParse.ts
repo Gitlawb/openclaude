@@ -26,7 +26,16 @@ export interface SshFlagParse {
  * whereas commander parses `--yolo` as the (invalid) mode value and rejects it.
  */
 export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
-  const args = [...rawCliArgs]
+  // Honor the `--` end-of-options marker: tokens at/after it are positional and
+  // must not be parsed as flags (so `ssh host -- --yolo` / `ssh host -- --local`
+  // stay positional and cannot escalate). This is unambiguous here because the
+  // `ssh` subcommand registers no variadic options that could consume `--` as a
+  // value — unlike the shared dangerous-skip helper used against the main
+  // command, which deliberately does NOT split on `--`.
+  const all = [...rawCliArgs]
+  const eoo = all.indexOf('--')
+  const trailing = eoo === -1 ? [] : all.splice(eoo)
+  const args = all
   let local = false
   let permissionMode: string | undefined
   let dangerouslySkipPermissions = false
@@ -83,5 +92,11 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     args.splice(0, args.length, ...stripDangerousSkipFlags(args))
   }
 
-  return { local, permissionMode, dangerouslySkipPermissions, extraCliArgs, remaining: args }
+  return {
+    local,
+    permissionMode,
+    dangerouslySkipPermissions,
+    extraCliArgs,
+    remaining: [...args, ...trailing],
+  }
 }

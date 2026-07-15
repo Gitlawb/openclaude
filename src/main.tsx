@@ -590,6 +590,14 @@ export async function main() {
         parseConnectUrl
       } = await import('./server/parseConnectUrl.js');
       const parsed = parseConnectUrl(ccUrl);
+      // NOTE: unlike the ssh pre-parser, this does NOT split on `--`. The
+      // connect path rewrites to the main command, which registers variadic
+      // options (e.g. --add-dir) that commander lets consume a `--` as a value,
+      // so a naive "stop at the first --" split would misclassify tokens. This
+      // presence check therefore mirrors the canonical --dangerously-skip-
+      // permissions behavior exactly (both spellings, no arity modeling); a
+      // `cc://… -- --yolo` false-positive is a pre-existing limitation shared
+      // with the canonical flag, not introduced by the alias.
       _pendingConnect.dangerouslySkipPermissions = hasDangerousSkipFlag(rawCliArgs);
       if (rawCliArgs.includes('-p') || rawCliArgs.includes('--print')) {
         // Headless: rewrite to internal `open` subcommand
