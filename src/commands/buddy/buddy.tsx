@@ -1,4 +1,6 @@
+import { stripVTControlCharacters } from 'node:util'
 import type { LocalJSXCommandContext, LocalJSXCommandOnDone } from '../../types/command.js'
+import { stringWidth } from '../../ink/stringWidth.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { companionUserId, getCompanion } from '../../buddy/companion.js'
 import { pickDeterministic } from '../../buddy/deterministic.js'
@@ -15,8 +17,9 @@ import {
 } from '../../buddy/types.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
 
-// Flavor for /buddy set confirmations, keyed by hero form.
-const FORM_FLAVOR: Partial<Record<Species, { don: string; hint: string }>> = {
+// Flavor for /buddy set confirmations. A full Record so adding a hero
+// without flavor text is a compile error.
+const FORM_FLAVOR: Record<Species, { don: string; hint: string }> = {
   [robinhood]: {
     don: 'dons the green hood',
     hint: 'Submit any message to see the arrow fly.',
@@ -163,6 +166,15 @@ export async function call(
     }))
     if (muted) {
       setCompanionReaction(context, undefined)
+    } else {
+      // The sprite reads companionMuted non-reactively and its animation
+      // clock is paused while hidden, so a config-only unmute would leave it
+      // invisible until an unrelated re-render. The reaction is an AppState
+      // change that re-renders the sprite immediately (and greets the user).
+      const companion = getCompanion()
+      if (companion) {
+        setCompanionReaction(context, `${companion.name} is back.`)
+      }
     }
     onDone(`Buddy ${muted ? 'muted' : 'unmuted'}.`, { display: 'system' })
     return null
@@ -178,13 +190,20 @@ export async function call(
       return null
     }
     // Parse from the raw args (not `arg`) so capitalization is preserved.
-    const newName = (args ?? '').trim().split(/\s+/).slice(1).join(' ')
+    // Sanitize: the name renders verbatim in the sprite column, so ANSI
+    // escapes / control / zero-width characters would corrupt the TUI line
+    // until the next rename. Cap by DISPLAY width, not UTF-16 length.
+    const newName = stripVTControlCharacters(
+      (args ?? '').trim().split(/\s+/).slice(1).join(' '),
+    )
+      .replace(/[\p{Cc}\p{Cf}]/gu, '')
+      .trim()
     if (!newName) {
       onDone('Usage: /buddy name <new name>', { display: 'system' })
       return null
     }
-    if (newName.length > 20) {
-      onDone('Buddy names are capped at 20 characters.', {
+    if (stringWidth(newName) > 20) {
+      onDone('Buddy names are capped at 20 columns.', {
         display: 'system',
       })
       return null
@@ -238,14 +257,12 @@ export async function call(
       }))
       const companion = getCompanion()!
       const flavor = FORM_FLAVOR[form]
-      if (flavor) {
-        setCompanionReaction(context, `${companion.name} ${flavor.don}.`)
-      }
+      setCompanionReaction(context, `${companion.name} ${flavor.don}.`)
       const mutedHint = getGlobalConfig().companionMuted
         ? ' Note: your buddy is muted and hidden — run /buddy unmute to see them.'
         : ''
       onDone(
-        `${companion.name} is now a ${form}. ${flavor?.hint ?? ''} /buddy set random reverts.${mutedHint}`,
+        `${companion.name} is now a ${form}. ${flavor.hint} /buddy set random reverts.${mutedHint}`,
         { display: 'system' },
       )
       return null

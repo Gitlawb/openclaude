@@ -119,17 +119,11 @@ export const RARITY_WEIGHTS = {
   legendary: 1,
 } as const satisfies Record<Rarity, number>
 
-export const RARITY_COLORS = {
-  common: 'inactive',
-  uncommon: 'success',
-  rare: 'permission',
-  epic: 'autoAccept',
-  legendary: 'warning',
-} as const satisfies Record<Rarity, keyof import('../utils/theme.js').Theme>
-
-// Species that carry a signature color instead of the rarity color.
-export const SPECIES_COLORS: Partial<
-  Record<Species, keyof import('../utils/theme.js').Theme>
+// Every hero's signature color. A full Record so adding a species without a
+// color is a compile error, not a silent fallback.
+export const SPECIES_COLORS: Record<
+  Species,
+  keyof import('../utils/theme.js').Theme
 > = {
   [robinhood]: 'success',
   [kaio]: 'warning',
@@ -141,7 +135,7 @@ export const SPECIES_COLORS: Partial<
 }
 
 export function companionColor(
-  companion: Pick<CompanionBones, 'species' | 'rarity'>,
+  companion: Pick<CompanionBones, 'species'>,
 ): keyof import('../utils/theme.js').Theme {
-  return SPECIES_COLORS[companion.species] ?? RARITY_COLORS[companion.rarity]
+  return SPECIES_COLORS[companion.species]
 }

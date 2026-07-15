@@ -58,6 +58,10 @@ export function useShotClock(
       // New token while ineligible — consume silently so it can't arm later.
       set({ forShotAt: shotAt, armTime: 0, anchor: null, done: true })
     }
+  } else if (!playable && !s.done) {
+    // Playback became ineligible mid-flight (mute, reduced-motion, resize
+    // narrow) — consume the in-flight shot so re-enabling doesn't resume it.
+    set({ ...s, anchor: null, done: true })
   } else if (live && s.anchor === null && time !== s.armTime) {
     // First fresh tick — anchor the animation start.
     set({ ...s, anchor: time })

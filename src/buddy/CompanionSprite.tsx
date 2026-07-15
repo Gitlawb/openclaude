@@ -1,5 +1,5 @@
 import figures from 'figures'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useSettings } from '../hooks/useSettings.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 // Raw ink Text (not the themed wrapper): pixel art needs arbitrary rgb()
@@ -234,7 +234,6 @@ export const CompanionSprite = React.memo(function CompanionSprite(): React.Reac
   // reduced-motion renders below must not derive frames from it).
   const [, time] = useAnimationFrame(hidden || reducedMotion ? null : TICK_MS)
   const tick = Math.floor(time / TICK_MS)
-  const lastSpokeTimeRef = useRef(0)
 
   // Sync-during-render (not useEffect) so the first post-pet render already
   // has petStartTime=time and petAge=0 — otherwise frame 0 is skipped.
@@ -244,6 +243,17 @@ export const CompanionSprite = React.memo(function CompanionSprite(): React.Reac
   })
   if (petAt !== forPetAt) {
     setPetStart({ petStartTime: time, forPetAt: petAt })
+  }
+
+  // Bubble age uses the same sync-during-render pattern (a ref updated in an
+  // effect would leave the FIRST render of a new reaction reading the
+  // previous bubble's age — a fresh bubble could appear already faded).
+  const [{ spokeTime, forSpoken }, setSpoke] = useState({
+    spokeTime: 0,
+    forSpoken: reaction,
+  })
+  if (reaction !== forSpoken) {
+    setSpoke({ spokeTime: time, forSpoken: reaction })
   }
 
   // Signature action: a 50ms burst clock that runs only while a shot is live.
@@ -265,7 +275,6 @@ export const CompanionSprite = React.memo(function CompanionSprite(): React.Reac
 
   useEffect(() => {
     if (!reaction) return
-    lastSpokeTimeRef.current = time
     const timer = setTimeout(
       setA =>
         setA((prev: AppState) =>
@@ -277,14 +286,14 @@ export const CompanionSprite = React.memo(function CompanionSprite(): React.Reac
       setAppState,
     )
     return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- time intentionally captured at reaction-change, not tracked
   }, [reaction, setAppState])
 
   if (!companion || hidden) return null
 
   const color = companionColor(companion)
   const colWidth = companionColumnWidth(companion)
-  const bubbleAgeMs = reaction ? time - lastSpokeTimeRef.current : 0
+  const bubbleAgeMs =
+    reaction !== undefined && reaction === forSpoken ? time - spokeTime : 0
   const fading =
     !reducedMotion &&
     reaction !== undefined &&

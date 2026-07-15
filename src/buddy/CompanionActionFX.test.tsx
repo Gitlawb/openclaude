@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { stripVTControlCharacters } from 'node:util'
 import React from 'react'
 import {
@@ -7,28 +7,66 @@ import {
   getDefaultAppState,
 } from '../state/AppState.js'
 import { renderToString } from '../utils/staticRender.js'
-import { CompanionActionFX } from './CompanionActionFX.js'
+import { robinhood } from './types.js'
 
-// These cases are deterministic regardless of whether the host machine's
-// real config has a hatched companion: without a shot token (or under
-// reduced motion) the component renders nothing before it ever consults
-// companion state that would animate.
+// Deterministic companion fixture (complete-config mock, cache-busted real
+// module — see companion.test.ts for the pattern and why). Without this, the
+// tests would silently pass through `companion === undefined` on machines
+// with no hatched buddy instead of exercising the eligibility gates.
+const actualConfig = await import(`../utils/config.js?real=${Date.now()}`)
+mock.module('../utils/config.js', () => ({
+  ...actualConfig,
+  getGlobalConfig: () => ({
+    ...actualConfig.getGlobalConfig(),
+    userID: 'fx-test-user',
+    oauthAccount: undefined,
+    companionMuted: false,
+    companion: {
+      name: 'Testbud',
+      personality: 'Test personality.',
+      hatchedAt: 1,
+      speciesOverride: robinhood,
+    },
+  }),
+}))
 
-async function renderWithState(state: AppState): Promise<string> {
+const { CompanionActionFX } = await import('./CompanionActionFX.js')
+
+afterAll(() => {
+  mock.module('../utils/config.js', () => actualConfig)
+  mock.restore()
+})
+
+// Raw output on purpose — NO trim(): an incorrectly rendered blank FX row
+// adds a line to the output and must stay observable. Each render is
+// compared against a rendered-null baseline through the identical wrapper,
+// so renderToString's own framing (trailing newline) cancels out.
+async function render(node: React.ReactNode, state: AppState): Promise<string> {
   const out = await renderToString(
-    <AppStateProvider initialState={state}>
-      <CompanionActionFX />
-    </AppStateProvider>,
+    <AppStateProvider initialState={state}>{node}</AppStateProvider>,
     120,
   )
-  return stripVTControlCharacters(out).trim()
+  return stripVTControlCharacters(out)
+}
+
+async function expectRendersNothing(state: AppState): Promise<void> {
+  const baseline = await render(null, state)
+  expect(await render(<CompanionActionFX />, state)).toBe(baseline)
 }
 
 describe('CompanionActionFX', () => {
   test('renders nothing when no shot token is set', async () => {
     const state = getDefaultAppState()
     expect(state.companionShotAt).toBeUndefined()
-    expect(await renderWithState(state)).toBe('')
+    await expectRendersNothing(state)
+  })
+
+  test('a token that predates the mount is consumed, never replayed', async () => {
+    // Regression for the remount-replay bug: the companion is eligible
+    // (hatched robinhood, unmuted, wide terminal, no reduced motion), yet a
+    // shot stamped BEFORE this component existed must not render an FX row.
+    const state = { ...getDefaultAppState(), companionShotAt: 12345 } as AppState
+    await expectRendersNothing(state)
   })
 
   test('renders nothing under reduced motion even with a shot token', async () => {
@@ -41,6 +79,6 @@ describe('CompanionActionFX', () => {
         prefersReducedMotion: true,
       },
     } as AppState
-    expect(await renderWithState(state)).toBe('')
+    await expectRendersNothing(state)
   })
 })

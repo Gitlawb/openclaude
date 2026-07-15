@@ -23,6 +23,9 @@ mock.module('../utils/config.js', () => ({
 const { getCompanion, rollWithSeed } = await import('./companion.js')
 
 afterAll(() => {
+  // mock.restore() does NOT undo mock.module() — re-register the real module
+  // so the stub can't bleed into later test files in the same process.
+  mock.module('../utils/config.js', () => actualConfig)
   mock.restore()
 })
 

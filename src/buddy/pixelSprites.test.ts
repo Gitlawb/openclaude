@@ -4,6 +4,8 @@ import {
   _paletteCharsForTesting,
   hasPixelSprite,
   PIXEL_WIDTH,
+  pixelIdleFrameCount,
+  pixelShootFrameCount,
   renderPixelSprite,
 } from './pixelSprites.js'
 import { SPECIES, robinhood, type Species } from './types.js'
@@ -20,6 +22,11 @@ describe('pixel sprite frames', () => {
     const palette = _paletteCharsForTesting()
     for (const species of SPECIES) {
       expect(hasPixelSprite(species)).toBe(true)
+      // Idle and shoot counts asserted separately — the animation consumes
+      // each set independently and clamps silently, so a combined total
+      // would permit an invalid split.
+      expect(pixelIdleFrameCount(species)).toBe(species === robinhood ? 3 : 2)
+      expect(pixelShootFrameCount(species)).toBe(3)
       const frames = _allPixelFramesForTesting(species)
       expect(frames).toBeDefined()
       expect(frames!.length).toBe(EXPECTED_FRAME_COUNTS[species]!)

@@ -90,10 +90,19 @@ describe('sprites', () => {
     }
   })
 
-  test('renderFace covers every species including robinhood', () => {
-    for (const species of SPECIES) {
-      expect(renderFace(bones(species)).length).toBeGreaterThan(0)
+  test('renderFace maps every species to its exact face', () => {
+    const EXPECTED_FACES: Record<Species, string> = {
+      robinhood: '«(·)',
+      kaio: '\\(·)/',
+      strawhat: '∩(·)',
+      merlin: '^(·)',
+      kage: '|··|',
+      ember: '<··>',
+      corsair: '(·x)',
     }
-    expect(renderFace(bones(robinhood))).toBe('«(·)')
+    for (const species of SPECIES) {
+      expect(renderFace(bones(species))).toBe(EXPECTED_FACES[species])
+    }
+    void robinhood
   })
 })
