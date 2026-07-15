@@ -159,17 +159,28 @@ function getStructuredToolStreamValidationError(body: string): boolean | undefin
       const { loc, type, msg } = detail as { loc?: unknown; type?: unknown; msg?: unknown }
       if (Array.isArray(loc)) details.push({ loc, type, msg })
     }
-    if (details.some(detail => detail.loc.includes('tools'))) return false
+    const isRootToolStreamLocation = (loc: unknown[]): boolean =>
+      loc[0] === 'body' && loc[1] === 'tool_stream'
+    const isRootToolStreamExtraField = (detail: {
+      loc: unknown[]
+      type?: unknown
+      msg?: unknown
+    }): boolean =>
+      detail.loc.length === 2 &&
+      isRootToolStreamLocation(detail.loc) &&
+      (
+        detail.type === 'extra_forbidden' ||
+        detail.type === 'value_error.extra' ||
+        (typeof detail.msg === 'string' && /extra (?:inputs|fields) (?:are )?not permitted/i.test(detail.msg))
+      )
     if (
       details.some(detail =>
-        detail.loc.length === 2 &&
-        detail.loc[0] === 'body' &&
-        detail.loc[1] === 'tool_stream' &&
-        (
-          detail.type === 'extra_forbidden' ||
-          (typeof detail.msg === 'string' && /extra inputs are not permitted/i.test(detail.msg))
-        )
+        detail.loc.includes('tools') ||
+        (isRootToolStreamLocation(detail.loc) && !isRootToolStreamExtraField(detail))
       )
+    ) return false
+    if (
+      details.some(isRootToolStreamExtraField)
     ) return true
     return undefined
   } catch {
@@ -189,6 +200,7 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /\b(?:function|tool)\b.*?\b(?:schema|properties?)\b.*?\btool_stream\b/.test(normalized) ||
     /\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b.*?\btool_stream\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:tools|function|schema|properties?)\b/.test(normalized) ||
     structuredValidation === false
   ) return false
   if (structuredValidation === true) return true

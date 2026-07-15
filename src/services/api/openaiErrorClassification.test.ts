@@ -190,6 +190,7 @@ test.each([
   '{"error":{"message":"Unknown parameter","param":"tool_stream"}}',
   '{"error":{"message":"Invalid parameter","param":"tool_stream"}}',
   '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
+  '{"detail":[{"type":"value_error.extra","loc":["body","tool_stream"],"msg":"extra fields not permitted"}]}',
   'Additional properties are not allowed ("tool_stream" was unexpected)',
 ])('classifies quoted tool_stream parameter rejections: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
@@ -249,6 +250,15 @@ test('does not classify a raw tool-schema property error as a parameter rejectio
   expect(failure.category).not.toBe('tool_stream_unsupported')
 })
 
+test('does not classify a tool-schema error whose location follows the parameter name', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Additional properties are not allowed (tool_stream was unexpected) at body.tools.0.function.parameters.properties',
+  })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
 test.each([
   'Invalid schema: param=tool_stream',
   'Malformed tool schema: unexpected property tool_stream',
@@ -270,6 +280,7 @@ test('does not classify a structured validation error that merely references too
 test.each([
   '{"detail":[{"type":"missing","loc":["body","tool_stream"],"msg":"Field required"}]}',
   '{"detail":[{"type":"string_type","loc":["body","tool_stream"],"msg":"Input should be a valid string"}]}',
+  '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream","mode"],"msg":"Extra inputs are not permitted"}]}',
 ])('does not classify a structured validation error for a supported tool_stream field: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
