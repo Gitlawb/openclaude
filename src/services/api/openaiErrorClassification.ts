@@ -176,6 +176,7 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
   const structuredValidation = getStructuredToolStreamValidationError(body)
   if (
     /(?:function|tool)\s*:?\s+tool_stream\b/.test(normalized) ||
+    /\b(?:function|tool)\b.*?\b(?:schema|properties?)\b.*?\btool_stream\b/.test(normalized) ||
     structuredValidation === false
   ) return false
   if (structuredValidation === true) return true
@@ -185,8 +186,8 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:^|\n)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?function\b)/.test(normalized) ||
-    /(?:unsupported|unknown|unrecognized|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
-    /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|not\s+supported)/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
+    /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|invalid|not\s+supported)/.test(normalized) ||
     /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
     /tool_stream\b.*?(?:extra[_\s-]?forbidden|extra inputs are not permitted|unexpected (?:field|property|parameter))/.test(normalized)
   )
