@@ -5026,6 +5026,7 @@ class OpenAIShimMessages {
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
+    const attemptedLocalRequestUrls = new Set<string>([requestUrl])
     let didRetryWithoutTools = false
     let didRetryWithoutToolStream = false
     let retryCredentialLease: CredentialLease | null = null
@@ -5040,10 +5041,16 @@ class OpenAIShimMessages {
           continue
         }
 
-        const previousUrl = requestUrl
         attemptedLocalBaseUrls.add(candidateBaseUrl)
+        const candidateRequestUrl = buildRequestUrl(candidateBaseUrl)
+        if (attemptedLocalRequestUrls.has(candidateRequestUrl)) {
+          continue
+        }
+
+        const previousUrl = requestUrl
+        attemptedLocalRequestUrls.add(candidateRequestUrl)
         activeBaseUrl = candidateBaseUrl
-        requestUrl = buildRequestUrl(activeBaseUrl)
+        requestUrl = candidateRequestUrl
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
@@ -5483,9 +5490,16 @@ class OpenAIShimMessages {
         }
       }
 
+      const shouldRetryLocalEndpoint404 =
+        failure.category === 'endpoint_not_found' ||
+        (
+          useNativeOllamaChat &&
+          response.status === 404 &&
+          failure.category === 'vision_not_supported'
+        )
       if (
         isLocal &&
-        failure.category === 'endpoint_not_found' &&
+        shouldRetryLocalEndpoint404 &&
         promoteNextLocalBaseUrl('endpoint_not_found')
       ) {
         continue

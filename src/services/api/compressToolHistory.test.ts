@@ -266,9 +266,17 @@ test('mid tier: preserves structured-part order across multiple text blocks', ()
     'tool_reference',
   ])
   expect(content[0].text).toBe('a'.repeat(1_000))
+  expect(content[1]).toEqual({
+    type: 'image',
+    source: { type: 'url', url: 'https://example.com/result.png' },
+  })
   expect(content[2].text).toBe(
     `${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
   )
+  expect(content[3]).toEqual({
+    type: 'tool_reference',
+    tool_name: 'mcp__example',
+  })
   expect((firstResult.content as Block[])[2].text).toBe('b'.repeat(1_500))
 })
 

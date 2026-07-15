@@ -950,6 +950,96 @@ test('local self-healing follows the serialized image-free Chat body', async () 
   expect(requestBodies[1]).toBe(requestBodies[0])
 })
 
+test('native Ollama image requests preserve local endpoint fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434'
+  const requestUrls: string[] = []
+  const requestBodies: Array<Record<string, unknown>> = []
+
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    requestUrls.push(url)
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    if (url.includes('localhost')) {
+      return new Response('Not Found', { status: 404 })
+    }
+    return new Response(
+      JSON.stringify({
+        model: 'qwen2.5-coder:7b',
+        message: { role: 'assistant', content: 'image received' },
+        done: true,
+        done_reason: 'stop',
+        prompt_eval_count: 5,
+        eval_count: 2,
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe the image' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'aGVsbG8=',
+            },
+          },
+        ],
+      },
+    ],
+  })
+
+  expect(requestUrls).toEqual([
+    'http://localhost:11434/api/chat',
+    'http://127.0.0.1:11434/api/chat',
+  ])
+  for (const requestBody of requestBodies) {
+    const messages = requestBody.messages as Array<{ images?: string[] }>
+    expect(messages[0]?.images).toEqual(['aGVsbG8='])
+  }
+})
+
+test('native Ollama image requests keep vision diagnosis after local fallbacks', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434'
+  const requestUrls: string[] = []
+  globalThis.fetch = (async input => {
+    requestUrls.push(String(input))
+    return new Response('Not Found', { status: 404 })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe the image' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'aGVsbG8=',
+            },
+          },
+        ],
+      },
+    ],
+  })).rejects.toThrow('openai_category=vision_not_supported')
+  expect(requestUrls).toEqual([
+    'http://localhost:11434/api/chat',
+    'http://127.0.0.1:11434/api/chat',
+  ])
+})
+
 test('image error classification follows JSON-normalized Anthropic content', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
