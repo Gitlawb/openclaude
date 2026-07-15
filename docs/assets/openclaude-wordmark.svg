@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 100" role="img" aria-label="OpenClaude — Open terminal for any LLM">
+  <!--
+    The startup wordmark from src/constants/brand.ts, rendered in the
+    README's brand green. Two shades mirror the TUI's shimmer/brand split
+    (OPEN lighter, CLAUDE main). textLength pins each segment so the
+    half-block rows align identically in every monospace font.
+  -->
+  <style>
+    text {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+      font-size: 24px;
+      white-space: pre;
+    }
+    .open { fill: #86dc9a; }
+    .claude { fill: #4eba65; }
+    .tagline {
+      font-size: 13px;
+      fill: #8b949e;
+      letter-spacing: 0.18em;
+    }
+  </style>
+  <text x="12" y="28" class="open" textLength="230.4" lengthAdjust="spacingAndGlyphs">█▀█ █▀█ █▀▀ █▄ █</text>
+  <text x="256.8" y="28" class="claude" textLength="331.2" lengthAdjust="spacingAndGlyphs">█▀▀ █   ▄▀█ █ █ █▀▄ █▀▀</text>
+  <text x="12" y="52" class="open" textLength="230.4" lengthAdjust="spacingAndGlyphs">█▄█ █▀▀ ██▄ █ ▀█</text>
+  <text x="256.8" y="52" class="claude" textLength="331.2" lengthAdjust="spacingAndGlyphs">█▄▄ █▄▄ █▀█ █▄█ █▄▀ ██▄</text>
+  <text x="300" y="86" class="tagline" text-anchor="middle">OPEN TERMINAL FOR ANY LLM</text>
+</svg>
