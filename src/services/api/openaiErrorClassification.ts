@@ -205,8 +205,8 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
   ) return false
   if (structuredValidation === true) return true
   return (
-    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*tool_stream\b/.test(normalized) ||
-    /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?/.test(normalized) ||
+    /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
     /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:^|\n|\bmessage\s*:\s*)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?(?:function|tool)\b)/.test(normalized) ||
