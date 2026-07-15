@@ -10,7 +10,7 @@ import {
   handleOAuth401Error,
   isClaudeAISubscriber,
 } from './auth.js'
-import { getAPIProvider } from './model/providers.js'
+import { isFirstPartyAnthropicProvider } from './model/providers.js'
 import { getClaudeCodeUserAgent } from './userAgent.js'
 import { getWorkload } from './workloadContext.js'
 
@@ -56,7 +56,7 @@ export function getMCPUserAgent(): string {
 // local CLI traffic from claude.ai server-side fetches.
 export function getWebFetchUserAgent(): string {
   const supportUrl =
-    getAPIProvider() === 'firstParty'
+    isFirstPartyAnthropicProvider()
       ? 'https://support.anthropic.com/'
       : 'https://github.com/Gitlawb/openclaude'
   return `Claude-User (${getClaudeCodeUserAgent()}; +${supportUrl})`
