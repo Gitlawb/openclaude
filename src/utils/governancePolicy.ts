@@ -1,53 +1,23 @@
-import { createHook, executionAsyncId } from 'async_hooks'
 import { getEnabledSettingSources } from './settings/constants.js'
 import { getInitialSettings, getSettingsForSource } from './settings/settings.js'
 import type { SettingSource } from './settings/constants.js'
 import type { SettingsJson } from './settings/types.js'
 
-/**
- * Per-async-context governance overrides for testing. Each test file sets its
- * own override in beforeEach; the hook propagates it to descendant async
- * resources (including the it() callback), so parallel test execution cannot
- * corrupt the mock across files.
- */
-const governanceOverrideByAsyncId = new Map<
-  number,
-  ((source: SettingSource) => SettingsJson | null) | null
->()
-
-const governanceHook = createHook({
-  init(asyncId, _type, triggerAsyncId) {
-    const parentOverride = governanceOverrideByAsyncId.get(triggerAsyncId)
-    if (parentOverride !== undefined) {
-      governanceOverrideByAsyncId.set(asyncId, parentOverride)
-    }
-  },
-  destroy(asyncId) {
-    governanceOverrideByAsyncId.delete(asyncId)
-  },
-})
-
-if (
-  typeof process !== 'undefined' &&
-  (process.env.NODE_ENV === 'test' ||
-    'BUN_TEST' in process.env ||
-    (typeof globalThis !== 'undefined' && ('describe' in globalThis || 'expect' in globalThis)))
-) {
-  governanceHook.enable()
-}
+let getSettingsForSourceForTesting:
+  | ((source: SettingSource) => SettingsJson | null)
+  | null = null
 
 export function setGovernancePolicySettingsForSourceForTesting(
   getter: ((source: SettingSource) => SettingsJson | null) | null,
 ): void {
-  governanceOverrideByAsyncId.set(executionAsyncId(), getter)
+  getSettingsForSourceForTesting = getter
 }
 
 function getGovernanceSettingsForSource(
   source: SettingSource,
 ): SettingsJson | null {
-  const override = governanceOverrideByAsyncId.get(executionAsyncId())
-  if (override) {
-    return override(source)
+  if (getSettingsForSourceForTesting) {
+    return getSettingsForSourceForTesting(source)
   }
   return getSettingsForSource(source)
 }
