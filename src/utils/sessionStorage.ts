@@ -5226,7 +5226,8 @@ async function getLogsWithoutIndex(
  *
  * Accepts a shared buffer to avoid per-file allocation overhead.
  */
-async function readLiteMetadata(
+// exported for testing
+export async function readLiteMetadata(
   filePath: string,
   fileSize: number,
   buf: Buffer,
@@ -5265,7 +5266,15 @@ async function readLiteMetadata(
     extractLastJsonStringField(tail, 'aiTitle') ??
     extractLastJsonStringField(head, 'aiTitle')
   const summary = extractLastJsonStringField(tail, 'summary')
-  const tag = extractLastJsonStringField(tail, 'tag')
+  // Type-scope tag extraction to the {"type":"tag"} JSONL line to avoid
+  // collision with tool_use inputs containing a `tag` parameter (git tag,
+  // Docker tags, cloud resource tags). Those are nested inside an assistant
+  // entry appended after the tag entry, so an unscoped tail scan returns the
+  // tool's value. Mirrors listSessionsImpl.ts:132 and sessionStorage.ts:782.
+  const tagLine = tail.split('\n').findLast(l => l.startsWith('{"type":"tag"'))
+  const tag = tagLine
+    ? extractLastJsonStringField(tagLine, 'tag') || undefined
+    : undefined
   const gitBranch =
     extractLastJsonStringField(tail, 'gitBranch') ??
     extractJsonStringField(head, 'gitBranch')

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 94" role="img" aria-label="OpenClaude — Open terminal for any LLM">
+  <!-- Startup wordmark (src/constants/brand.ts) as pure rects: no font
+       dependence, crisp at any size. OPEN light green, CLAUDE brand green,
+       mirroring the TUI shimmer/brand split. Regenerate via git history
+       script if the brand wordmark changes. -->
+  <rect x="10" y="0" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="66" y="0" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="122" y="0" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="178" y="0" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="220" y="0" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="248" y="0" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="304" y="0" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="374" y="0" width="28" height="12.5" fill="#4eba65"/>
+  <rect x="416" y="0" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="444" y="0" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="472" y="0" width="28" height="12.5" fill="#4eba65"/>
+  <rect x="528" y="0" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="10" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="38" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="66" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="94" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="122" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="178" y="12" width="28" height="12.5" fill="#86dc9a"/>
+  <rect x="220" y="12" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="248" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="304" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="360" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="388" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="416" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="444" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="472" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="500" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="528" y="12" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="10" y="24" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="38" y="24" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="66" y="24" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="122" y="24" width="28" height="12.5" fill="#86dc9a"/>
+  <rect x="178" y="24" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="206" y="24" width="28" height="12.5" fill="#86dc9a"/>
+  <rect x="248" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="304" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="360" y="24" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="416" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="444" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="472" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="500" y="24" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="528" y="24" width="28" height="12.5" fill="#4eba65"/>
+  <rect x="10" y="36" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="66" y="36" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="122" y="36" width="42" height="12.5" fill="#86dc9a"/>
+  <rect x="178" y="36" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="220" y="36" width="14" height="12.5" fill="#86dc9a"/>
+  <rect x="248" y="36" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="304" y="36" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="360" y="36" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="388" y="36" width="14" height="12.5" fill="#4eba65"/>
+  <rect x="416" y="36" width="42" height="12.5" fill="#4eba65"/>
+  <rect x="472" y="36" width="28" height="12.5" fill="#4eba65"/>
+  <rect x="528" y="36" width="42" height="12.5" fill="#4eba65"/>
+  <text x="290.0" y="80" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" letter-spacing="0.22em" fill="#8b949e">OPEN TERMINAL FOR ANY LLM</text>
+</svg>

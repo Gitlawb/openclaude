@@ -14,62 +14,45 @@ export type Rarity = (typeof RARITIES)[number]
 const c = String.fromCharCode
 // biome-ignore format: keep the species list compact
 
-export const duck = c(0x64,0x75,0x63,0x6b) as 'duck'
-export const goose = c(0x67, 0x6f, 0x6f, 0x73, 0x65) as 'goose'
-export const blob = c(0x62, 0x6c, 0x6f, 0x62) as 'blob'
-export const cat = c(0x63, 0x61, 0x74) as 'cat'
-export const dragon = c(0x64, 0x72, 0x61, 0x67, 0x6f, 0x6e) as 'dragon'
-export const octopus = c(0x6f, 0x63, 0x74, 0x6f, 0x70, 0x75, 0x73) as 'octopus'
-export const owl = c(0x6f, 0x77, 0x6c) as 'owl'
-export const penguin = c(0x70, 0x65, 0x6e, 0x67, 0x75, 0x69, 0x6e) as 'penguin'
-export const turtle = c(0x74, 0x75, 0x72, 0x74, 0x6c, 0x65) as 'turtle'
-export const snail = c(0x73, 0x6e, 0x61, 0x69, 0x6c) as 'snail'
-export const ghost = c(0x67, 0x68, 0x6f, 0x73, 0x74) as 'ghost'
-export const axolotl = c(0x61, 0x78, 0x6f, 0x6c, 0x6f, 0x74, 0x6c) as 'axolotl'
-export const capybara = c(
-  0x63,
-  0x61,
-  0x70,
-  0x79,
+export const robinhood = c(
+  0x72,
+  0x6f,
   0x62,
-  0x61,
-  0x72,
-  0x61,
-) as 'capybara'
-export const cactus = c(0x63, 0x61, 0x63, 0x74, 0x75, 0x73) as 'cactus'
-export const robot = c(0x72, 0x6f, 0x62, 0x6f, 0x74) as 'robot'
-export const rabbit = c(0x72, 0x61, 0x62, 0x62, 0x69, 0x74) as 'rabbit'
-export const mushroom = c(
-  0x6d,
-  0x75,
-  0x73,
+  0x69,
+  0x6e,
   0x68,
+  0x6f,
+  0x6f,
+  0x64,
+) as 'robinhood'
+export const kaio = c(0x6b, 0x61, 0x69, 0x6f) as 'kaio'
+export const strawhat = c(
+  0x73,
+  0x74,
   0x72,
-  0x6f,
-  0x6f,
-  0x6d,
-) as 'mushroom'
-export const chonk = c(0x63, 0x68, 0x6f, 0x6e, 0x6b) as 'chonk'
+  0x61,
+  0x77,
+  0x68,
+  0x61,
+  0x74,
+) as 'strawhat'
+export const merlin = c(0x6d, 0x65, 0x72, 0x6c, 0x69, 0x6e) as 'merlin'
+export const kage = c(0x6b, 0x61, 0x67, 0x65) as 'kage'
+export const ember = c(0x65, 0x6d, 0x62, 0x65, 0x72) as 'ember'
+export const corsair = c(0x63, 0x6f, 0x72, 0x73, 0x61, 0x69, 0x72) as 'corsair'
 
+// The deterministic hatch pool — every hero form. NEVER reorder or grow
+// this list casually: pick(rng, SPECIES) depends on SPECIES.length and
+// ordering, so any change re-rolls every existing user's hatched species
+// (their speciesOverride, if set, still wins).
 export const SPECIES = [
-  duck,
-  goose,
-  blob,
-  cat,
-  dragon,
-  octopus,
-  owl,
-  penguin,
-  turtle,
-  snail,
-  ghost,
-  axolotl,
-  capybara,
-  cactus,
-  robot,
-  rabbit,
-  mushroom,
-  chonk,
+  robinhood,
+  kaio,
+  strawhat,
+  merlin,
+  kage,
+  ember,
+  corsair,
 ] as const
 export type Species = (typeof SPECIES)[number] // biome-ignore format: keep compact
 
@@ -121,7 +104,12 @@ export type Companion = CompanionBones &
 // What actually persists in config. Bones are regenerated from hash(userId)
 // on every read so species renames don't break stored companions and users
 // can't edit their way to a legendary.
-export type StoredCompanion = CompanionSoul & { hatchedAt: number }
+export type StoredCompanion = CompanionSoul & {
+  hatchedAt: number
+  // Persisted /buddy set choice. Applied over the rolled bones' species in
+  // getCompanion(); does NOT touch rarity/stats (can't fake a legendary).
+  speciesOverride?: Species
+}
 
 export const RARITY_WEIGHTS = {
   common: 60,
@@ -131,18 +119,23 @@ export const RARITY_WEIGHTS = {
   legendary: 1,
 } as const satisfies Record<Rarity, number>
 
-export const RARITY_STARS = {
-  common: '★',
-  uncommon: '★★',
-  rare: '★★★',
-  epic: '★★★★',
-  legendary: '★★★★★',
-} as const satisfies Record<Rarity, string>
+// Every hero's signature color. A full Record so adding a species without a
+// color is a compile error, not a silent fallback.
+export const SPECIES_COLORS: Record<
+  Species,
+  keyof import('../utils/theme.js').Theme
+> = {
+  [robinhood]: 'success',
+  [kaio]: 'warning',
+  [strawhat]: 'error',
+  [merlin]: 'autoAccept',
+  [kage]: 'inactive',
+  [ember]: 'error',
+  [corsair]: 'permission',
+}
 
-export const RARITY_COLORS = {
-  common: 'inactive',
-  uncommon: 'success',
-  rare: 'permission',
-  epic: 'autoAccept',
-  legendary: 'warning',
-} as const satisfies Record<Rarity, keyof import('../utils/theme.js').Theme>
+export function companionColor(
+  companion: Pick<CompanionBones, 'species'>,
+): keyof import('../utils/theme.js').Theme {
+  return SPECIES_COLORS[companion.species]
+}
