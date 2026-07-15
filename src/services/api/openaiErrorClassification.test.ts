@@ -176,6 +176,15 @@ test('classifies OpenAI-style unrecognized tool_stream arguments', () => {
   expect(failure.category).toBe('tool_stream_unsupported')
 })
 
+test('classifies a tool_stream parameter rejection that is conditional on function calls', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Invalid parameter tool_stream in function calls',
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
 test.each([
   "Unknown parameter: 'tool_stream'",
   'Invalid parameter: "tool_stream"',
@@ -206,6 +215,28 @@ test('classifies a FastAPI validation rejection at its normal 422 status', () =>
   const failure = classifyOpenAIHttpFailure({
     status: 422,
     body: '{"detail":[{"type":"extra_forbidden","loc":["body","tool_stream"],"msg":"Extra inputs are not permitted","input":true}]}',
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
+test('classifies a root tool_stream extra-field rejection alongside tool validation details', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 422,
+    body: JSON.stringify({
+      detail: [
+        {
+          type: 'extra_forbidden',
+          loc: ['body', 'tool_stream'],
+          msg: 'Extra inputs are not permitted',
+        },
+        {
+          type: 'missing',
+          loc: ['body', 'tools'],
+          msg: 'Field required',
+        },
+      ],
+    }),
   })
 
   expect(failure.category).toBe('tool_stream_unsupported')
@@ -270,6 +301,7 @@ test.each([
   'Invalid parameter tool_stream in function definition',
   'Additional properties are not allowed (tool_stream was unexpected) in the function parameters',
   'Invalid parameter tool_stream in function Bash',
+  'Invalid parameter tool_stream in the function Bash',
   'Invalid parameter tool_stream for tool Bash',
 ])('does not classify a generic schema diagnostic as a parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })

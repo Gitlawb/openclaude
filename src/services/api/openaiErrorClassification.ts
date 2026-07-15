@@ -173,15 +173,12 @@ function getStructuredToolStreamValidationError(body: string): boolean | undefin
         detail.type === 'value_error.extra' ||
         (typeof detail.msg === 'string' && /extra (?:inputs|fields) (?:are )?not permitted/i.test(detail.msg))
       )
+    if (details.some(isRootToolStreamExtraField)) return true
     if (
       details.some(detail =>
-        detail.loc.includes('tools') ||
-        (isRootToolStreamLocation(detail.loc) && !isRootToolStreamExtraField(detail))
+        detail.loc.includes('tools') || isRootToolStreamLocation(detail.loc)
       )
     ) return false
-    if (
-      details.some(isRootToolStreamExtraField)
-    ) return true
     return undefined
   } catch {
     return undefined
@@ -204,7 +201,7 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
     /\btool_stream\b.*?\b(?:function|tool)\b.*?\b(?:parameters?|properties?|schema)\b/.test(normalized) ||
-    /\btool_stream\b.*?\b(?:in|for)\s+(?:an?\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
     structuredValidation === false
   ) return false
   if (structuredValidation === true) return true
