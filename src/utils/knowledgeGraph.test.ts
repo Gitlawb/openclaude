@@ -56,6 +56,7 @@ describe('knowledgeGraph legacy migration', () => {
     setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
     removeProjectArtifacts()
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    delete process.env.CLAUDE_CODE_SIMPLE
     setGovernancePolicySettingsForSourceForTesting(() => ({
       memory: { requireApprovalBeforeWrite: false },
     }))

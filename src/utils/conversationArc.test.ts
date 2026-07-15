@@ -49,6 +49,8 @@ describe('conversationArc', () => {
     memDir = mkdtempSync(join(tmpdir(), 'conversation-arc-test-'))
     resetArc()
     resetGlobalGraph()
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    delete process.env.CLAUDE_CODE_SIMPLE
     // Disable memory-write approval for tests so arc persistence, fact
     // extraction, and vector-index writes behave as they do in production
     // when the policy is set to require-approval=false.
