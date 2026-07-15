@@ -199,7 +199,7 @@ describe('resolveOpenAIShimRuntimeContext - GLM on a non-Z.AI gateway (#1896)', 
     expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     // tool_stream is Z.AI-proprietary and must NOT be inferred; NVIDIA NIM (and
     // other third-party gateways) reject it with 400 Unsupported parameter(s).
-    expect(result.openaiShimConfig.enableToolStreaming).not.toBe(true)
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(false)
   })
 })
 

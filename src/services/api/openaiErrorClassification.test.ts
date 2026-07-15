@@ -229,6 +229,21 @@ test('classifies a FastAPI validation rejection at its normal 422 status', () =>
   expect(failure.category).toBe('tool_stream_unsupported')
 })
 
+test('classifies a root structured tool_stream unsupported message', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 422,
+    body: JSON.stringify({
+      detail: [{
+        type: 'value_error',
+        loc: ['body', 'tool_stream'],
+        msg: 'tool_stream is unsupported',
+      }],
+    }),
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
 test('classifies a root tool_stream extra-field rejection alongside tool validation details', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 422,

@@ -175,6 +175,15 @@ function getStructuredToolStreamValidationError(body: string): boolean | undefin
       )
     if (details.some(isRootToolStreamExtraField)) return true
     if (
+      details.some(
+        detail =>
+          detail.loc.length === 2 &&
+          isRootToolStreamLocation(detail.loc) &&
+          typeof detail.msg === 'string' &&
+          /tool_stream is (?:unsupported|not supported|unknown|invalid)/i.test(detail.msg),
+      )
+    ) return true
+    if (
       details.some(detail =>
         detail.loc.includes('tools') || isRootToolStreamLocation(detail.loc)
       )
