@@ -309,6 +309,7 @@ afterEach(() => {
   try {
     createHandler = undefined
     mock.restore()
+    mock.module('./client.js', () => actualClientModule)
     for (const key of envKeys) {
       const envKey: string = key
       if (
