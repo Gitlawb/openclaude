@@ -855,18 +855,35 @@ export function inclusiveCalendarDaySpan(
   firstIso: string,
   lastIso: string,
 ): number {
-  const firstMs = Date.parse(firstIso)
-  const lastMs = Date.parse(lastIso)
-  // A persisted cache can carry a structurally-valid but unparseable date (e.g.
-  // "not-a-date"). Passing that to `new Date(...).toISOString()` throws
-  // RangeError, which would abort the whole `/stats` render, so bail out to the
-  // same 0 the callers already use when an endpoint is missing.
+  const firstMs = parsePersistedDateMs(firstIso)
+  const lastMs = parsePersistedDateMs(lastIso)
+  // A persisted cache can carry a corrupt date. Passing that to
+  // `new Date(...).toISOString()` throws RangeError, which would abort the whole
+  // `/stats` render, so bail out to the same 0 the callers already use when an
+  // endpoint is missing.
   if (Number.isNaN(firstMs) || Number.isNaN(lastMs)) {
     return 0
   }
   const firstDay = new Date(toDateString(new Date(firstMs))).getTime()
   const lastDay = new Date(toDateString(new Date(lastMs))).getTime()
   return Math.round((lastDay - firstDay) / (1000 * 60 * 60 * 24)) + 1
+}
+
+/**
+ * The two shapes this pipeline actually persists: a full ISO instant (from
+ * `session.timestamp`) or a bare `dailyActivity` date key. Anything else is
+ * corruption. `Date.parse` alone is far too lenient to detect it — "2026-07",
+ * "2026", "123" and "01/01/2026" all parse to real dates, so a truncated or
+ * foreign-format value would silently yield a plausible-but-wrong span instead
+ * of being rejected.
+ */
+const PERSISTED_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/
+
+function parsePersistedDateMs(value: string): number {
+  if (!PERSISTED_DATE_PATTERN.test(value)) {
+    return NaN
+  }
+  return Date.parse(value)
 }
 
 function calculateStreaks(dailyActivity: DailyActivity[]): StreakInfo {
