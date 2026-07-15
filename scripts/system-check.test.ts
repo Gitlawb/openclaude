@@ -787,6 +787,20 @@ describe('system-check memory guard diagnostics', () => {
     })
   })
 
+  test('does not report the unset default as active when auto-compact is disabled', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: undefined,
+      env: { DISABLE_AUTO_COMPACT: '1' },
+    })
+
+    expect(results[0]).toEqual({
+      ok: false,
+      label: 'Auto-compact guard',
+      detail: 'DISABLE_AUTO_COMPACT is set',
+    })
+  })
+
   test('fails when active-message hard cap is explicitly disabled', () => {
     const results = buildMemoryGuardChecks({
       autoCompactEnabled: true,

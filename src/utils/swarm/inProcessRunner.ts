@@ -23,7 +23,10 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../../services/analytics/index.js'
-import { getAutoCompactThreshold } from '../../services/compact/autoCompact.js'
+import {
+  getAutoCompactThreshold,
+  isAutoCompactEnabled,
+} from '../../services/compact/autoCompact.js'
 import {
   buildPostCompactMessages,
   compactConversation,
@@ -70,12 +73,14 @@ import { count } from '../array.js'
 import { logForDebugging } from '../debug.js'
 import { cloneFileStateCache } from '../fileStateCache.js'
 import {
+  getMaxActiveMessagesHardCap,
   parseMaxActiveMessagesLimit,
   resolveMaxActiveMessagesLimit,
   shouldCompactActiveMessageHistory,
 } from '../maxActiveMessages.js'
 import {
   getGlobalConfig,
+  isValidMaxMessagesCompactionThreshold,
   normalizeMaxMessagesCompactionThreshold,
 } from '../config.js'
 import {
@@ -1114,12 +1119,26 @@ export async function runInProcessTeammate(
       const legacyMessageThreshold = parseMaxActiveMessagesLimit(
         process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
       )
-      const activeMessageLimit = resolveMaxActiveMessagesLimit(
-        configuredMessageThreshold === undefined && legacyMessageThreshold > 0
-          ? undefined
-          : normalizeMaxMessagesCompactionThreshold(configuredMessageThreshold),
-        process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
-      )
+      const hasExplicitMessageCountThreshold =
+        configuredMessageThreshold !== undefined &&
+        isValidMaxMessagesCompactionThreshold(configuredMessageThreshold) &&
+        configuredMessageThreshold !== 'off'
+      const hasLegacyMessageCountThreshold =
+        (configuredMessageThreshold === undefined ||
+          configuredMessageThreshold === 'off') &&
+        legacyMessageThreshold > 0
+      const shouldApplyMessageCountThreshold =
+        isAutoCompactEnabled() ||
+        hasExplicitMessageCountThreshold ||
+        hasLegacyMessageCountThreshold
+      const activeMessageLimit = shouldApplyMessageCountThreshold
+        ? resolveMaxActiveMessagesLimit(
+            configuredMessageThreshold === undefined && legacyMessageThreshold > 0
+              ? undefined
+              : normalizeMaxMessagesCompactionThreshold(configuredMessageThreshold),
+            process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+          )
+        : getMaxActiveMessagesHardCap()
       const tokenThreshold = getAutoCompactThreshold(
         toolUseContext.options.mainLoopModel,
       )

@@ -36,7 +36,10 @@ import {
   DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP,
   getMaxActiveMessagesHardCap,
 } from '../src/utils/maxActiveMessages.js'
-import { normalizeMaxMessagesCompactionThreshold } from '../src/utils/config.js'
+import {
+  isValidMaxMessagesCompactionThreshold,
+  normalizeMaxMessagesCompactionThreshold,
+} from '../src/utils/config.js'
 import {
   getAvailableProviders,
   getProviderChain,
@@ -130,12 +133,20 @@ export function buildMemoryGuardChecks(
       : normalizeMaxMessagesCompactionThreshold(
           input.maxMessagesCompactionThreshold,
         )
+  const hasExplicitMessageCountGuard =
+    input.maxMessagesCompactionThreshold !== undefined &&
+    isValidMaxMessagesCompactionThreshold(
+      input.maxMessagesCompactionThreshold,
+    ) &&
+    input.maxMessagesCompactionThreshold !== 'off'
+  const hasLegacyMessageCountGuard =
+    (input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+    legacyLimit > 0
   const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
   const hasIndependentMessageCountGuard =
     configuredLimit !== 'off' &&
-    (!autoCompactAvailable ||
-      input.maxMessagesCompactionThreshold !== undefined ||
-      legacyLimit > 0)
+    (hasExplicitMessageCountGuard || hasLegacyMessageCountGuard)
   const autoCompactDisabledReason =
     [
       input.autoCompactEnabled ? undefined : 'settings disabled',
