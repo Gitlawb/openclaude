@@ -1207,13 +1207,15 @@ async function* queryModel(
 
   // Check if tool search is enabled (checks mode, model support, and threshold for auto mode)
   // This is async because it may need to calculate MCP tool description sizes for TstAuto mode
-  let useToolSearch = await isToolSearchEnabled(
-    options.model,
-    tools,
-    options.getToolPermissionContext,
-    options.agents,
-    'query',
-  )
+  let useToolSearch =
+    (getAPIProvider() !== 'firstParty' || isFirstPartyAnthropicBaseUrl()) &&
+    (await isToolSearchEnabled(
+      options.model,
+      tools,
+      options.getToolPermissionContext,
+      options.agents,
+      'query',
+    ))
 
   // Precompute once — isDeferredTool does 2 GrowthBook lookups per call
   const deferredToolNames = new Set<string>()
