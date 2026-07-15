@@ -308,7 +308,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     createHandler = undefined
-    mock.module('./client.js', () => actualClientModule)
+    mock.restore()
     for (const key of envKeys) {
       const envKey: string = key
       if (
