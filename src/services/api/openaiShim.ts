@@ -3877,7 +3877,7 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
+    if (params.stream && !isLikelyOllamaEndpoint(request.baseUrl)) {
       body.stream_options = { include_usage: true }
     }
 

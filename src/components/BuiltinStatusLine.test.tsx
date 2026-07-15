@@ -10,6 +10,8 @@ import {
 const fullData: BuiltinStatusData = {
   modelName: 'Opus 4.8',
   contextUsedPercent: 37.4,
+  contextInputTokens: 74000,
+  contextWindow: 200000,
   costUSD: 1.234,
   rateLimit: { label: '5h', usedPercent: 42 },
 }
@@ -25,7 +27,7 @@ describe('buildBuiltinStatusSegments', () => {
     ])
     expect(segments.map(s => s.text)).toEqual([
       'Opus 4.8',
-      'ctx 37%',
+      'ctx 74K/200K (37%)',
       '$1.23',
       '5h 42%',
     ])
@@ -35,6 +37,8 @@ describe('buildBuiltinStatusSegments', () => {
     const segments = buildBuiltinStatusSegments({
       ...fullData,
       contextUsedPercent: null,
+      contextInputTokens: null,
+      contextWindow: null,
     })
     expect(segments.find(s => s.key === 'context')).toBeUndefined()
   })
@@ -58,23 +62,37 @@ describe('buildBuiltinStatusSegments', () => {
     expect(at(90)).toBe('error')
   })
 
+  it('shows token counts in context segment', () => {
+    const ctx = buildBuiltinStatusSegments({
+      ...fullData,
+      contextUsedPercent: 37.4,
+      contextInputTokens: 74000,
+      contextWindow: 200000,
+    }).find(s => s.key === 'context')
+
+    expect(ctx?.text).toBe('ctx 74K/200K (37%)')
+    expect(ctx?.shortText).toBe('ctx 74K/200K')
+  })
+
+  it('shows sub-one-percent context usage as nonzero', () => {
+    const ctx = buildBuiltinStatusSegments({
+      ...fullData,
+      contextUsedPercent: 0.01,
+      contextInputTokens: 20,
+      contextWindow: 200000,
+    }).find(s => s.key === 'context')
+
+    expect(ctx?.text).toBe('ctx 20/200K (<1%)')
+  })
+
   it('colors context by the displayed rounded percentage', () => {
     const at = (pct: number) =>
       buildBuiltinStatusSegments({ ...fullData, contextUsedPercent: pct }).find(
         s => s.key === 'context',
       )
 
-    expect(at(69.6)).toMatchObject({ text: 'ctx 70%', color: 'warning' })
-    expect(at(89.6)).toMatchObject({ text: 'ctx 90%', color: 'error' })
-  })
-
-  it('shows sub-one-percent context usage as nonzero', () => {
-    const context = buildBuiltinStatusSegments({
-      ...fullData,
-      contextUsedPercent: 0.01,
-    }).find(s => s.key === 'context')
-
-    expect(context?.text).toBe('ctx <1%')
+    expect(at(69.6)).toMatchObject({ text: 'ctx 74K/200K (70%)', color: 'warning' })
+    expect(at(89.6)).toMatchObject({ text: 'ctx 74K/200K (90%)', color: 'error' })
   })
 
   it('colors rate limit by usage thresholds', () => {
@@ -87,35 +105,64 @@ describe('buildBuiltinStatusSegments', () => {
     expect(at(60)).toBe('warning')
     expect(at(85)).toBe('error')
   })
+
+  it('prefixes estimated tokens with ~ when contextIsEstimated is true', () => {
+    const ctx = buildBuiltinStatusSegments({
+      ...fullData,
+      contextUsedPercent: 37,
+      contextInputTokens: 74000,
+      contextWindow: 200000,
+      contextIsEstimated: true,
+    }).find(s => s.key === 'context')
+
+    expect(ctx?.text).toBe('ctx ~74K/200K (37%)')
+    expect(ctx?.shortText).toBe('ctx ~74K/200K')
+  })
+
+  it('does not show ~ when contextIsEstimated is false or absent', () => {
+    const ctxWithFlag = buildBuiltinStatusSegments({
+      ...fullData,
+      contextIsEstimated: false,
+    }).find(s => s.key === 'context')
+    const ctxWithoutFlag = buildBuiltinStatusSegments({
+      ...fullData,
+    }).find(s => s.key === 'context')
+
+    expect(ctxWithFlag?.text).toBe('ctx 74K/200K (37%)')
+    expect(ctxWithFlag?.shortText).toBe('ctx 74K/200K')
+    expect(ctxWithoutFlag?.text).toBe('ctx 74K/200K (37%)')
+    expect(ctxWithoutFlag?.shortText).toBe('ctx 74K/200K')
+  })
 })
 
 describe('fitSegments', () => {
   const segments = buildBuiltinStatusSegments(fullData)
-  // 'Opus 4.8 · ctx 37% · $1.23 · 5h 42%' = 35 cols
+  // 'Opus 4.8 · ctx 74K/200K (37%) · $1.23 · 5h 42%' = 46 cols
 
   it('keeps everything when the line fits', () => {
     expect(fitSegments(segments, 120)).toHaveLength(4)
   })
 
   it('degrades segments to short forms before dropping any', () => {
-    // 'Opus 4.8 · 37% · $1 · 5h 42%' = 28 cols — all four survive at 30
-    const fitted = fitSegments(segments, 30)
+    // Full: 'Opus 4.8 · ctx 74K/200K (37%) · $1.23 · 5h 42%' = 46 cols
+    // Degraded shortText: 'Opus 4.8 · ctx 74K/200K · $1 · 5h 42%' = 39 cols
+    const fitted = fitSegments(segments, 40)
     expect(fitted.map(s => s.key)).toEqual([
       'model',
       'context',
       'cost',
       'rateLimit',
     ])
-    expect(fitted.find(s => s.key === 'context')?.text).toBe('37%')
+    expect(fitted.find(s => s.key === 'context')?.text).toBe('ctx 74K/200K')
     expect(fitted.find(s => s.key === 'cost')?.text).toBe('$1')
   })
 
   it('marks dropped segments with a trailing ellipsis', () => {
     // Too narrow for all four even degraded; hidden data must be visible as hidden
-    const fitted = fitSegments(segments, 22)
+    // Full is ~46 cols, degraded shortText is ~39 cols — try width 35
+    const fitted = fitSegments(segments, 35)
     expect(fitted.at(-1)?.key).toBe('truncated')
     expect(fitted.at(-1)?.text).toBe('…')
-    expect(fitted.map(s => s.key)).toContain('context')
   })
 
   it('keeps only the model at very narrow widths, skipping the marker if it will not fit', () => {

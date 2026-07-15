@@ -148,6 +148,14 @@ export function formatTokens(count: number): string {
   return formatNumber(count).replace('.0', '')
 }
 
+/** Formats a token count as integer — no decimal fraction, uppercase K/M prefix. Always en-US locale. */
+export function formatTokenCount(count: number): string {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 0,
+  }).format(count)
+}
+
 type RelativeTimeStyle = 'long' | 'short' | 'narrow'
 
 type RelativeTimeOptions = {
