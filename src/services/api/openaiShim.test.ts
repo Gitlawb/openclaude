@@ -6942,7 +6942,7 @@ test('transport failures are not labeled with HTTP status 503', async () => {
   expect(err.message).toContain('openai_category=network_error')
 })
 
-test('propagates AbortError without wrapping it as transport failure', async () => {
+test('propagates caller AbortError without wrapping it as transport failure', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
   const abortError = new DOMException('The operation was aborted.', 'AbortError')
@@ -6951,7 +6951,8 @@ test('propagates AbortError without wrapping it as transport failure', async () 
   }))
 
   const controller = new AbortController()
-  controller.abort()
+  const callerReason = new DOMException('Cancelled by caller', 'AbortError')
+  controller.abort(callerReason)
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -6965,7 +6966,7 @@ test('propagates AbortError without wrapping it as transport failure', async () 
       },
       { signal: controller.signal },
     ),
-  ).rejects.toBe(abortError)
+  ).rejects.toBe(callerReason)
 })
 
 test('classifies a pre-header API timeout without replaying the request', async () => {
@@ -7236,6 +7237,46 @@ test('preserves caller cancellation while waiting for response headers without r
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
     }
   }
+})
+
+test('native signal composition preserves the caller abort reason when fetch rejects AbortError', async () => {
+  expect(typeof AbortSignal.any).toBe('function')
+  process.env.API_TIMEOUT_MS = '200'
+  let fetchCalls = 0
+  const fetchAbortError = new DOMException(
+    'The operation was aborted.',
+    'AbortError',
+  )
+  globalThis.fetch = (async (_input, init) => {
+    fetchCalls++
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return
+      const rejectFromAbort = () => reject(fetchAbortError)
+      signal.addEventListener('abort', rejectFromAbort, { once: true })
+      if (signal.aborted) rejectFromAbort()
+    })
+  }) as unknown as FetchType
+
+  const caller = new AbortController()
+  const callerReason = new DOMException('Cancelled by user', 'AbortError')
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const request = client.beta.messages.create(
+    {
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    { signal: caller.signal },
+  )
+
+  setTimeout(() => caller.abort(callerReason), 10)
+
+  await expect(
+    waitForPromise(request, 500, 'caller abort did not settle'),
+  ).rejects.toBe(callerReason)
+  expect(fetchCalls).toBe(1)
 })
 
 test('caller abort winning the timeout catch race prevents a retry', async () => {

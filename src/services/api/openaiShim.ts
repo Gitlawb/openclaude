@@ -166,7 +166,7 @@ function preserveCallerAbortError(
   error: unknown,
   callerSignal: AbortSignal,
 ): unknown {
-  return error instanceof ResponseHeadersTimeoutError
+  return error instanceof ResponseHeadersTimeoutError || isAbortError(error)
     ? callerSignal.reason ?? error
     : error
 }
