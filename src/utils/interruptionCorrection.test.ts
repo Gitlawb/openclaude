@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import {
+  applyInterruptionCorrectionAutoRestore,
   applyInterruptionCorrectionAwareMessageUpdate,
   buildInterruptionCorrectionMessageViews,
   consumeInterruptionCorrectionReminder,
@@ -76,6 +77,118 @@ test('clears a pending reminder when the interrupted context is rewritten', () =
   tracker.handleConversationRewrite()
 
   expect(tracker.takeReminder()).toBeNull()
+})
+
+test('preserves the earlier reminder when an interrupted correction is auto-restored', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const attemptMessage = createUserMessage({ content: 'do A' })
+  const interruptedAttempt = queryGuard.tryStart({
+    queryId: 'attempt-a',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: interruptedAttempt.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  // Correction B consumes A's reminder before its pre-query work begins.
+  const reminderForCorrection = tracker.takeReminder()!
+  const correction = createUserMessage({ content: 'do B instead' })
+  const correctionTurn = buildInterruptionCorrectionMessageViews(
+    [],
+    [reminderForCorrection, correction],
+  )
+  expect(correctionTurn.requestOnlyMessages).toEqual([reminderForCorrection])
+
+  const interruptedCorrection = queryGuard.tryStart({
+    queryId: 'correction-b',
+    querySource: 'repl_main_thread',
+    startedAt: 2,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: interruptedCorrection.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  // REPL auto-restore rewinds B while leaving interrupted attempt A in history.
+  let restoredMessages: Message[] = []
+  const rewindIndex = applyInterruptionCorrectionAutoRestore(
+    [attemptMessage, correction, createUserMessage({ content: 'interrupted' })],
+    correction,
+    messages => {
+      restoredMessages = messages
+    },
+    tracker,
+    correctionTurn.requestOnlyMessages,
+  )
+  expect(rewindIndex).toBe(1)
+  expect(restoredMessages).toEqual([attemptMessage])
+
+  const reminderForResubmission = tracker.takeReminder()!
+  const resubmittedTurn = buildInterruptionCorrectionMessageViews(
+    [],
+    [reminderForResubmission, correction],
+  )
+  expect(resubmittedTurn.requestOnlyMessages).toEqual([
+    reminderForResubmission,
+  ])
+  expect(tracker.takeReminder()).toBeNull()
+})
+
+test('leaves history and correction state unchanged when an auto-restore target is absent', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const turn = queryGuard.tryStart({
+    queryId: 'interrupted-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const history = [createUserMessage({ content: 'do A' })]
+  let setMessagesCalled = false
+  const rewindIndex = applyInterruptionCorrectionAutoRestore(
+    history,
+    createUserMessage({ content: 'not in history' }),
+    () => {
+      setMessagesCalled = true
+    },
+    tracker,
+    [],
+  )
+
+  expect(rewindIndex).toBeNull()
+  expect(setMessagesCalled).toBe(false)
+  expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
 })
 
 test('clears a pending reminder when a full compact boundary is applied', () => {

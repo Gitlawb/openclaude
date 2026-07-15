@@ -137,7 +137,7 @@ import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
 import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
-import { applyInterruptionCorrectionAwareMessageUpdate, buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
+import { applyInterruptionCorrectionAutoRestore, applyInterruptionCorrectionAwareMessageUpdate, buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
@@ -975,7 +975,9 @@ export function REPL({
 
   // Ref for the synchronous restore callback — set after restoreMessageSync is
   // defined, read in the onQuery finally block for auto-restore on interrupt.
-  const restoreMessageSyncRef = useRef<(m: UserMessage) => void>(() => { });
+  const restoreMessageSyncRef = useRef<(m: UserMessage, options?: {
+    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+  }) => void>(() => { });
 
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
@@ -3143,6 +3145,7 @@ export function REPL({
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);
     let didThrow = false;
+    let interruptionCorrectionRequestOnlyMessages: readonly MessageType[] = [];
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3159,6 +3162,7 @@ export function REPL({
         persistentNewMessages,
         requestOnlyMessages
       } = buildInterruptionCorrectionMessageViews(messagesRef.current, newMessages);
+      interruptionCorrectionRequestOnlyMessages = requestOnlyMessages;
       setMessages(persistentMessages);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
@@ -3343,7 +3347,9 @@ export function REPL({
             // The submit is being undone — undo its history entry too,
             // otherwise Up-arrow shows the restored text twice.
             removeLastFromHistory();
-            restoreMessageSyncRef.current(lastUserMsg);
+            restoreMessageSyncRef.current(lastUserMsg, {
+              interruptionCorrectionRequestOnlyMessages
+            });
           }
         }
       }
@@ -3981,18 +3987,20 @@ export function REPL({
   // Does NOT touch the prompt input. Index is computed from messagesRef (always
   // fresh via the setMessages wrapper) so callers don't need to worry about
   // stale closures.
-  const rewindConversationTo = useCallback((message: UserMessage) => {
+  const rewindConversationTo = useCallback((message: UserMessage, {
+    interruptionCorrectionRequestOnlyMessages = []
+  }: {
+    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+  } = {}) => {
     const prev = messagesRef.current;
-    const messageIndex = prev.lastIndexOf(message);
-    if (messageIndex === -1) return;
+    const messageIndex = applyInterruptionCorrectionAutoRestore(prev, message, setMessages, interruptionCorrectionTracker, interruptionCorrectionRequestOnlyMessages);
+    if (messageIndex === null) return;
     logEvent('tengu_conversation_rewind', {
       preRewindMessageCount: prev.length,
       postRewindMessageCount: messageIndex,
       messagesRemoved: prev.length - messageIndex,
       rewindToMessageIndex: messageIndex
     });
-    setMessages(prev.slice(0, messageIndex));
-    interruptionCorrectionTracker.handleConversationRewrite();
     resetAutoCompactTracking();
     // Careful, this has to happen after setMessages
     setConversationId(randomUUID());
@@ -4036,8 +4044,10 @@ export function REPL({
   // Synchronous rewind + input population. Used directly by auto-restore on
   // interrupt (so React batches with the abort's setMessages → single render,
   // no flicker). MessageSelector wraps this in setImmediate via handleRestoreMessage.
-  const restoreMessageSync = useCallback((message: UserMessage) => {
-    rewindConversationTo(message);
+  const restoreMessageSync = useCallback((message: UserMessage, options?: {
+    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+  }) => {
+    rewindConversationTo(message, options);
     const r = textForResubmit(message);
     if (r) {
       setInputValue(r.text);

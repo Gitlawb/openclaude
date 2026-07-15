@@ -1865,11 +1865,33 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
     content: string | ContentBlockParam[],
   ): string | ContentBlockParam[] =>
     isCollapseSummary ? stripSnipTagsFromContent(content) : content
+  if (feature('HISTORY_SNIP')) {
+    // A merged message is only meta if ALL merged messages are meta. If any
+    // operand is real user content, the result must not be flagged isMeta
+    // (so internal snip ids get injected and it's treated as user-visible content).
+    // Gated behind the full runtime check because changing isMeta semantics
+    // affects downstream callers (including attachment error recovery), so it
+    // must only fire when snip is actually enabled.
+    const { isSnipRuntimeEnabled } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
+    if (isSnipRuntimeEnabled()) {
+      return {
+        ...a,
+        isMeta: a.isMeta && b.isMeta ? (true as const) : undefined,
+        isCollapseSummary,
+        uuid: a.isMeta ? b.uuid : a.uuid,
+        message: {
+          ...a.message,
+          content: finalize(
+            hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
+          ),
+        },
+      }
+    }
+  }
   return {
     ...a,
-    // A merged message is only meta if every operand is meta. Any real user
-    // content makes the combined turn a real user message for all consumers.
-    isMeta: a.isMeta && b.isMeta ? (true as const) : undefined,
     isCollapseSummary,
     // Preserve the non-meta message's uuid so snip ids (derived from uuid)
     // stay stable across API calls (meta messages like system context get fresh uuids each call)

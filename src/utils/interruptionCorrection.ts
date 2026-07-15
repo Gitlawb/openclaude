@@ -72,6 +72,27 @@ export function buildInterruptionCorrectionMessageViews(
   }
 }
 
+export function applyInterruptionCorrectionAutoRestore(
+  previousMessages: readonly Message[],
+  rewindMessage: UserMessage,
+  setMessages: (messages: Message[]) => void,
+  tracker: {
+    handleConversationRewrite(options?: { preserveReminder?: boolean }): void
+  },
+  requestOnlyMessages: readonly Message[],
+): number | null {
+  const messageIndex = previousMessages.lastIndexOf(rewindMessage)
+  if (messageIndex === -1) return null
+
+  setMessages(previousMessages.slice(0, messageIndex))
+  tracker.handleConversationRewrite({
+    preserveReminder: requestOnlyMessages.some(
+      isInterruptionCorrectionReminder,
+    ),
+  })
+  return messageIndex
+}
+
 function handleInterruptionCorrectionMessageUpdate(
   previousMessages: readonly Message[],
   nextMessages: readonly Message[],
@@ -190,8 +211,14 @@ export class InterruptionCorrectionTracker {
     }
   }
 
-  handleConversationRewrite(): void {
-    this.pendingSessionId = null
+  handleConversationRewrite({
+    preserveReminder = false,
+  }: {
+    preserveReminder?: boolean
+  } = {}): void {
+    if (!preserveReminder) {
+      this.pendingSessionId = null
+    }
   }
 
   restoreReminder(): void {
