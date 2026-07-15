@@ -21,6 +21,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -66,6 +67,7 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -194,6 +196,7 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
     process.env.ANTHROPIC_API_KEY = 'stale-anthropic-key'
+    process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
     process.env.OPENAI_BASE_URL = 'https://stale.example/v1'
     process.env.OPENAI_API_BASE = 'https://stale.example/v1'
     process.env.OPENAI_API_FORMAT = 'responses'
@@ -205,6 +208,7 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_FOUNDRY).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_BASE).toBeUndefined()

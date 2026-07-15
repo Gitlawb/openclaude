@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
@@ -1209,6 +1209,7 @@ export function saveProfileFile(
     encoding: 'utf8',
     mode: 0o600,
   })
+  chmodSync(filePath, 0o600)
   return filePath
 }
 

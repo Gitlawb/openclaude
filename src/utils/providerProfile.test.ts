@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { afterEach, beforeEach } from 'node:test'
@@ -1106,6 +1106,27 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
       'openai',
     )
     assert.deepEqual(loadProfileFile({ cwd }), persisted)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('saveProfileFile restricts permissions when overwriting an existing profile', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-profile-mode-'))
+
+  try {
+    const filePath = join(cwd, PROFILE_FILE_NAME)
+    writeFileSync(filePath, '{}', { encoding: 'utf8', mode: 0o644 })
+    chmodSync(filePath, 0o644)
+
+    saveProfileFile(
+      createProfileFile('anthropic', {
+        ANTHROPIC_AUTH_TOKEN: 'custom-bearer-token',
+      }),
+      { cwd },
+    )
+
+    assert.equal(statSync(filePath).mode & 0o777, 0o600)
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }
