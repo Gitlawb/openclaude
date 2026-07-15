@@ -74,9 +74,9 @@ import { logForDebugging } from '../debug.js'
 import { cloneFileStateCache } from '../fileStateCache.js'
 import {
   getMaxActiveMessagesHardCap,
+  isAboveMaxActiveMessagesLimit,
   parseMaxActiveMessagesLimit,
   resolveMaxActiveMessagesLimit,
-  shouldCompactActiveMessageHistory,
 } from '../maxActiveMessages.js'
 import {
   getGlobalConfig,
@@ -1142,14 +1142,13 @@ export async function runInProcessTeammate(
       const tokenThreshold = getAutoCompactThreshold(
         toolUseContext.options.mainLoopModel,
       )
-      if (
-        shouldCompactActiveMessageHistory({
-          messageCount: allMessages.length,
-          tokenCount,
-          tokenThreshold,
-          activeMessageLimit,
-        })
-      ) {
+      const shouldCompactForTokens =
+        isAutoCompactEnabled() && tokenCount > tokenThreshold
+      const shouldCompactForMessages = isAboveMaxActiveMessagesLimit(
+        allMessages.length,
+        activeMessageLimit,
+      )
+      if (shouldCompactForTokens || shouldCompactForMessages) {
         logForDebugging(
           `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens, ${allMessages.length} messages)`,
         )
