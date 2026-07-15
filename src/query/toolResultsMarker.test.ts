@@ -27,8 +27,27 @@ function makeQueryParams(
   callModel: QueryDeps['callModel'],
   overrides: Partial<QueryParams> = {},
 ): QueryParams {
+  // Include a synthetic assistant message with tool_result content BEFORE
+  // the user message to establish the "shim boundary". The shim injects
+  // TOOL_RESULTS_RECEIVED_MARKER when prev.role === 'tool' (i.e. when the
+  // message before the user message contains a tool_result). Without this,
+  // shimToolResultBoundary is false and marker suppression is skipped.
+  const shimBoundaryMessage = createAssistantMessage({
+    id: 'assistant-shim-boundary',
+    content: [
+      { type: 'text', text: 'placeholder' },
+      { type: 'tool_result', tool_use_id: 'tool-1', content: 'ok' },
+    ],
+    model: 'test-model',
+    stop_reason: 'end_turn',
+    role: 'assistant',
+  } as any)
+
   return {
-    messages: [createUserMessage({ content: 'do something' })],
+    messages: [
+      shimBoundaryMessage,
+      createUserMessage({ content: 'do something' }),
+    ],
     systemPrompt: asSystemPrompt([]),
     userContext: {},
     systemContext: {},

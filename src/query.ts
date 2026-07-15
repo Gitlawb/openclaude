@@ -1001,6 +1001,14 @@ async function* queryLoop(
     // continuation-nudge block below to force a nudge when the stripped
     // text is empty (model effectively said nothing).
     let markerOnlyStall = false
+    // Provenance flag: true when the API request that produced the current
+    // assistant response contained a tool-result boundary at the end
+    // (last message in messagesForQuery is a tool result).  This is the
+    // condition the OpenAI shim checks (prev.role === 'tool' &&
+    // msg.role === 'user') before injecting TOOL_RESULTS_RECEIVED_MARKER.
+    // Scoping marker suppression to this boundary prevents suppressing
+    // legitimate user output that happens to contain the marker text.
+    let shimToolResultBoundary = false
 
     queryCheckpoint('query_setup_start')
     const useStreamingToolExecution =
@@ -1260,6 +1268,34 @@ async function* queryLoop(
         attemptWithFallback = false
         try {
           let streamingFallbackOccured = false
+          // Set shim provenance for this loop iteration: the OpenAI shim
+          // injects TOOL_RESULTS_RECEIVED_MARKER as a standalone assistant
+          // message only when the last message in the request is a tool
+          // result (prev.role === 'tool' && msg.role === 'user').  Gate
+          // marker suppression on this boundary so the model can
+          // legitimately say "[Tool results received]" without being
+          // silently withheld.
+          // We scan backwards from the end for the shim boundary pattern:
+          // the last message must be a user message and some earlier message
+          // must contain a tool_result block (meaning the shim injected the
+          // marker for this turn). Continuation nudges keep appending
+          // user messages after the tool results, so we skip over trailing
+          // assistant messages and keep scanning past them until we find a
+          // user message or exhaust the array.
+          const lastMsg = messagesForQuery.at(-1)
+          shimToolResultBoundary = lastMsg?.type === 'user'
+          if (shimToolResultBoundary) {
+            for (let i = 0; i < messagesForQuery.length - 1; i++) {
+              const prev = messagesForQuery[i]
+              if (prev?.type === 'assistant') {
+                const content = prev.message.content as { type: string }[]
+                if (content.some(c => c.type === 'tool_result')) {
+                  shimToolResultBoundary = true
+                  break
+                }
+              }
+            }
+          }
           queryCheckpoint('query_api_streaming_start')
           for await (const message of deps.callModel({
             messages: prependUserContext(messagesForQuery, userContext),
@@ -1507,7 +1543,11 @@ async function* queryLoop(
               // UI and strip it from the state so the continuation-nudge
               // block below sees a clean text tail and the capped nudge
               // path handles the stall (max 20 retries).
-              if (hasToolResultsMarker && msgToolUseBlocks.length === 0) {
+              // Only suppress when shim provenance is established
+              // (shimToolResultBoundary) so the model can legitimately say
+              // "[Tool results received]" without being silenced.
+              let remainingText = ''
+              if (hasToolResultsMarker && msgToolUseBlocks.length === 0 && shimToolResultBoundary) {
                 // Compute remaining text after removing the marker.  Only
                 // withhold / stall when there is no substantive text left;
                 // a message containing real continuation text should stay
@@ -1533,7 +1573,7 @@ async function* queryLoop(
                     return content
                   })
                   .filter(Boolean) as typeof message.message.content
-                const remainingText = remaining
+                remainingText = remaining
                   .filter(b => typeof b === 'object' && b !== null && 'text' in b && (b as { text: string }).text.trim().length > 0)
                   .map(b => (b as { text: string }).text)
                   .join(' ')
@@ -1557,8 +1597,16 @@ async function* queryLoop(
               }
               // Clear markerOnlyStall when a substantive message arrives
               // after a marker-only one — a prior empty block shouldn't
-              // cause an unnecessary continuation nudge.
-              if (msgToolUseBlocks.length > 0 || !hasToolResultsMarker) {
+              // cause an unnecessary continuation nudge.  Also clear it when
+              // a marker-containing block has real text after stripping
+              // (the old condition only checked tool_use blocks or absence
+              // of the marker, missing the case where the message has both
+              // the marker AND substantive remaining text).
+              if (
+                msgToolUseBlocks.length > 0 ||
+                !hasToolResultsMarker ||
+                remainingText.trim().length > 0
+              ) {
                 markerOnlyStall = false
               }
               assistantMessages.push(message)
@@ -2312,6 +2360,13 @@ async function* queryLoop(
         continue
       }
 
+      // Capture the current stop-hook result for use in the continuation-nudge
+      // check below.  The stale `stopHookActive` flag describes the PREVIOUS
+      // turn's result — after a successful stop-hook pass (no blocking errors),
+      // the hook already ran again and cleared itself, so using the stale flag
+      // forces an unnecessary extra model request.
+      let currentStopHookActive = stopHookResult.stopHookActive
+
       if (feature('TOKEN_BUDGET')) {
         const decision = checkTokenBudget(
           budgetTracker!,
@@ -2406,8 +2461,10 @@ async function* queryLoop(
           // incomplete (via goal evaluation or hook blocking errors).
           // Force a nudge even if the text itself has no continuation
           // signal — the model is being prompted to continue from the
-          // previous turn's tool results.
-          if (!shouldNudge && stopHookActive) {
+          // previous turn's tool results.  Use the CURRENT stop-hook
+          // result (currentStopHookActive) rather than the stale state
+          // flag, which may have been cleared by this pass's handleStopHooks.
+          if (!shouldNudge && currentStopHookActive) {
             shouldNudge = true
             nudgeReason = 'stop_hook_active'
           }
@@ -2456,12 +2513,17 @@ async function* queryLoop(
       // Nudge cap hit and last message was marker-only: the model produced
       // zero real output but the cap guard skipped the nudge block. Report
       // a distinct reason so a stuck self-hosted endpoint isn't masked as
-      // a successful completion.
+      // a successful completion.  Yield a visible system message so REPL
+      // consumers see the failure instead of silently calling onTurnComplete.
       if (markerOnlyStall && state.continuationNudgeCount >= MAX_CONTINUATION_NUDGES) {
         logForDebugging(
           `Marker-only stall exhausted (${MAX_CONTINUATION_NUDGES} nudges) — model produced no real output`,
         )
-        return { reason: 'marker_stall_exhausted' }
+        yield createSystemMessage(
+          `Marker-only stall exhausted after ${MAX_CONTINUATION_NUDGES} retries — the model kept echoing the internal tool-result marker without producing real output.`,
+          'error',
+        )
+        return { reason: 'marker_stall_exhausted' as const }
       }
 
       return { reason: 'completed' }
