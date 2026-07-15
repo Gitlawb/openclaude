@@ -142,5 +142,7 @@ test('maps tool_stream_unsupported without promising a retry after failure', () 
 
   expect(text).toContain('rejected the `tool_stream` parameter')
   expect(text).toContain('cannot be streamed')
+  expect(text).toContain('switch models')
+  expect(text).toMatch(/(\/model|--model)/)
   expect(text).not.toContain('Retrying')
 })

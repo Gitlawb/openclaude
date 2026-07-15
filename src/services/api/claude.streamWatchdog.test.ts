@@ -1,5 +1,4 @@
 import {
-  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -52,21 +51,23 @@ type CreateHandler = (...args: CreateArgs) => unknown
 let createHandler: CreateHandler | undefined
 let importCounter = 0
 
-mock.module('./client.js', () => ({
-  CLIENT_REQUEST_ID_HEADER: actualClientModule.CLIENT_REQUEST_ID_HEADER,
-  getAnthropicClient: async () => ({
-    beta: {
-      messages: {
-        create: (...args: CreateArgs) => {
-          if (!createHandler) {
-            throw new Error('test client create handler not configured')
-          }
-          return createHandler(...args)
+function installClientMock(): void {
+  mock.module('./client.js', () => ({
+    CLIENT_REQUEST_ID_HEADER: actualClientModule.CLIENT_REQUEST_ID_HEADER,
+    getAnthropicClient: async () => ({
+      beta: {
+        messages: {
+          create: (...args: CreateArgs) => {
+            if (!createHandler) {
+              throw new Error('test client create handler not configured')
+            }
+            return createHandler(...args)
+          },
         },
       },
-    },
-  }),
-}))
+    }),
+  }))
+}
 
 function makeBetaMessage(
   id: string,
@@ -291,6 +292,7 @@ function setTestMacro(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('claude.streamWatchdog.test.ts')
+  installClientMock()
   setTestMacro()
   for (const key of envKeys) {
     delete process.env[key]
@@ -306,6 +308,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     createHandler = undefined
+    mock.module('./client.js', () => actualClientModule)
     for (const key of envKeys) {
       const envKey: string = key
       if (
@@ -334,10 +337,6 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
-})
-
-afterAll(() => {
-  mock.module('./client.js', () => actualClientModule)
 })
 
 describe('Claude stream watchdog', () => {

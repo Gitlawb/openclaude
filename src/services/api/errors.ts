@@ -150,7 +150,7 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
 
     case 'tool_stream_unsupported':
       return createAssistantAPIErrorMessage({
-        content: `The selected provider rejected the \`tool_stream\` parameter. Tool calls cannot be streamed on this provider. If this persists, switch providers via ${switchCmd}.`,
+        content: `The selected provider rejected the \`tool_stream\` parameter. Tool calls cannot be streamed on this provider. If this persists, switch models via ${switchCmd}.`,
         error: 'invalid_request',
       })
 

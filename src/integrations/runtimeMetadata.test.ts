@@ -216,7 +216,7 @@ describe('resolveOpenAIShimRuntimeContext - NVIDIA NIM GLM-5.2 (regression #1950
     })
 
     expect(result.routeId).toBe('nvidia-nim')
-    expect(result.openaiShimConfig.enableToolStreaming).not.toBe(true)
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(false)
     expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
     expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
