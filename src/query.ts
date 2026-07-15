@@ -1282,14 +1282,34 @@ async function* queryLoop(
           // user messages after the tool results, so we skip over trailing
           // assistant messages and keep scanning past them until we find a
           // user message or exhaust the array.
+          // Initialize false, scan messages backward from the end.
+          // Stop at the most recent tool_use so results from earlier turns
+          // cannot qualify. Set boundary true only when a matching
+          // tool_result is found within that scope.
+          shimToolResultBoundary = false
           const lastMsg = messagesForQuery.at(-1)
-          shimToolResultBoundary = lastMsg?.type === 'user'
-          if (shimToolResultBoundary) {
-            for (let i = 0; i < messagesForQuery.length - 1; i++) {
-              const prev = messagesForQuery[i]
-              if (prev?.type === 'assistant') {
-                const content = prev.message.content as { type: string }[]
-                if (content.some(c => c.type === 'tool_result')) {
+          if (lastMsg?.type === 'user') {
+            // Find the index of the most recent tool_use message (scanning backward)
+            let mostRecentToolUseIndex = -1
+            for (let i = messagesForQuery.length - 2; i >= 0; i--) {
+              const msg = messagesForQuery[i]
+              if (msg?.type === 'assistant') {
+                const content = msg.message.content as { type: string }[] | undefined
+                if (content?.some(c => c.type === 'tool_use')) {
+                  mostRecentToolUseIndex = i
+                  break
+                }
+              }
+            }
+            // Scan backward from end, looking for user message with tool_result
+            for (let i = messagesForQuery.length - 2; i >= 0; i--) {
+              const msg = messagesForQuery[i]
+              if (i < mostRecentToolUseIndex && mostRecentToolUseIndex !== -1) {
+                break // stopped at most recent tool_use
+              }
+              if (msg?.type === 'user') {
+                const content = msg.message.content as { type: string }[] | string | undefined
+                if (Array.isArray(content) && content.some(c => c.type === 'tool_result')) {
                   shimToolResultBoundary = true
                   break
                 }
@@ -1605,7 +1625,8 @@ async function* queryLoop(
               if (
                 msgToolUseBlocks.length > 0 ||
                 !hasToolResultsMarker ||
-                remainingText.trim().length > 0
+                remainingText.trim().length > 0 ||
+                !shimToolResultBoundary
               ) {
                 markerOnlyStall = false
               }
