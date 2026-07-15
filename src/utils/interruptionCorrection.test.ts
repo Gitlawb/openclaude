@@ -300,6 +300,93 @@ test('clears a pending reminder when a later compaction replaces an existing bou
   expect(tracker.takeReminder()).toBeNull()
 })
 
+test('clears a pending reminder when an existing compact boundary is removed', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const boundary = createCompactBoundaryMessage('manual', 100)
+  const turn = queryGuard.tryStart({
+    queryId: 'post-compact-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  applyInterruptionCorrectionAwareMessageUpdate(
+    { current: [boundary] },
+    [],
+    tracker,
+  )
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
+test('does not restore a consumed reminder after programmatic auto-restore cancellation', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const interruptedAttempt = queryGuard.tryStart({
+    queryId: 'attempt-a',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: interruptedAttempt.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const reminder = tracker.takeReminder()!
+  const correction = createUserMessage({ content: 'do B instead' })
+  const correctionTurn = buildInterruptionCorrectionMessageViews(
+    [],
+    [reminder, correction],
+  )
+  const programmaticRestore = queryGuard.tryStart({
+    queryId: 'programmatic-restore',
+    querySource: 'repl_main_thread',
+    startedAt: 2,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: programmaticRestore.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: false,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  applyInterruptionCorrectionAutoRestore(
+    [correction],
+    correction,
+    () => {},
+    tracker,
+    correctionTurn.requestOnlyMessages,
+  )
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
 test('builds one same-session reminder and clears pending state', () => {
   const withoutPending = consumeInterruptionCorrectionReminder(null, 'session-a')
   expect(withoutPending).toEqual({ pendingSessionId: null, reminder: null })
