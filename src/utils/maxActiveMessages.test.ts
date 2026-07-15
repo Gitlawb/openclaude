@@ -36,6 +36,7 @@ test('explicit zero hard cap disables only the hard cap', () => {
   expect(isAboveMaxActiveMessagesLimit(1001)).toBe(false)
   expect(resolveMaxActiveMessagesLimit('100', undefined)).toBe(100)
   expect(resolveMaxActiveMessagesLimit('off', '5')).toBe(5)
+  expect(resolveMaxActiveMessagesLimit(undefined, '5')).toBe(5)
 })
 
 test('configured and hard cap combine by choosing the tighter positive limit', () => {

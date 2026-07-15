@@ -23,7 +23,10 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../../services/analytics/index.js'
-import { getAutoCompactThreshold } from '../../services/compact/autoCompact.js'
+import {
+  getAutoCompactThreshold,
+  isAutoCompactEnabled,
+} from '../../services/compact/autoCompact.js'
 import {
   buildPostCompactMessages,
   compactConversation,
@@ -71,8 +74,15 @@ import { logForDebugging } from '../debug.js'
 import { cloneFileStateCache } from '../fileStateCache.js'
 import {
   getMaxActiveMessagesHardCap,
-  shouldCompactActiveMessageHistory,
+  isAboveMaxActiveMessagesLimit,
+  parseMaxActiveMessagesLimit,
+  resolveMaxActiveMessagesLimit,
 } from '../maxActiveMessages.js'
+import {
+  getGlobalConfig,
+  isValidMaxMessagesCompactionThreshold,
+  normalizeMaxMessagesCompactionThreshold,
+} from '../config.js'
 import {
   SUBAGENT_REJECT_MESSAGE,
   SUBAGENT_REJECT_MESSAGE_WITH_REASON_PREFIX,
@@ -1104,18 +1114,41 @@ export async function runInProcessTeammate(
       // Check if compaction is needed before building context
       let contextMessages = allMessages
       const tokenCount = tokenCountWithEstimation(allMessages)
-      const activeMessageHardCap = getMaxActiveMessagesHardCap()
+      const configuredMessageThreshold =
+        getGlobalConfig().maxMessagesCompactionThreshold
+      const legacyMessageThreshold = parseMaxActiveMessagesLimit(
+        process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+      )
+      const hasExplicitMessageCountThreshold =
+        configuredMessageThreshold !== undefined &&
+        isValidMaxMessagesCompactionThreshold(configuredMessageThreshold) &&
+        configuredMessageThreshold !== 'off'
+      const hasLegacyMessageCountThreshold =
+        (configuredMessageThreshold === undefined ||
+          configuredMessageThreshold === 'off') &&
+        legacyMessageThreshold > 0
+      const shouldApplyMessageCountThreshold =
+        isAutoCompactEnabled() ||
+        hasExplicitMessageCountThreshold ||
+        hasLegacyMessageCountThreshold
+      const activeMessageLimit = shouldApplyMessageCountThreshold
+        ? resolveMaxActiveMessagesLimit(
+            configuredMessageThreshold === undefined && legacyMessageThreshold > 0
+              ? undefined
+              : normalizeMaxMessagesCompactionThreshold(configuredMessageThreshold),
+            process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+          )
+        : getMaxActiveMessagesHardCap()
       const tokenThreshold = getAutoCompactThreshold(
         toolUseContext.options.mainLoopModel,
       )
-      if (
-        shouldCompactActiveMessageHistory({
-          messageCount: allMessages.length,
-          tokenCount,
-          tokenThreshold,
-          activeMessageLimit: activeMessageHardCap,
-        })
-      ) {
+      const shouldCompactForTokens =
+        isAutoCompactEnabled() && tokenCount > tokenThreshold
+      const shouldCompactForMessages = isAboveMaxActiveMessagesLimit(
+        allMessages.length,
+        activeMessageLimit,
+      )
+      if (shouldCompactForTokens || shouldCompactForMessages) {
         logForDebugging(
           `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens, ${allMessages.length} messages)`,
         )

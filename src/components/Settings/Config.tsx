@@ -294,7 +294,7 @@ export function Config({
   }, {
     id: 'maxMessagesCompactionThreshold',
     label: 'Message-count compaction',
-    value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
+    value: normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold),
     options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
     type: 'enum' as const,
     onChange(maxMessagesCompactionThreshold: string) {
@@ -1242,7 +1242,7 @@ export function Config({
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
     }
     if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
-      const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
+      const threshold = normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold);
       formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {

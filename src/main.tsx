@@ -3045,7 +3045,7 @@ async function run(): Promise<CommanderCommand> {
       strictMcpConfig,
       systemPrompt,
       appendSystemPrompt,
-      thinkingConfig
+      thinkingConfig,
     };
 
     // Shared context for processResumedConversation calls

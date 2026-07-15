@@ -179,7 +179,7 @@ describe('getEffectiveContextWindowSize', () => {
     try {
       const effective = getEffectiveContextWindowSize('some-unknown-3p-model')
       expect(effective).toBeGreaterThan(0)
-      // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_BUFFER_TOKENS (13k).
+      // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_FLOOR_BUFFER_TOKENS (13k).
       // Covers the anti-regression intent of issue #635 without assuming
       // the GrowthBook flag state.
       expect(effective).toBeGreaterThanOrEqual(21_000)
@@ -242,6 +242,40 @@ describe('getAutoCompactThreshold', () => {
     } finally {
       restoreEnv()
     }
+  })
+
+  test('keeps the floor buffer for constrained context windows', async () => {
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '30000'
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000'
+    const { getAutoCompactThreshold } = await importAutoCompact()
+
+    // The effective window is floor-raised to 33k in this configuration.
+    // Selecting the 30k buffer here would compact after only 3k tokens.
+    expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(20_000)
+  })
+
+  test('keeps compaction and warning thresholds usable across mid-sized windows', async () => {
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '64000'
+    const { calculateTokenWarningState, getAutoCompactThreshold } =
+      await importAutoCompact()
+
+    // The effective window is 44k. Do not consume so much headroom that the
+    // 20k warning/error buffer makes a fresh conversation immediately warn.
+    expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(30_000)
+    expect(
+      calculateTokenWarningState(0, 'claude-sonnet-4').isAboveWarningThreshold,
+    ).toBe(false)
+  })
+
+  test('does not lower the threshold when a configured window grows', async () => {
+    const { getAutoCompactThreshold } = await importAutoCompact()
+
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '62999'
+    const smallerWindowThreshold = getAutoCompactThreshold('claude-sonnet-4')
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '63000'
+    const largerWindowThreshold = getAutoCompactThreshold('claude-sonnet-4')
+
+    expect(largerWindowThreshold).toBeGreaterThanOrEqual(smallerWindowThreshold)
   })
 })
 
