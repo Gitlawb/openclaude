@@ -272,6 +272,19 @@ describe('conversationArc', () => {
 
       expect(existsSync(unrelatedPath)).toBe(true)
     })
+
+    it('regression: clearArcArtifacts resets the in-memory cache', () => {
+      initializeArc(memDir)
+      addGoal('Goal A')
+      expect(getArc()?.goals.length).toBe(1)
+
+      clearArcArtifacts(memDir)
+
+      // getArc() should now return a fresh/minimal arc
+      const freshArc = getArc()
+      expect(freshArc).not.toBeNull()
+      expect(freshArc!.goals.length).toBe(0)
+    })
   })
 
   describe('getArcStats', () => {
@@ -416,6 +429,42 @@ describe('conversationArc', () => {
         expect(promptWithArc.length).toBe(2)
       } finally {
         delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+      }
+    })
+
+    it('regression: appends multi-turn context information when MULTI_TURN_CONTEXT feature is enabled', async () => {
+      process.env.MULTI_TURN_CONTEXT = 'true'
+      try {
+        const { startNewTurn, addMessageToTurn, addToolCallToTurn, resetMultiTurnState } = await import('./multiTurnContext.js')
+        resetMultiTurnState()
+
+        startNewTurn()
+        addMessageToTurn(createMessage('assistant', 'Running checks'))
+        addToolCallToTurn({
+          id: 'call_test',
+          name: 'read_file',
+          input: { path: '/test.ts' },
+          timestamp: Date.now()
+        })
+
+        const autoMemDir = getAutoMemPath()
+        clearArcArtifacts(autoMemDir)
+        mkdirSync(autoMemDir, { recursive: true })
+        initializeArc(autoMemDir)
+
+        const lastMessage = createMessage('user', 'continue')
+        const mockSystemPrompt = ['# System Instructions', 'You are an assistant.']
+
+        const { appendArcToSystemPrompt } = await import('./conversationArc.js')
+        const promptWithArc = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
+
+        expect(promptWithArc.length).toBe(mockSystemPrompt.length + 1)
+        const promptText = promptWithArc.join('\n')
+        expect(promptText).toContain('MULTI-TURN CONTEXT TRACKING')
+        expect(promptText).toContain('Total Turns: 1')
+        expect(promptText).toContain('read_file')
+      } finally {
+        delete process.env.MULTI_TURN_CONTEXT
       }
     })
   })

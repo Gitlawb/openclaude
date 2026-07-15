@@ -138,29 +138,17 @@ fi
 echo ""
 echo "── 11. Feature-flag entry path regression ──"
 
-# Build a small probe that exercises the feature-flagged entry path
-# at runtime, proving the flags are injected and take effect.
-build_probe=$(mktemp -d)
-trap 'rm -rf "$build_probe"' EXIT
-
-cat > "$build_probe/probe.ts" << 'PROBE'
-// Verify feature flags at build time via --define injection.
-// These must remain truthy after the build plugin runs.
-declare const convArc: boolean
-declare const multiTurn: boolean
-if (!convArc) throw new Error('CONVERSATION_ARC is false at build time')
-if (!multiTurn) throw new Error('MULTI_TURN_CONTEXT is false at build time')
-console.log('feature flags OK: CONVERSATION_ARC=true, MULTI_TURN_CONTEXT=true')
-PROBE
-
-# Build through the project's own build script so the feature flag plugin runs.
-if bun build "$build_probe/probe.ts" --outdir="$build_probe/out" \
-  --define "convArc=true" \
-  --define "multiTurn=true" \
-  &>/dev/null && node "$build_probe/out/probe.js" &>/dev/null; then
-  pass "feature-flagged probe builds and runs with flags enabled"
+# Run the real production build flow using scripts/build.ts
+if bun run scripts/build.ts &>/dev/null; then
+  # Verify that the build output does not contain un-transformed feature() calls
+  if ! grep -q "feature(\s*['\"]CONVERSATION_ARC['\"]" dist/cli.mjs && \
+     ! grep -q "feature(\s*['\"]MULTI_TURN_CONTEXT['\"]" dist/cli.mjs; then
+    pass "production build resolved feature flags successfully"
+  else
+    fail "production build has unresolved feature() calls in bundle"
+  fi
 else
-  fail "feature-flagged probe builds and runs with flags enabled"
+  fail "production build script (scripts/build.ts) failed"
 fi
 
 # ── 12. TypeScript type check ────────────────────────────────────────
@@ -173,7 +161,7 @@ check "bun run typecheck passes" bun run typecheck
 echo ""
 echo "── 13. Test suite ──"
 
-check "All focused tests pass" bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/utils/multiTurnContext.test.ts src/commands/knowledge/knowledge.test.ts
+check "All focused tests pass" bun test src/memdir/vectorIndex.test.ts src/memdir/autoExtractFacts.test.ts src/utils/conversationArc.test.ts src/utils/knowledgeGraph.test.ts src/utils/multiTurnContext.test.ts src/commands/knowledge/knowledge.test.ts
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

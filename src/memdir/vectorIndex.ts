@@ -10,6 +10,7 @@ import { create, insert, search, type Orama as OramaDb } from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
 import { parseFrontmatter } from '../utils/frontmatterParser.js'
 import { isMemoryWriteApprovalRequired } from '../utils/governancePolicy.js'
+import { isAutoMemoryEnabled } from './paths.js'
 
 const ORAMA_SCHEMA = {
   filename: 'string',
@@ -20,9 +21,19 @@ const ORAMA_SCHEMA = {
   content: 'string',
 } as const
 
+interface MdStats {
+  count: number
+  totalSize: number
+  latestMtime: number
+  fileFingerprint: string
+  contentHash: string
+}
+
 interface DirIndex {
-  db: OramaDb<any> | null
+  db: OramaDb<typeof ORAMA_SCHEMA> | null
   pending: Promise<void> | null
+  statsCache?: MdStats
+  lastBuiltStats?: MdStats
 }
 
 const indices = new Map<string, DirIndex>()
@@ -38,12 +49,16 @@ export function getIndexMetaPath(memoryDir: string): string {
   return join(memoryDir, INDEX_META_FILENAME)
 }
 
-function getMdStats(memoryDir: string): { count: number; totalSize: number; latestMtime: number; fileFingerprint: string; contentHash: string } {
-  let count = 0
-  let totalSize = 0
-  let latestMtime = 0
-  const fingerprint = createHash('sha256')
-  const contentHasher = createHash('sha256')
+interface FileInfo {
+  fullPath: string
+  relPath: string
+  name: string
+  size: number
+  mtimeMs: number
+}
+
+function getSortedMdFiles(memoryDir: string): FileInfo[] {
+  const files: FileInfo[] = []
   function walk(dir: string, depth: number) {
     if (depth > 4) return
     let entries: Dirent[]
@@ -52,94 +67,110 @@ function getMdStats(memoryDir: string): { count: number; totalSize: number; late
     } catch {
       return
     }
+    // Sort entries by name to guarantee deterministic traversal order (L10)
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+
     for (const entry of entries) {
       const fullPath = join(dir, entry.name)
 
-      if (entry.isSymbolicLink()) {
-        // Do not traverse or index any symlink — a symlinked file or directory
-        // could point outside the memory root and leak content into the prompt.
-        continue
-      }
+      if (entry.isSymbolicLink()) continue
 
       if (entry.isDirectory()) {
         if (!entry.name.startsWith('.') || entry.name === '.facts') {
           walk(fullPath, depth + 1)
         }
       } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
-        let st: ReturnType<typeof statSync>
         try {
-          st = statSync(fullPath)
-        } catch { continue }
-        count++
-        totalSize += st.size
-        // Content-aware fingerprint: combines path+size+mtime to detect corpus
-        // changes without reading every file's bytes on each search turn.  A
-        // real SHA-256 of file bytes is computed alongside for same-size edits
-        // on coarse-mtime filesystems.
-        fingerprint.update(`${fullPath}:${st.size}:${st.mtimeMs}\0`)
-        try {
-          const raw = readFileSync(fullPath)
-          contentHasher.update(raw)
-        } catch { /* skip unreadable */ }
-        if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs
+          const st = statSync(fullPath)
+          // Make sure file is readable before including it (L10)
+          const fd = readFileSync(fullPath)
+          files.push({
+            fullPath,
+            relPath: relative(memoryDir, fullPath),
+            name: entry.name,
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+          })
+        } catch {
+          // Skip unreadable files
+        }
       }
     }
   }
   walk(memoryDir, 0)
-  return { count, totalSize, latestMtime, fileFingerprint: fingerprint.digest('hex'), contentHash: contentHasher.digest('hex') }
+  files.sort((a, b) => a.relPath.localeCompare(b.relPath))
+  return files
+}
+
+function getMdStats(memoryDir: string): MdStats {
+  const files = getSortedMdFiles(memoryDir)
+  const count = files.length
+  let totalSize = 0
+  let latestMtime = 0
+  const fingerprint = createHash('sha256')
+
+  for (const f of files) {
+    totalSize += f.size
+    if (f.mtimeMs > latestMtime) latestMtime = f.mtimeMs
+    fingerprint.update(`${f.fullPath}:${f.size}:${f.mtimeMs}\0`)
+  }
+
+  const fileFingerprint = fingerprint.digest('hex')
+
+  const state = getOrCreateDirState(memoryDir)
+  if (state.statsCache && state.statsCache.fileFingerprint === fileFingerprint) {
+    return state.statsCache
+  }
+
+  const metaPath = getIndexMetaPath(memoryDir)
+  if (existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
+      if (meta.fileFingerprint === fileFingerprint && typeof meta.contentHash === 'string') {
+        const stats = { count, totalSize, latestMtime, fileFingerprint, contentHash: meta.contentHash }
+        state.statsCache = stats
+        return stats
+      }
+    } catch { /* ignore */ }
+  }
+
+  const contentHasher = createHash('sha256')
+  for (const f of files) {
+    try {
+      const raw = readFileSync(f.fullPath)
+      contentHasher.update(raw)
+    } catch { /* skip */ }
+  }
+  const contentHash = contentHasher.digest('hex')
+  const stats = { count, totalSize, latestMtime, fileFingerprint, contentHash }
+  state.statsCache = stats
+  return stats
 }
 
 async function scanMdFiles(
   memoryDir: string,
 ): Promise<Array<{ filename: string; path: string; title: string; type: string; description: string; content: string }>> {
+  const files = getSortedMdFiles(memoryDir)
   const results: Array<{ filename: string; path: string; title: string; type: string; description: string; content: string }> = []
-
-  function walk(dir: string, depth: number) {
-    if (depth > 4) return
-    let entries: Dirent[]
+  for (const f of files) {
     try {
-      entries = readdirSync(dir, { withFileTypes: true })
+      const raw = readFileSync(f.fullPath, 'utf-8')
+      const parsed = parseFrontmatter(raw)
+      const fm = parsed?.frontmatter
+      results.push({
+        filename: f.name,
+        path: f.relPath,
+        title: typeof fm?.title === 'string' ? fm.title : f.name.replace(/\.md$/, ''),
+        type: typeof fm?.type === 'string' ? fm.type : 'reference',
+        description: typeof fm?.description === 'string' ? fm.description : '',
+        content: parsed?.content ?? '',
+      })
     } catch {
-      return
-    }
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name)
-
-      if (entry.isSymbolicLink()) {
-        // Do not traverse or index any symlink — a symlinked file or directory
-        // could point outside the memory root and leak content into the prompt.
-        continue
-      }
-
-      if (entry.isDirectory()) {
-        if (!entry.name.startsWith('.') || entry.name === '.facts') {
-          walk(fullPath, depth + 1)
-        }
-      } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
-        try {
-          const raw = readFileSync(fullPath, 'utf-8')
-          const parsed = parseFrontmatter(raw)
-          const fm = parsed?.frontmatter
-          results.push({
-            filename: entry.name,
-            path: relative(memoryDir, fullPath),
-            title: typeof fm?.title === 'string' ? fm.title : entry.name.replace(/\.md$/, ''),
-            type: typeof fm?.type === 'string' ? fm.type : 'reference',
-            description: typeof fm?.description === 'string' ? fm.description : '',
-            content: parsed?.content ?? '',
-          })
-        } catch {
-          // skip unreadable files
-        }
-      }
+      // skip unreadable files
     }
   }
-
-  walk(memoryDir, 0)
   return results
 }
-
-
 
 function getOrCreateDirState(memoryDir: string): DirIndex {
   let state = indices.get(memoryDir)
@@ -157,90 +188,13 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
     return
   }
 
-  const indexPath = getIndexPath(memoryDir)
-  const metaPath = getIndexMetaPath(memoryDir)
-
-  if (existsSync(indexPath) && existsSync(metaPath)) {
-    const indexMtime = statSync(indexPath).mtimeMs
-    const stats = getMdStats(memoryDir)
-    let storedFileCount = -1
-    let storedTotalSize = -1
-    let storedFileFingerprint = ''
-    let storedContentHash = ''
-    try {
-      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
-      storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
-      storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
-      storedFileFingerprint = typeof meta.fileFingerprint === 'string' ? meta.fileFingerprint : (typeof meta.contentHash === 'string' ? meta.contentHash : '')
-      storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
-    } catch { /* missing or corrupt meta — rebuild */ }
-
-    if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.fileFingerprint === storedFileFingerprint && stats.contentHash === storedContentHash) {
-      try {
-        const data = readFileSync(indexPath)
-        state.db = await restore('binary', data) as OramaDb<any>
-        return
-      } catch {
-        // Corrupted index — rebuild
-      }
-    }
-  }
-
-  state.db = await create({ schema: ORAMA_SCHEMA })
-  await rebuildIndex(memoryDir)
-}
-
-export async function rebuildIndex(memoryDir: string): Promise<void> {
-  const state = getOrCreateDirState(memoryDir)
-  if (state.pending) await state.pending
-
   state.pending = (async () => {
-    try {
-      state.db = await create({ schema: ORAMA_SCHEMA }) as OramaDb<any>
-
-      const docs = await scanMdFiles(memoryDir)
-
-      for (const doc of docs) {
-        await insert(state.db, {
-          filename: doc.filename,
-          path: doc.path,
-          title: doc.title,
-          type: doc.type,
-          description: doc.description,
-          content: doc.content,
-        })
-      }
-
-      await saveIndex(memoryDir)
-    } catch (e) {
-      state.db = null
-      console.error(`[vectorIndex] rebuildIndex failed for ${memoryDir}:`, e)
-    }
-  })()
-
-  await state.pending
-  state.pending = null
-}
-
-export async function searchMemdirIndex(
-  query: string,
-  memoryDir: string,
-  limit = 10,
-): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; content: string; score: number }>> {
-  const state = getOrCreateDirState(memoryDir)
-
-  if (!state.db) {
-    await initMemdirIndex(memoryDir)
-  }
-
-  if (state.db) {
     const indexPath = getIndexPath(memoryDir)
     const metaPath = getIndexMetaPath(memoryDir)
-    if (!existsSync(indexPath) || !existsSync(metaPath)) {
-      await initMemdirIndex(memoryDir)
-    } else {
+    const stats = getMdStats(memoryDir)
+
+    if (existsSync(indexPath) && existsSync(metaPath)) {
       const indexMtime = statSync(indexPath).mtimeMs
-      const stats = getMdStats(memoryDir)
       let storedFileCount = -1
       let storedTotalSize = -1
       let storedFileFingerprint = ''
@@ -251,9 +205,128 @@ export async function searchMemdirIndex(
         storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
         storedFileFingerprint = typeof meta.fileFingerprint === 'string' ? meta.fileFingerprint : (typeof meta.contentHash === 'string' ? meta.contentHash : '')
         storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
-      } catch { /* ignore */ }
-      if (stats.latestMtime > indexMtime || stats.count !== storedFileCount || stats.totalSize !== storedTotalSize || stats.fileFingerprint !== storedFileFingerprint || stats.contentHash !== storedContentHash) {
+      } catch { /* missing or corrupt meta — rebuild */ }
+
+      if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.fileFingerprint === storedFileFingerprint && stats.contentHash === storedContentHash) {
+        try {
+          const data = readFileSync(indexPath)
+          const restored = await restore('binary', data) as OramaDb<typeof ORAMA_SCHEMA>
+          const schema = restored.schema
+          const expectedFields = Object.keys(ORAMA_SCHEMA) as Array<keyof typeof ORAMA_SCHEMA>
+          let isCompatible = !!schema
+          if (schema) {
+            for (const key of expectedFields) {
+              if (schema[key] !== ORAMA_SCHEMA[key]) {
+                isCompatible = false
+                break
+              }
+            }
+          }
+          if (isCompatible) {
+            state.db = restored
+            state.lastBuiltStats = stats
+            return
+          }
+        } catch {
+          // Corrupted index — rebuild
+        }
+      }
+    }
+
+    await performRebuildIndex(memoryDir, state)
+  })()
+
+  try {
+    await state.pending
+  } finally {
+    state.pending = null
+  }
+}
+
+async function performRebuildIndex(memoryDir: string, state: DirIndex): Promise<void> {
+  const stats = getMdStats(memoryDir)
+  const newDb = await create({ schema: ORAMA_SCHEMA }) as OramaDb<typeof ORAMA_SCHEMA>
+  const docs = await scanMdFiles(memoryDir)
+
+  for (const doc of docs) {
+    await insert(newDb, {
+      filename: doc.filename,
+      path: doc.path,
+      title: doc.title,
+      type: doc.type,
+      description: doc.description,
+      content: doc.content,
+    })
+  }
+
+  state.db = newDb
+  state.lastBuiltStats = stats
+  await saveIndex(memoryDir)
+}
+
+export async function rebuildIndex(memoryDir: string): Promise<void> {
+  const state = getOrCreateDirState(memoryDir)
+  if (state.pending) {
+    await state.pending
+    return
+  }
+
+  state.pending = performRebuildIndex(memoryDir, state)
+
+  try {
+    await state.pending
+  } finally {
+    state.pending = null
+  }
+}
+
+export async function searchMemdirIndex(
+  query: string,
+  memoryDir: string,
+  limit = 10,
+): Promise<Array<{ path: string; filename: string; title: string; type: string; description: string; content: string; score: number }>> {
+  const state = getOrCreateDirState(memoryDir)
+
+  if (state.pending) {
+    await state.pending
+  }
+
+  if (!state.db) {
+    await initMemdirIndex(memoryDir)
+  }
+
+  if (state.db) {
+    const stats = getMdStats(memoryDir)
+    if (state.lastBuiltStats) {
+      if (
+        stats.count !== state.lastBuiltStats.count ||
+        stats.totalSize !== state.lastBuiltStats.totalSize ||
+        stats.fileFingerprint !== state.lastBuiltStats.fileFingerprint ||
+        stats.contentHash !== state.lastBuiltStats.contentHash
+      ) {
         await initMemdirIndex(memoryDir)
+      }
+    } else {
+      const indexPath = getIndexPath(memoryDir)
+      const metaPath = getIndexMetaPath(memoryDir)
+      if (!existsSync(indexPath) || !existsSync(metaPath)) {
+        await initMemdirIndex(memoryDir)
+      } else {
+        const indexMtime = statSync(indexPath).mtimeMs
+        let storedFileCount = -1
+        let storedTotalSize = -1
+        let storedFileFingerprint = ''
+        let storedContentHash = ''
+        try {
+          const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
+          storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
+          storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
+          storedFileFingerprint = typeof meta.fileFingerprint === 'string' ? meta.fileFingerprint : (typeof meta.contentHash === 'string' ? meta.contentHash : '')
+          storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
+        } catch { /* ignore */ }
+        if (stats.latestMtime > indexMtime || stats.count !== storedFileCount || stats.totalSize !== storedTotalSize || stats.fileFingerprint !== storedFileFingerprint || stats.contentHash !== storedContentHash) {
+          await initMemdirIndex(memoryDir)
+        }
       }
     }
   }
@@ -263,7 +336,7 @@ export async function searchMemdirIndex(
   try {
     const results = await search(state.db, { term: query, limit })
     return results.hits.map(hit => {
-      const doc = hit.document as any
+      const doc = hit.document
       return {
         path: doc.path,
         filename: doc.filename,
@@ -282,11 +355,7 @@ export async function searchMemdirIndex(
 export async function saveIndex(memoryDir: string): Promise<void> {
   const state = indices.get(memoryDir)
   if (!state?.db) return
-  // Write-through is gated on the same memory-write approval policy as
-  // extractMemories: skip persisting the vector index when explicit user
-  // approval is required so that the serialised index cannot hold facts
-  // that the user never approved.
-  if (isMemoryWriteApprovalRequired()) return
+  if (!isAutoMemoryEnabled() || isMemoryWriteApprovalRequired()) return
   const indexPath = getIndexPath(memoryDir)
   const metaPath = getIndexMetaPath(memoryDir)
   try {
@@ -300,10 +369,10 @@ export async function saveIndex(memoryDir: string): Promise<void> {
   }
 }
 
-export function clearIndex(memoryDir?: string): void {
-  if (memoryDir) {
-    indices.delete(memoryDir)
-  } else {
-    indices.clear()
-  }
+export function clearIndex(memoryDir: string): void {
+  indices.delete(memoryDir)
+}
+
+export function clearAllIndices(): void {
+  indices.clear()
 }

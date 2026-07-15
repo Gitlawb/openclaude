@@ -38,6 +38,26 @@ function slugify(text: string): string {
     .slice(0, 80)
 }
 
+function isSensitivePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/').toLowerCase()
+  if (
+    /^\/(etc|proc|sys|dev|var|tmp|root|boot|lost\+found|mnt|media|run|srv)\b/.test(normalized)
+  ) {
+    return true
+  }
+  if (
+    /^[a-z]:\/(windows|system volume information|recovery)\b/.test(normalized)
+  ) {
+    return true
+  }
+  if (
+    /\.(ssh|aws|docker|kube|gnupg|npmrc|netrc|pgpass|history)\b/.test(normalized)
+  ) {
+    return true
+  }
+  return false
+}
+
 // Opaque-secret heuristic: token-like identifiers (Diceware passphrases,
 // hex blobs, mixed-case+digit tokens) must not become durable facts because
 // they are later indexed and injected into prompts. Returns true when the
@@ -50,8 +70,8 @@ function looksLikeSecret(segment: string): boolean {
   // Extra low-entropy cases the shared detector intentionally skips: pure
   // lowercase hex blobs and separator-joined lowercase tokens (e.g.
   // "super-secret-access-token") that are still opaque secrets.
-  if (s.length >= 32 && /^[a-f0-9]+$/.test(s)) return true
-  if (s.length >= 24 && /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(s)) return true
+  if (s.length >= 16 && /^[a-f0-9]+$/.test(s)) return true
+  if (s.length >= 12 && /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(s)) return true
   return false
 }
 
@@ -74,6 +94,14 @@ function yamlQuote(val: string): string {
   return `"${escaped}"`
 }
 
+function getShortHash(str: string): string {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i)
+  }
+  return (hash >>> 0).toString(36).slice(0, 6)
+}
+
 function writeFactMemory(
   memoryDir: string,
   factType: string,
@@ -83,7 +111,7 @@ function writeFactMemory(
 ): boolean {
   const factsDir = ensureFactsDir(memoryDir)
   if (!factsDir) return false
-  const slug = slugify(name)
+  const slug = `${slugify(name)}-${getShortHash(name)}`
   const filename = `fact-${factType}-${slug}.md`
   const filePath = join(factsDir, filename)
 
@@ -133,12 +161,21 @@ export async function extractFactsIntoMemdir(
   if (!isAutoMemoryEnabled() || isMemoryWriteApprovalRequired()) return false
 
   let factsWritten = 0
+  const countsByType = new Map<string, number>()
 
   function cappedWrite(
     ...args: Parameters<typeof writeFactMemory>
   ): void {
     if (factsWritten >= MAX_FACTS_PER_CALL) return
-    if (writeFactMemory(...args)) factsWritten++
+    const factType = args[1]
+    const typeLimit = (factType === 'concept' || factType === 'rule') ? 10 : 5
+    const currentTypeCount = countsByType.get(factType) || 0
+    if (currentTypeCount >= typeLimit) return
+
+    if (writeFactMemory(...args)) {
+      factsWritten++
+      countsByType.set(factType, currentTypeCount + 1)
+    }
   }
 
   // Value pattern: double-quoted, single-quoted, or bare non-whitespace.
@@ -160,14 +197,16 @@ export async function extractFactsIntoMemdir(
         new RegExp(`(?:export\\s+)?[A-Za-z_][A-Za-z_0-9]{2,}=${envValuePattern}`, 'g'),
         match => `${match.split('=')[0]}=[REDACTED]`,
       ),
+      process.env,
     ) ?? content
   )
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
   //    Supports keys with digits and values wrapped in quotes.
+  //    Aligned to support lowercase-leading keys as well.
   const envMatches = content.matchAll(
-    new RegExp(`(?:export\\s+)?([A-Z_][A-Z_0-9]{2,})=${envValuePattern}`, 'g'),
+    new RegExp(`(?:export\\s+)?([A-Za-z_][A-Za-z_0-9]{2,})=${envValuePattern}`, 'g'),
   )
   for (const match of envMatches) {
     cappedWrite(dir, 'env', match[1], `${match[1]} environment variable`, { value: '[REDACTED]' })
@@ -176,17 +215,33 @@ export async function extractFactsIntoMemdir(
   // 2. Detect Absolute Paths — strip URLs first so path-like URL segments are not
   //    extracted as filesystem paths, then scan the remaining text.
   const noUrlContent = scrubbedContent.replace(/https?:\/\/[^\s\n]+/g, '')
-  const pathMatches = noUrlContent.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
+  // Matches POSIX absolute paths, Windows drive-letter paths (C:\ or C:/), and UNC paths
+  const pathRegex = /(?:\b[A-Za-z]:[\\/](?:[\w.-]+[\\/])+[\w.-]+|\\\\[\w.-]+\\(?:[\w.-]+\\)+[\w.-]+|(?<![\w.-])\/(?:[\w.-]+\/)+[\w.-]+)/g
+  const pathMatches = noUrlContent.matchAll(pathRegex)
   for (const match of pathMatches) {
-    const path = match[1]
-    // Drop the leading slash, then reject paths whose only segments are
-    // token-like (e.g. /download/super-secret-access-token) — persisting
-    // those leaks opaque secrets into the memory index/prompt.
-    const segs = path.split('/').filter(Boolean)
+    const path = match[0]
+    if (isSensitivePath(path)) continue
+
+    const hasDrive = /^[A-Za-z]:[\\/]/.test(path)
+    const hasUNC = path.startsWith('\\\\')
+    const hasSlash = path.startsWith('/')
+    const segs = path.replace(/^[A-Za-z]:[\\/]/, '').replace(/^\\\\/, '').split(/[\\/]/).filter(Boolean)
     const safeSegs = segs.filter(s => !looksLikeSecret(s))
     if (safeSegs.length === 0) continue
-    const safePath = '/' + safeSegs.join('/')
-    if (safePath.length > 8 && !safePath.includes('node_modules') && !safePath.includes('://')) {
+
+    const separator = path.includes('\\') ? '\\' : '/'
+    let safePath = ''
+    if (hasDrive) {
+      safePath = path.slice(0, 3) + safeSegs.join(separator)
+    } else if (hasUNC) {
+      safePath = '\\\\' + safeSegs.join(separator)
+    } else if (hasSlash) {
+      safePath = '/' + safeSegs.join(separator)
+    } else {
+      safePath = safeSegs.join(separator)
+    }
+
+    if (safePath.length > 8 && !safePath.includes('node_modules')) {
       cappedWrite(dir, 'path', safePath, `Project path: ${safePath}`, { type: 'absolute' })
     }
   }
@@ -216,6 +271,8 @@ export async function extractFactsIntoMemdir(
   const ipMatches = scrubbedContent.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
   for (const match of ipMatches) {
     const ip = match[1]
+    const octets = ip.split('.').map(Number)
+    if (octets.some(o => o > 255)) continue
     const start = Math.max(0, (match.index ?? 0) - 80)
     const end = Math.min(scrubbedContent.length, (match.index ?? 0) + ip.length + 80)
     const localContext = scrubbedContent.slice(start, end).toLowerCase()
@@ -232,15 +289,9 @@ export async function extractFactsIntoMemdir(
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      if (redactSecretSubstringsForDisplay(symbol) !== symbol) continue
+      if (redactSecretSubstringsForDisplay(symbol, process.env) !== symbol) continue
       if (/\[REDACTED/i.test(symbol)) continue
-      // Skip long strings that look like tokens or passphrases:
-      //   - long (≥24) all-lowercase with separators → Diceware passphrase
-      //   - long (≥32) bare hex tokens
-      //   - opaque token heuristic (mixed-case + digits, ≥20)
-      if (symbol.length >= 24 && /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(symbol)) continue
-      if (symbol.length >= 32 && /^[a-f0-9]+$/.test(symbol)) continue
-      if (symbol.length >= 20 && /[a-z]/.test(symbol) && /[A-Z]/.test(symbol) && /\d/.test(symbol)) continue
+      if (looksLikeSecret(symbol)) continue
       cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
     }
   }
@@ -288,8 +339,19 @@ export async function extractFactsIntoMemdir(
     for (const match of scrubbedContent.matchAll(pattern)) {
       const rule = match[0].trim().replace(/\s+/g, ' ')
       if (rule.length > 4 && rule.length < 200) {
-        if (redactSecretSubstringsForDisplay(rule) !== rule) continue
-        if (looksLikeSecret(rule)) continue
+        if (redactSecretSubstringsForDisplay(rule, process.env) !== rule) continue
+        
+        // Tokenize rule bodies and run looksLikeSecret per token; reject rules containing token-shaped substrings
+        const tokens = rule.split(/[\s,.;:!?()\[\]{}'"`]+/).filter(Boolean)
+        let hasSecret = false
+        for (const token of tokens) {
+          if (looksLikeSecret(token)) {
+            hasSecret = true
+            break
+          }
+        }
+        if (hasSecret) continue
+
         cappedWrite(dir, 'rule', rule, `Project rule: ${rule}`, { source: 'auto_discovery' })
       }
     }
