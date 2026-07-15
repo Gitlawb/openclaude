@@ -127,10 +127,25 @@ export function looksLikeSecretValue(value: string): boolean {
   return looksLikeOpaqueToken(trimmed)
 }
 
+function calculateEntropy(str: string): number {
+  const len = str.length
+  if (len === 0) return 0
+  const freqs: Record<string, number> = {}
+  for (const ch of str) {
+    freqs[ch] = (freqs[ch] || 0) + 1
+  }
+  let entropy = 0
+  for (const ch in freqs) {
+    const p = freqs[ch] / len
+    entropy -= p * Math.log2(p)
+  }
+  return entropy
+}
+
 // Opaque provider tokens are typically long, mixed-case alphanumeric payloads,
-// sometimes with short prefix segments separated by dashes/underscores.
+// sometimes with short prefix segments separated by dashes/underscores/dots.
 function looksLikeOpaqueToken(value: string): boolean {
-  if (value.length < 24) return false
+  if (value.length < 11) return false
   if (value.includes('://')) return false
   if (value.includes(' ')) return false
   if (value.includes('/')) return false
@@ -145,27 +160,51 @@ function looksLikeOpaqueToken(value: string): boolean {
       (ch >= 'A' && ch <= 'Z') ||
       (ch >= '0' && ch <= '9') ||
       ch === '-' ||
-      ch === '_'
+      ch === '_' ||
+      ch === '.'
     if (!isAllowed) return false
   }
 
-  return value
-    .split(/[-_]+/)
-    .some(segment => segment.length >= 16 && hasLowerUpperDigit(segment))
-}
+  const hasLower = /[a-z]/.test(value)
+  const hasUpper = /[A-Z]/.test(value)
+  const hasDigit = /[0-9]/.test(value)
+  const hasSep = /[-_.]/.test(value)
+  const len = value.length
 
-function hasLowerUpperDigit(value: string): boolean {
-  let hasLower = false
-  let hasUpper = false
-  let hasDigit = false
+  // Check for common credential keywords using word boundaries on separator-normalized value
+  const containsSecretKeyword = /\b(?:token|secret|pass|password|passphrase|pwd|key|credential|secure|private)\b|\bauth\b/i.test(value.replace(/[-_.]/g, ' '))
 
-  for (const ch of value) {
-    if (ch >= 'a' && ch <= 'z') hasLower = true
-    else if (ch >= 'A' && ch <= 'Z') hasUpper = true
-    else if (ch >= '0' && ch <= '9') hasDigit = true
+  // 1. If it contains a secret keyword and is of moderate length, it's a secret
+  if (containsSecretKeyword && len >= 12) return true
+
+  // 2. pure hex blobs
+  if (len >= 16 && /^[a-f0-9]+$/i.test(value) && hasDigit) return true
+
+  const segments = value.split(/[-_.]+/)
+
+  if (!hasSep) {
+    // Single segment (no hyphens/underscores/dots)
+    // Mixed-case with digit >= 11 (e.g. Tr0ub4dour1)
+    if (hasLower && hasUpper && hasDigit && len >= 11) return true
+    // All-caps + digit >= 11 (e.g. TOKENABC123)
+    if (hasUpper && hasDigit && !hasLower && len >= 11) return true
+    // Lowercase + digit >= 16
+    if (hasLower && hasDigit && !hasUpper && len >= 16) return true
+    // Mixed-case without digit >= 24
+    if (hasLower && hasUpper && !hasDigit && len >= 24) return true
+  } else {
+    // Has separators
+    // Mixed-case with digit: require at least one segment with digit to be >= 12
+    if (hasLower && hasUpper && hasDigit) {
+      if (segments.some(seg => seg.length >= 12 && /[0-9]/.test(seg))) return true
+    }
+    // Lowercase with separator: require at least one segment to be >= 16
+    if (!hasUpper && segments.some(seg => seg.length >= 16)) return true
+    // Mixed-case without digit: require at least one segment to be >= 16
+    if (hasLower && hasUpper && !hasDigit && segments.some(seg => seg.length >= 16)) return true
   }
 
-  return hasLower && hasUpper && hasDigit
+  return false
 }
 
 // Redaction sources may be full process env objects, so also collect values

@@ -140,9 +140,10 @@ describe('autoExtractFacts', () => {
   })
 
   it('extracts IP addresses', async () => {
-    await extractFactsIntoMemdir('connect to 192.168.1.100 or 10.0.0.1', memDir)
+    await extractFactsIntoMemdir('connect to 192.168.1.100 or 10.0.0.1 or invalid 999.999.999.999', memDir)
     const files = readdirSync(factsDir())
-    expect(files.some(f => f.includes('192' ) || f.includes('10'))).toBe(true)
+    expect(files.some(f => f.includes('192') || f.includes('10'))).toBe(true)
+    expect(files.some(f => f.includes('999'))).toBe(false)
   })
 
   it('detects React and Redux mentions', async () => {
@@ -194,6 +195,47 @@ describe('autoExtractFacts', () => {
     )
     const files = readdirSync(factsDir()).map(f => f.toLowerCase())
     expect(files.some(f => f.includes('rule'))).toBe(true)
+  })
+
+  it('regression: does not extract moderate length secret-shaped tokens', async () => {
+    // Test access-token-2024, prod-db-pass-2024, TOKENABC123, Tr0ub4dour1 in backticks and rule sentences
+    await extractFactsIntoMemdir(
+      'Always use `access-token-2024` for credentials. Never share `TOKENABC123` or `Tr0ub4dour1`. Also prod-db-pass-2024 is secret.',
+      memDir,
+    )
+    const dir = factsDir()
+    const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
+    
+    // They should not show up as concepts, rules, or anything else
+    expect(files.some(f => f.includes('access-token-2024'))).toBe(false)
+    expect(files.some(f => f.includes('prod-db-pass-2024'))).toBe(false)
+    expect(files.some(f => f.includes('tokenabc123'))).toBe(false)
+    expect(files.some(f => f.includes('tr0ub4dour1'))).toBe(false)
+    
+    // No rules containing these secrets should have been created
+    const ruleFiles = files.filter(f => f.includes('rule'))
+    expect(ruleFiles.length).toBe(0)
+  })
+
+  it('regression: extracts lowercase-leading env keys', async () => {
+    await extractFactsIntoMemdir('myKey=secretVal', memDir)
+    const dir = factsDir()
+    const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
+    expect(files.some(f => f.includes('mykey'))).toBe(true)
+  })
+
+  it('regression: extracts Windows and UNC absolute paths but filters sensitive directories', async () => {
+    await extractFactsIntoMemdir(
+      'Use paths C:\\Users\\Name\\project\\settings.json and \\\\server\\share\\data.txt but ignore /etc/shadow and /root/.ssh/key',
+      memDir,
+    )
+    const dir = factsDir()
+    const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
+    
+    expect(files.some(f => f.includes('c-users-name-project-settings-json') || f.includes('settings'))).toBe(true)
+    expect(files.some(f => f.includes('server-share-data-txt') || f.includes('data'))).toBe(true)
+    expect(files.some(f => f.includes('etc-shadow') || f.includes('shadow'))).toBe(false)
+    expect(files.some(f => f.includes('ssh'))).toBe(false)
   })
 })
 

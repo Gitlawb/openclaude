@@ -27,7 +27,9 @@ const governanceHook = createHook({
   },
 })
 
-governanceHook.enable()
+if (typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || 'BUN_TEST' in process.env)) {
+  governanceHook.enable()
+}
 
 export function setGovernancePolicySettingsForSourceForTesting(
   getter: ((source: SettingSource) => SettingsJson | null) | null,
