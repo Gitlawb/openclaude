@@ -221,6 +221,7 @@ test.each([
   'Tool: tool_stream is unsupported',
   'Function: tool_stream is invalid',
   'tool_stream is unsupported as a function',
+  'tool_stream is unsupported as a tool',
   'Additional properties are not allowed in function tool_stream',
   'The tool named "tool_stream" is unsupported',
   'Function name tool_stream is invalid',
@@ -262,6 +263,15 @@ test('does not classify a structured validation error that merely references too
     status: 400,
     body: '{"error":{"message":"Parameter is required","param":"tool_stream"}}',
   })
+
+  expect(failure.category).not.toBe('tool_stream_unsupported')
+})
+
+test.each([
+  '{"detail":[{"type":"missing","loc":["body","tool_stream"],"msg":"Field required"}]}',
+  '{"detail":[{"type":"string_type","loc":["body","tool_stream"],"msg":"Input should be a valid string"}]}',
+])('does not classify a structured validation error for a supported tool_stream field: %s', body => {
+  const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
   expect(failure.category).not.toBe('tool_stream_unsupported')
 })

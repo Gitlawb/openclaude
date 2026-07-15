@@ -153,14 +153,24 @@ function getStructuredToolStreamValidationError(body: string): boolean | undefin
   try {
     const parsed = JSON.parse(body) as { detail?: unknown }
     if (!Array.isArray(parsed.detail)) return undefined
-    const locations: unknown[][] = []
+    const details: Array<{ loc: unknown[]; type?: unknown; msg?: unknown }> = []
     for (const detail of parsed.detail) {
       if (!detail || typeof detail !== 'object') continue
-      const loc = (detail as { loc?: unknown }).loc
-      if (Array.isArray(loc)) locations.push(loc)
+      const { loc, type, msg } = detail as { loc?: unknown; type?: unknown; msg?: unknown }
+      if (Array.isArray(loc)) details.push({ loc, type, msg })
     }
-    if (locations.some(loc => loc.includes('tools'))) return false
-    if (locations.some(loc => loc.length === 2 && loc[0] === 'body' && loc[1] === 'tool_stream')) return true
+    if (details.some(detail => detail.loc.includes('tools'))) return false
+    if (
+      details.some(detail =>
+        detail.loc.length === 2 &&
+        detail.loc[0] === 'body' &&
+        detail.loc[1] === 'tool_stream' &&
+        (
+          detail.type === 'extra_forbidden' ||
+          (typeof detail.msg === 'string' && /extra inputs are not permitted/i.test(detail.msg))
+        )
+      )
+    ) return true
     return undefined
   } catch {
     return undefined
@@ -187,7 +197,7 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+tool_stream\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
     /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
-    /(?:^|\n|\bmessage\s*:\s*)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?function\b)/.test(normalized) ||
+    /(?:^|\n|\bmessage\s*:\s*)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?(?:function|tool)\b)/.test(normalized) ||
     /(?:unsupported|unknown|unrecognized|invalid|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
     /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|invalid|not\s+supported)/.test(normalized) ||
     /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
