@@ -632,27 +632,26 @@ function decodeValidPercentRun(encoded: string): string {
   let decoded = ''
   let offset = 0
   while (offset < escapes.length) {
-    let decodedPrefix: string | undefined
-    let prefixLength = escapes.length - offset
-    while (prefixLength > 0) {
-      try {
-        decodedPrefix = decodeURIComponent(
-          escapes.slice(offset, offset + prefixLength).join(''),
-        )
-        break
-      } catch {
-        prefixLength--
-      }
-    }
-
-    if (decodedPrefix === undefined) {
+    const firstByte = Number.parseInt(escapes[offset].slice(1), 16)
+    const sequenceLength =
+      firstByte <= 0x7f
+        ? 1
+        : firstByte >= 0xc2 && firstByte <= 0xdf
+          ? 2
+          : firstByte >= 0xe0 && firstByte <= 0xef
+            ? 3
+            : firstByte >= 0xf0 && firstByte <= 0xf4
+              ? 4
+              : 1
+    try {
+      decoded += decodeURIComponent(
+        escapes.slice(offset, offset + sequenceLength).join(''),
+      )
+      offset += sequenceLength
+    } catch {
       decoded += escapes[offset]
       offset++
-      continue
     }
-
-    decoded += decodedPrefix
-    offset += prefixLength
   }
   return decoded
 }
@@ -661,20 +660,30 @@ function decodeValidUrlEscapesOnce(value: string): string {
   return value.replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeValidPercentRun)
 }
 
+const MAX_URL_SECRET_DECODING_LAYERS = 4
+
 function redactDecodedUrlComponentSecrets(value: string): string {
   let decoded = value
   let foundSecret = false
-  while (true) {
+  for (let layer = 0; layer <= MAX_URL_SECRET_DECODING_LAYERS; layer++) {
     const redacted =
       redactSecretSubstringsForDisplay(
         decoded,
         process.env as SecretValueSource,
       ) ?? decoded
     if (redacted !== decoded) foundSecret = true
+    if (layer === MAX_URL_SECRET_DECODING_LAYERS) {
+      decoded = redacted
+      break
+    }
     const next = decodeValidUrlEscapesOnce(redacted)
-    if (next === redacted) return foundSecret ? redacted : value
+    if (next === redacted) {
+      decoded = redacted
+      break
+    }
     decoded = next
   }
+  return foundSecret ? decoded : value
 }
 
 function redactUrlForDiagnostics(url: string): string {

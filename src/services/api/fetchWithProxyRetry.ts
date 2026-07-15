@@ -29,6 +29,12 @@ export async function fetchWithProxyRetry(
           forAnthropicAPI: options?.forAnthropicAPI,
         }),
       })
+      if (init?.signal?.aborted) {
+        throw (
+          init.signal.reason ??
+          new DOMException('The operation was aborted.', 'AbortError')
+        )
+      }
 
       // If an upstream proxy or local NAT silently dropped the keep-alive socket,
       // it might result in a 502/504 response instead of a hard network exception.
@@ -44,7 +50,11 @@ export async function fetchWithProxyRetry(
       return response
     } catch (error) {
       lastError = error
-      if (attempt >= maxAttempts || !isRetryableFetchError(error)) {
+      if (
+        init?.signal?.aborted ||
+        attempt >= maxAttempts ||
+        !isRetryableFetchError(error)
+      ) {
         throw error
       }
       disableKeepAlive()

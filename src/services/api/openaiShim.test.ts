@@ -7055,6 +7055,141 @@ test('classifies a pre-header API timeout without replaying the request', async 
   expect(completedGenerations).toBe(1)
 })
 
+test('does not proxy-retry when a deadline abort surfaces as fetch failed', async () => {
+  process.env.API_TIMEOUT_MS = '20'
+  let fetchCalls = 0
+  globalThis.fetch = (async (_input, init) => {
+    fetchCalls++
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      const rejectFromAbort = () => reject(new TypeError('fetch failed'))
+      signal?.addEventListener('abort', rejectFromAbort, { once: true })
+      if (signal?.aborted) rejectFromAbort()
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).rejects.toThrow('no response headers within 20ms (API_TIMEOUT_MS)')
+
+  expect(fetchCalls).toBe(1)
+})
+
+test('deadline wins when an abort-ignoring fetch resolves 504 afterward', async () => {
+  process.env.API_TIMEOUT_MS = '20'
+  let fetchCalls = 0
+  globalThis.fetch = (async (_input, init) => {
+    fetchCalls++
+    return new Promise<Response>(resolve => {
+      const resolveAfterAbort = () => {
+        resolve(new Response('Gateway Timeout', { status: 504 }))
+      }
+      init?.signal?.addEventListener('abort', resolveAfterAbort, { once: true })
+      if (init?.signal?.aborted) resolveAfterAbort()
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).rejects.toThrow('no response headers within 20ms (API_TIMEOUT_MS)')
+
+  expect(fetchCalls).toBe(1)
+})
+
+test('bounds nested URL decoding while retaining encoded secret redaction', async () => {
+  const secret = 'route/key+AbC123'
+  let encodedSecret = secret
+  for (let layer = 0; layer < 4; layer++) {
+    encodedSecret = encodeURIComponent(encodedSecret)
+  }
+  const deeplyNestedValue = `%${'25'.repeat(200)}`
+  process.env.OPENAI_API_KEY = secret
+  process.env.OPENAI_BASE_URL =
+    `https://slow.example.test/v1/${deeplyNestedValue}/${encodedSecret}`
+  globalThis.fetch = asMockFetch(mock(async () => {
+    throw new TypeError('fetch failed')
+  }))
+
+  const originalDecodeURIComponent = globalThis.decodeURIComponent
+  let decodeCalls = 0
+  globalThis.decodeURIComponent = ((value: string) => {
+    decodeCalls++
+    return originalDecodeURIComponent(value)
+  }) as typeof decodeURIComponent
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  } finally {
+    globalThis.decodeURIComponent = originalDecodeURIComponent
+  }
+
+  expect(caught).toBeDefined()
+  expect((caught as Error).message).not.toContain(secret)
+  expect((caught as Error).message).not.toContain(encodedSecret)
+  expect(decodeCalls).toBeLessThanOrEqual(32)
+})
+
+test('decodes malformed URL escape runs in linear work', async () => {
+  const secret = 'route/key+AbC123'
+  const malformedEscapeCount = 200
+  const malformedUtf8Run = '%80'.repeat(malformedEscapeCount)
+  process.env.OPENAI_API_KEY = secret
+  process.env.OPENAI_BASE_URL =
+    `https://slow.example.test/v1/${malformedUtf8Run}/${encodeURIComponent(secret)}`
+  globalThis.fetch = asMockFetch(mock(async () => {
+    throw new TypeError('fetch failed')
+  }))
+
+  const originalDecodeURIComponent = globalThis.decodeURIComponent
+  let malformedDecodeCalls = 0
+  globalThis.decodeURIComponent = ((value: string) => {
+    if (value.includes('%80')) malformedDecodeCalls++
+    return originalDecodeURIComponent(value)
+  }) as typeof decodeURIComponent
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  } finally {
+    globalThis.decodeURIComponent = originalDecodeURIComponent
+  }
+
+  expect(caught).toBeDefined()
+  expect((caught as Error).message).not.toContain(secret)
+  expect(malformedDecodeCalls).toBeLessThanOrEqual(malformedEscapeCount * 10)
+})
+
 test('preserves caller cancellation while waiting for response headers without retrying', async () => {
   process.env.API_TIMEOUT_MS = '200'
   let fetchCalls = 0
