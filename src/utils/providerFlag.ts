@@ -368,6 +368,11 @@ export function applyProviderFlag(
           error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
         }
       }
+      if (isFirstPartyAnthropicBaseUrlForEnv(process.env)) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires a non-Anthropic ANTHROPIC_BASE_URL.',
+        }
+      }
       const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim())
       const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY?.trim())
       if (!hasAuthToken && !hasApiKey) {

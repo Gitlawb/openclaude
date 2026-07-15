@@ -14,6 +14,7 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 import {
   parseProfileCustomHeadersInput,
   serializeProfileCustomHeaders,
@@ -1649,7 +1650,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   ): void {
     if (
       provider === 'custom-anthropic' &&
-      isSetupPlaceholder(nextDraft.baseUrl)
+      (isSetupPlaceholder(nextDraft.baseUrl) ||
+        isFirstPartyAnthropicBaseUrlForEnv({
+          ANTHROPIC_BASE_URL: nextDraft.baseUrl,
+        }))
     ) {
       setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
       return

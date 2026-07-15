@@ -924,7 +924,7 @@ export function isLegacyModelRemapEnabled(): boolean {
 
 export function modelDisplayString(model: ModelSetting): string {
   if (model === null) {
-    if (getAPIProvider() !== 'firstParty') {
+    if (!isFirstPartyAnthropicProvider()) {
       return `Default (${getDefaultMainLoopModel()})`
     }
     if (process.env.USER_TYPE === 'ant') {

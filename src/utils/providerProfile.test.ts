@@ -1126,7 +1126,9 @@ test('saveProfileFile restricts permissions when overwriting an existing profile
       { cwd },
     )
 
-    assert.equal(statSync(filePath).mode & 0o777, 0o600)
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(filePath).mode & 0o777, 0o600)
+    }
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }

@@ -400,6 +400,14 @@ test('getDefaultMainLoopModelSetting keeps the configured custom Anthropic model
   expect(getDefaultMainLoopModelSetting()).toBe('tenant-model')
 })
 
+test('modelDisplayString uses the configured custom Anthropic default', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { modelDisplayString } = await importFreshModelModule()
+  expect(modelDisplayString(null)).toBe('Default (tenant-model)')
+})
+
 test('custom Anthropic endpoints retain their configured model and conservative defaults', async () => {
   process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
   process.env.ANTHROPIC_MODEL = 'tenant-model'

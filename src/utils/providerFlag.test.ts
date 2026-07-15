@@ -192,6 +192,15 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(result.error).toContain('ANTHROPIC_BASE_URL')
   })
 
+  test('rejects the first-party Anthropic endpoint instead of forwarding a custom credential', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toContain('non-Anthropic ANTHROPIC_BASE_URL')
+  })
+
   test('keeps native Anthropic routing and applies --model', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'

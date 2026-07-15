@@ -377,7 +377,7 @@ export const CCR_AUTH_ERROR_MESSAGE =
   'Authentication error · This may be a temporary network issue, please try again'
 export const REPEATED_529_ERROR_MESSAGE = 'Repeated 529 Overloaded errors'
 export function getCustomOffSwitchMessage(): string {
-  return getAPIProvider() === 'firstParty'
+  return isFirstPartyAnthropicProvider()
     ? 'Opus is experiencing high load, please use /model to switch to Sonnet'
     : 'The API is experiencing high load, please try again shortly or use /model to switch models'
 }
