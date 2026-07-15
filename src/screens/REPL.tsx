@@ -136,7 +136,7 @@ import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
 import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
-import { buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
+import { applyInterruptionCorrectionAwareMessageUpdate, buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
@@ -1293,9 +1293,10 @@ export function REPL({
   // that queue functional updaters then synchronously read the ref
   // (e.g. handleSpeculationAccept → onQuery) see stale data.
   const setMessages = useCallback((action: React.SetStateAction<MessageType[]>) => {
-    const prev = messagesRef.current;
-    const next = typeof action === 'function' ? action(messagesRef.current) : action;
-    messagesRef.current = next;
+    const {
+      previousMessages: prev,
+      nextMessages: next
+    } = applyInterruptionCorrectionAwareMessageUpdate(messagesRef, action, interruptionCorrectionTracker);
     if (next.length < userInputBaselineRef.current) {
       // Shrank (compact/rewind/clear) — clamp so placeholderText's length
       // check can't go stale.
@@ -1316,7 +1317,7 @@ export function REPL({
       }
     }
     rawSetMessages(next);
-  }, []);
+  }, [interruptionCorrectionTracker]);
   // Capture the baseline message count alongside the placeholder text so
   // the render can hide it once displayedMessages grows past the baseline.
   const setUserInputOnProcessing = useCallback((input: string | undefined) => {
@@ -5240,7 +5241,6 @@ export function REPL({
             } else {
               setMessages(postCompact);
             }
-            interruptionCorrectionTracker.handleConversationRewrite();
             // Partial compact bypasses handleMessageFromStream — clear
             // the auto-compact breaker and context-blocked flag.
             setAutoCompactTrackingForSession(getSessionId(), undefined);
