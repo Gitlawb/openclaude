@@ -59,7 +59,10 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
   const trimmed = raw.trim()
   const contentLines = trimmed.split('\n')
   const lineCount = contentLines.length
-  const byteCount = trimmed.length
+  // Actual UTF-8 byte size — `.length` counts UTF-16 code units, which
+  // undercounts multibyte content (CJK/emoji are 3-4 bytes each) by up to ~4x
+  // and would let a large multibyte file slip past this byte budget entirely.
+  const byteCount = Buffer.byteLength(trimmed)
 
   const wasLineTruncated = lineCount > MAX_ENTRYPOINT_LINES
   // Check original byte count — long lines are the failure mode the byte cap
@@ -80,9 +83,21 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
     ? contentLines.slice(0, MAX_ENTRYPOINT_LINES).join('\n')
     : trimmed
 
-  if (truncated.length > MAX_ENTRYPOINT_BYTES) {
-    const cutAt = truncated.lastIndexOf('\n', MAX_ENTRYPOINT_BYTES)
-    truncated = truncated.slice(0, cutAt > 0 ? cutAt : MAX_ENTRYPOINT_BYTES)
+  if (Buffer.byteLength(truncated) > MAX_ENTRYPOINT_BYTES) {
+    // Cut in byte space so the cap actually bounds bytes. Prefer the last
+    // newline before the cap to avoid slicing mid-line; otherwise hard-cut at
+    // the cap.
+    const buf = Buffer.from(truncated, 'utf8')
+    const newlineByte = buf.lastIndexOf(0x0a, MAX_ENTRYPOINT_BYTES)
+    let cutAt = newlineByte > 0 ? newlineByte : MAX_ENTRYPOINT_BYTES
+    // Never slice through a multibyte UTF-8 character. If the hard-cut lands on
+    // a continuation byte (0b10xxxxxx), back up to the character's first byte so
+    // the decoded body stays within the cap instead of decoding to a U+FFFD
+    // replacement char (which would push the output back over the byte limit).
+    while (cutAt > 0 && (buf[cutAt]! & 0xc0) === 0x80) {
+      cutAt--
+    }
+    truncated = buf.subarray(0, cutAt).toString('utf8')
   }
 
   const reason =
@@ -231,7 +246,7 @@ export function buildMemoryLines(
         '',
         `**Step 2** — add a pointer to that file in \`${ENTRYPOINT_NAME}\`. \`${ENTRYPOINT_NAME}\` is an index, not a memory — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. It has no frontmatter. Never write memory content directly into \`${ENTRYPOINT_NAME}\`.`,
         '',
-        `- \`${ENTRYPOINT_NAME}\` is always loaded into your conversation context — lines after ${MAX_ENTRYPOINT_LINES} will be truncated, so keep the index concise`,
+        `- \`${ENTRYPOINT_NAME}\` is always loaded into your conversation context — it is truncated after ${MAX_ENTRYPOINT_LINES} lines or ${formatFileSize(MAX_ENTRYPOINT_BYTES)}, whichever comes first, so keep the index concise (one short line per entry; long or many entries lose the tail)`,
         '- Keep the name, description, and type fields in memory files up-to-date with the content',
         '- Organize memory semantically by topic, not chronologically',
         '- Update or remove memories that turn out to be wrong or outdated',

@@ -2,8 +2,10 @@ import {
   buildSearchingPastContextSection,
   DIRS_EXIST_GUIDANCE,
   ENTRYPOINT_NAME,
+  MAX_ENTRYPOINT_BYTES,
   MAX_ENTRYPOINT_LINES,
 } from './memdir.js'
+import { formatFileSize } from '../utils/format.js'
 import {
   MEMORY_DRIFT_CAVEAT,
   MEMORY_FRONTMATTER_EXAMPLE,
@@ -55,7 +57,7 @@ export function buildCombinedMemoryPrompt(
         '',
         `**Step 2** — add a pointer to that file in the same directory's \`${ENTRYPOINT_NAME}\`. Each directory (private and team) has its own \`${ENTRYPOINT_NAME}\` index — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. They have no frontmatter. Never write memory content directly into a \`${ENTRYPOINT_NAME}\`.`,
         '',
-        `- Both \`${ENTRYPOINT_NAME}\` indexes are loaded into your conversation context — lines after ${MAX_ENTRYPOINT_LINES} will be truncated, so keep them concise`,
+        `- Both \`${ENTRYPOINT_NAME}\` indexes are loaded into your conversation context — each is truncated after ${MAX_ENTRYPOINT_LINES} lines or ${formatFileSize(MAX_ENTRYPOINT_BYTES)}, whichever comes first, so keep them concise (one short line per entry; long or many entries lose the tail)`,
         '- Keep the name, description, and type fields in memory files up-to-date with the content',
         '- Organize memory semantically by topic, not chronologically',
         '- Update or remove memories that turn out to be wrong or outdated',

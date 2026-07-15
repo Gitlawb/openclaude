@@ -12,7 +12,7 @@ import {
   type StatName,
 } from './types.js'
 
-// Mulberry32 — tiny seeded PRNG, good enough for picking ducks
+// Mulberry32 — tiny seeded PRNG, good enough for picking heroes
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return function () {
@@ -124,10 +124,34 @@ export function companionUserId(): string {
 // Regenerate bones from userId, merge with stored soul. Bones never persist
 // so species renames and SPECIES-array edits can't break stored companions,
 // and editing config.companion can't fake a rarity.
+// getCompanion is called per render from CompanionSprite, CompanionActionFX,
+// and companionReservedColumns (per keystroke via PromptInput) — cache the
+// merged object keyed on the stored companion's identity. getGlobalConfig
+// returns a new object per save, so a config write invalidates naturally.
+let companionCache: { stored: object; userId: string; value: Companion } | undefined
+
 export function getCompanion(): Companion | undefined {
   const stored = getGlobalConfig().companion
   if (!stored) return undefined
-  const { bones } = roll(companionUserId())
-  // bones last so stale bones fields in old-format configs get overridden
-  return { ...stored, ...bones }
+  const userId = companionUserId()
+  if (companionCache?.stored === stored && companionCache.userId === userId) {
+    return companionCache.value
+  }
+  const { bones } = roll(userId)
+  // bones last so stale bones fields in old-format configs get overridden.
+  // speciesOverride (a validated /buddy set choice) wins over the rolled
+  // species only — rarity/stats/eye stay rolled. Validate against
+  // SPECIES because config files can contain arbitrary values.
+  const override =
+    stored.speciesOverride !== undefined &&
+    (SPECIES as readonly string[]).includes(stored.speciesOverride)
+      ? stored.speciesOverride
+      : undefined
+  const value: Companion = {
+    ...stored,
+    ...bones,
+    ...(override !== undefined ? { species: override } : {}),
+  }
+  companionCache = { stored, userId, value }
+  return value
 }
