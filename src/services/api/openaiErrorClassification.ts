@@ -200,8 +200,9 @@ function isToolStreamUnsupportedMessage(body: string): boolean {
     /\b(?:tool|function)\s+definition\b.*?\btool_stream\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
     /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
-    /\btool_stream\b.*?\b(?:function|tool)\b.*?\b(?:parameters?|properties?|schema)\b/.test(normalized) ||
-    /\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    /\b(?:body\.)?tools?\s*(?:\.|\[).*?\btool_stream\b/.test(normalized) ||
+    /\b(?:invalid|malformed)\s+parameter\s+tool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    /\badditional properties?\b.*?\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
     structuredValidation === false
   ) return false
   if (structuredValidation === true) return true

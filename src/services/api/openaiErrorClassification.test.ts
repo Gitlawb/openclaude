@@ -185,6 +185,15 @@ test('classifies a tool_stream parameter rejection that is conditional on functi
   expect(failure.category).toBe('tool_stream_unsupported')
 })
 
+test('classifies a top-level tool_stream rejection that explains function parameters', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: 'Unsupported parameter tool_stream in function parameters',
+  })
+
+  expect(failure.category).toBe('tool_stream_unsupported')
+})
+
 test.each([
   "Unknown parameter: 'tool_stream'",
   'Invalid parameter: "tool_stream"',
@@ -303,6 +312,7 @@ test.each([
   'Invalid parameter tool_stream in function Bash',
   'Invalid parameter tool_stream in the function Bash',
   'Invalid parameter tool_stream for tool Bash',
+  'At body.tools[0].function.parameters: Extra inputs are not permitted: tool_stream',
 ])('does not classify a generic schema diagnostic as a parameter rejection: %s', body => {
   const failure = classifyOpenAIHttpFailure({ status: 400, body })
 
