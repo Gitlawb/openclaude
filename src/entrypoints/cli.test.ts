@@ -704,9 +704,8 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
     expect(optionCalls).toHaveLength(2)
     // `ssh --yolo` is consumed by the pre-scan before commander (ssh --help
     // renders the root help), so the ssh subcommand's --yolo is handled there
-    // via the shared alias helper rather than by the commander option. The
-    // helper's strip-all behavior has its own runtime test in
-    // utils/dangerousSkipFlags.test.ts.
-    expect(src).toContain('if (hasDangerousSkipFlag(rawCliArgs))')
+    // via parseSshFlags rather than by the commander option. That helper's
+    // arity/strip behavior has its own runtime tests in utils/sshPreParse.test.ts.
+    expect(src).toContain('parseSshFlags(rawCliArgs)')
   })
 })
