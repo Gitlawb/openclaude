@@ -155,8 +155,12 @@ test('gpt-5.6 on an Azure custom-route base carries its default high effort from
   const snapshot = {
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
   }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
   process.env.OPENAI_API_KEY = 'test-key'
@@ -187,8 +191,12 @@ test('gpt-5.6 on a regional OpenAI base carries its default high effort from met
   const snapshot = {
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
   }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://eu.api.openai.com/v1'
   process.env.OPENAI_API_KEY = 'test-key'
@@ -219,8 +227,12 @@ test('gpt-5.6 on an arbitrary OpenAI-compatible gateway does NOT get an injected
   const snapshot = {
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
   }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
   process.env.OPENAI_API_KEY = 'test-key'
