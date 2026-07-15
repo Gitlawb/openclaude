@@ -1,6 +1,10 @@
-import { expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
-import { applySedSubstitution, type SedEditInfo } from './sedEditParser.js'
+import {
+  applySedSubstitution,
+  parseSedEditCommand,
+  type SedEditInfo,
+} from './sedEditParser.js'
 
 function sedInfo(pattern: string, replacement: string, extendedRegex = false): SedEditInfo {
   return {
@@ -64,8 +68,8 @@ test('BRE mode supports escaped interval ranges', () => {
 test('BRE mode supports the open lower-bound interval \\{,m\\}', () => {
   // GNU sed accepts `\{,3\}` (up to three). JS has no `{,3}` quantifier, so it
   // must be normalized to `{0,3}`; otherwise the preview showed no change while
-  // sed rewrote the run. A single (non-global) substitution isolates the
-  // upper-bound behaviour from `{0,m}`'s zero-width matches.
+  // sed rewrote the run. Without `g` there is a single match, so sed's and JS's
+  // differing empty-match advance cannot come into play.
   const result = applySedSubstitution('aaaab', {
     filePath: 'example.txt',
     pattern: 'a\\{,3\\}',
@@ -81,18 +85,16 @@ test('BRE mode supports the open upper-bound interval \\{n,\\}', () => {
   expect(result).toBe('Xb')
 })
 
-test('BRE mode treats an empty interval \\{\\} as literal braces', () => {
-  // `\{\}` is not a legal count, so sed matches the literal `{}` characters.
-  const result = applySedSubstitution('a{} and aa', sedInfo('a\\{\\}', 'X'))
-  expect(result).toBe('X and aa')
-})
-
-test('BRE mode treats a malformed interval \\{n,m,k\\} as literal braces', () => {
-  const result = applySedSubstitution(
-    'a{1,2,3} and aa',
-    sedInfo('a\\{1,2,3\\}', 'X'),
-  )
-  expect(result).toBe('X and aa')
+test('BRE mode declines malformed intervals rather than guessing', () => {
+  // GNU sed rejects both of these outright ("Invalid content of \{\}"), so the
+  // command aborts and the file is untouched. They are not literal braces, and
+  // there is no edit to render.
+  expect(
+    parseSedEditCommand("sed -i '' 's/a\\{\\}/X/g' example.txt"),
+  ).toBeNull()
+  expect(
+    parseSedEditCommand("sed -i '' 's/a\\{1,2,3\\}/X/g' example.txt"),
+  ).toBeNull()
 })
 
 test('BRE mode treats escaped alternation as an operator', () => {
@@ -124,4 +126,45 @@ test('ERE mode uses native brace intervals', () => {
   // through untouched.
   const result = applySedSubstitution('aaab', sedInfo('a{2}', 'X', true))
   expect(result).toBe('Xab')
+})
+
+describe('declines to simulate what it cannot reproduce faithfully', () => {
+  const cmd = (expr: string) => `sed -i '' '${expr}' example.txt`
+
+  test('rejects zero-minimum intervals under g', () => {
+    // sed and JS advance differently past an empty match, so a global
+    // zero-minimum quantifier genuinely diverges: GNU sed turns "aaaab" into
+    // "XXbX" for both of these, while a JS global replace yields "XXXbX".
+    // Rendering that as an approved file diff would show the user a change that
+    // is not what sed writes, so no sed edit is claimed at all.
+    expect(parseSedEditCommand(cmd('s/a\\{0,3\\}/X/g'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a\\{,3\\}/X/g'))).toBeNull()
+    // Same class, pre-dating interval support: `*` also matches empty.
+    expect(parseSedEditCommand(cmd('s/a*/X/g'))).toBeNull()
+  })
+
+  test('still simulates zero-minimum intervals without g', () => {
+    // Only one substitution happens, so the empty-match advance never matters.
+    expect(parseSedEditCommand(cmd('s/a\\{0,3\\}/X/'))).not.toBeNull()
+  })
+
+  test('rejects interval syntax inside a bracket expression', () => {
+    // `[\{,3\}]` is a bracket expression whose members are ordinary characters;
+    // GNU sed turns "0,{3}" into "0XXXX". A backslash is a literal member in
+    // POSIX brackets but an escape in a JS character class, so this cannot be
+    // mapped across and must not be parsed as an interval.
+    expect(parseSedEditCommand(cmd('s/[\\{,3\\}]/X/g'))).toBeNull()
+  })
+
+  test('still simulates ordinary bracket expressions', () => {
+    const info = parseSedEditCommand(cmd('s/[abc]/X/g'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('abcd', info!)).toBe('XXXd')
+  })
+
+  test('rejects a pattern whose translation is not a valid regex', () => {
+    // Previously `new RegExp` threw and the catch returned the original
+    // content, rendering an invalid pattern as a silent "no change" diff.
+    expect(parseSedEditCommand(cmd('s/a*\\{2\\}/X/g'))).toBeNull()
+  })
 })
