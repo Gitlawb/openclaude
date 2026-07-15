@@ -24,6 +24,44 @@ describe('inclusiveCalendarDaySpan', () => {
     ).toBe(3)
   })
 
+  test('does not add a day when the later session is later in the day', () => {
+    // The canonical off-by-one: the raw gap is 1.5 days, so the old
+    // Math.ceil(gap) + 1 rounded up to 2 and then added the inclusive +1,
+    // reporting 3 for a 2-calendar-day span. Unlike the spans above, this case
+    // separates the two formulas, so it fails if the off-by-one comes back.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T06:00:00.000Z',
+        '2026-07-14T18:00:00.000Z',
+      ),
+    ).toBe(2)
+  })
+
+  test('counts a longer non-midnight span by calendar day', () => {
+    // Raw gap 3.5 days: old formula gave ceil(3.5) + 1 = 5, correct is 4.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T06:00:00.000Z',
+        '2026-07-16T18:00:00.000Z',
+      ),
+    ).toBe(4)
+  })
+
+  test('accepts bare dailyActivity date keys', () => {
+    // lastSessionDate can be derived from dailyActivity, which stores YYYY-MM-DD.
+    expect(inclusiveCalendarDaySpan('2026-07-13', '2026-07-15')).toBe(3)
+  })
+
+  test('returns 0 for parseable but malformed persisted dates', () => {
+    // Date.parse accepts all of these, silently producing a misleading span:
+    // "2026-07" -> Jul 1, "2026" -> Jan 1, "123" -> year 0123, and a
+    // non-ISO locale format. None is a shape this pipeline ever persists.
+    for (const bad of ['2026-07', '2026', '123', '01/01/2026']) {
+      expect(inclusiveCalendarDaySpan(bad, '2026-07-15T06:00:00.000Z')).toBe(0)
+      expect(inclusiveCalendarDaySpan('2026-07-13T06:00:00.000Z', bad)).toBe(0)
+    }
+  })
+
   test('is 1 for identical timestamps', () => {
     const t = '2026-07-13T12:00:00.000Z'
     expect(inclusiveCalendarDaySpan(t, t)).toBe(1)
