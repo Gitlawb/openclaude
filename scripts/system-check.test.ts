@@ -769,7 +769,21 @@ describe('system-check memory guard diagnostics', () => {
       ok: false,
       label: 'Auto-compact guard',
       detail:
-        'settings disabled; DISABLE_COMPACT is set; DISABLE_AUTO_COMPACT is set',
+        'settings disabled; DISABLE_COMPACT is set; DISABLE_AUTO_COMPACT is set; message-count threshold 500 remains active.',
+    })
+  })
+
+  test('reports an explicit message-count guard when token auto-compact is disabled', () => {
+    const results = buildMemoryGuardChecks({
+      autoCompactEnabled: true,
+      maxMessagesCompactionThreshold: '100',
+      env: { DISABLE_AUTO_COMPACT: '1' },
+    })
+
+    expect(results[0]).toEqual({
+      ok: false,
+      label: 'Auto-compact guard',
+      detail: 'DISABLE_AUTO_COMPACT is set; message-count threshold 100 remains active.',
     })
   })
 

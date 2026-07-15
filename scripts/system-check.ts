@@ -131,6 +131,17 @@ export function buildMemoryGuardChecks(
           input.maxMessagesCompactionThreshold,
         )
   const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
+  const hasIndependentMessageCountGuard =
+    configuredLimit !== 'off' &&
+    (!autoCompactAvailable ||
+      input.maxMessagesCompactionThreshold !== undefined ||
+      legacyLimit > 0)
+  const autoCompactDisabledReason =
+    [
+      input.autoCompactEnabled ? undefined : 'settings disabled',
+      disableCompact ? 'DISABLE_COMPACT is set' : undefined,
+      disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
+    ].filter(Boolean).join('; ') || 'Disabled by configuration.'
 
   results.push(
     autoCompactAvailable
@@ -140,12 +151,10 @@ export function buildMemoryGuardChecks(
         )
       : fail(
           'Auto-compact guard',
-          [
-            input.autoCompactEnabled ? undefined : 'settings disabled',
-            disableCompact ? 'DISABLE_COMPACT is set' : undefined,
-            disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
-          ].filter(Boolean).join('; ') ||
-            'Disabled by configuration.',
+          autoCompactDisabledReason +
+            (hasIndependentMessageCountGuard
+              ? `; message-count threshold ${configuredLimit} remains active.`
+              : ''),
         ),
   )
 

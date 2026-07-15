@@ -187,15 +187,18 @@ export function resolveAutoCompactCircuitBreakerState(args: {
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
-  // Use the larger 30k buffer (issue #1949) only when it still leaves the
-  // previous 13k usable threshold. getEffectiveContextWindowSize() can be
-  // floor-raised for small contexts, so checking only for a non-negative
-  // threshold would otherwise compact after just a few thousand tokens.
-  const buffer =
-    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS >=
-    AUTOCOMPACT_FLOOR_BUFFER_TOKENS
-      ? AUTOCOMPACT_BUFFER_TOKENS
-      : AUTOCOMPACT_FLOOR_BUFFER_TOKENS
+  // Increase the buffer gradually between the old 13k and new 30k values.
+  // This keeps the threshold monotonic and preserves the 20k warning/error
+  // headroom consumed by calculateTokenWarningState(). A direct switch would
+  // make a one-token window increase cause an earlier compact, and can make
+  // the warning threshold negative for mid-sized context windows.
+  const buffer = Math.min(
+    AUTOCOMPACT_BUFFER_TOKENS,
+    Math.max(
+      AUTOCOMPACT_FLOOR_BUFFER_TOKENS,
+      effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS,
+    ),
+  )
   const autocompactThreshold = effectiveContextWindow - buffer
 
   // Override for easier testing of autocompact
