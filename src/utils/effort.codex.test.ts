@@ -181,6 +181,69 @@ test('gpt-5.6 on an Azure custom-route base carries its default high effort from
   }
 })
 
+test('gpt-5.6 on a regional OpenAI base carries its default high effort from metadata', async () => {
+  // eu.api.openai.com is an OpenAI-controlled surface (endsWith '.api.openai.com')
+  // that still resolves to route 'custom'; the gated fallback must fire.
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://eu.api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('gpt-5.6 on an arbitrary OpenAI-compatible gateway does NOT get an injected default effort', async () => {
+  // A gateway base resolves to route 'custom' too, but is not a verified
+  // OpenAI/Azure surface — the fallback must NOT fire, so gpt-5.6 stays on
+  // legacy controls (no injected reasoning_effort default). FAILS pre-fix
+  // (the ungated round-3 fallback returned 'high').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).not.toBe('high')
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBeUndefined()
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
 test('gpt-5.3-codex-spark stays without effort controls', async () => {
   const { getAvailableEffortLevels, modelSupportsEffort } =
     await importFreshEffortModule({

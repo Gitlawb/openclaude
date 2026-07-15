@@ -3837,6 +3837,7 @@ class OpenAIShimMessages {
       routeId: runtimeShimContext.routeId,
       useRuntimeFallback: false,
       openaiShimConfig: shimConfig,
+      baseUrl: request.baseUrl,
     })
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
       model: request.resolvedModel,

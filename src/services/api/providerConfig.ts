@@ -471,7 +471,7 @@ export function isAzureStyleBaseUrl(
   }
 }
 
-function baseUrlSupportsResponsesAutoRoute(
+export function baseUrlSupportsResponsesAutoRoute(
   baseUrl: string | undefined,
   processEnv: NodeJS.ProcessEnv,
 ): boolean {
