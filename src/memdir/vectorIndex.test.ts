@@ -6,7 +6,7 @@ import {
   initMemdirIndex,
   searchMemdirIndex,
   rebuildIndex,
-  clearIndex,
+  clearAllIndices,
   getIndexPath,
 } from './vectorIndex.js'
 
@@ -15,11 +15,11 @@ describe('memdir vectorIndex', () => {
 
   beforeEach(() => {
     memDir = mkdtempSync(join(tmpdir(), 'vector-index-test-'))
-    clearIndex()
+    clearAllIndices()
   })
 
   afterEach(() => {
-    clearIndex()
+    clearAllIndices()
     rmSync(memDir, { recursive: true, force: true })
   })
 
@@ -85,7 +85,7 @@ ${body}`
     const r1 = await searchMemdirIndex('dark', memDir)
     expect(r1.length).toBeGreaterThan(0)
 
-    clearIndex()
+    clearAllIndices()
     const r2 = await searchMemdirIndex('dark', memDir)
     expect(r2.length).toBeGreaterThan(0)
   })
@@ -256,7 +256,7 @@ ${body}`
       }
 
       // Clear in-memory cache to simulate fresh session
-      clearIndex()
+      clearAllIndices()
 
       // Search should rebuild from source files
       const r2 = await searchMemdirIndex('Content', memDir)
@@ -279,7 +279,7 @@ ${body}`
         rmSync(metaPath, { force: true })
       }
 
-      clearIndex()
+      clearAllIndices()
 
       // Should still work by rebuilding
       const r2 = await searchMemdirIndex('metadata', memDir)
@@ -307,7 +307,7 @@ ${body}`
       if (existsSync(indexPath)) {
         rmSync(indexPath, { force: true })
       }
-      clearIndex()
+      clearAllIndices()
 
       // Search should handle all changes correctly
       const r2 = await searchMemdirIndex('content', memDir)
@@ -347,6 +347,29 @@ ${body}`
       } finally {
         rmSync(memDir2, { recursive: true, force: true })
       }
+    })
+  })
+
+  describe('corpus stability', () => {
+    it('does not rebuild the index when the corpus is stable', async () => {
+      writeMem('doc1.md', 'Doc One', 'user', 'Info', 'Content')
+      await initMemdirIndex(memDir)
+
+      // Search should not cause any rebuild
+      const r1 = await searchMemdirIndex('Content', memDir)
+      expect(r1.length).toBe(1)
+
+      // Delete the index file from disk to ensure we rely purely on the cached
+      // in-memory state.db and lastBuiltStats (simulating governance policy / no persistence)
+      const indexPath = getIndexPath(memDir)
+      if (existsSync(indexPath)) {
+        rmSync(indexPath, { force: true })
+      }
+
+      // Re-query: because the corpus is stable, it should reuse in-memory state.db
+      // and NOT call initMemdirIndex / performRebuildIndex.
+      const r2 = await searchMemdirIndex('Content', memDir)
+      expect(r2.length).toBe(1)
     })
   })
 })

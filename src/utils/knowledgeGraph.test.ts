@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { writeFileSync, existsSync, rmSync, mkdirSync, readdirSync, mkdtempSync } from 'fs'
+import { writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, readdirSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getGlobalGraph, resetGlobalGraph } from './knowledgeGraph.js'
@@ -104,12 +104,115 @@ describe('knowledgeGraph legacy migration', () => {
       relations: [],
     })
     getGlobalGraph()
-    expect(existsSync(join(factsDir(), 'fact-fact-b-fact.md'))).toBe(true)
+    const filesAfterFirst = existsSync(factsDir()) ? readdirSync(factsDir()) : []
+    const matchingFirst = filesAfterFirst.filter(f => f.startsWith('fact-fact-b-fact-') && f.endsWith('.md'))
+    expect(matchingFirst.length).toBe(1)
 
     // A second call must not error or double-migrate (per-project guard).
     getGlobalGraph()
-    const files = existsSync(factsDir()) ? readdirSync(factsDir()) : []
-    expect(files.filter(f => f === 'fact-fact-b-fact.md').length).toBe(1)
+    const filesAfterSecond = existsSync(factsDir()) ? readdirSync(factsDir()) : []
+    const matchingSecond = filesAfterSecond.filter(f => f.startsWith('fact-fact-b-fact-') && f.endsWith('.md'))
+    expect(matchingSecond.length).toBe(1)
+  })
+
+  it('regression: maps relation endpoints to new fact_* ids during migration and read-back', () => {
+    writeLegacyJson({
+      entities: {
+        e1: { id: 'e1', type: 'endpoint', name: 'API Server', attributes: { url: 'https://api.example.com' } },
+        e2: { id: 'e2', type: 'database', name: 'User DB', attributes: {} }
+      },
+      relations: [
+        { sourceId: 'e1', targetId: 'e2', type: 'queries' }
+      ]
+    })
+    const graph = getGlobalGraph()
+    expect(graph.relations.length).toBe(1)
+    const rel = graph.relations[0]
+    expect(rel.sourceId).toStartWith('fact_fact-endpoint-api-server-')
+    expect(rel.sourceId).toEndWith('.md')
+    expect(rel.targetId).toStartWith('fact_fact-database-user-db-')
+    expect(rel.targetId).toEndWith('.md')
+  })
+
+  it('regression: merges SQLite and JSON data symmetrically and retires both sources', () => {
+    // Write JSON source
+    writeLegacyJson({
+      entities: {
+        e1: { id: 'e1', type: 'endpoint', name: 'API Server', attributes: {} }
+      },
+      relations: []
+    })
+    // Write SQLite source with a different entity
+    mkdirSync(projectRoot(), { recursive: true })
+    const Database = require('bun:sqlite').Database
+    const db = new Database(sqlitePath())
+    db.run('CREATE TABLE entities (id TEXT PRIMARY KEY, type TEXT, name TEXT, attributes TEXT)')
+    db.run('CREATE TABLE relations (source_id TEXT, target_id TEXT, type TEXT)')
+    db.run('CREATE TABLE summaries (id TEXT PRIMARY KEY, content TEXT, keywords TEXT, timestamp INTEGER)')
+    db.run('CREATE TABLE rules (content TEXT)')
+    db.run('INSERT INTO entities VALUES ("e2", "database", "User DB", "{}")')
+    db.close()
+
+    // Run migration
+    const graph = getGlobalGraph()
+
+    // Assert both entities are present (symmetrically merged)
+    const names = Object.values(graph.entities).map(e => e.name)
+    expect(names).toContain('API Server')
+    expect(names).toContain('User DB')
+
+    // Both legacy source files should be retired
+    expect(existsSync(legacyJsonPath())).toBe(false)
+    expect(existsSync(sqlitePath())).toBe(false)
+  })
+
+  it('regression: generated entity files have correct frontmatter schema', () => {
+    writeLegacyJson({
+      entities: {
+        e1: { id: 'e1', type: 'endpoint', name: 'API Server', attributes: { url: 'https://api.example.com' } }
+      },
+      relations: []
+    })
+    getGlobalGraph()
+    const files = readdirSync(factsDir()).filter(f => f.startsWith('fact-endpoint-api-server-'))
+    expect(files.length).toBe(1)
+    const rawContent = readFileSync(join(factsDir(), files[0]), 'utf-8')
+    expect(rawContent).toContain('type: reference')
+    expect(rawContent).toContain('factType: "endpoint"')
+    expect(rawContent).toContain('legacyId: "e1"')
+    expect(rawContent).toContain('url: "https://api.example.com"')
+    expect(rawContent).toContain('Auto-migrated from legacy store: **API Server**')
+  })
+
+  it('regression: generated rule and summary files have correct frontmatter schema', () => {
+    writeLegacyJson({
+      entities: {},
+      relations: [],
+      summaries: [
+        { id: 's1', content: 'Legacy summary content', keywords: ['api', 'web'], timestamp: 12345 }
+      ],
+      rules: [
+        'Always use TypeScript'
+      ]
+    })
+    getGlobalGraph()
+
+    // Check summary file
+    const summaries = readdirSync(factsDir()).filter(f => f.startsWith('fact-summary-s1-'))
+    expect(summaries.length).toBe(1)
+    const sumContent = readFileSync(join(factsDir(), summaries[0]), 'utf-8')
+    expect(sumContent).toContain('type: reference')
+    expect(sumContent).toContain('factType: summary')
+    expect(sumContent).toContain('keywords: "api, web"')
+    expect(sumContent).toContain('Legacy summary content')
+
+    // Check rule file
+    const rules = readdirSync(factsDir()).filter(f => f.startsWith('fact-rule-always-use-typescript-'))
+    expect(rules.length).toBe(1)
+    const ruleContent = readFileSync(join(factsDir(), rules[0]), 'utf-8')
+    expect(ruleContent).toContain('type: reference')
+    expect(ruleContent).toContain('factType: rule')
+    expect(ruleContent).toContain('Always use TypeScript')
   })
 })
 
