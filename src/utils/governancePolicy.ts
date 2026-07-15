@@ -27,7 +27,12 @@ const governanceHook = createHook({
   },
 })
 
-if (typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || 'BUN_TEST' in process.env)) {
+if (
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' ||
+    'BUN_TEST' in process.env ||
+    (typeof globalThis !== 'undefined' && ('describe' in globalThis || 'expect' in globalThis)))
+) {
   governanceHook.enable()
 }
 
