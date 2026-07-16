@@ -44,6 +44,9 @@ export const OPENAI_EFFORT_LEVELS = [
 ] as const
 
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
+// OpenAI-compatible shims also serve providers such as Kimi that accept the
+// provider-specific `max` value in the same `reasoning_effort` wire field.
+export type OpenAIShimEffortLevel = OpenAIEffortLevel | 'max'
 export type EffortValue = EffortLevel | number
 
 export type ReasoningControlResolution = {
@@ -197,15 +200,15 @@ function normalizeReasoningThinkingType(
 }
 
 function normalizeDeepSeekReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function normalizeZaiReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function resolveCompatibilityWireFormat(
@@ -580,7 +583,7 @@ export function modelSupportsWireEffort(model: string, context?: ReasoningContro
 
 export function resolveOpenAIShimReasoningRequestPlan(options: {
   model: string
-  requestedEffort?: OpenAIEffortLevel
+  requestedEffort?: OpenAIShimEffortLevel
   requestThinkingType?: string
   defaultThinkingType?: string
   thinkingRequestFormat?: OpenAIShimThinkingRequestFormat

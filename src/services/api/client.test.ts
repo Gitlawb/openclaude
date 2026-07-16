@@ -2085,7 +2085,7 @@ test('providerOverride Kimi Code clamps unsupported xhigh effort to high', async
   }
 })
 
-test('providerOverride K3 preserves its verified max reasoning effort', async () => {
+test('providerOverride K3 preserves max reasoning from its model query', async () => {
   let requestBody: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (_input, init) => {
@@ -2101,9 +2101,8 @@ test('providerOverride K3 preserves its verified max reasoning effort', async ()
   try {
     const client = (await getAnthropicClient({
       maxRetries: 0,
-      effortValue: 'max',
       providerOverride: {
-        model: 'k3',
+        model: 'k3?reasoning=max',
         baseURL: 'https://api.kimi.com/coding/v1',
         apiKey: 'kimi-test-key',
       },

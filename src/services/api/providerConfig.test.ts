@@ -62,6 +62,38 @@ test('resolveProviderRequest maps K3 context catalog choices to the Kimi API mod
   }
 })
 
+test('resolveProviderRequest preserves K3 max reasoning from its model query', () => {
+  const request = resolveProviderRequest({
+    model: 'k3?reasoning=max',
+    baseUrl: 'https://api.kimi.com/coding/v1',
+    processEnv: {},
+  })
+
+  expect(request.requestedModel).toBe('k3?reasoning=max')
+  expect(request.resolvedModel).toBe('k3')
+  expect(request.reasoning).toEqual({ effort: 'max' })
+})
+
+test('resolveProviderRequest rejects max reasoning for models without K3 support', () => {
+  const request = resolveProviderRequest({
+    model: 'gpt-4o?reasoning=max',
+    baseUrl: 'https://api.openai.com/v1',
+    processEnv: {},
+  })
+
+  expect(request.reasoning).toBeUndefined()
+})
+
+test('resolveProviderRequest rejects K3 max reasoning outside a Kimi route', () => {
+  const request = resolveProviderRequest({
+    model: 'k3?reasoning=max',
+    baseUrl: 'https://api.openai.com/v1',
+    processEnv: {},
+  })
+
+  expect(request.reasoning).toBeUndefined()
+})
+
 test('resolveProviderRequest maps explicit Atlas coding aliases without ambiguity', () => {
   expect(resolveProviderRequest({
     model: 'claude-sonnet-4-6',

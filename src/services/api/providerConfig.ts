@@ -144,7 +144,7 @@ const CODEX_ALIAS_MODELS: Record<
 } as const
 
 type CodexAlias = keyof typeof CODEX_ALIAS_MODELS
-type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 type ThinkingType = 'enabled' | 'disabled'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
@@ -317,7 +317,7 @@ function resolveRouteCatalogAliasApiName(options: {
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
   if (!value) return undefined
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'low' || normalized === 'medium' || normalized === 'high' || normalized === 'xhigh') {
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high' || normalized === 'xhigh' || normalized === 'max') {
     return normalized
   }
   return undefined
@@ -1070,6 +1070,16 @@ export function resolveProviderRequest(options?: {
           model: resolvedModel,
           treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
         })
+  const explicitBaseUrlRuntimeContext =
+    isGithubMode
+      ? null
+      : resolveOpenAIShimRuntimeContext({
+          processEnv,
+          baseUrl: finalBaseUrl,
+          model: resolvedModel,
+          treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+          preferBaseUrlRoute: true,
+        })
   const explicitApiFormat =
     isGithubMode
       ? undefined
@@ -1121,13 +1131,20 @@ export function resolveProviderRequest(options?: {
   // still flow on every transport, and the older aliases (gpt-5.4/5.5,
   // codexplan) keep the pre-5.6 legacy behavior of carrying their default
   // effort everywhere.
-  const reasoning = options?.reasoningEffortOverride
+  const requestedReasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoningFromAlias &&
         transport !== 'codex_responses' &&
         /^gpt-5\.6/.test(descriptor.baseModel)
       ? undefined
       : descriptor.reasoning
+  const supportsMaxReasoning =
+    (explicitBaseUrlRuntimeContext?.routeId === 'kimi-code' && resolvedModel === 'k3') ||
+    (explicitBaseUrlRuntimeContext?.catalogEntry?.reasoning?.wireFormat === 'reasoning_effort' &&
+      explicitBaseUrlRuntimeContext.catalogEntry.reasoning.levels?.includes('max') === true)
+  const reasoning = requestedReasoning?.effort === 'max' && !supportsMaxReasoning
+    ? undefined
+    : requestedReasoning
 
   return {
     transport,
