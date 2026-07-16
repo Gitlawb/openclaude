@@ -8910,6 +8910,14 @@ test('non-stream recovers JSON-in-text tool calls (llama-server style)', async (
   const result = (await client.beta.messages.create({
     model: 'qwen3.6:35b',
     messages: [{ role: 'user', content: 'run pwd' }],
+    // Tools must be advertised — recovery is gated like the stream path.
+    tools: [
+      {
+        name: 'Bash',
+        description: 'run shell',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
     max_tokens: 64,
     stream: false,
   })) as {
@@ -8924,6 +8932,52 @@ test('non-stream recovers JSON-in-text tool calls (llama-server style)', async (
   const text = result.content.find(b => b.type === 'text')
   expect(text?.text).toContain('Checking')
   expect(text?.text).not.toContain('"name":"Bash"')
+})
+
+test('non-stream does not treat cloud prose ending in {"name":...} as tool_use', async () => {
+  // Regression: ungated parseTextToolCalls converted example JSON objects
+  // (person records, package.json fragments) into phantom tool_use on cloud.
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: 'chatcmpl-cloud-prose',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Here is an example person object:\n\n```json\n{"name": "Alice", "age": 30}\n```',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'show an example' }],
+    max_tokens: 64,
+    stream: false,
+  })) as {
+    content: Array<{ type: string; name?: string; text?: string; input?: unknown }>
+    stop_reason: string
+  }
+
+  expect(result.stop_reason).toBe('end_turn')
+  expect(result.content).toHaveLength(1)
+  expect(result.content[0]?.type).toBe('text')
+  expect(result.content[0]?.text).toContain('"name": "Alice"')
+  expect(result.content.some(b => b.type === 'tool_use')).toBe(false)
 })
 
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {

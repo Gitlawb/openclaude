@@ -2860,11 +2860,18 @@ type NonStreamingOpenAIResponse = {
  * and the `application/json` fallback inside `openaiStreamToAnthropic` so both
  * apply the same tool-call extraction, stop-reason mapping, array-content
  * normalization, <think>-tag stripping, and raw text tool-call recovery.
+ *
+ * `enableTextToolCallFallback` must match the streaming gate: Ollama always,
+ * or self-hosted compat only when tools were advertised. Cloud backends leave
+ * it false so benign `{"name": ...}` JSON in assistant prose is not converted
+ * into phantom tool_use blocks.
  */
 function convertNonStreamingResponseToAnthropicMessage(
   data: NonStreamingOpenAIResponse,
   model: string,
+  options?: { enableTextToolCallFallback?: boolean },
 ) {
+  const enableTextToolCallFallback = options?.enableTextToolCallFallback === true
   const choice = data.choices?.[0]
   const content: Array<Record<string, unknown>> = []
   // An empty tool_calls array is still truthy; treat it as "no structured tool
@@ -2904,23 +2911,25 @@ function convertNonStreamingResponseToAnthropicMessage(
         return
       }
 
-      // JSON-in-text tool calls (llama-server / Ollama / local models that
-      // cannot emit structured tool_calls). Safe for all non-stream paths:
-      // only name+arguments objects are accepted.
-      const { calls: textToolCalls, toolCallRanges: textRanges } =
-        parseTextToolCalls(strippedContent)
-      if (textToolCalls.length > 0) {
-        const visibleText = stripRanges(strippedContent, textRanges).trim()
-        if (visibleText) content.push({ type: 'text', text: visibleText })
-        for (const toolCall of textToolCalls) {
-          content.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.arguments,
-          })
+      // JSON-in-text tool calls (llama-server / Ollama / self-hosted). Gated
+      // the same way as the streaming path — never for cloud prose that
+      // happens to end with {"name": ...}.
+      if (enableTextToolCallFallback) {
+        const { calls: textToolCalls, toolCallRanges: textRanges } =
+          parseTextToolCalls(strippedContent)
+        if (textToolCalls.length > 0) {
+          const visibleText = stripRanges(strippedContent, textRanges).trim()
+          if (visibleText) content.push({ type: 'text', text: visibleText })
+          for (const toolCall of textToolCalls) {
+            content.push({
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.name,
+              input: toolCall.arguments,
+            })
+          }
+          return
         }
-        return
       }
     }
 
@@ -3111,7 +3120,11 @@ async function* openaiStreamToAnthropic(
     // fallback preserves tool_calls, Anthropic stop-reason mapping, array
     // content normalization, <think>-tag stripping, and raw text tool-call
     // recovery — then re-emit the resulting message as stream events.
-    const message = convertNonStreamingResponseToAnthropicMessage(parsed, model)
+    // `isOllama` is the same enable flag the live stream path uses for
+    // JSON-in-text recovery (Ollama / self-hosted tools).
+    const message = convertNonStreamingResponseToAnthropicMessage(parsed, model, {
+      enableTextToolCallFallback: isOllamaStream,
+    })
 
     yield {
       type: 'message_start',
@@ -4082,6 +4095,12 @@ class OpenAIShimMessages {
         reasoningEffortOverride: self.reasoningEffort,
         processEnv: requestProcessEnv,
       })
+      // Shared stream + non-stream gate for JSON-in-text tool recovery.
+      // Ollama always; other self-hosted only when tools are advertised.
+      const enableTextToolCallFallback =
+        isLikelyOllamaEndpoint(request.baseUrl) ||
+        (Boolean(params.tools?.length) &&
+          shouldUseSelfHostedToolCompat(request.baseUrl))
       const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response
 
@@ -4108,14 +4127,7 @@ class OpenAIShimMessages {
                       response,
                       request.resolvedModel,
                       streamSignal,
-                      // Buffer + JSON text-tool recovery:
-                      // - Ollama: always (historical #1053 path)
-                      // - other self-hosted (llama-server local/LAN or
-                      //   OPENAI_SELF_HOSTED_TOOLS=1): only when tools are
-                      //   advertised so plain chat stays live-streamed
-                      isLikelyOllamaEndpoint(request.baseUrl) ||
-                        (Boolean(params.tools?.length) &&
-                          shouldUseSelfHostedToolCompat(request.baseUrl)),
+                      enableTextToolCallFallback,
                       response.url || undefined,
                     ),
           options?.signal,
@@ -4152,7 +4164,11 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(
+            parsed,
+            request.resolvedModel,
+            enableTextToolCallFallback,
+          )
         }
       }
 
@@ -4177,7 +4193,11 @@ class OpenAIShimMessages {
       const contentType = response.headers.get('content-type') ?? ''
       if (contentType.includes('application/json')) {
         const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
+        return self._convertNonStreamingResponse(
+          data,
+          request.resolvedModel,
+          enableTextToolCallFallback,
+        )
       }
 
       const textBody = await response.text().catch(() => '')
@@ -5722,8 +5742,11 @@ class OpenAIShimMessages {
   private _convertNonStreamingResponse(
     data: NonStreamingOpenAIResponse,
     model: string,
+    enableTextToolCallFallback = false,
   ) {
-    return convertNonStreamingResponseToAnthropicMessage(data, model)
+    return convertNonStreamingResponseToAnthropicMessage(data, model, {
+      enableTextToolCallFallback,
+    })
   }
 
   private _convertGeminiToAnthropicResponse(
