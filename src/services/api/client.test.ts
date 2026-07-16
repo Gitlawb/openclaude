@@ -2084,6 +2084,44 @@ test('providerOverride Kimi Code clamps unsupported xhigh effort to high', async
     globalThis.fetch = originalFetch
   }
 })
+
+test('providerOverride K3 preserves its verified max reasoning effort', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-provider-override-k3',
+      model: 'k3',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  try {
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'max',
+      providerOverride: {
+        model: 'k3',
+        baseURL: 'https://api.kimi.com/coding/v1',
+        apiKey: 'kimi-test-key',
+      },
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'unused',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+
+    expect(requestBody?.reasoning_effort).toBe('max')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
 test('providerOverride Atlas Grok Build does not send reasoning effort', async () => {
   let requestBody: Record<string, unknown> | undefined
 

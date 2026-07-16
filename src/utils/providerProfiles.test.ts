@@ -2473,7 +2473,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('kimi-code')
     expect(defaults.name).toBe('Moonshot AI - Kimi Code')
     expect(defaults.baseUrl).toBe('https://api.kimi.com/coding/v1')
-    expect(defaults.model).toBe('kimi-for-coding')
+    expect(defaults.model).toBe('k3')
     expect(defaults.requiresApiKey).toBe(true)
   })
 

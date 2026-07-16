@@ -13,6 +13,7 @@ import {
   convertEffortValueToLevel,
   type EffortValue,
   resolveAppliedEffort,
+  resolveModelReasoningControl,
   modelSupportsShimReasoningEffort,
   modelSupportsWireEffort,
   standardEffortToOpenAI,
@@ -441,9 +442,20 @@ export async function getAnthropicClient({
       effortContext,
     )
     : undefined
-  const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    appliedEffort !== undefined && supportsShimReasoningEffort
-      ? standardEffortToOpenAI(convertEffortValueToLevel(appliedEffort))
+  const appliedEffortLevel = appliedEffort === undefined
+    ? undefined
+    : convertEffortValueToLevel(appliedEffort)
+  const reasoningControl = effortModel
+    ? resolveModelReasoningControl(effortModel, effortContext)
+    : undefined
+  const shimReasoningEffort: OpenAIShimEffortLevel | undefined =
+    appliedEffortLevel !== undefined && supportsShimReasoningEffort
+      ? (reasoningControl?.source === 'metadata' &&
+          reasoningControl.wireFormat === 'reasoning_effort' &&
+          appliedEffortLevel === 'max' &&
+          reasoningControl.levels.includes('max')
+          ? 'max'
+          : standardEffortToOpenAI(appliedEffortLevel))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID

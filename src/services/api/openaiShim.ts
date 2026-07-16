@@ -4317,10 +4317,14 @@ class OpenAIShimMessages {
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>
+    const runtimeModel = request.requestedModel
+    const compressedMessages = fastPath.skipToolHistoryCompression
+      ? rawMessages
+      : compressToolHistory(rawMessages, runtimeModel)
     const runtimeShimContext = resolveOpenAIShimRuntimeContext({
       processEnv: requestProcessEnv,
       baseUrl: request.baseUrl,
-      model: request.resolvedModel,
+      model: runtimeModel,
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
       preferBaseUrlRoute: Boolean(this.providerOverride),
     })
@@ -4365,7 +4369,7 @@ class OpenAIShimMessages {
       }),
     )
 
-    const reasoningControl = resolveModelReasoningControl(request.resolvedModel, {
+    const reasoningControl = resolveModelReasoningControl(runtimeModel, {
       routeId: runtimeShimContext.routeId,
       useRuntimeFallback: false,
       openaiShimConfig: shimConfig,
@@ -4382,7 +4386,7 @@ class OpenAIShimMessages {
       modelRequiresResponsesApi(request.resolvedModel) &&
       baseUrlSupportsResponsesAutoRoute(request.baseUrl, requestProcessEnv)
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
-      model: request.resolvedModel,
+      model: runtimeModel,
       requestedEffort: suppressReasoningForForcedChat ? undefined : request.reasoning?.effort,
       requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
       defaultThinkingType: request.thinking?.type,

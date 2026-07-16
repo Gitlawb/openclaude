@@ -215,9 +215,15 @@ afterEach(() => {
 async function captureRequestBody(
   messages: Array<{ role: string; content: unknown }>,
   model: string,
+  options: { useModelWindow?: boolean } = {},
 ): Promise<Record<string, unknown>> {
   setCompressionEnabledForTest(mockState.enabled)
-  setEffectiveWindowForTest(mockState.effectiveWindow)
+  if (options.useModelWindow) {
+    delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  } else {
+    setEffectiveWindowForTest(mockState.effectiveWindow)
+  }
   let captured: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (_input, init) => {
@@ -460,6 +466,21 @@ test('FIX: 1M context model with 30 exchanges → only first 5 mid-truncated', a
   for (let i = 5; i < 30; i++) {
     expect(toolMessages[i].content.length).toBe(5_000)
   }
+})
+
+test('Kimi K3 256K selection uses its own compression window while sending the k3 API name', async () => {
+  mockState.enabled = true
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  const messages = buildLongConversation(50, 5_000)
+
+  const body = await captureRequestBody(messages, 'k3-256k', {
+    useModelWindow: true,
+  })
+  const toolMessages = getToolMessages(body)
+
+  expect(body.model).toBe('k3')
+  expect(toolMessages).toHaveLength(50)
+  expect(toolMessages[0].content).toContain('chars omitted')
 })
 
 // ============================================================================

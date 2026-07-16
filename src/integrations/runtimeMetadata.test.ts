@@ -405,6 +405,18 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
       baseUrl: 'https://api.kimi.com/coding/v1',
       processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
     })).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
+    const highspeed = resolveOpenAIShimRuntimeContext({
+      model: 'kimi-for-coding-highspeed',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(highspeed.catalogEntry).toMatchObject({
+      id: 'kimi-for-coding-highspeed',
+      apiName: 'kimi-for-coding-highspeed',
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })
+    expect(highspeed.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.id).toBe('kimi-for-coding')
     expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
