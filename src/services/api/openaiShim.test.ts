@@ -782,6 +782,36 @@ test('gpt-5.6 chat-completions escape hatch omits reasoning effort with tools', 
   expect(capturedBody).not.toHaveProperty('reasoning_effort')
 })
 
+test('gpt-5.6 chat-completions escape hatch keeps reasoning effort without tools', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5.6-sol',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ reasoningEffort: 'high' }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.reasoning_effort).toBe('high')
+})
+
 test('auto-route leaves non gpt-5.4+ models on chat/completions', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_API_KEY = 'test-key'
@@ -932,6 +962,47 @@ test('Azure responses URL normalization drops a configured query string', async 
   await client.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
 
   expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
+})
+
+test('Azure responses URL normalization drops a query string after a trailing slash', async () => {
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1/?api-version=2024-12-01-preview'
+  process.env.OPENAI_API_KEY = 'test-key'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(JSON.stringify({
+      id: 'resp-1', model: 'gpt-5.6-sol',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+      usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/v1/responses')
+})
+
+test('Azure chat-completions URL normalization drops a configured query string', async () => {
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1?api-version=2024-12-01-preview'
+  process.env.OPENAI_API_KEY = 'test-key'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+  let capturedUrl = ''
+
+  globalThis.fetch = (async (input, _init) => {
+    capturedUrl = String(input)
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1', model: 'gpt-5.6-sol',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  expect(capturedUrl).toBe('https://myres.openai.azure.com/openai/deployments/gpt-5.6-sol/chat/completions?api-version=2024-12-01-preview')
 })
 
 test('auto-routed responses on an Azure /deployments/ base strips the deployment and uses the v1 surface', async () => {

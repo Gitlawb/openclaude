@@ -3846,6 +3846,8 @@ class OpenAIShimMessages {
     // combination on that API surface.
     const suppressReasoningForForcedChat =
       effectiveTransport === 'chat_completions' &&
+      Array.isArray(params.tools) &&
+      params.tools.length > 0 &&
       request.resolvedModel.trim().toLowerCase().startsWith('gpt-5.6') &&
       modelRequiresResponsesApi(request.resolvedModel) &&
       baseUrlSupportsResponsesAutoRoute(request.baseUrl, process.env)
@@ -4447,17 +4449,17 @@ class OpenAIShimMessages {
       // Azure Cognitive Services / Azure OpenAI require a deployment-specific
       // path and an api-version query parameter.
       if (isAzure) {
+        const normalizedBaseUrl = (baseUrl.split(/[?#]/, 1)[0] ?? baseUrl).replace(/\/+$/, '')
         const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
         const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
 
         // If base URL already contains /deployments/, use it as-is with api-version.
-        if (/\/deployments\//i.test(baseUrl)) {
-          const normalizedBase = baseUrl.replace(/\/+$/, '')
-          return `${normalizedBase}/chat/completions?api-version=${apiVersion}`
+        if (/\/deployments\//i.test(normalizedBaseUrl)) {
+          return `${normalizedBaseUrl}/chat/completions?api-version=${apiVersion}`
         }
 
         // Strip trailing /v1 or /openai/v1 if present, then build Azure path.
-        const normalizedBase = baseUrl
+        const normalizedBase = normalizedBaseUrl
           .replace(/\/(openai\/)?v1\/?$/, '')
           .replace(/\/+$/, '')
 
@@ -4480,7 +4482,7 @@ class OpenAIShimMessages {
       if (!isAzure) {
         return `${trimmedBase}/responses`
       }
-      let normalizedBase = trimmedBase.split(/[?#]/, 1)[0] ?? trimmedBase
+      let normalizedBase = (trimmedBase.split(/[?#]/, 1)[0] ?? trimmedBase).replace(/\/+$/, '')
       for (;;) {
         const stripped = normalizedBase
           .replace(/\/(openai\/)?v1$/i, '')

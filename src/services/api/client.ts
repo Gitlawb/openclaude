@@ -360,48 +360,50 @@ export async function getAnthropicClient({
   // Convert the runtime effort value to the OpenAI-shaped enum the shim
   // expects. Undefined → shim falls back to descriptor/alias defaults.
   const effortModel = providerOverride?.model ?? model
-  const providerOverrideRuntimeContext = providerOverride && effortModel
+  const effortBaseUrl = providerOverride?.baseURL ?? process.env.OPENAI_BASE_URL
+  const effortRuntimeContext = effortModel
     ? resolveOpenAIShimRuntimeContext({
       processEnv: process.env,
-      baseUrl: providerOverride.baseURL,
+      baseUrl: effortBaseUrl,
       model: effortModel,
-      preferBaseUrlRoute: true,
+      preferBaseUrlRoute:
+        providerOverride !== undefined || isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI),
     })
     : undefined
-  const providerOverrideShimConfig = providerOverrideRuntimeContext?.openaiShimConfig
-  const providerOverrideEffortContext = providerOverrideRuntimeContext
+  const effortShimConfig = effortRuntimeContext?.openaiShimConfig
+  const effortContext = effortRuntimeContext
       ? {
-        routeId: providerOverrideRuntimeContext.routeId ?? 'custom',
+        routeId: effortRuntimeContext.routeId ?? 'custom',
         useRuntimeFallback: false,
-        openaiShimConfig: providerOverrideShimConfig,
-        baseUrl: providerOverride?.baseURL,
-        apiProvider: providerOverrideRuntimeContext.routeId === 'openai'
+        openaiShimConfig: effortShimConfig,
+        baseUrl: effortBaseUrl,
+        apiProvider: effortRuntimeContext.routeId === 'openai'
           ? 'openai' as const
-          : providerOverrideRuntimeContext.routeId === 'codex'
+          : effortRuntimeContext.routeId === 'codex'
             ? 'codex' as const
             : undefined,
       }
     : undefined
   const supportsShimReasoningEffort = effortModel
-    ? providerOverrideShimConfig
+    ? effortShimConfig
       ? modelSupportsShimReasoningEffort(
         effortModel,
-        providerOverrideShimConfig.thinkingRequestFormat,
-        providerOverrideShimConfig.removeBodyFields,
-        providerOverrideEffortContext,
+        effortShimConfig.thinkingRequestFormat,
+        effortShimConfig.removeBodyFields,
+        effortContext,
       )
       : modelSupportsWireEffort(effortModel)
     : false
-  const appliedProviderOverrideEffort = effortModel && effortValue !== undefined
+  const appliedEffort = effortModel && effortValue !== undefined
     ? resolveAppliedEffort(
       effortModel,
       effortValue,
-      providerOverrideEffortContext,
+      effortContext,
     )
     : undefined
   const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    appliedProviderOverrideEffort !== undefined && supportsShimReasoningEffort
-      ? standardEffortToOpenAI(convertEffortValueToLevel(appliedProviderOverrideEffort))
+    appliedEffort !== undefined && supportsShimReasoningEffort
+      ? standardEffortToOpenAI(convertEffortValueToLevel(appliedEffort))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID

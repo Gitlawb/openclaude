@@ -1643,6 +1643,34 @@ test('providerOverride OpenAI gpt effort does not fall back to ambient provider'
   expect(requestBody).not.toHaveProperty('reasoning_effort')
 })
 
+test('normal OpenAI gpt effort uses catalog metadata', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'resp-normal-openai', model: 'gpt-5.6-sol',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+      usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gpt-5.6-sol',
+    effortValue: 'xhigh',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  expect(requestBody?.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' })
+})
+
 test('providerOverride Azure gpt effort uses the override base for catalog metadata', async () => {
   let requestBody: Record<string, unknown> | undefined
   process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
