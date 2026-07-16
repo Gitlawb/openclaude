@@ -66,7 +66,10 @@ function matchesCatalogEntryModel(
   entry: ModelCatalogEntry,
   modelApiName: string,
 ): boolean {
-  if (entry.apiName.trim().toLowerCase() === modelApiName) {
+  if (
+    entry.apiName.trim().toLowerCase() === modelApiName ||
+    entry.id.trim().toLowerCase() === modelApiName
+  ) {
     return true
   }
 

@@ -938,14 +938,23 @@ function mergeModelOptionsByNormalizedValue(
   return merged
 }
 
+function getCatalogOptionValue(entry: { id: string; apiName: string }, entries: readonly { apiName: string }[]): string {
+  const apiName = entry.apiName.trim()
+  const duplicateApiName = entries.filter(candidate =>
+    candidate.apiName.trim().toLowerCase() === apiName.toLowerCase(),
+  ).length > 1
+  return duplicateApiName ? entry.id.trim() : apiName
+}
+
 function getActiveOpenAIRouteCatalogOptions(): ModelOption[] {
   const routeId = getActiveOpenAIRouteId()
   if (!routeId) {
     return []
   }
 
-  return getCatalogEntriesForRoute(routeId).flatMap(entry => {
-    const value = entry.apiName.trim()
+  const entries = getCatalogEntriesForRoute(routeId)
+  return entries.flatMap(entry => {
+    const value = getCatalogOptionValue(entry, entries)
     if (!value) {
       return []
     }
@@ -973,7 +982,8 @@ function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
     return null
   }
 
-  const catalogEntry = getCatalogEntriesForRoute(routeId).find(entry =>
+  const entries = getCatalogEntriesForRoute(routeId)
+  const catalogEntry = entries.find(entry =>
     normalizeRouteModelOptionKey(entry.apiName) === normalizedValue ||
     normalizeRouteModelOptionKey(entry.id) === normalizedValue ||
     (entry.aliases ?? []).some(
@@ -985,7 +995,7 @@ function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
   }
 
   return {
-    value: catalogEntry.apiName,
+    value: getCatalogOptionValue(catalogEntry, entries),
     label: catalogEntry.label ?? catalogEntry.apiName,
     description: catalogEntry.apiName,
   }

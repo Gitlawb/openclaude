@@ -29,6 +29,15 @@ describe('buildRouteCatalogModelOptions', () => {
     ])
   })
 
+  test('keeps duplicate API models selectable by catalog id', () => {
+    const options = buildRouteCatalogModelOptions('Kimi Code', [
+      { id: 'k3-256k', apiName: 'k3', label: 'Kimi K3 (256K)' },
+      { id: 'k3-1m', apiName: 'k3', label: 'Kimi K3 (1M)' },
+    ])
+
+    expect(options.map(option => option.value)).toEqual(['k3-256k', 'k3-1m'])
+  })
+
   test('surfaces catalog entry notes as a description tag', () => {
     const options = buildRouteCatalogModelOptions('Gitlawb Opengateway', [
       {
