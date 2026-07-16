@@ -546,7 +546,7 @@ test('Chat compression omits old and mid-tier inline image payloads', async () =
             type: 'image',
             source: {
               type: 'url',
-              url: `data:image/png;base64,${imageData}`,
+              url: `data:image/png;charset=utf-8;base64,${imageData}`,
             },
           },
         ],

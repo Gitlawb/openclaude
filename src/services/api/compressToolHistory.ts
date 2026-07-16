@@ -111,7 +111,7 @@ function isInlineBase64Image(part: unknown): boolean {
     (
       source?.type === 'url' &&
       typeof source.url === 'string' &&
-      /^data:image\/[^;,]+;base64,/i.test(source.url)
+      /^data:image\/[^,]*;base64,/i.test(source.url)
     )
 }
 
