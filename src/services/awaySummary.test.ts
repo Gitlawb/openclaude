@@ -63,6 +63,10 @@ beforeAll(async () => {
     }))
     ;({ generateAwaySummary } = await import('./awaySummary.js'))
   } catch (error) {
+    mock.module('./api/claude.js', () => ({ ...realClaudeModule }))
+    mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
+      ...realSessionMemoryUtilsModule,
+    }))
     releaseSharedMutationLock()
     hasSharedMutationLock = false
     throw error

@@ -33,6 +33,9 @@ beforeAll(async () => {
     ;({ countLinesChanged } = await import('./diff.js'))
     ;({ getTotalLinesAdded } = await import('../bootstrap/state.js'))
   } catch (error) {
+    mock.module('src/services/analytics/index.js', () => ({
+      ...realAnalyticsModule,
+    }))
     releaseSharedMutationLock()
     hasSharedMutationLock = false
     throw error
