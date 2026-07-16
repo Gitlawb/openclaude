@@ -28,6 +28,13 @@ const queryModelWithoutStreamingMock = mock(
   },
 )
 
+const realClaudeModule = await import(
+  `./api/claude.js?real=${Date.now()}-${Math.random()}`
+)
+const realSessionMemoryUtilsModule = await import(
+  `./SessionMemory/sessionMemoryUtils.js?real=${Date.now()}-${Math.random()}`
+)
+
 // These stubs are registered in beforeAll (NOT at module load) and torn down in
 // afterAll so the shared bun:test process loads the REAL ./api/claude.js and
 // ./SessionMemory/sessionMemoryUtils.js for every other test file at startup.
@@ -39,28 +46,18 @@ const queryModelWithoutStreamingMock = mock(
 // depending on run order — the classic flaky "smoke" defect. Registering the
 // stub only for the lifetime of this suite (beforeAll → afterAll) keeps the
 // subject's import of the stubbed module isolated to this file.
-// Bun's bun:test types declare mock.module() as returning void | Promise<void>
-// and do not model the returned MockModule, so we capture the handle with an
-// explicit cast. The returned object exposes unmock(), which is the documented
-// teardown for a module mock (there is no mock.restoreModule()).
-type MockModuleHandle = { unmock: () => void | Promise<void> }
-let claudeModuleMock: MockModuleHandle | undefined
-let sessionMemoryModuleMock: MockModuleHandle | undefined
 let generateAwaySummary: Awaited<
   typeof import('./awaySummary.js')
 >['generateAwaySummary']
 
 beforeAll(async () => {
   await acquireSharedMutationLock('services/awaySummary.test.ts')
-  claudeModuleMock = mock.module('./api/claude.js', () => ({
+  mock.module('./api/claude.js', () => ({
     queryModelWithoutStreaming: queryModelWithoutStreamingMock,
-  })) as unknown as MockModuleHandle
-  sessionMemoryModuleMock = mock.module(
-    './SessionMemory/sessionMemoryUtils.js',
-    () => ({
-      getSessionMemoryContent: mock(async () => null),
-    }),
-  ) as unknown as MockModuleHandle
+  }))
+  mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
+    getSessionMemoryContent: mock(async () => null),
+  }))
   ;({ generateAwaySummary } = await import('./awaySummary.js'))
 })
 
@@ -109,8 +106,10 @@ beforeEach(() => {
 
 afterAll(() => {
   try {
-    claudeModuleMock?.unmock()
-    sessionMemoryModuleMock?.unmock()
+    mock.module('./api/claude.js', () => ({ ...realClaudeModule }))
+    mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
+      ...realSessionMemoryUtilsModule,
+    }))
   } finally {
     releaseSharedMutationLock()
   }

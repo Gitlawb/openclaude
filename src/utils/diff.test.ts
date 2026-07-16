@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
+const realAnalyticsModule = await import(
+  `../services/analytics/index.js?real=${Date.now()}-${Math.random()}`
+)
+
 // Analytics is a leaf side effect of countLinesChanged; stub it so the test
 // only exercises the counting. The stub is registered in beforeAll (NOT at
 // module load) and torn down in afterAll so the shared bun:test process loads
@@ -13,12 +17,6 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sh
 // depending on run order — the classic flaky "smoke" defect. Registering the
 // stub only for the lifetime of this suite (beforeAll → afterAll) keeps the
 // subject's import of the stubbed module isolated to this file.
-// Bun's bun:test types declare mock.module() as returning void | Promise<void>
-// and do not model the returned MockModule, so we capture the handle with an
-// explicit cast. The returned object exposes unmock(), which is the documented
-// teardown for a module mock (there is no mock.restoreModule()).
-type MockModuleHandle = { unmock: () => void | Promise<void> }
-let analyticsModuleMock: MockModuleHandle | undefined
 let countLinesChanged: Awaited<typeof import('./diff.js')>['countLinesChanged']
 let getTotalLinesAdded: Awaited<
   typeof import('../bootstrap/state.js')
@@ -26,9 +24,9 @@ let getTotalLinesAdded: Awaited<
 
 beforeAll(async () => {
   await acquireSharedMutationLock('utils/diff.test.ts')
-  analyticsModuleMock = mock.module('src/services/analytics/index.js', () => ({
+  mock.module('src/services/analytics/index.js', () => ({
     logEvent: () => {},
-  })) as unknown as MockModuleHandle
+  }))
   ;({ countLinesChanged } = await import('./diff.js'))
   ;({ getTotalLinesAdded } = await import('../bootstrap/state.js'))
 })
@@ -43,7 +41,9 @@ function addedLinesFor(newFileContent: string): number {
 
 afterAll(() => {
   try {
-    analyticsModuleMock?.unmock()
+    mock.module('src/services/analytics/index.js', () => ({
+      ...realAnalyticsModule,
+    }))
   } finally {
     releaseSharedMutationLock()
   }

@@ -23,6 +23,12 @@ const realErrors = await import(
 const realTokens = await import(
   `../../utils/tokens.js?real=${Date.now()}-${Math.random()}`
 )
+const realCompact = await import(
+  `./compact.js?real=${Date.now()}-${Math.random()}`
+)
+const realSessionMemoryCompact = await import(
+  `./sessionMemoryCompact.js?real=${Date.now()}-${Math.random()}`
+)
 
 const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
 
@@ -112,10 +118,18 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
     mock.restore()
     restoreEnv()
+    mock.module('../../utils/context.js', () => ({ ...realContext }))
+    mock.module('../../utils/errors.js', () => ({ ...realErrors }))
+    mock.module('../../utils/tokens.js', () => ({ ...realTokens }))
+    mock.module('../../utils/config.js', () => ({ ...realConfig }))
+    mock.module('./compact.js', () => ({ ...realCompact }))
+    mock.module('./sessionMemoryCompact.js', () => ({
+      ...realSessionMemoryCompact,
+    }))
   } finally {
     releaseSharedMutationLock()
   }

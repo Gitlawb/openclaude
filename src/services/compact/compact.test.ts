@@ -23,17 +23,11 @@ import * as realConfig from '../../utils/config.js'
 // NOT clear it, so the cached bare-path import of providers.js inside betas.ts
 // (which compact.ts transitively imports) resolves to that stub unless we
 // override it. We import the real providers module through a cache-busting URL
-// and re-register it under the bare specifier at module level.
+// and register it under the bare specifier while this suite holds the shared
+// mutation lock.
 const _realProvidersModule = await import(
   `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`
 )
-mock.module('../../utils/model/providers.js', () => ({
-  getAPIProvider: _realProvidersModule.getAPIProvider,
-  usesAnthropicAccountFlow: _realProvidersModule.usesAnthropicAccountFlow,
-  isGithubNativeAnthropicMode: _realProvidersModule.isGithubNativeAnthropicMode,
-  getAPIProviderForStatsig: _realProvidersModule.getAPIProviderForStatsig,
-  isFirstPartyAnthropicBaseUrl: _realProvidersModule.isFirstPartyAnthropicBaseUrl,
-}))
 
 // Pre-import the real diskOutput module so we can restore it in afterAll
 // (compact's mock of getTaskOutputPath leaks and breaks BashTool tests).
@@ -118,6 +112,7 @@ const COMPACT_STUB_MODULES = [
   '../../utils/messages.js',
   '../../utils/messages/systemFactories.js',
   '../../utils/model/model.js',
+  '../../utils/model/providers.js',
   '../../utils/model/modelSupportOverrides.js',
   '../../utils/path.js',
   '../../utils/plans.js',
@@ -135,6 +130,17 @@ const COMPACT_STUB_MODULES = [
   './grouping.js',
   './prompt.js',
 ] as const
+
+const realCompactStubModules = new Map(
+  await Promise.all(
+    COMPACT_STUB_MODULES.map(async specifier =>
+      [
+        specifier,
+        await import(`${specifier}?real=${Date.now()}-${Math.random()}`),
+      ] as const,
+    ),
+  ),
+)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -674,20 +680,15 @@ async function importCompact(options: CompactMockOptions = {}) {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/compact.test.ts')
+  mock.module('../../utils/model/providers.js', () => ({
+    ..._realProvidersModule,
+  }))
   clearProviderEnv()
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
-    mock.restore()
-    clearProviderEnv()
-    // mock.module() persists process-wide in bun:test. Restore the message
-    // helpers after each compact test so downstream test files do not import
-    // the compact-only createUserMessage stub.
-    mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
-    mock.module('../../utils/messages/systemFactories.js', () => ({
-      ..._realSystemFactoriesModule,
-    }))
+    await restoreCompactTestMocks()
   } finally {
     releaseSharedMutationLock()
   }
@@ -695,13 +696,14 @@ afterEach(() => {
 
 // Safety net: scrub provider env vars and restore mocks after all tests in
 // this file finish, so nothing leaks into subsequent test files.
-afterAll(async () => {
+async function restoreCompactTestMocks() {
   mock.restore()
   clearProviderEnv()
   for (const specifier of COMPACT_STUB_MODULES) {
-    const realModule = await import(
-      `${specifier}?real=${Date.now()}-${Math.random()}`
-    )
+    const realModule = realCompactStubModules.get(specifier)
+    if (!realModule) {
+      throw new Error(`Missing real compact stub module: ${specifier}`)
+    }
     mock.module(specifier, () => ({ ...realModule }))
   }
   // The compact test registers many mock.module() stubs that persist
@@ -793,6 +795,15 @@ afterAll(async () => {
     const { unlink } = await import('fs/promises')
     await unlink('/tmp/task').catch(() => {})
   } catch {}
+}
+
+afterAll(async () => {
+  await acquireSharedMutationLock('services/compact/compact.test.ts teardown')
+  try {
+    await restoreCompactTestMocks()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('compactConversation provider gate', () => {
