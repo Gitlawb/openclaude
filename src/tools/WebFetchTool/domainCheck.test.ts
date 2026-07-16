@@ -7,9 +7,19 @@ import {
 
 const originalEnv = { ...process.env }
 const originalAxiosGet = axios.get
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`,
+)
+const realProviders = { ..._realProvidersModule }
 
-async function importFreshModule() {
+async function importFreshModule(isFirstPartyAnthropicProvider?: boolean) {
   mock.restore()
+  mock.module('../../utils/model/providers.js', () => ({
+    ...realProviders,
+    ...(isFirstPartyAnthropicProvider === undefined
+      ? {}
+      : { isFirstPartyAnthropicProvider: () => isFirstPartyAnthropicProvider }),
+  }))
   return import(`./utils.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -23,6 +33,7 @@ afterEach(() => {
     process.env = { ...originalEnv }
     axios.get = originalAxiosGet
     mock.restore()
+    mock.module('../../utils/model/providers.js', () => realProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -31,12 +42,6 @@ afterEach(() => {
 describe('checkDomainBlocklist', () => {
   test('returns allowed without API call in OpenAI mode', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    const actual = await import('../../utils/model/providers.js')
-    mock.module('../../utils/model/providers.js', () => ({
-      ...actual,
-      getAPIProvider: () => 'openai',
-      isFirstPartyAnthropicBaseUrl: () => false,
-    }))
     const getSpy = mock(() =>
       Promise.resolve({ status: 200, data: { can_fetch: true } }),
     )
@@ -51,12 +56,6 @@ describe('checkDomainBlocklist', () => {
 
   test('returns allowed without API call in Gemini mode', async () => {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
-    const actual = await import('../../utils/model/providers.js')
-    mock.module('../../utils/model/providers.js', () => ({
-      ...actual,
-      getAPIProvider: () => 'gemini',
-      isFirstPartyAnthropicBaseUrl: () => false,
-    }))
     const getSpy = mock(() =>
       Promise.resolve({ status: 200, data: { can_fetch: true } }),
     )
@@ -74,18 +73,12 @@ describe('checkDomainBlocklist', () => {
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.CLAUDE_CODE_USE_GITHUB
 
-    const actual = await import('../../utils/model/providers.js')
-    mock.module('../../utils/model/providers.js', () => ({
-      ...actual,
-      getAPIProvider: () => 'firstParty',
-      isFirstPartyAnthropicBaseUrl: () => true,
-    }))
     const getSpy = mock(() =>
       Promise.resolve({ status: 200, data: { can_fetch: true } }),
     )
     axios.get = getSpy as typeof axios.get
 
-    const { checkDomainBlocklist } = await importFreshModule()
+    const { checkDomainBlocklist } = await importFreshModule(true)
     const result = await checkDomainBlocklist('example.com')
 
     expect(result.status).toBe('allowed')
