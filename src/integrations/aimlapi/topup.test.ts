@@ -123,7 +123,7 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
-test('CLI clears an already-exchanged persisted checkout and points to key recovery', async () => {
+test('CLI retains an already-exchanged checkout and blocks identical retries', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
   temporaryDirectories.push(configDirectory)
   setClaudeConfigHomeDirForTesting(configDirectory)
@@ -144,6 +144,7 @@ test('CLI clears an already-exchanged persisted checkout and points to key recov
     resumeSessionToken: 'exchanged-session',
   })
 
+  let sessionReads = 0
   globalThis.fetch = mock(async (input: string | URL | Request) => {
     const url = String(input)
     if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
@@ -155,6 +156,7 @@ test('CLI clears an already-exchanged persisted checkout and points to key recov
       return Response.json({ key: 'key_test', id: 'created-key' })
     }
     if (url.endsWith('/sessions/exchanged-session')) {
+      sessionReads += 1
       return Response.json({
         sessionToken: 'exchanged-session',
         status: 'exchanged',
@@ -164,15 +166,23 @@ test('CLI clears an already-exchanged persisted checkout and points to key recov
     throw new Error(`Unexpected request: ${url}`)
   }) as unknown as typeof fetch
 
-  await expect(
+  const retry = (): Promise<void> =>
     runAimlapiTopup({
       email: 'user@example.com',
       code: '123456',
       amountUsd: '25',
       noOpen: true,
-    }),
-  ).rejects.toThrow('Open https://aimlapi.com/app')
-  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+    })
+
+  await expect(retry()).rejects.toThrow('issued key issued-key-id')
+  await expect(retry()).rejects.toThrow('issued key issued-key-id')
+  expect(sessionReads).toBe(2)
+  expect(
+    JSON.parse(readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8')),
+  ).toMatchObject({
+    paymentSessionId: 'persisted-payment',
+    resumeSessionToken: 'exchanged-session',
+  })
 })
 
 test('topUpAimlapiByApiKey funds the key account without exchange', async () => {
@@ -294,7 +304,7 @@ test('provisionAimlapiKey does not repeat an already completed exchange', async 
   expect(calls).toEqual([
     'GET https://app.example.test/v3/partner-checkout/sessions/session',
   ])
-  expect(sessions).toEqual([''])
+  expect(sessions).toEqual([])
 })
 
 test('an in-progress exchange is observed without issuing a second exchange', async () => {
@@ -323,7 +333,7 @@ test('an in-progress exchange is observed without issuing a second exchange', as
     }),
   ).rejects.toThrow('Session was already exchanged')
   expect(calls.every(call => call.startsWith('GET '))).toBe(true)
-  expect(sessions).toEqual(['session', ''])
+  expect(sessions).toEqual(['session'])
 })
 
 test('email-session checkout carries the stable payment id', async () => {

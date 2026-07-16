@@ -431,7 +431,6 @@ async function resolveTopupSession(
       }
     case 'exchanged':
       if (options.byKey) return { sessionToken: resume, phase: 'exchange' }
-      options.onSession?.('')
       throw alreadyExchangedError(session)
     default:
       options.onSession?.('')
@@ -451,7 +450,6 @@ async function pollUntilExchangeSettled(
     try {
       const session = await client.getSession(sessionToken, signal)
       if (session.status === 'exchanged') {
-        onSession?.('')
         throw alreadyExchangedError(session)
       }
       if (
@@ -501,7 +499,6 @@ export async function pollUntilPaid(
         case 'exchanging':
           return session
         case 'exchanged':
-          onSession?.('')
           throw alreadyExchangedError(session)
         case 'cancelled':
         case 'expired':
