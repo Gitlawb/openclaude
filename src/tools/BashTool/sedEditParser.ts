@@ -21,26 +21,31 @@ export type SedEditInfo = {
   extendedRegex: boolean
 }
 
-// BRE metacharacters that are special only when escaped: `\+ \? \| \( \)` are
-// the operator forms and the bare characters are literal — the reverse of JS.
-// Braces are handled separately because they only form an operator (the
-// interval quantifier) when they enclose a valid count.
-const BRE_ESCAPE_FLIP_METACHARS = '+?|()'
+// Escaped forms that are portable POSIX BRE operators: `\(` `\)` (grouping).
+// The escaped forms of the characters below are NOT portable — `\+` `\?` `\|`
+// are GNU extensions that BSD/macOS sed matches literally — so they decline
+// instead (see the branch handling them).
+const BRE_PORTABLE_OPERATOR_ESCAPES = '()'
+
+// JS regex metacharacters that are literal when bare in BRE (the reverse of
+// JS), so they must be escaped in the translation. Braces are handled
+// separately because they only form an operator when escaped around a valid
+// count.
+const BRE_BARE_LITERAL_METACHARS = '+?|()'
 
 /**
  * Translate the body of a BRE interval `\{...\}` to its JS quantifier form, or
- * null when the body is not a legal interval. GNU sed accepts `n`, `n,`, `n,m`,
- * and the extension `,m`. `,m` has no JS spelling, so it is normalized to
- * `{0,m}`. Anything else — empty, extra commas, non-numeric — is rejected by
- * sed itself ("Invalid content of \{\}"), which aborts the command and leaves
- * the file untouched; we cannot render that as an edit, so it declines.
+ * null when it cannot be previewed faithfully. Only the POSIX-portable forms
+ * `n`, `n,` and `n,m` are accepted: the GNU-only `,m` extension is rejected by
+ * BSD/macOS sed (which this parser explicitly supports via its `-i ''`
+ * handling), so previewing it would show an edit on platforms where the real
+ * command fails and changes nothing. Anything else — empty, extra commas,
+ * non-numeric — is rejected by sed itself ("Invalid content of \{\}"), which
+ * aborts the command and leaves the file untouched.
  */
 function breIntervalBodyToJs(body: string): string | null {
   if (/^[0-9]+(,[0-9]*)?$/.test(body)) {
     return `{${body}}`
-  }
-  if (/^,[0-9]+$/.test(body)) {
-    return `{0${body}}`
   }
   return null
 }
@@ -72,19 +77,19 @@ function convertBrePatternToJs(pattern: string): string | null {
 
     if (char === '[') {
       // Inside a bracket expression `\{`/`\}` are ordinary members rather than
-      // an interval, so the interval scan below must not see them. A backslash
-      // is itself a literal member in a POSIX bracket expression but an escape
-      // in a JS character class, so those cannot be mapped across — decline
-      // instead of silently changing which characters match.
+      // an interval, so the interval scan below must not see them. Several
+      // bracket constructs cannot be previewed faithfully and must decline:
+      //  - an unterminated `[` is an error in sed (file untouched), not a
+      //    literal;
+      //  - a backslash is a literal member in a POSIX bracket expression but an
+      //    escape in a JS character class;
+      //  - `[:class:]`, `[=equiv=]` and `[.collate.]` constructs mean nothing
+      //    to JS, which would read them as a plain set of characters.
       const end = findBracketEnd(pattern, i)
-      if (end === -1) {
-        // Never closed: a lone `[` is literal in BRE.
-        result += '\\['
-        continue
-      }
+      if (end === -1) return null
       const body = pattern.slice(i, end + 1)
-      if (body.includes('\\')) return null
-      // Members are literal in both dialects, so the body carries over as-is.
+      if (body.includes('\\') || body.slice(1).includes('[')) return null
+      // Remaining members are literal in both dialects; carry the body as-is.
       result += body
       i = end
       continue
@@ -114,9 +119,23 @@ function convertBrePatternToJs(pattern: string): string | null {
         i++
         continue
       }
+      if (next === '|') {
+        // GNU alternation extension. Doubly unfaithful: BSD/macOS sed matches
+        // `\|` as a literal pipe, and even on GNU, POSIX regex selects the
+        // leftmost-longest alternative while JavaScript takes the first one
+        // that matches (`\(a\|aa\)` previews `aa` as `Xa` where GNU sed writes
+        // `X`). Decline.
+        return null
+      }
+      if (next === '+' || next === '?') {
+        // GNU extensions: BSD/macOS sed matches `\+` and `\?` as literal
+        // `+`/`?`, so one platform's operator is the other's literal and a
+        // single preview cannot be right for both. Decline.
+        return null
+      }
       if (next === '\\') {
         result += '\\\\'
-      } else if (BRE_ESCAPE_FLIP_METACHARS.includes(next)) {
+      } else if (BRE_PORTABLE_OPERATOR_ESCAPES.includes(next)) {
         result += next
       } else {
         result += `\\${next}`
@@ -125,7 +144,7 @@ function convertBrePatternToJs(pattern: string): string | null {
       continue
     }
 
-    if (BRE_ESCAPE_FLIP_METACHARS.includes(char)) {
+    if (BRE_BARE_LITERAL_METACHARS.includes(char)) {
       result += `\\${char}`
       continue
     }
@@ -354,23 +373,58 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
 }
 
 /**
+ * Reject ERE constructs whose behavior in a JS regex is not the POSIX behavior.
+ * The BRE converter declines these itself; ERE patterns carry over verbatim, so
+ * they need the same screening:
+ *  - alternation: POSIX picks the leftmost-longest alternative, JS the first
+ *    that matches;
+ *  - bracket expressions holding a backslash (literal member in POSIX, escape
+ *    in JS), a POSIX `[:class:]`-style construct, or no terminator at all
+ *    (an error in sed, not a literal).
+ */
+function ereHasUnfaithfulConstructs(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i]!
+    if (char === '\\') {
+      i++
+      continue
+    }
+    if (char === '|') return true
+    if (char === '[') {
+      const end = findBracketEnd(pattern, i)
+      if (end === -1) return true
+      const body = pattern.slice(i + 1, end)
+      if (body.includes('\\') || body.includes('[')) return true
+      i = end
+    }
+  }
+  return false
+}
+
+/**
  * Convert the sed pattern to the JS regex source this module would run, or null
- * if it cannot be translated.
+ * if it cannot be translated faithfully.
  */
 function toJsPatternSource(
   pattern: string,
   extendedRegex: boolean,
 ): string | null {
   const unescaped = pattern.replace(/\\\//g, '/')
-  return extendedRegex ? unescaped : convertBrePatternToJs(unescaped)
+  if (extendedRegex) {
+    return ereHasUnfaithfulConstructs(unescaped) ? null : unescaped
+  }
+  return convertBrePatternToJs(unescaped)
 }
 
 /**
  * Whether the simulated substitution is guaranteed to match what sed does.
  *
- * Two cases are declined:
- *  - the pattern does not translate, or the translation is not a valid JS regex
- *    (previously this threw and was swallowed into a "no change" preview);
+ * Declined here:
+ *  - the pattern does not translate — GNU-only interval forms, alternation,
+ *    untranslatable or unterminated bracket expressions (see
+ *    convertBrePatternToJs / ereHasUnfaithfulConstructs) — or the translation
+ *    is not a valid JS regex (previously this threw and was swallowed into a
+ *    "no change" preview);
  *  - the pattern can match the empty string under `g`. sed and JS advance
  *    differently after an empty match, so the results genuinely differ:
  *    `s/a*​/X/g` on "aaaab" is "XbX" in sed but "XXbX" in JS, and
@@ -447,11 +501,25 @@ export function applySedSubstitution(
     // Convert placeholder back to literal &
     .replace(new RegExp(ESCAPED_AMP_PLACEHOLDER, 'g'), '&')
 
+  let regex: RegExp
   try {
-    const regex = new RegExp(jsPattern, regexFlags)
-    return content.replace(regex, jsReplacement)
+    regex = new RegExp(jsPattern, regexFlags)
   } catch {
     // If regex is invalid, return original content
     return content
   }
+
+  // sed applies s/// to each line of the pattern space independently: without
+  // `g` it substitutes the first match on EVERY line, not the first match in
+  // the file. A single whole-buffer replace previewed `sed 's/a\{2\}/X/'` on
+  // "aa\naa\n" as "X\naa\n" where sed writes "X\nX\n". Apply per line. A
+  // trailing newline produces a final empty split element that corresponds to
+  // no input line, so it is carried over untouched.
+  const endsWithNewline = content.endsWith('\n')
+  const body = endsWithNewline ? content.slice(0, -1) : content
+  const result = body
+    .split('\n')
+    .map(line => line.replace(regex, jsReplacement))
+    .join('\n')
+  return endsWithNewline ? result + '\n' : result
 }
