@@ -459,13 +459,10 @@ export function isAzureStyleBaseUrl(
   if (!baseUrl) return false
   try {
     const hostname = new URL(baseUrl).hostname
-    return (
-      hostname.endsWith('.azure.com') &&
-      (hostname.includes('openai') ||
-        hostname.includes('cognitiveservices') ||
-        hostname.includes('services.ai') ||
-        hostname.includes('inference.ml'))
-    )
+    return hostname.endsWith('.openai.azure.com') ||
+      hostname.endsWith('.cognitiveservices.azure.com') ||
+      hostname.endsWith('.services.ai.azure.com') ||
+      hostname.endsWith('.inference.ml.azure.com')
   } catch {
     return false
   }

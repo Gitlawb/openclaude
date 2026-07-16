@@ -519,6 +519,19 @@ test('without OPENAI_AZURE_STYLE the same non-azure.com host stays on chat compl
   })
 })
 
+test('does not auto-route an Azure-hosted custom gateway based on its resource name', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openai-proxy.web.azure.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.6-sol'
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_API_FORMAT
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    resolvedModel: 'gpt-5.6-sol',
+  })
+})
+
 test('isAzureStyleBaseUrl honors the OPENAI_AZURE_STYLE override before hostname detection', () => {
   const overrideEnv = { OPENAI_AZURE_STYLE: '1' } as NodeJS.ProcessEnv
   const plainEnv = {} as NodeJS.ProcessEnv
@@ -530,13 +543,16 @@ test('isAzureStyleBaseUrl honors the OPENAI_AZURE_STYLE override before hostname
   expect(isAzureStyleBaseUrl('not a url', plainEnv)).toBe(false)
 })
 
-test('isAzureStyleBaseUrl matches the four Azure marker hostnames only', () => {
+test('isAzureStyleBaseUrl matches Azure OpenAI service hostnames only', () => {
   const plainEnv = {} as NodeJS.ProcessEnv
 
   expect(isAzureStyleBaseUrl('https://myres.openai.azure.com/openai/v1', plainEnv)).toBe(true)
   expect(isAzureStyleBaseUrl('https://myres.cognitiveservices.azure.com', plainEnv)).toBe(true)
   expect(isAzureStyleBaseUrl('https://myres.services.ai.azure.com/models', plainEnv)).toBe(true)
   expect(isAzureStyleBaseUrl('https://myres.inference.ml.azure.com', plainEnv)).toBe(true)
-  // .azure.com alone is not enough without a marker.
+  // Azure-hosted custom gateways are not Azure OpenAI endpoints merely because
+  // their resource name contains an Azure marker.
+  expect(isAzureStyleBaseUrl('https://openai-proxy.web.azure.com/v1', plainEnv)).toBe(false)
+  // .azure.com alone is not enough without a supported service suffix.
   expect(isAzureStyleBaseUrl('https://myapp.web.azure.com', plainEnv)).toBe(false)
 })
