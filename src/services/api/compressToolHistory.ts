@@ -35,6 +35,10 @@ const MID_MAX_CHARS = 2_000
 // here keeps the stub size bounded even when callers pass oversized arguments.
 const STUB_ARGS_MAX_CHARS = 200
 
+// Inline base64 image blocks can be megabytes long. Older tool history must
+// not retain that payload merely because it is structured rather than text.
+const OMITTED_INLINE_IMAGE_MARKER = '[Inline image omitted from tool history]'
+
 type AnyMessage = {
   role?: string
   message?: { role?: string; content?: unknown }
@@ -110,6 +114,14 @@ function replaceTextContent(
 
   let replacedText = false
   const content = block.content.flatMap(part => {
+    if (
+      part &&
+      typeof part === 'object' &&
+      (part as { type?: string }).type === 'image' &&
+      (part as { source?: { type?: string } }).source?.type === 'base64'
+    ) {
+      return [{ type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }]
+    }
     if (
       part &&
       typeof part === 'object' &&

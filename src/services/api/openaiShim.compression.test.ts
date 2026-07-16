@@ -530,6 +530,39 @@ test('FIX: 32k window tier → recent=3 keeps last 3 only', async () => {
   }
 })
 
+test('Chat compression omits old inline base64 image payloads', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const imageData = 'a'.repeat(100_000)
+  const messages = buildLongConversation(30, 5_000)
+  messages[2] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_0',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: imageData,
+            },
+          },
+        ],
+      },
+    ],
+  }
+
+  const body = await captureRequestBody(messages, MID_TIER_MODEL)
+  const firstOutput = getToolMessages(body)[0]?.content
+
+  expect(firstOutput).toContain('[Inline image omitted from tool history]')
+  expect(JSON.stringify(body)).not.toContain(imageData)
+  expect(JSON.stringify(body).length).toBeLessThan(100_000)
+})
+
 test('Responses compression preserves structured history and materially reduces the payload', async () => {
   mockState.effectiveWindow = 100_000
   const messages = buildStructuredLongConversation()
