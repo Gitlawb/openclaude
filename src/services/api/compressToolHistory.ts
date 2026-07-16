@@ -377,7 +377,12 @@ export function compressToolHistory<T extends AnyMessage>(
     if (firstPos === undefined || total - 1 - firstPos < tiers.recent) return msg
 
     const content = getInner(msg).content as unknown[]
-    let omitSiblingInlineImages = false
+    const omitSiblingInlineImages = content.some((block, blockIndex) => {
+      const pos = positions.get(blockIndex)
+      if (pos === undefined || total - 1 - pos < tiers.recent) return false
+      if ((block as { type?: string })?.type !== 'tool_result') return false
+      return shouldCompressBlock(block as ToolResultBlock, toolUsesById)
+    })
     const newContent = content.map((block, blockIndex) => {
       if (isInlineBase64Image(block) && omitSiblingInlineImages) {
         return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
@@ -392,7 +397,6 @@ export function compressToolHistory<T extends AnyMessage>(
       if (b?.type !== 'tool_result') return block
       const tr = block as ToolResultBlock
       if (!shouldCompressBlock(tr, toolUsesById)) return block
-      omitSiblingInlineImages = true
       return fromEnd < tiers.recent + tiers.mid
         ? truncateBlock(tr, MID_MAX_CHARS)
         : buildStub(tr, toolUsesById)
