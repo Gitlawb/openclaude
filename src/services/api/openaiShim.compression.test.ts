@@ -576,17 +576,17 @@ test('Chat compression omits old and mid-tier inline image payloads', async () =
     role: 'user',
     content: [
       {
+        type: 'tool_result',
+        tool_use_id: 'toolu_1',
+        content: bigText(5_000),
+      },
+      {
         type: 'image',
         source: {
           type: 'base64',
           media_type: 'image/png',
           data: imageData,
         },
-      },
-      {
-        type: 'tool_result',
-        tool_use_id: 'toolu_1',
-        content: bigText(5_000),
       },
     ],
   }

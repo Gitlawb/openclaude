@@ -384,26 +384,27 @@ export function compressToolHistory<T extends AnyMessage>(
     if (firstPos === undefined || total - 1 - firstPos < tiers.recent) return msg
 
     const content = getInner(msg).content as unknown[]
-    const omitSiblingInlineImages = content.some((block, blockIndex) => {
-      const pos = positions.get(blockIndex)
-      if (pos === undefined || total - 1 - pos < tiers.recent) return false
-      if ((block as { type?: string })?.type !== 'tool_result') return false
-      return shouldCompressBlock(block as ToolResultBlock, toolUsesById)
-    })
+    // Tool execution appends permission-decision content blocks after the
+    // owning tool result. Keep an independent user image that precedes a
+    // result, but bound inline images attached to an old/mid result.
+    let omitFollowingInlineImages = false
     const newContent = content.map((block, blockIndex) => {
-      if (isInlineBase64Image(block) && omitSiblingInlineImages) {
+      if (isInlineBase64Image(block) && omitFollowingInlineImages) {
         return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
       }
 
       const pos = positions.get(blockIndex)
       if (pos === undefined) return block
+      // A new result starts a new ownership span. This matters for a large
+      // parallel batch that crosses a tier boundary: an image following a
+      // recent result must not inherit omission from an older sibling.
+      omitFollowingInlineImages = false
       const fromEnd = total - 1 - pos
       if (fromEnd < tiers.recent) return block
 
-      const b = block as { type?: string }
-      if (b?.type !== 'tool_result') return block
       const tr = block as ToolResultBlock
       if (!shouldCompressBlock(tr, toolUsesById)) return block
+      omitFollowingInlineImages = true
       return fromEnd < tiers.recent + tiers.mid
         ? truncateBlock(tr, MID_MAX_CHARS, textBlockSeparator)
         : buildStub(tr, toolUsesById, textBlockSeparator)

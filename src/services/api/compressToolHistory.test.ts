@@ -501,6 +501,40 @@ test('tier boundaries: 16 exchanges → 1 old + 10 mid + 5 recent', () => {
   }
 })
 
+test('only omits permission images that follow a compressed tool result', () => {
+  const inlineImage = (data: string): Block => ({
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data },
+  })
+  const messages: Msg[] = [
+    {
+      role: 'assistant',
+      content: Array.from({ length: 6 }, (_, id) => ({
+        type: 'tool_use', id: `toolu_${id}`, name: 'Read', input: {},
+      })),
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'toolu_0', content: bigText(5_000) },
+        inlineImage('old-image-data'),
+        ...Array.from({ length: 4 }, (_, offset) => ({
+          type: 'tool_result', tool_use_id: `toolu_${offset + 1}`, content: 'recent',
+        })),
+        { type: 'tool_result', tool_use_id: 'toolu_5', content: 'recent' },
+        inlineImage('recent-image-data'),
+      ],
+    },
+  ]
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  const content = result[1].content as Block[]
+  expect(content[1]).toEqual({
+    type: 'text', text: '[Inline image omitted from tool history]',
+  })
+  expect(content.at(-1)).toEqual(inlineImage('recent-image-data'))
+})
+
 test('large window (1M) with 30 exchanges: all untouched (recent=25 ≥ 30 - 5)', () => {
   // ≥500k → recent=25, mid=50. 30 exchanges → 5 mid + 25 recent. None old.
   const messages = buildConversation(30, 5_000)
