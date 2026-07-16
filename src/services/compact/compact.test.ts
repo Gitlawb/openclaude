@@ -81,6 +81,60 @@ const _realClaudeApiModule = await import(
 const _realGrowthBookModule = await import(
   `../analytics/growthbook.js?real=${Date.now()}-${Math.random()}`
 )
+const _realContextModule = await import(
+  `../../utils/context.js?real=${Date.now()}-${Math.random()}`
+)
+const _realErrorsModule = await import(
+  `../../utils/errors.js?real=${Date.now()}-${Math.random()}`
+)
+const _realTokensModule = await import(
+  `../../utils/tokens.js?real=${Date.now()}-${Math.random()}`
+)
+
+const COMPACT_STUB_MODULES = [
+  '../analytics/growthbook.js',
+  '../analytics/index.js',
+  '../api/claude.js',
+  '../api/errors.js',
+  '../api/promptCacheBreakDetection.js',
+  '../api/withRetry.js',
+  '../tokenEstimation.js',
+  '../../bootstrap/state.js',
+  '../../tools/FileReadTool/FileReadTool.js',
+  '../../tools/FileReadTool/prompt.js',
+  '../../tools/ToolSearchTool/ToolSearchTool.js',
+  '../../utils/attachments.js',
+  '../../utils/auth.js',
+  '../../utils/config.js',
+  '../../utils/context.js',
+  '../../utils/contextAnalysis.js',
+  '../../utils/debug.js',
+  '../../utils/errors.js',
+  '../../utils/fileStateCache.js',
+  '../../utils/forkedAgent.js',
+  '../../utils/hooks.js',
+  '../../utils/log.js',
+  '../../utils/memory/types.js',
+  '../../utils/messages.js',
+  '../../utils/messages/systemFactories.js',
+  '../../utils/model/model.js',
+  '../../utils/model/modelSupportOverrides.js',
+  '../../utils/path.js',
+  '../../utils/plans.js',
+  '../../utils/projectInstructions.js',
+  '../../utils/sessionActivity.js',
+  '../../utils/sessionStart.js',
+  '../../utils/sessionStorage.js',
+  '../../utils/settings/settings.js',
+  '../../utils/sleep.js',
+  '../../utils/slowOperations.js',
+  '../../utils/systemPromptType.js',
+  '../../utils/task/diskOutput.js',
+  '../../utils/tokens.js',
+  '../../utils/toolSearch.js',
+  './grouping.js',
+  './prompt.js',
+] as const
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -644,6 +698,12 @@ afterEach(() => {
 afterAll(async () => {
   mock.restore()
   clearProviderEnv()
+  for (const specifier of COMPACT_STUB_MODULES) {
+    const realModule = await import(
+      `${specifier}?real=${Date.now()}-${Math.random()}`
+    )
+    mock.module(specifier, () => ({ ...realModule }))
+  }
   // The compact test registers many mock.module() stubs that persist
   // process-wide. Restore the real implementations so downstream test files
   // (goal controller, runAgent routing, BashTool) get correct behaviour.
@@ -683,6 +743,25 @@ afterAll(async () => {
   mock.module('../tokenEstimation.js', () => ({ ..._realTokenEstimationModule }))
   mock.module('../api/claude.js', () => ({ ..._realClaudeApiModule }))
   mock.module('../analytics/growthbook.js', () => ({ ..._realGrowthBookModule }))
+  mock.module('../../utils/context.js', () => ({ ..._realContextModule }))
+  mock.module('../../utils/errors.js', () => ({ ..._realErrorsModule }))
+  mock.module('../../utils/tokens.js', () => ({ ..._realTokensModule }))
+  // Keep the cleanup load-bearing: these modules are consumed by standalone
+  // auto-compact tests when this file happens to run first in the smoke suite.
+  const [restoredContext, restoredErrors, restoredTokens] = await Promise.all([
+    import('../../utils/context.js'),
+    import('../../utils/errors.js'),
+    import('../../utils/tokens.js'),
+  ])
+  expect(restoredContext.getContextWindowForModel).toBe(
+    _realContextModule.getContextWindowForModel,
+  )
+  expect(restoredErrors.hasExactErrorMessage).toBe(
+    _realErrorsModule.hasExactErrorMessage,
+  )
+  expect(restoredTokens.tokenCountWithEstimation).toBe(
+    _realTokensModule.tokenCountWithEstimation,
+  )
   // projectInstructions: the stub above replaces the whole module with only
   // getProjectInstructionFilePaths, so every other export becomes undefined.
   // Downstream CLAUDE.md discovery in runAgent.routing.test.ts then crashes in
