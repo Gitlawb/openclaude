@@ -12,6 +12,7 @@ import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
+import { buildResumeTaskOptionLabel } from './resumeTaskLabel.js';
 import { Spinner } from './Spinner.js';
 import { TeleportError } from './TeleportError.js';
 type Props = {
@@ -22,6 +23,7 @@ type Props = {
 type LoadErrorType = 'network' | 'auth' | 'api' | 'other';
 const UPDATED_STRING = 'Updated';
 const SPACE_BETWEEN_TABLE_COLUMNS = '  ';
+
 export function ResumeTask({
   onSelect,
   onCancel,
@@ -161,13 +163,11 @@ export function ResumeTask({
   const options = sessionMetadata.map(({
     timeString,
     title,
+    repo,
     id
   }) => {
-    const paddedTime = timeString.padEnd(maxTimeStringLength, ' ');
-
-    // TODO: include branch name when API returns it
     return {
-      label: `${paddedTime}  ${title}`,
+      label: buildResumeTaskOptionLabel(timeString, title, repo, maxTimeStringLength),
       value: id
     };
   });
