@@ -130,7 +130,6 @@ const COMPACT_STUB_MODULES = [
   './grouping.js',
   './prompt.js',
 ] as const
-
 const realCompactStubModules = new Map(
   await Promise.all(
     COMPACT_STUB_MODULES.map(async specifier =>
