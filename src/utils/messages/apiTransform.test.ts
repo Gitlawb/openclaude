@@ -17,7 +17,6 @@ import type { UserMessage } from '../../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
-const testWithoutHistorySnip = feature('HISTORY_SNIP') ? test.skip : test
 
 function tagFor(uuid: string): string {
   return `snip_id=${deriveShortMessageId(uuid)}`
@@ -41,8 +40,8 @@ describe('appendMessageTagToUserMessage', () => {
     expect(JSON.stringify(merged?.message.content)).toContain('do Y instead')
   })
 
-  testWithoutHistorySnip(
-    'non-snip retries strip a rejected meta image after it merged with a prompt',
+  test(
+    'retries strip a rejected image after it merged with a prompt',
     () => {
       const attachment = createUserMessage({
         content: [
