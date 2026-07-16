@@ -84,7 +84,7 @@ describe('appendMessageTagToUserMessage', () => {
     expect(retryContent).not.toContain('oversized-pasted-image')
   })
 
-  test('keeps a later real attachment when the preceding meta attachment failed', () => {
+  test('strips every ambiguous image attachment in the failed turn', () => {
     const oldAttachment = createUserMessage({
       content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'old-invalid-image' } }],
       isMeta: true,
@@ -99,8 +99,32 @@ describe('appendMessageTagToUserMessage', () => {
     ])
     const retryContent = JSON.stringify(retry[0]?.message.content)
 
-    expect(retryContent).toContain('latest-valid-image')
+    expect(retryContent).toContain('describe this screenshot')
     expect(retryContent).not.toContain('old-invalid-image')
+    expect(retryContent).not.toContain('latest-valid-image')
+  })
+
+  test('strips an earlier image past a different meta attachment', () => {
+    const image = createUserMessage({
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'oversized-image' } }],
+      isMeta: true,
+    })
+    const pdf = createUserMessage({
+      content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'valid-pdf' } }],
+      isMeta: true,
+    })
+    const prompt = createUserMessage({ content: 'describe both attachments' })
+    const retry = normalizeMessagesForAPI([
+      image,
+      pdf,
+      prompt,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('valid-pdf')
+    expect(retryContent).toContain('describe both attachments')
+    expect(retryContent).not.toContain('oversized-image')
   })
 
   test('appends internal snip metadata to string content', () => {

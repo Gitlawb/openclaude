@@ -1444,29 +1444,29 @@ export function normalizeMessagesForAPI(
     if (!blockTypesToStrip) {
       continue
     }
-    // Prefer the raw meta attachment immediately before its real prompt: API
-    // normalization merges that pair later. Otherwise an ordinary pasted
-    // attachment is carried by the immediate user message itself.
+    // Provider errors do not identify the rejected attachment. Strip the
+    // matching block type from every contiguous user message in this failed
+    // turn: choosing only one adjacent message can retain the bad payload and
+    // make every retry fail again.
     for (let j = i - 1; j >= 0; j--) {
       const candidate = reorderedMessages[j]!
       if (candidate.type === 'user') {
-        const preceding = reorderedMessages[j - 1]
-        const target =
-          preceding?.type === 'user' &&
-          preceding.isMeta &&
-          Array.isArray(preceding.message.content) &&
-          preceding.message.content.some(block => blockTypesToStrip.has(block.type))
-            ? preceding
-            : candidate
-        const existing = stripTargets.get(target.uuid)
+        const content = candidate.message.content
+        if (
+          !Array.isArray(content) ||
+          !content.some(block => blockTypesToStrip.has(block.type))
+        ) {
+          continue
+        }
+        const existing = stripTargets.get(candidate.uuid)
         if (existing) {
           for (const t of blockTypesToStrip) {
             existing.add(t)
           }
         } else {
-          stripTargets.set(target.uuid, new Set(blockTypesToStrip))
+          stripTargets.set(candidate.uuid, new Set(blockTypesToStrip))
         }
-        break
+        continue
       }
       // Skip over other synthetic error messages.
       if (isSyntheticApiErrorMessage(candidate)) {
