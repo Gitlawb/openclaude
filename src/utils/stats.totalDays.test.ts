@@ -91,4 +91,22 @@ describe('inclusiveCalendarDaySpan', () => {
     ).toBe(0)
     expect(inclusiveCalendarDaySpan('not-a-date', 'also-bad')).toBe(0)
   })
+
+  test('returns 0 for impossible calendar dates instead of normalizing them', () => {
+    // Date.parse rolls 2026-02-30 over to March 2, so a date-shaped-prefix
+    // guard alone would fabricate a span (this exact pair returned 1) instead
+    // of taking the documented 0 fallback.
+    expect(inclusiveCalendarDaySpan('2026-02-30', '2026-03-02')).toBe(0)
+    expect(inclusiveCalendarDaySpan('2026-07-13', '2026-13-01')).toBe(0)
+    expect(inclusiveCalendarDaySpan('2026-00-10', '2026-07-13')).toBe(0)
+    expect(inclusiveCalendarDaySpan('2026-07-00', '2026-07-13')).toBe(0)
+    expect(inclusiveCalendarDaySpan('2026-04-31', '2026-05-01')).toBe(0)
+  })
+
+  test('rejects February 29 only in non-leap years', () => {
+    // Non-leap 2026: impossible, must not normalize to March 1.
+    expect(inclusiveCalendarDaySpan('2026-02-29', '2026-03-01')).toBe(0)
+    // Leap 2024: a real day, spans inclusively to March 1.
+    expect(inclusiveCalendarDaySpan('2024-02-29', '2024-03-01')).toBe(2)
+  })
 })
