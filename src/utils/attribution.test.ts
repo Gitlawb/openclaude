@@ -17,78 +17,6 @@ import type { SettingsJson } from './settings/types.js'
 
 const actualSettings = { ...realSettings }
 
-function restoredGovernancePolicyModule() {
-  const getForbiddenCommitMessagePatterns = (): string[] => {
-    const patterns: string[] = []
-    const sourceNames = [
-      'userSettings',
-      'projectSettings',
-      'localSettings',
-      'policySettings',
-      'flagSettings',
-    ]
-    for (const source of sourceNames) {
-      const sourcePatterns =
-        actualSettings.getSettingsForSource(source as never)?.git
-          ?.forbiddenCommitMessagePatterns ?? []
-      for (const pattern of sourcePatterns) {
-        if (!patterns.includes(pattern)) {
-          patterns.push(pattern)
-        }
-      }
-    }
-    return patterns
-  }
-
-  const findForbiddenCommitMessagePattern = (message: string): string | null => {
-    const normalizedMessage = message.toLocaleLowerCase()
-    for (const pattern of getForbiddenCommitMessagePatterns()) {
-      if (pattern && normalizedMessage.includes(pattern.toLocaleLowerCase())) {
-        return pattern
-      }
-    }
-    return null
-  }
-
-  const sourceHasGitFlag = (
-    key: 'addAICoAuthor' | 'addGeneratedWithFooter',
-    value: boolean,
-  ): boolean =>
-    [
-      'userSettings',
-      'projectSettings',
-      'localSettings',
-      'policySettings',
-      'flagSettings',
-    ].some(
-      source =>
-        actualSettings.getSettingsForSource(source as never)?.git?.[key] ===
-        value,
-    )
-
-  return {
-    getGitAttributionOptIns: () => {
-      const git = actualSettings.getInitialSettings().git
-      return {
-        addAICoAuthor: git?.addAICoAuthor === true,
-        addGeneratedWithFooter: git?.addGeneratedWithFooter === true,
-      }
-    },
-    isGeneratedCommitAttributionBlocked: () =>
-      sourceHasGitFlag('addAICoAuthor', false),
-    isGeneratedPrAttributionBlocked: () =>
-      sourceHasGitFlag('addGeneratedWithFooter', false),
-    isGitAttributionBlocked: () =>
-      sourceHasGitFlag('addAICoAuthor', false) ||
-      sourceHasGitFlag('addGeneratedWithFooter', false),
-    getForbiddenCommitMessagePatterns,
-    findForbiddenCommitMessagePattern,
-    isMemoryWriteApprovalRequired: () =>
-      actualSettings.getInitialSettings().memory?.requireApprovalBeforeWrite !==
-      false,
-  }
-}
-
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
 let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
   'getDefaultCommitCoAuthorEmail'
@@ -218,25 +146,6 @@ beforeEach(async () => {
     getSettings_DEPRECATED: () => testSettings,
     getSettingsForSource: () => testSettings,
   }))
-  mock.module('./governancePolicy.js', () => ({
-    getGitAttributionOptIns: () => ({
-      addAICoAuthor: testSettings.git?.addAICoAuthor === true,
-      addGeneratedWithFooter:
-        testSettings.git?.addGeneratedWithFooter === true,
-    }),
-    isGeneratedCommitAttributionBlocked: () =>
-      testSettings.git?.addAICoAuthor === false,
-    isGeneratedPrAttributionBlocked: () =>
-      testSettings.git?.addGeneratedWithFooter === false,
-    isGitAttributionBlocked: () =>
-      testSettings.git?.addAICoAuthor === false ||
-      testSettings.git?.addGeneratedWithFooter === false,
-    getForbiddenCommitMessagePatterns: () =>
-      testSettings.git?.forbiddenCommitMessagePatterns ?? [],
-    findForbiddenCommitMessagePattern: () => null,
-    isMemoryWriteApprovalRequired: () =>
-      testSettings.memory?.requireApprovalBeforeWrite !== false,
-  }))
   const attribution = await import(
     `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
   )
@@ -253,8 +162,9 @@ afterEach(() => {
   testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
+  mock.module('./model/model.js', () => actualModel)
+  mock.module('./model/providers.js', () => actualProviders)
   mock.module('./settings/settings.js', () => actualSettings)
-  mock.module('./governancePolicy.js', restoredGovernancePolicyModule)
   restoreEnv()
 })
 

@@ -13,10 +13,14 @@ import {
 } from '../test/sharedMutationLock.js'
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
+type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
 
 const actualSettingsModule = (await import(
   `../utils/settings/settings.ts?providerManagerSettingsActual=${Date.now()}-${Math.random()}`
 )) as SettingsModule
+const actualProviderStartupOverridesModule = (await import(
+  `../utils/providerStartupOverrides.ts?providerManagerStartupOverridesActual=${Date.now()}-${Math.random()}`
+)) as ProviderStartupOverridesModule
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -574,6 +578,7 @@ afterEach(() => {
   try {
     mock.restore()
     mock.module('../utils/settings/settings.js', () => actualSettingsModule)
+    mock.module('../utils/providerStartupOverrides.js', () => actualProviderStartupOverridesModule)
 
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
       if (value === undefined) {
