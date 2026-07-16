@@ -1444,17 +1444,27 @@ export function normalizeMessagesForAPI(
     if (!blockTypesToStrip) {
       continue
     }
-    // Walk backward to find the immediately preceding user message.
+    // Prefer the raw meta attachment immediately before its real prompt: API
+    // normalization merges that pair later. Otherwise an ordinary pasted
+    // attachment is carried by the immediate user message itself.
     for (let j = i - 1; j >= 0; j--) {
       const candidate = reorderedMessages[j]!
       if (candidate.type === 'user') {
-        const existing = stripTargets.get(candidate.uuid)
+        const preceding = reorderedMessages[j - 1]
+        const target =
+          preceding?.type === 'user' &&
+          preceding.isMeta &&
+          Array.isArray(preceding.message.content) &&
+          preceding.message.content.some(block => blockTypesToStrip.has(block.type))
+            ? preceding
+            : candidate
+        const existing = stripTargets.get(target.uuid)
         if (existing) {
           for (const t of blockTypesToStrip) {
             existing.add(t)
           }
         } else {
-          stripTargets.set(candidate.uuid, new Set(blockTypesToStrip))
+          stripTargets.set(target.uuid, new Set(blockTypesToStrip))
         }
         break
       }

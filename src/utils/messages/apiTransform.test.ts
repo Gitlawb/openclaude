@@ -57,12 +57,11 @@ describe('appendMessageTagToUserMessage', () => {
         isMeta: true,
       })
       const prompt = createUserMessage({ content: 'describe this image' })
-      const [failedRequest] = normalizeMessagesForAPI([attachment, prompt])
       const imageError = createAssistantAPIErrorMessage({
         content: getImageTooLargeErrorMessage(),
       })
 
-      const retry = normalizeMessagesForAPI([failedRequest!, imageError])
+      const retry = normalizeMessagesForAPI([attachment, prompt, imageError])
       const retryContent = JSON.stringify(retry[0]?.message.content)
 
       expect(retryContent).toContain('describe this image')
@@ -70,6 +69,39 @@ describe('appendMessageTagToUserMessage', () => {
       expect(retryContent).not.toContain('"type":"image"')
     },
   )
+
+  test('retries strip an oversized pasted image on an ordinary user prompt', () => {
+    const prompt = createUserMessage({
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'oversized-pasted-image' } }, { type: 'text', text: 'describe this image' }],
+    })
+    const retry = normalizeMessagesForAPI([
+      prompt,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('describe this image')
+    expect(retryContent).not.toContain('oversized-pasted-image')
+  })
+
+  test('keeps a later real attachment when the preceding meta attachment failed', () => {
+    const oldAttachment = createUserMessage({
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'old-invalid-image' } }],
+      isMeta: true,
+    })
+    const laterAttachment = createUserMessage({
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'latest-valid-image' } }, { type: 'text', text: 'describe this screenshot' }],
+    })
+    const retry = normalizeMessagesForAPI([
+      oldAttachment,
+      laterAttachment,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('latest-valid-image')
+    expect(retryContent).not.toContain('old-invalid-image')
+  })
 
   test('appends internal snip metadata to string content', () => {
     const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
