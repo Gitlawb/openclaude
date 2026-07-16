@@ -31,6 +31,7 @@ const realSessionMemoryCompact = await import(
 )
 
 const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
+let hasSharedMutationLock = false
 
 type ImportAutoCompactOptions = {
   compactConversation?: ReturnType<typeof mock>
@@ -111,14 +112,24 @@ function restoreEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/autoCompact.test.ts')
-  delete process.env.DISABLE_COMPACT
-  delete process.env.DISABLE_AUTO_COMPACT
-  delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
-  delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
-  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  hasSharedMutationLock = true
+  try {
+    delete process.env.DISABLE_COMPACT
+    delete process.env.DISABLE_AUTO_COMPACT
+    delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  } catch (error) {
+    releaseSharedMutationLock()
+    hasSharedMutationLock = false
+    throw error
+  }
 })
 
 afterEach(async () => {
+  if (!hasSharedMutationLock) {
+    return
+  }
   try {
     mock.restore()
     restoreEnv()
@@ -132,6 +143,7 @@ afterEach(async () => {
     }))
   } finally {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
   }
 })
 
