@@ -9,6 +9,7 @@ import {
   test,
 } from 'bun:test'
 import { randomUUID } from 'crypto'
+import { unlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -31,11 +32,6 @@ const _realProvidersModule = await import(
   `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`
 )
 
-// Pre-import the real diskOutput module so we can restore it in afterAll
-// (compact's mock of getTaskOutputPath leaks and breaks BashTool tests).
-const _realDiskOutputModule = await import(
-  `../../utils/task/diskOutput.js?real=${Date.now()}-${Math.random()}`
-)
 // Pre-import real modules that compact stubs but downstream tests need
 // (goal continuation controller, runAgent provider routing).
 const _realMessagesModule = await import(
@@ -732,27 +728,8 @@ async function restoreCompactTestMocks() {
     }
     mock.module(specifier, () => ({ ...realModule }))
   }
-  // The compact test registers many mock.module() stubs that persist
-  // process-wide. Restore the real implementations so downstream test files
-  // (goal controller, runAgent routing, BashTool) get correct behaviour.
-  mock.module('../../utils/task/diskOutput.js', () => ({
-    getTaskOutputDir: _realDiskOutputModule.getTaskOutputDir,
-    getTaskOutputPath: _realDiskOutputModule.getTaskOutputPath,
-    initTaskOutput: _realDiskOutputModule.initTaskOutput,
-    initTaskOutputAsSymlink: _realDiskOutputModule.initTaskOutputAsSymlink,
-    appendTaskOutput: _realDiskOutputModule.appendTaskOutput,
-    flushTaskOutput: _realDiskOutputModule.flushTaskOutput,
-    evictTaskOutput: _realDiskOutputModule.evictTaskOutput,
-    getTaskOutputDelta: _realDiskOutputModule.getTaskOutputDelta,
-    getTaskOutput: _realDiskOutputModule.getTaskOutput,
-    getTaskOutputSize: _realDiskOutputModule.getTaskOutputSize,
-    cleanupTaskOutput: _realDiskOutputModule.cleanupTaskOutput,
-    _clearOutputsForTest: _realDiskOutputModule._clearOutputsForTest,
-    _resetTaskOutputDirForTest: _realDiskOutputModule._resetTaskOutputDirForTest,
-    DiskTaskOutput: _realDiskOutputModule.DiskTaskOutput,
-    MAX_TASK_OUTPUT_BYTES: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES,
-    MAX_TASK_OUTPUT_BYTES_DISPLAY: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES_DISPLAY,
-  }))
+  // The generic loop above restores the full diskOutput module contract for
+  // downstream tests (goal controller, runAgent routing, BashTool).
   mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
   mock.module('../../utils/messages/systemFactories.js', () => ({
     ..._realSystemFactoriesModule,
@@ -818,9 +795,12 @@ async function restoreCompactTestMocks() {
   }))
   // Clean up only the unique test-owned path returned by the mock above.
   try {
-    const { unlink } = await import('fs/promises')
-    await unlink(compactTestTaskOutputPath).catch(() => {})
-  } catch {}
+    await unlink(compactTestTaskOutputPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error
+    }
+  }
 }
 
 afterAll(async () => {
