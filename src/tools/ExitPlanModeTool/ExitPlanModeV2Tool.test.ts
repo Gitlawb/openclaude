@@ -13,6 +13,10 @@ import {
 function makeUnwritablePlanPath(): string {
   return join(tmpdir(), `oc-exitplan-missing-${Date.now()}-${Math.random()}`, 'plan.md')
 }
+
+function planPathForAgent(basePath: string, agentId?: string): string {
+  return agentId ? basePath.replace(/\.md$/, `-agent-${agentId}.md`) : basePath
+}
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import {
   setDynamicTeamContext,
@@ -36,7 +40,8 @@ beforeAll(async () => {
 
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
-    getPlanFilePath: () => '/tmp/test-plan.md',
+    getPlanFilePath: (agentId?: string) =>
+      planPathForAgent('/tmp/test-plan.md', agentId),
     getPlan: () => 'plan content',
     persistFileSnapshotIfRemote: () => Promise.resolve(),
   }))
@@ -75,9 +80,11 @@ function makeCtx() {
 
 test('surfaces write error when plan file write fails and asserts no side effects (standard)', async () => {
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
+  const unwritablePlanPath = makeUnwritablePlanPath()
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
-    getPlanFilePath: () => makeUnwritablePlanPath(),
+    getPlanFilePath: (agentId?: string) =>
+      planPathForAgent(unwritablePlanPath, agentId),
     getPlan: () => 'plan content',
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))
@@ -126,9 +133,11 @@ test('surfaces write error when plan file write fails and asserts no side effect
 
 test('surfaces write error when plan file write fails and asserts no teammate approval side effects', async () => {
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
+  const unwritablePlanPath = makeUnwritablePlanPath()
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
-    getPlanFilePath: () => makeUnwritablePlanPath(),
+    getPlanFilePath: (agentId?: string) =>
+      planPathForAgent(unwritablePlanPath, agentId),
     getPlan: () => 'plan content',
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))

@@ -15,12 +15,17 @@ import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
 import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js'
 import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
-import type { AnyObject, Tool, ToolPermissionContext } from '../../Tool.js'
+import type {
+  AnyObject,
+  Tool,
+  ToolPermissionContext,
+  ToolUseContext,
+} from '../../Tool.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { getCwd } from '../cwd.js'
 import { logForDebugging } from '../debug.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
-import { isFsInaccessible } from '../errors.js'
+import { isENOENT, isFsInaccessible } from '../errors.js'
 import { isMemoryWriteApprovalRequired } from '../governancePolicy.js'
 import {
   getFsImplementation,
@@ -482,6 +487,58 @@ function isScratchpadPath(absolutePath: string): boolean {
 function pathsEqualForPermission(a: string, b: string): boolean {
   return normalizeCaseForComparison(normalize(a)) ===
     normalizeCaseForComparison(normalize(b))
+}
+
+function pathsEqualForActivePlan(a: string, b: string): boolean {
+  const normalizedA = normalize(a)
+  const normalizedB = normalize(b)
+  return normalizedA === normalizedB
+}
+
+/**
+ * Whether a path resolves exactly to the active plan file for this execution
+ * context. Unlike isSessionPlanFile(), this deliberately does not accept other
+ * agent plan files or files that merely share the current plan slug prefix.
+ */
+export function isActiveSessionPlanFile(
+  path: string,
+  agentId?: ToolUseContext['agentId'],
+): boolean {
+  try {
+    const activePlanPath = getActiveSessionPlanFilePath(agentId)
+    try {
+      const activePlanStats = getFsImplementation().lstatSync(activePlanPath)
+      if (activePlanStats.isSymbolicLink() || !activePlanStats.isFile()) {
+        return false
+      }
+    } catch (error) {
+      if (!isENOENT(error)) return false
+    }
+
+    const expectedForms = getPathsForPermissionCheck(activePlanPath)
+    const targetForms = getPathsForPermissionCheck(expandPath(path))
+
+    return (
+      targetForms.length > 0 &&
+      targetForms.every(target =>
+        expectedForms.some(expected => pathsEqualForActivePlan(target, expected)),
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getActiveSessionPlanFilePath(
+  agentId?: ToolUseContext['agentId'],
+): string {
+  // Lazy import keeps the permission/filesystem cycle safe and ensures test
+  // harnesses that temporarily replace the plan provider cannot leave a stale
+  // function captured in this module.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getPlanFilePath } =
+    require('../plans.js') as typeof import('../plans.js')
+  return getPlanFilePath(agentId)
 }
 
 export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {

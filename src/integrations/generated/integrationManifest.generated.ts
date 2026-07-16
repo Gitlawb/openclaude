@@ -468,8 +468,8 @@ export const PROVIDER_PRESET_MANIFEST = [
     "vendorId": "openai",
     "gatewayId": "custom",
     "description": "Any OpenAI-compatible provider",
-    "label": "Custom",
-    "name": "Custom OpenAI-compatible",
+    "label": "Custom (OpenAI-compatible)",
+    "name": "Custom (OpenAI-compatible)",
     "apiKeyEnvVars": [
       "OPENAI_API_KEYS",
       "OPENAI_API_KEY"
@@ -482,6 +482,27 @@ export const PROVIDER_PRESET_MANIFEST = [
       "OPENAI_MODEL"
     ],
     "fallbackBaseUrl": "http://localhost:11434/v1"
+  },
+  {
+    "preset": "custom-anthropic",
+    "routeKind": "anthropic-proxy",
+    "routeId": "custom-anthropic",
+    "vendorId": "anthropic",
+    "description": "Any Anthropic Messages API-compatible provider",
+    "label": "Custom (Anthropic-compatible)",
+    "name": "Custom (Anthropic-compatible)",
+    "apiKeyEnvVars": [
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_API_KEY"
+    ],
+    "baseUrlEnvVars": [
+      "ANTHROPIC_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "ANTHROPIC_MODEL"
+    ],
+    "fallbackBaseUrl": "https://anthropic-proxy.example",
+    "fallbackModel": "claude-sonnet-4-6"
   }
 ] as const satisfies readonly ProviderPresetManifestEntry[]
 export type ProviderPreset = (typeof PROVIDER_PRESET_MANIFEST)[number]['preset']
@@ -520,5 +541,6 @@ export const ORDERED_PROVIDER_PRESETS = [
   "xiaomi-mimo",
   "xiaomi-mimo-token",
   "zai",
-  "custom"
+  "custom",
+  "custom-anthropic"
 ] as const

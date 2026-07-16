@@ -58,6 +58,7 @@ import { clampUltracodeEffort, getInitialEffortSetting, parseEffortValue } from 
 import { getInitialFastModeSetting, isFastModeEnabled, prefetchFastModeStatus, resolveFastModeStatusFromCache } from './utils/fastMode.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { createSystemMessage, createUserMessage } from './utils/messages.js';
+import { isFirstPartyAnthropicBaseUrl } from './utils/model/providers.js';
 import { getPlatform } from './utils/platform.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSessionIngressAuthToken } from './utils/sessionIngressAuth.js';
@@ -1286,10 +1287,12 @@ async function run(): Promise<CommanderCommand> {
       const fileSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID || getSessionId();
       const files = parseFileSpecs(fileSpecs);
       if (files.length > 0) {
-        // Use ANTHROPIC_BASE_URL if set (by EnvManager), otherwise use OAuth config
-        // This ensures consistency with session ingress API in all environments
+        // Session ingress credentials are only valid for the first-party Files API.
+        // A custom Anthropic endpoint must never receive this bearer token.
         const config: FilesApiConfig = {
-          baseUrl: process.env.ANTHROPIC_BASE_URL || getOauthConfig().BASE_API_URL,
+          baseUrl: isFirstPartyAnthropicBaseUrl()
+            ? process.env.ANTHROPIC_BASE_URL || getOauthConfig().BASE_API_URL
+            : getOauthConfig().BASE_API_URL,
           oauthToken: sessionToken,
           sessionId: fileSessionId
         };

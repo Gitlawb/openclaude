@@ -26,7 +26,7 @@ import {
   type ModelSetting,
   parseUserSpecifiedModel,
 } from './model/model.js'
-import { getAPIProvider } from './model/providers.js'
+import { isFirstPartyAnthropicProvider } from './model/providers.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
 import {
   getInitialSettings,
@@ -36,7 +36,7 @@ import {
 import { createSignal } from './signal.js'
 
 export function isFastModeEnabled(): boolean {
-  if (getAPIProvider() !== 'firstParty') {
+  if (!isFirstPartyAnthropicProvider()) {
     return false
   }
   return !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FAST_MODE)
@@ -73,7 +73,7 @@ function getDisabledReasonMessage(
 }
 
 export function getFastModeUnavailableReason(): string | null {
-  if (getAPIProvider() !== 'firstParty') {
+  if (!isFirstPartyAnthropicProvider()) {
     return 'Fast mode is not available on third-party providers'
   }
 

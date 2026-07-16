@@ -5,6 +5,7 @@ import { checkAndRefreshOAuthTokenIfNeeded } from '../../utils/auth.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 import { getAuthHeaders, getUserAgent } from '../../utils/http.js'
+import { isFirstPartyAnthropicProvider } from '../../utils/model/providers.js'
 import { normalizeMessagesForAPI } from '../../utils/messages.js'
 import {
   extractAgentIdsFromMessages,
@@ -31,6 +32,9 @@ export async function submitTranscriptShare(
   trigger: TranscriptShareTrigger,
   appearanceId: string,
 ): Promise<TranscriptShareResult> {
+  if (!isFirstPartyAnthropicProvider()) {
+    return { success: false }
+  }
   try {
     logForDebugging('Collecting transcript for sharing', { level: 'info' })
 

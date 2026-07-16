@@ -18,15 +18,16 @@ import type { AgentId } from '../../types/ids.js';
 import type { AssistantMessage } from '../../types/message.js';
 import { parseForSecurity } from '../../utils/bash/ast.js';
 import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/bash/commands.js';
-import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
+import { extractClaudeCodeHints, extractClaudeCodeHintsFromPreview, type ClaudeCodeHint } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
-import { isENOENT, ShellError } from '../../utils/errors.js';
+import { isENOENT, ShellError, toError } from '../../utils/errors.js';
 import { detectFileEncoding, detectLineEndings, getFileModificationTime, writeTextContent } from '../../utils/file.js';
 import { fileHistoryEnabled, fileHistoryTrackEdit } from '../../utils/fileHistory.js';
 import { truncate } from '../../utils/format.js';
 import { getFsImplementation } from '../../utils/fsOperations.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { logError } from '../../utils/log.js';
 import { expandPath } from '../../utils/path.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { maybeRecordPluginHint } from '../../utils/plugins/hintRecommendation.js';
@@ -39,7 +40,7 @@ import { EndTruncatingAccumulator } from '../../utils/stringUtils.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { TaskOutput } from '../../utils/task/TaskOutput.js';
 import { isOutputLineTruncated } from '../../utils/terminal.js';
-import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES } from '../../utils/toolResultStorage.js';
+import { buildLargeToolResultMessage, ensureToolResultsDir, generateFilePreview, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES, type PreviewStrategy } from '../../utils/toolResultStorage.js';
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
@@ -304,6 +305,8 @@ const outputSchema = lazySchema(() => z.object({
   structuredContent: z.array(z.any()).optional().describe('Structured content blocks'),
   persistedOutputPath: z.string().optional().describe('Path to the persisted full output in tool-results dir (set when output is too large for inline)'),
   persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)'),
+  persistedOutputPreview: z.string().optional().describe('UTF-8-safe head/tail preview read from the complete rolled-output source'),
+  persistedOutputPreviewStrategy: z.enum(['complete', 'head-tail', 'head-only']).optional().describe('How the persisted output preview was selected'),
   persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)')
 }));
 type OutputSchema = ReturnType<typeof outputSchema>;
@@ -324,6 +327,7 @@ import type { BashProgress } from '../../types/tools.js';
  * command does not blow up disk usage in the user's home dir.
  */
 export const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+const MAX_SANDBOX_DIAGNOSTIC_PREVIEW_BYTES = 512;
 
 /**
  * Copy the shell's rolled-output file into the tool-results dir so the model
@@ -341,7 +345,8 @@ export async function persistShellOutputFile(
   sourcePath: string,
   taskId: string,
   maxSize: number = MAX_PERSISTED_SHELL_OUTPUT_SIZE,
-): Promise<{ path: string; size: number; truncated: boolean } | null> {
+  command: string = '',
+): Promise<{ path: string; size: number; truncated: boolean; preview?: string; previewStrategy?: PreviewStrategy; previewHints?: ClaudeCodeHint[] } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
@@ -379,7 +384,25 @@ export async function persistShellOutputFile(
     // reports as the output total. `truncated` tells the error path that the
     // saved file is capped at MAX_PERSISTED_SHELL_OUTPUT_SIZE so it does not
     // describe a partial file as the full output.
-    return { path: dest, size, truncated };
+    const previewSourcePath = truncated ? sourcePath : dest;
+    const previewResult = await generateFilePreview(
+      previewSourcePath,
+      PREVIEW_SIZE_BYTES,
+    ).catch(error => {
+      logError(toError(error));
+      return undefined;
+    });
+    const previewExtraction = previewResult
+      ? extractClaudeCodeHintsFromPreview(previewResult, command)
+      : undefined;
+    return {
+      path: dest,
+      size,
+      truncated,
+      preview: previewExtraction?.previewResult.preview,
+      previewStrategy: previewExtraction?.previewResult.strategy,
+      previewHints: previewExtraction?.hints,
+    };
   } catch {
     // File may already be gone — caller's stdout preview is sufficient.
     return null;
@@ -401,13 +424,36 @@ export function appendPersistedOutputHint(
   persistedPath: string,
   persistedSize: number,
   truncated: boolean,
+  preview?: string,
+  previewStrategy?: PreviewStrategy,
+  sandboxDiagnostics?: string,
 ): string {
+  const capDetail = previewStrategy === 'head-tail'
+    ? 'capped; preview may include tail bytes not saved at that path'
+    : 'capped, tail not saved';
   const hint = truncated
-    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
+    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (${capDetail}); read with the Read tool]`
     : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
-  if (!stdout) return hint;
-  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
-  return `${trimmed}\n\n${hint}`;
+  const previewStrategyLabel = previewStrategy === 'head-tail'
+    ? 'head and tail'
+    : previewStrategy === 'complete'
+      ? 'complete'
+      : 'head-only partial';
+  const previewBlock = preview
+    ? `Persisted output preview (UTF-8-safe ${previewStrategyLabel}, ${PREVIEW_SIZE_BYTES}-byte budget):\n${preview}`
+    : '';
+  const boundedSandboxDiagnostics = preview && sandboxDiagnostics
+    ? generatePreview(
+      sandboxDiagnostics,
+      MAX_SANDBOX_DIAGNOSTIC_PREVIEW_BYTES,
+      'text',
+    ).preview
+    : '';
+  const capturedFallback = preview
+    ? ''
+    : stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  const parts = [capturedFallback, previewBlock, boundedSandboxDiagnostics, hint].filter(Boolean);
+  return parts.join('\n\n');
 }
 
 function isAutobackgroundingAllowed(command: string): boolean {
@@ -671,6 +717,8 @@ export const BashTool = buildTool({
     structuredContent,
     persistedOutputPath,
     persistedOutputSize,
+    persistedOutputPreview,
+    persistedOutputPreviewStrategy,
     persistedOutputTruncated
   }, toolUseID): ToolResultBlockParam {
     // Handle structured content
@@ -700,13 +748,21 @@ export const BashTool = buildTool({
     // For large output that was persisted to disk, build <persisted-output>
     // message for the model. The UI never sees this — it uses data.stdout.
     if (persistedOutputPath) {
-      const preview = generatePreview(processedStdout, PREVIEW_SIZE_BYTES);
+      // Prefer the bounded preview read from the full rolled-output source.
+      // If that read failed, the in-memory value is only a captured head.
+      const preview = persistedOutputPreview ?? generatePreview(
+        processedStdout,
+        PREVIEW_SIZE_BYTES,
+        'head-only',
+      ).preview;
+      const strategy = persistedOutputPreviewStrategy ?? 'head-only';
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
-        preview: preview.preview,
-        hasMore: preview.hasMore,
+        preview,
+        hasMore: strategy !== 'complete',
+        strategy,
         truncated: persistedOutputTruncated
       });
     }
@@ -847,6 +903,9 @@ export const BashTool = buildTool({
         lastProgressFullOutput,
       );
       const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, failureOutput);
+      const sandboxDiagnostics = outputWithSbFailures.startsWith(failureOutput)
+        ? outputWithSbFailures.slice(failureOutput.length).trim()
+        : '';
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
@@ -865,18 +924,43 @@ export const BashTool = buildTool({
         // the truncated chunk and has no signal that the rest exists. The
         // persist step is identical to the success-path block below; both
         // sites resolve the same `result.outputFilePath` / outputTaskId.
-        let errorStdout = outputWithSbFailures
+        const errorExtraction = extractClaudeCodeHints(
+          outputWithSbFailures,
+          input.command,
+        )
+        let errorStdout = errorExtraction.stripped
+        if (isMainThread) {
+          for (const hint of errorExtraction.hints) {
+            maybeRecordPluginHint(hint)
+          }
+        }
         if (result.outputFilePath && result.outputTaskId) {
           const persistedForError = await persistShellOutputFile(
             result.outputFilePath,
             result.outputTaskId,
+            MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+            input.command,
           )
           if (persistedForError) {
+            if (isMainThread) {
+              for (const hint of persistedForError.previewHints ?? []) {
+                const alreadyCaptured = errorExtraction.hints.some(
+                  captured =>
+                    captured.v === hint.v &&
+                    captured.type === hint.type &&
+                    captured.value === hint.value,
+                )
+                if (!alreadyCaptured) maybeRecordPluginHint(hint)
+              }
+            }
             errorStdout = appendPersistedOutputHint(
               errorStdout,
               persistedForError.path,
               persistedForError.size,
               persistedForError.truncated,
+              persistedForError.preview,
+              persistedForError.previewStrategy,
+              sandboxDiagnostics,
             )
           }
         }
@@ -900,15 +984,23 @@ export const BashTool = buildTool({
     // FileRead. If > 64 MB, truncate after copying.
     let persistedOutputPath: string | undefined;
     let persistedOutputSize: number | undefined;
+    let persistedOutputPreview: string | undefined;
+    let persistedOutputPreviewStrategy: PreviewStrategy | undefined;
+    let persistedOutputPreviewHints: ClaudeCodeHint[] = [];
     let persistedOutputTruncated: boolean | undefined;
     if (result.outputFilePath && result.outputTaskId) {
       const persisted = await persistShellOutputFile(
         result.outputFilePath,
         result.outputTaskId,
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        input.command,
       );
       if (persisted) {
         persistedOutputPath = persisted.path;
         persistedOutputSize = persisted.size;
+        persistedOutputPreview = persisted.preview;
+        persistedOutputPreviewStrategy = persisted.previewStrategy;
+        persistedOutputPreviewHints = persisted.previewHints ?? [];
         persistedOutputTruncated = persisted.truncated;
       }
     }
@@ -950,6 +1042,17 @@ export const BashTool = buildTool({
     if (isMainThread && extracted.hints.length > 0) {
       for (const hint of extracted.hints) maybeRecordPluginHint(hint);
     }
+    if (isMainThread && persistedOutputPreviewHints.length > 0) {
+      for (const hint of persistedOutputPreviewHints) {
+        const alreadyCaptured = extracted.hints.some(
+          captured =>
+            captured.v === hint.v &&
+            captured.type === hint.type &&
+            captured.value === hint.value,
+        );
+        if (!alreadyCaptured) maybeRecordPluginHint(hint);
+      }
+    }
     let isImage = isImageOutput(strippedStdout);
 
     // Cap image dimensions + size if present (CC-304 — see
@@ -984,6 +1087,8 @@ export const BashTool = buildTool({
       dangerouslyDisableSandbox: 'dangerouslyDisableSandbox' in input ? input.dangerouslyDisableSandbox as boolean | undefined : undefined,
       persistedOutputPath,
       persistedOutputSize,
+      persistedOutputPreview,
+      persistedOutputPreviewStrategy,
       persistedOutputTruncated
     };
     return {

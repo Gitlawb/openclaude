@@ -43,7 +43,7 @@ import { useShowOverageCreditUpsell, incrementOverageCreditUpsellSeenCount, crea
 import { plural } from '../../utils/stringUtils.js';
 import { useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
-import { getAPIProvider } from '../../utils/model/providers.js';
+import { isFirstPartyAnthropicProvider } from '../../utils/model/providers.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { renderModelSetting } from '../../utils/model/model.js';
 // Stubs: internal-only startup notices not included in this open snapshot
@@ -58,7 +58,7 @@ const LEFT_PANEL_MAX_WIDTH = 50;
 export function LogoV2() {
   const $ = _c(94);
   const activities = getRecentActivitySync();
-  const showAccountIdentity = getAPIProvider() === 'firstParty';
+  const showAccountIdentity = isFirstPartyAnthropicProvider();
   const username = showAccountIdentity ? getGlobalConfig().oauthAccount?.displayName ?? "" : "";
   const {
     columns

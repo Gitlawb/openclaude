@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
@@ -64,6 +64,7 @@ const PROFILE_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_CUSTOM_HEADERS',
   'ANTHROPIC_BEDROCK_BASE_URL',
   'ANTHROPIC_VERTEX_BASE_URL',
@@ -148,6 +149,7 @@ export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   ANTHROPIC_API_KEY?: string
+  ANTHROPIC_AUTH_TOKEN?: string
   ANTHROPIC_CUSTOM_HEADERS?: string
   ANTHROPIC_BEDROCK_BASE_URL?: string
   ANTHROPIC_VERTEX_BASE_URL?: string
@@ -1207,6 +1209,7 @@ export function saveProfileFile(
     encoding: 'utf8',
     mode: 0o600,
   })
+  chmodSync(filePath, 0o600)
   return filePath
 }
 
@@ -1314,6 +1317,21 @@ function hasConcreteProviderSelection(
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  ) {
+    return true
+  }
+
+  // Anthropic-native proxies are selected by their own endpoint, model, and
+  // Bearer token rather than a CLAUDE_CODE_USE_* flag. Treat that complete
+  // contract as explicit so fresh-install fallback cannot replace it with the
+  // default OpenAI-compatible provider.
+  if (
+    sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) !== undefined &&
+    normalizeProfileModel(
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+    ) !== undefined &&
+    (sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) !== undefined ||
+      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) !== undefined)
   ) {
     return true
   }
@@ -1492,9 +1510,13 @@ export async function buildLaunchEnv(options: {
     const anthropicBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BASE_URL)
-    const anthropicApiKey =
-      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
-      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
+    const anthropicAuthToken =
+      sanitizeApiKey(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+      sanitizeApiKey(persistedEnv.ANTHROPIC_AUTH_TOKEN)
+    const anthropicApiKey = anthropicAuthToken
+      ? undefined
+      : sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
+        sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
 
     return buildCompatibilityProcessEnv({
       processEnv,
@@ -1513,6 +1535,15 @@ export async function buildLaunchEnv(options: {
           'claude-sonnet-4-6',
         ...(anthropicApiKey
           ? { ANTHROPIC_API_KEY: anthropicApiKey }
+          : {}),
+        ...(anthropicAuthToken
+          ? { ANTHROPIC_AUTH_TOKEN: anthropicAuthToken }
+          : {}),
+        ...(shellCustomHeaders || persistedCustomHeaders
+          ? {
+              ANTHROPIC_CUSTOM_HEADERS:
+                shellCustomHeaders || persistedCustomHeaders,
+            }
           : {}),
       },
     })

@@ -6,16 +6,19 @@ import type {
 } from './descriptors.js'
 import {
   ensureIntegrationsLoaded,
+  getAllAnthropicProxies,
   getAllGateways,
   getAllVendors,
   getGateway,
+  getAnthropicProxy,
   getVendor,
   resolveProfileRoute,
 } from './index.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 
-export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
+export type RouteDescriptor = GatewayDescriptor | VendorDescriptor | import('./descriptors.js').AnthropicProxyDescriptor
 
 const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
   Record<TransportKind, string>
@@ -93,7 +96,7 @@ function normalizeHost(
 
 function getAllRoutes(): RouteDescriptor[] {
   ensureIntegrationsLoaded()
-  return [...getAllGateways(), ...getAllVendors()]
+  return [...getAllGateways(), ...getAllVendors(), ...getAllAnthropicProxies()]
 }
 
 function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
@@ -129,7 +132,7 @@ export function getRouteDescriptor(
   routeId: string,
 ): RouteDescriptor | null {
   ensureIntegrationsLoaded()
-  return getGateway(routeId) ?? getVendor(routeId) ?? null
+  return getGateway(routeId) ?? getVendor(routeId) ?? getAnthropicProxy(routeId) ?? null
 }
 
 export function getRouteLabel(
@@ -829,7 +832,10 @@ export function routeSupportsCustomHeaders(
     return false
   }
 
-  return descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true
+  return (
+    descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true ||
+    descriptor.transportConfig.anthropicProxy?.supportsCustomHeaders === true
+  )
 }
 
 export function routeShowsAuthHeaderValue(routeId: string): boolean {
@@ -990,6 +996,26 @@ export function resolveActiveRouteIdFromEnv(
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX)) {
     return 'vertex'
+  }
+
+  // A Bearer token explicitly selects the custom Anthropic proxy contract,
+  // even if the host also belongs to a known OpenAI-compatible route. Keep
+  // native x-api-key configurations on those known routes for compatibility.
+  const knownAnthropicRoute = resolveRouteIdFromBaseUrl(
+    processEnv.ANTHROPIC_BASE_URL,
+  )
+  if (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
+    hasNonEmptyEnvValue(processEnv.ANTHROPIC_MODEL) &&
+    (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+      hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY)) &&
+    !isFirstPartyAnthropicBaseUrlForEnv(processEnv) &&
+    (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+      knownAnthropicRoute === 'custom-anthropic' ||
+      !knownAnthropicRoute)
+  ) {
+    return 'custom-anthropic'
   }
 
   const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)

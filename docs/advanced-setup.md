@@ -409,6 +409,26 @@ already present as dev dependencies, so source/dev builds need no extra steps.
 
 ## Environment Variables
 
+### Custom (Anthropic-compatible) APIs
+
+For an endpoint that accepts Anthropic's native Messages API, set its base URL,
+Bearer token, and model directly. Do not set `CLAUDE_CODE_USE_OPENAI`; that
+selects the OpenAI-compatible transport instead.
+
+```bash
+export ANTHROPIC_BASE_URL=https://anthropic-proxy.example
+export ANTHROPIC_AUTH_TOKEN=your-provider-token
+export ANTHROPIC_MODEL=your-model-name
+openclaude
+```
+
+`ANTHROPIC_AUTH_TOKEN` is sent as `Authorization: Bearer ...`. The
+`/provider` → `Add provider` menu uses that Bearer-token setup as **Custom
+(Anthropic-compatible)**, including optional extra request headers. For a
+directly configured endpoint that instead requires Anthropic's native
+`x-api-key` authentication, set `ANTHROPIC_API_KEY` in place of the Bearer
+token; do not set both credentials.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_USE_OPENAI` | OpenAI-compatible only | Set to `1` to enable the OpenAI-compatible provider path |

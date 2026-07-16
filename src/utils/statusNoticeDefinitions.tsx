@@ -15,7 +15,7 @@ import { isJetBrainsPluginInstalledCachedSync } from './jetbrains.js';
 import type { LocalModelContextWarning } from './statusNoticeLocalModel.js';
 import type { PermissionMode } from './permissions/PermissionMode.js';
 import { modelSupportsAutoMode } from './betas.js';
-import { getAPIProvider } from './model/providers.js';
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './model/providers.js';
 import { logForDebugging } from './debug.js';
 
 // Types
@@ -269,7 +269,7 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
     if (ctx.mainLoopModel && modelSupportsAutoMode(ctx.mainLoopModel)) {
       return false;
     }
-    return getAPIProvider() !== 'firstParty';
+    return getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl();
   },
   render: ctx => {
     const mode = ctx.permissionMode;

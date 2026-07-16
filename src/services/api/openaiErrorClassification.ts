@@ -11,6 +11,7 @@ export type OpenAICompatibilityFailureCategory =
   | 'vision_not_supported'
   | 'context_overflow'
   | 'tool_call_incompatible'
+  | 'tool_stream_unsupported'
   | 'malformed_provider_response'
   | 'provider_unavailable'
   | 'unknown'
@@ -66,6 +67,7 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'vision_not_supported',
     'context_overflow',
     'tool_call_incompatible',
+    'tool_stream_unsupported',
     'malformed_provider_response',
     'provider_unavailable',
     'unknown',
@@ -166,6 +168,87 @@ function isToolCompatibilityMessage(body: string): boolean {
     lower.includes('tool_result') ||
     lower.includes('function calling') ||
     lower.includes('function call')
+  )
+}
+
+function getStructuredToolStreamValidationError(body: string): boolean | undefined {
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    if (!Array.isArray(parsed.detail)) return undefined
+    const details: Array<{ loc: unknown[]; type?: unknown; msg?: unknown }> = []
+    for (const detail of parsed.detail) {
+      if (!detail || typeof detail !== 'object') continue
+      const { loc, type, msg } = detail as { loc?: unknown; type?: unknown; msg?: unknown }
+      if (Array.isArray(loc)) details.push({ loc, type, msg })
+    }
+    const isRootToolStreamLocation = (loc: unknown[]): boolean =>
+      loc[0] === 'body' && loc[1] === 'tool_stream'
+    const isRootToolStreamExtraField = (detail: {
+      loc: unknown[]
+      type?: unknown
+      msg?: unknown
+    }): boolean =>
+      detail.loc.length === 2 &&
+      isRootToolStreamLocation(detail.loc) &&
+      (
+        detail.type === 'extra_forbidden' ||
+        detail.type === 'value_error.extra' ||
+        (typeof detail.msg === 'string' && /extra (?:inputs|fields) (?:are )?not permitted/i.test(detail.msg))
+      )
+    if (details.some(isRootToolStreamExtraField)) return true
+    if (
+      details.some(
+        detail =>
+          detail.loc.length === 2 &&
+          isRootToolStreamLocation(detail.loc) &&
+          typeof detail.msg === 'string' &&
+          /tool_stream is (?:unsupported|not supported|unknown|invalid)/i.test(detail.msg),
+      )
+    ) return true
+    if (
+      details.some(detail =>
+        detail.loc.includes('tools') || isRootToolStreamLocation(detail.loc)
+      )
+    ) return false
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Detect a gateway rejecting the Z.AI-proprietary `tool_stream` parameter
+// (e.g. NVIDIA NIM: `400 Unsupported parameter(s): tool_stream`). The
+// `tool_call` substring in isToolCompatibilityMessage does NOT match
+// `tool_stream`, so this needs its own matcher.
+function isToolStreamUnsupportedMessage(body: string): boolean {
+  const normalized = body.toLowerCase().replace(/['"`]/g, '')
+  const structuredValidation = getStructuredToolStreamValidationError(body)
+  if (
+    /(?:function|tool)\s*:?\s+tool_stream\b/.test(normalized) ||
+    /\b(?:function|tool)\b.*?\b(?:schema|properties?)\b.*?\btool_stream\b/.test(normalized) ||
+    /\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b.*?\btool_stream\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b/.test(normalized) ||
+    /\b(?:tool|function)\s+definition\b.*?\btool_stream\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
+    /\b(?:body\.)?tools?\s*(?:\.|\[).*?\btool_stream\b/.test(normalized) ||
+    /(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\btool_stream\b.*?\b(?:in|at|for)\s+(?:(?:an?|the)\s+)?(?:tool|function)?\s*(?:schema|parameters?|properties?)\b/.test(normalized) ||
+    /\btool_stream\b.*?(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\b(?:tool|function)\s+(?:schema|parameters?|properties?)\b/.test(normalized) ||
+    /\b(?:invalid|malformed)\s+parameter\s+tool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    /\badditional properties?\b.*?\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    structuredValidation === false
+  ) return false
+  if (structuredValidation === true) return true
+  return (
+    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?/.test(normalized) ||
+    /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
+    /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
+    /(?:^|\n|\bmessage\s*:\s*)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?(?:function|tool)\b)/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
+    /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|invalid|not\s+supported)/.test(normalized) ||
+    /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
+    /tool_stream\b.*?(?:extra[_\s-]?forbidden|extra inputs are not permitted|unexpected (?:field|property|parameter))/.test(normalized)
   )
 }
 
@@ -477,6 +560,27 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'Prompt context exceeded model/server limits. Reduce context or increase provider context length.',
+    }
+  }
+
+  // `tool_stream` is a Z.AI-proprietary streaming extension. Some OpenAI-
+  // compatible gateways (e.g. NVIDIA NIM) reject it with a 400 like
+  // "Unsupported parameter(s): `tool_stream`". Classify it distinctly so the
+  // shim can self-heal by dropping just `tool_stream` and retrying with tools
+  // intact (issue #1950). Match liberally on the parameter name plus an
+  // unsupported/unknown-parameter signal so provider-specific wording still
+  // triggers the fallback.
+  if (
+    (options.status === 400 || options.status === 422) &&
+    isToolStreamUnsupportedMessage(body)
+  ) {
+    return {
+      source: 'http',
+      category: 'tool_stream_unsupported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider rejected the `tool_stream` parameter. Retrying without it (tool calls are not streamed).',
     }
   }
 

@@ -153,6 +153,20 @@ describe('OpenClaude commit message temp file permissions', () => {
     })
   })
 
+  test('preserves case-insensitive matching for the commit message exception', () => {
+    const result = checkWritePermissionForTool(
+      writeTool,
+      { file_path: join(projectDir, '.git', 'openclaude_commit_msg') },
+      permissionContext('bypassPermissions'),
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(result.decisionReason).toMatchObject({
+      type: 'other',
+      reason: 'OpenClaude commit message file is allowed for writing',
+    })
+  })
+
   test('still prompts for the commit message file in default mode', () => {
     const result = checkWritePermissionForTool(
       writeTool,

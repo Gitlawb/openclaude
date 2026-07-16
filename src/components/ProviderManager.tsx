@@ -14,6 +14,7 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 import {
   parseProfileCustomHeadersInput,
   serializeProfileCustomHeaders,
@@ -293,7 +294,11 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
 }
 
 function isSetupPlaceholder(value: string): boolean {
-  return /\bYOUR[-_\s]/i.test(value) || /<[^>]+>/.test(value)
+  return (
+    /\bYOUR[-_\s]/i.test(value) ||
+    /<[^>]+>/.test(value) ||
+    /:\/\/[^/]+\.example(?:\/|$)/i.test(value)
+  )
 }
 
 function canUseStreamlinedPresetFlow(draft: ProviderDraft): boolean {
@@ -905,6 +910,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
   const currentValue = draft[currentStepKey]
+  const displayStep =
+    draftProvider === 'custom-anthropic' && currentStepKey === 'apiKey'
+      ? {
+          ...currentStep,
+          label: 'Credential',
+          placeholder: 'Credential for this endpoint',
+          helpText: 'The custom profile stores this as an Authorization Bearer token.',
+          optional: false,
+        }
+      : currentStep
 
   // Memoize menu options to prevent unnecessary re-renders when navigating
   // the select menu. Without this, each arrow key press creates a new options
@@ -1598,7 +1613,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    if (preset === 'custom' || !canUseStreamlinedPresetFlow(nextDraft)) {
+    if (
+      preset === 'custom' ||
+      preset === 'custom-anthropic' ||
+      !canUseStreamlinedPresetFlow(nextDraft)
+    ) {
       setScreen('form')
       return
     }
@@ -1629,6 +1648,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'] = draftProvider,
     profileId: string | null = editingProfileId,
   ): void {
+    if (
+      provider === 'custom-anthropic' &&
+      (isSetupPlaceholder(nextDraft.baseUrl) ||
+        isFirstPartyAnthropicBaseUrlForEnv({
+          ANTHROPIC_BASE_URL: nextDraft.baseUrl,
+          USER_TYPE: process.env.USER_TYPE,
+        }))
+    ) {
+      setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
+      return
+    }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const showsAuthHeader = routeShowsAuthHeader(routeId)
@@ -1908,8 +1938,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function handleFormSubmit(value: string): void {
     const trimmed = value.trim()
 
-    if (!currentStep.optional && trimmed.length === 0) {
-      setErrorMessage(`${currentStep.label} is required.`)
+    if (!displayStep.optional && trimmed.length === 0) {
+      setErrorMessage(`${displayStep.label} is required.`)
       return
     }
 
@@ -2159,7 +2189,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text color="remember" bold>
           {editingProfileId ? 'Edit provider profile' : 'Create provider profile'}
         </Text>
-        <Text dimColor>{currentStep.helpText}</Text>
+        <Text dimColor>{displayStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
           {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
@@ -2171,7 +2201,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           </Text>
         ) : null}
         <Text dimColor>
-          Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
+          Step {formStepIndex + 1} of {formSteps.length}: {displayStep.label}
         </Text>
         {currentStepKey === 'apiFormat' ? (
           <Select
@@ -2216,7 +2246,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               onSubmit={handleFormSubmit}
               focus={true}
               showCursor={true}
-              placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
+              placeholder={`${displayStep.placeholder}${figures.ellipsis}`}
               mask={
                 currentStepKey === 'apiKey' ||
                 currentStepKey === 'authHeaderValue'

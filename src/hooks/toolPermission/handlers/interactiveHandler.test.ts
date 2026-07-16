@@ -186,6 +186,51 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(bridge.cancelRequest).toHaveBeenCalledTimes(1)
   })
 
+  test('routes bridge approval through final user-allow revalidation', async () => {
+    let respond:
+      | ((response: {
+          behavior: 'allow'
+          updatedInput: Record<string, unknown>
+          updatedPermissions: unknown[]
+        }) => Promise<void>)
+      | undefined
+    const bridge = {
+      sendRequest: vi.fn(),
+      onResponse: vi.fn(
+        (
+          _requestId: string,
+          callback: NonNullable<typeof respond>,
+        ) => {
+          respond = callback
+          return () => {}
+        },
+      ),
+      cancelRequest: vi.fn(),
+      sendResponse: vi.fn(),
+    }
+    const { ctx, resolve } = setup({ bridge })
+    ctx.handleUserAllow = vi.fn(async () => ({
+      behavior: 'deny',
+      message: 'Plan mode is read-only.',
+    }))
+
+    await respond?.({
+      behavior: 'allow',
+      updatedInput: { command: 'touch blocked' },
+      updatedPermissions: [],
+    })
+
+    expect(ctx.handleUserAllow).toHaveBeenCalledWith(
+      { command: 'touch blocked' },
+      [],
+      undefined,
+      expect.any(Number),
+    )
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: 'deny' }),
+    )
+  })
+
   test('abort after a normal resolution does not double-resolve or double-resume', () => {
     const { abortController, getQueueItem, resume, resolve } = setup()
     getQueueItem().onReject('no')

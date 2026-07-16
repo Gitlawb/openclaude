@@ -17,6 +17,10 @@
 
 import { logForDebugging } from './debug.js'
 import { createSignal } from './signal.js'
+import {
+  formatOmissionMarker,
+  type PreviewResult,
+} from './toolResultStorage.js'
 
 export type ClaudeCodeHintType = 'plugin'
 
@@ -117,6 +121,75 @@ export function extractClaudeCodeHints(
       : stripped
 
   return { hints, stripped: collapsed }
+}
+
+/**
+ * Strip harness-only hint lines while keeping preview completeness and exact
+ * omitted-byte metadata aligned with the text that remains model-visible.
+ */
+export function extractClaudeCodeHintsFromPreview(
+  result: PreviewResult,
+  command: string,
+): { hints: ClaudeCodeHint[]; previewResult: PreviewResult } {
+  if (
+    result.strategy === 'head-tail' &&
+    result.omittedBytes !== undefined &&
+    result.markerStart !== undefined
+  ) {
+    const marker = formatOmissionMarker(result.omittedBytes)
+    const markerEnd = result.markerStart + marker.length
+    if (result.preview.slice(result.markerStart, markerEnd) === marker) {
+      const head = result.preview.slice(0, result.markerStart)
+      const tail = result.preview.slice(markerEnd)
+      const headExtraction = extractClaudeCodeHints(head, command)
+      const tailExtraction = extractClaudeCodeHints(tail, command)
+      const removedBytes =
+        Buffer.byteLength(head, 'utf8') +
+        Buffer.byteLength(tail, 'utf8') -
+        Buffer.byteLength(headExtraction.stripped, 'utf8') -
+        Buffer.byteLength(tailExtraction.stripped, 'utf8')
+      if (removedBytes > 0 && result.retainedBytesValidUtf8 === false) {
+        return {
+          hints: [...headExtraction.hints, ...tailExtraction.hints],
+          previewResult: {
+            preview: headExtraction.stripped,
+            hasMore: true,
+            strategy: 'head-only',
+            retainedBytesValidUtf8: false,
+          },
+        }
+      }
+      const omittedBytes = result.omittedBytes + removedBytes
+      const nextMarker = formatOmissionMarker(omittedBytes)
+      return {
+        hints: [...headExtraction.hints, ...tailExtraction.hints],
+        previewResult: {
+          ...result,
+          preview:
+            headExtraction.stripped +
+            nextMarker +
+            tailExtraction.stripped,
+          omittedBytes,
+          markerStart: headExtraction.stripped.length,
+        },
+      }
+    }
+  }
+
+  const extraction = extractClaudeCodeHints(result.preview, command)
+  const removedContent = extraction.stripped !== result.preview
+  return {
+    hints: extraction.hints,
+    previewResult: {
+      ...result,
+      preview: extraction.stripped,
+      hasMore: result.hasMore || removedContent,
+      strategy:
+        removedContent && result.strategy === 'complete'
+          ? 'head-only'
+          : result.strategy,
+    },
+  }
 }
 
 function parseAttrs(tagBody: string): Record<string, string> {

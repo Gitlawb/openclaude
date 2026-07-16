@@ -1,7 +1,11 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
 import { getCatalogEntriesForRoute } from '../../integrations/index.js'
-import { resolveRouteIdFromBaseUrl } from '../../integrations/routeMetadata.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../../integrations/routeMetadata.js'
 import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
@@ -20,7 +24,12 @@ import {
 } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
-import { getAPIProvider } from './providers.js'
+import {
+  getAPIProvider,
+  isCustomAnthropicProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
+} from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
@@ -141,12 +150,14 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
+  const is3P = !isFirstPartyAnthropicProvider()
+  const currentDefaultModel =
+    isCustomAnthropicProvider() && process.env.ANTHROPIC_MODEL
+      ? process.env.ANTHROPIC_MODEL
+      : getDefaultMainLoopModelSetting()
 
-  if (process.env.USER_TYPE === 'ant') {
-    const currentModel = renderDefaultModelSetting(
-      getDefaultMainLoopModelSetting(),
-    )
+  if (process.env.USER_TYPE === 'ant' && !is3P) {
+    const currentModel = renderDefaultModelSetting(currentDefaultModel)
     return {
       value: null,
       label: 'Default (recommended)',
@@ -159,7 +170,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
     return {
       value: null,
       label: 'Default (recommended)',
-      description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`,
+      description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})`,
     }
   }
 
@@ -176,7 +187,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
   }
 }
 
@@ -572,6 +583,28 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     return [defaultOption, ...inactiveProfileOptions]
   }
 
+  const activeProfile = getActiveProviderProfile()
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env, {
+    activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
+  })
+  if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
+    const directEnvOption =
+      profileModelOptions.length === 0 && process.env.ANTHROPIC_MODEL
+        ? [{
+            value: process.env.ANTHROPIC_MODEL,
+            label: process.env.ANTHROPIC_MODEL,
+            description: 'Custom Anthropic-compatible endpoint',
+          }]
+        : []
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...profileModelOptions,
+      ...directEnvOption,
+      ...inactiveProfileOptions,
+    ]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({
@@ -634,7 +667,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // other configured profile while a local/route profile is active (#1119).
   const activeRouteCatalogOptions = getActiveOpenAIRouteCatalogOptions()
   const openAIModelOptionsScope = getAdditionalModelOptionsCacheScope()
-  const activeProfile = getActiveProviderProfile()
   if (
     activeRouteCatalogOptions.length > 0 ||
     openAIModelOptionsScope?.startsWith('openai:')
@@ -659,7 +691,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   }
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
-  if (getAPIProvider() === 'firstParty') {
+  if (getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
       payg1POptions.push(getSonnet46_1MOption())
@@ -1007,12 +1039,12 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])
-  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty') {
+  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMaxOpusOption(fastMode),
     ])
-  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty') {
+  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMergedOpus1MOption(fastMode),

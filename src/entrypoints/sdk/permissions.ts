@@ -10,7 +10,10 @@
 import { randomUUID } from 'crypto'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { PermissionDecision, PermissionMode } from '../../types/permissions.js'
-import { hasPermissionsToUseTool } from '../../utils/permissions/permissions.js'
+import {
+  hasPermissionsToUseTool,
+  revalidatePlanModePermissionAllowWithRaceGuard,
+} from '../../utils/permissions/permissions.js'
 import {
   getEmptyToolPermissionContext,
   type ToolPermissionContext,
@@ -288,6 +291,21 @@ export function createExternalCanUseTool(
     // Cast input to ensure type compatibility with PermissionDecision
     const typedInput = input as Record<string, unknown>
     let effectiveInput = typedInput
+    const revalidateExternalAllow = async (
+      originalInput: Record<string, unknown>,
+      finalInput: Record<string, unknown>,
+    ): Promise<PermissionDecision | null> => {
+      const planModeWasActive =
+        typeof toolUseContext.getAppState === 'function' &&
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      return await revalidatePlanModePermissionAllowWithRaceGuard(
+        tool,
+        originalInput,
+        finalInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+    }
     const isFullAccessMode =
       typeof toolUseContext.getAppState === 'function' &&
       toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
@@ -319,7 +337,17 @@ export function createExternalCanUseTool(
       try {
         const result = await userFn(tool.name, effectiveInput, { toolUseID })
         if (result.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: (result.updatedInput as Record<string, unknown> | undefined) ?? effectiveInput }
+          const finalInput =
+            (result.updatedInput as Record<string, unknown> | undefined) ??
+            effectiveInput
+          const revalidation = await revalidateExternalAllow(
+            effectiveInput,
+            finalInput,
+          )
+          if (revalidation) {
+            return revalidation
+          }
+          return { behavior: 'allow' as const, updatedInput: finalInput }
         }
         return {
           behavior: 'deny' as const,
@@ -388,7 +416,15 @@ export function createExternalCanUseTool(
         // Convert PermissionResolveDecision to PermissionDecision
         const res = raceResult.result
         if (res.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: res.updatedInput ?? effectiveInput }
+          const finalInput = res.updatedInput ?? effectiveInput
+          const revalidation = await revalidateExternalAllow(
+            effectiveInput,
+            finalInput,
+          )
+          if (revalidation) {
+            return revalidation
+          }
+          return { behavior: 'allow' as const, updatedInput: finalInput }
         }
         return {
           behavior: 'deny' as const,

@@ -45,6 +45,7 @@ const PROVIDER_ENV_KEYS = [
   'FIREWORKS_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BETAS',
   'OPENAI_BASE_URL',
@@ -206,6 +207,55 @@ test('getMergedBetas returns [] for GitHub with a non-Claude model', async () =>
 test('isAnthropicProvider is true for firstParty', async () => {
   const { isAnthropicProvider } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(true)
+})
+
+test('custom Anthropic proxy endpoints do not receive first-party beta headers', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+  process.env.ANTHROPIC_BETAS = 'tenant-beta-2026-01-01'
+
+  const {
+    getMergedBetas,
+    getModelBetas,
+    isAnthropicProvider,
+    modelSupportsAutoMode,
+    modelSupportsContextManagement,
+    modelSupportsISP,
+    modelSupportsStructuredOutputs,
+    shouldIncludeFirstPartyOnlyBetas,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
+  expect(isAnthropicProvider()).toBe(false)
+  expect(getMergedBetas('tenant-model')).toEqual([])
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
+  expect(modelSupportsISP('claude-sonnet-4-5')).toBe(true)
+  expect(modelSupportsContextManagement('claude-sonnet-4-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-4-5')).toBe(false)
+  expect(modelSupportsAutoMode('claude-sonnet-4-5')).toBe(false)
+  expect(shouldIncludeFirstPartyOnlyBetas()).toBe(false)
+  expect(shouldUseGlobalCacheScope()).toBe(false)
+})
+
+test('switching from first-party Anthropic to a custom proxy clears beta headers', async () => {
+  const { getModelBetas } = await importFreshBetas()
+  expect(getModelBetas('claude-sonnet-4-6')).not.toEqual([])
+
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+  process.env.ANTHROPIC_BETAS = 'tenant-beta-2026-01-01'
+
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
+})
+
+test('first-party Anthropic retains the beta gates excluded for custom proxies', async () => {
+  const {
+    shouldIncludeFirstPartyOnlyBetas,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
+  expect(shouldIncludeFirstPartyOnlyBetas()).toBe(true)
+  expect(shouldUseGlobalCacheScope()).toBe(true)
 })
 
 test('isAnthropicProvider is true for bedrock', async () => {

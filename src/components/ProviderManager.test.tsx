@@ -111,7 +111,7 @@ async function waitForCondition(
 
 // Provider list is sorted from generated preset metadata by description, with
 // Gitlawb Opengateway pinned first, Anthropic second, Codex OAuth injected
-// after DeepSeek, and Custom always pinned last. Keep the target-by-label
+// after DeepSeek, and the custom endpoints always pinned last. Keep the target-by-label
 // indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
 //
@@ -154,7 +154,8 @@ const PRESET_ORDER = [
   'Xiaomi MiMo',
   'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
-  'Custom',
+  'Custom (OpenAI-compatible)',
+  'Custom (Anthropic-compatible)',
 ] as const
 
 async function navigateToPreset(
@@ -221,6 +222,17 @@ function mockProviderProfilesModule(options?: {
           name: 'Custom OpenAI-compatible',
           baseUrl: 'http://localhost:11434/v1',
           model: 'custom-model',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
+      if (preset === 'custom-anthropic') {
+        return {
+          provider: 'custom-anthropic',
+          name: 'Custom (Anthropic-compatible)',
+          baseUrl: 'https://anthropic-proxy.example',
+          model: 'claude-sonnet-4-6',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -663,7 +675,7 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'Custom')
+    await navigateToPreset(mounted.stdin, 'Custom (OpenAI-compatible)')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') &&
@@ -684,6 +696,57 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('API mode') && frame.includes('Chat Completions'),
     )
     expect(output).toContain('Responses')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager offers a token field for custom Anthropic-compatible providers', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+    await navigateToPreset(mounted.stdin, 'Custom (Anthropic-compatible)')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider name'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Base URL'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Default model'))
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Credential') && frame.includes('Anthropic-compatible API'),
+    )
+    expect(output).not.toContain('API mode')
+    mounted.stdin.write('\r')
+    const requiredOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Credential is required.'),
+    )
+    expect(requiredOutput).toContain('Credential is required.')
+    mounted.stdin.write('proxy-token')
+    mounted.stdin.write('\r')
+    const headersOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Custom headers'),
+    )
+    expect(headersOutput).toContain('Extra non-auth request headers')
+    mounted.stdin.write('\r')
+    const placeholderError = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL must be a real Anthropic-compatible endpoint.'),
+    )
+    expect(placeholderError).toContain(
+      'Base URL must be a real Anthropic-compatible endpoint.',
+    )
   } finally {
     await mounted.dispose()
   }

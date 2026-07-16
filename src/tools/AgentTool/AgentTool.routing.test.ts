@@ -90,6 +90,73 @@ test('normal subagent prompt metadata uses routed effective model', async () => 
   )
 })
 
+test('plan-mode one-shot agents cannot be forced into background execution', async () => {
+  const { AgentTool } = await importAgentToolWithRoutingMocks()
+  const exploreAgent = {
+    ...createAgentDefinition(),
+    agentType: 'Explore',
+    background: true,
+  }
+
+  const result = await AgentTool.call(
+    {
+      description: 'Inspect implementation',
+      prompt: 'Find the bug',
+      subagent_type: 'Explore',
+    },
+    createToolUseContext('parent-model', [exploreAgent], 'plan'),
+    mock(async () => ({ behavior: 'allow' })) as never,
+    { requestId: 'req-plan' } as never,
+  )
+
+  expect(result.data.status).toBe('completed')
+})
+
+test('agent invocation entering plan mode during MCP wait stays synchronous', async () => {
+  const { AgentTool } = await importAgentToolWithRoutingMocks()
+  const agent = {
+    ...createAgentDefinition(),
+    background: true,
+    requiredMcpServers: ['demo'],
+  }
+
+  const result = await AgentTool.call(
+    {
+      description: 'Inspect implementation',
+      prompt: 'Find the bug',
+      subagent_type: 'general-purpose',
+    },
+    createToolUseContext('parent-model', [agent], 'default', 'plan'),
+    mock(async () => ({ behavior: 'allow' })) as never,
+    { requestId: 'req-plan-transition' } as never,
+  )
+
+  expect(result.data.status).toBe('completed')
+})
+
+test('agent invocation leaving plan mode during MCP wait stays synchronous', async () => {
+  const { AgentTool } = await importAgentToolWithRoutingMocks()
+  const exploreAgent = {
+    ...createAgentDefinition(),
+    agentType: 'Explore',
+    background: true,
+    requiredMcpServers: ['demo'],
+  }
+
+  const result = await AgentTool.call(
+    {
+      description: 'Inspect implementation',
+      prompt: 'Find the bug',
+      subagent_type: 'Explore',
+    },
+    createToolUseContext('parent-model', [exploreAgent], 'plan', 'default'),
+    mock(async () => ({ behavior: 'allow' })) as never,
+    { requestId: 'req-plan-exit-transition' } as never,
+  )
+
+  expect(result.data.status).toBe('completed')
+})
+
 async function importAgentToolWithRoutingMocks(): Promise<{
   AgentTool: AgentToolModule['AgentTool']
   promptModels: string[]
@@ -159,21 +226,26 @@ function createAgentDefinition(): AgentDefinition {
 function createToolUseContext(
   mainLoopModel: string,
   activeAgents: AgentDefinition[],
+  mode = 'default',
+  modeAfterMcpWait?: string,
 ): ToolUseContext {
   const appState = {
     toolPermissionContext: {
-      mode: 'default',
+      mode,
       additionalWorkingDirectories: new Map<string, string>(),
       alwaysAllowRules: {},
       alwaysDenyRules: {},
       alwaysAskRules: {},
     },
     mcp: {
-      clients: [],
-      tools: [],
+      clients: modeAfterMcpWait
+        ? [{ type: 'pending', name: 'demo' }]
+        : [],
+      tools: [] as Array<{ name: string }>,
     },
     todos: {},
   }
+  let appStateReads = 0
 
   return {
     options: {
@@ -196,7 +268,15 @@ function createToolUseContext(
       READ_FILE_STATE_CACHE_SIZE,
     ),
     messages: [],
-    getAppState: () => appState,
+    getAppState: () => {
+      appStateReads += 1
+      if (modeAfterMcpWait && appStateReads > 1) {
+        appState.toolPermissionContext.mode = modeAfterMcpWait
+        appState.mcp.clients = []
+        appState.mcp.tools = [{ name: 'mcp__demo__inspect' }]
+      }
+      return appState
+    },
     setAppState: () => {},
     setInProgressToolUseIDs: () => {},
     setResponseLength: () => {},

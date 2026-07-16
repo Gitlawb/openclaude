@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import {
   _clearRegistryForTesting,
@@ -6,7 +6,25 @@ import {
   registerGateway,
 } from '../../integrations/index.js'
 import { publicBuildVersion } from '../../utils/version.js'
-import { getAnthropicClient } from './client.js'
+
+// bun:test keeps mock.module() registrations process-global across test files.
+// Load and re-register the real module before importing the client so a prior
+// provider mock cannot make this suite validate the wrong route in CI.
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`,
+)
+const realProviders = {
+  getAPIProvider: _realProvidersModule.getAPIProvider,
+  usesAnthropicAccountFlow: _realProvidersModule.usesAnthropicAccountFlow,
+  isGithubNativeAnthropicMode: _realProvidersModule.isGithubNativeAnthropicMode,
+  getAPIProviderForStatsig: _realProvidersModule.getAPIProviderForStatsig,
+  isFirstPartyAnthropicBaseUrl: _realProvidersModule.isFirstPartyAnthropicBaseUrl,
+}
+mock.module('../../utils/model/providers.js', () => realProviders)
+mock.module('src/utils/model/providers.js', () => realProviders)
+const { getAnthropicClient } = await import(
+  `./client.js?real=${Date.now()}-${Math.random()}`,
+)
 
 type FetchType = typeof globalThis.fetch
 
@@ -55,6 +73,8 @@ const originalEnv = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  USER_TYPE: process.env.USER_TYPE,
+  USE_STAGING_OAUTH: process.env.USE_STAGING_OAUTH,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
@@ -100,11 +120,13 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.AIMLAPI_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.USER_TYPE
+  delete process.env.USE_STAGING_OAUTH
 }
 
 beforeEach(async () => {
@@ -140,7 +162,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
@@ -189,6 +211,8 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
     restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('USER_TYPE', originalEnv.USER_TYPE)
+    restoreEnv('USE_STAGING_OAUTH', originalEnv.USE_STAGING_OAUTH)
     restoreEnv(
       'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
       originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
@@ -226,7 +250,7 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   delete process.env.XAI_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
@@ -278,10 +302,149 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   expect(capturedHeaders).toBeDefined()
 })
 
+test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requiring an API key', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  process.env.ANTHROPIC_API_KEY = 'must-not-forward'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
+  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api/v1'
+  process.env.USER_TYPE = 'ant'
+  process.env.USE_STAGING_OAUTH = '1'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a\nauthorization: stale-value'
+
+  const fetchOverride = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_custom_anthropic',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+    fetchOverride,
+  })
+
+  await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+  })
+
+  expect(capturedUrl).toBe('https://anthropic.example/api/v1/messages')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer custom-anthropic-token')
+  expect(capturedHeaders?.get('x-api-key')).toBeNull()
+  expect(capturedHeaders?.get('x-tenant')).toBe('tenant-a')
+})
+
+test('does not forward a custom bearer token to the first-party Anthropic endpoint', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
+  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+
+  const fetchOverride = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_first_party_key', type: 'message', role: 'assistant',
+        model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn', stop_sequence: null, container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({
+    apiKey: 'first-party-api-key',
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+    fetchOverride,
+  })
+  await client.messages.create({
+    model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedHeaders?.get('x-api-key')).toBe('first-party-api-key')
+})
+
+test('routes a custom Anthropic endpoint with native x-api-key authentication', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  process.env.ANTHROPIC_API_KEY = 'custom-anthropic-api-key'
+  process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api'
+  process.env.ANTHROPIC_CUSTOM_HEADERS =
+    'X-Tenant: tenant-a\nauthorization: stale-value\nx-api-key: stale-key'
+
+  const fetchOverride = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg_custom_anthropic_key', type: 'message', role: 'assistant',
+        model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn', stop_sequence: null, container: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = await getAnthropicClient({ maxRetries: 0, model: 'claude-sonnet-4-6', fetchOverride })
+  await client.messages.create({
+    model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64,
+  })
+
+  expect(capturedHeaders?.get('x-api-key')).toBe('custom-anthropic-api-key')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedHeaders?.get('x-tenant')).toBe('tenant-a')
+})
+
 test('routes Gemini provider requests through the OpenAI-compatible shim', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined
   let capturedBody: Record<string, unknown> | undefined
+
+  process.env.ANTHROPIC_AUTH_TOKEN = 'must-not-reach-gemini'
 
   globalThis.fetch = (async (input, init) => {
     capturedUrl =

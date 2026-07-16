@@ -16,26 +16,32 @@ import {
 } from '../settings/settingsCache.js'
 async function importFreshModelModule() {
   mock.restore()
+  const getAPIProvider = () => {
+    if (process.env.NVIDIA_NIM) return 'nvidia-nim'
+    if (process.env.MINIMAX_API_KEY) return 'minimax'
+    if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
+    if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
+    if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
+    if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
+    if (process.env.CLAUDE_CODE_USE_OPENAI) {
+      const baseUrl = process.env.OPENAI_BASE_URL ?? ''
+      const model = process.env.OPENAI_MODEL ?? ''
+      return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
+        ? 'codex'
+        : 'openai'
+    }
+    if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
+    if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
+    if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
+    return 'firstParty'
+  }
   mock.module('./providers.js', () => ({
-    getAPIProvider: () => {
-      if (process.env.NVIDIA_NIM) return 'nvidia-nim'
-      if (process.env.MINIMAX_API_KEY) return 'minimax'
-      if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
-      if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
-      if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
-      if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
-      if (process.env.CLAUDE_CODE_USE_OPENAI) {
-        const baseUrl = process.env.OPENAI_BASE_URL ?? ''
-        const model = process.env.OPENAI_MODEL ?? ''
-        return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
-          ? 'codex'
-          : 'openai'
-      }
-      if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
-      if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
-      if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
-      return 'firstParty'
-    },
+    getAPIProvider,
+    isFirstPartyAnthropicBaseUrl: () => !process.env.ANTHROPIC_BASE_URL,
+    isFirstPartyAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !process.env.ANTHROPIC_BASE_URL,
+    isCustomAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !!process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
     isModelAllowed: () => true,
@@ -67,6 +73,7 @@ const SAVED_ENV = {
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -383,6 +390,34 @@ test('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', async () => {
 
   const { getDefaultHaikuModel } = await importFreshModelModule()
   expect(getDefaultHaikuModel()).toBe('MiniMax-M2.5-highspeed')
+})
+
+test('getDefaultMainLoopModelSetting keeps the configured custom Anthropic model', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('tenant-model')
+})
+
+test('modelDisplayString uses the configured custom Anthropic default', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { modelDisplayString } = await importFreshModelModule()
+  expect(modelDisplayString(null)).toBe('Default (tenant-model)')
+})
+
+test('custom Anthropic endpoints retain their configured model and conservative defaults', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultOpusModel, getDefaultSonnetModel, getSmallFastModel } =
+    await importFreshModelModule()
+
+  expect(getSmallFastModel()).toBe('tenant-model')
+  expect(getDefaultOpusModel()).toBe('claude-opus-4-7')
+  expect(getDefaultSonnetModel()).toBe('claude-sonnet-4-5-20250929')
 })
 
 test('default helpers do not leak claude-* names to shim providers', async () => {

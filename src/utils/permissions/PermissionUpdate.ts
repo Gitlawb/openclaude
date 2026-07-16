@@ -51,6 +51,18 @@ export function hasRules(updates: PermissionUpdate[] | undefined): boolean {
 }
 
 /**
+ * PermissionRequest hooks may approve the current read-only action in plan
+ * mode, but they must not persist updates that change later permission checks
+ * or leave plan mode programmatically.
+ */
+export function filterPermissionRequestHookUpdates(
+  updates: PermissionUpdate[],
+  enforcePlanMode: boolean,
+): PermissionUpdate[] {
+  return enforcePlanMode ? [] : updates
+}
+
+/**
  * Applies a single permission update to the context and returns the updated context
  * @param context The current permission context
  * @param update The permission update to apply

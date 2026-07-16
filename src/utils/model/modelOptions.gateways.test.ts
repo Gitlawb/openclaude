@@ -8,16 +8,25 @@ import {
   setSessionSettingsCache,
 } from '../settings/settingsCache.js'
 
-async function importFreshModelOptionsModule() {
+async function importFreshModelOptionsModule(
+  provider = 'openai',
+  isFirstPartyAnthropicBaseUrl = false,
+) {
   mock.restore()
   mock.module('./providers.js', () => ({
-    getAPIProvider: () => 'openai',
-    getAPIProviderForStatsig: () => 'openai',
-    isFirstPartyAnthropicBaseUrl: () => false,
+    getAPIProvider: () => provider,
+    getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => isFirstPartyAnthropicBaseUrl,
+    isFirstPartyAnthropicProvider: () =>
+      provider === 'firstParty' && isFirstPartyAnthropicBaseUrl,
+    isCustomAnthropicProvider: () =>
+      provider === 'firstParty' && !isFirstPartyAnthropicBaseUrl,
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => false,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
+  const modelModule = await import(`./model.js?modelOptionsTest=${nonce}`)
+  mock.module('./model.js', () => modelModule)
   return import(`./modelOptions.js?ts=${nonce}`)
 }
 
@@ -32,6 +41,9 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   ATLAS_CLOUD_API_KEY: process.env.ATLAS_CLOUD_API_KEY,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
@@ -91,6 +103,18 @@ test('OpenRouter keeps static catalog entries and the active custom model', asyn
 
   expect(values).toContain('openai/gpt-5-mini')
   expect(values).toContain('deepseek/deepseek-chat')
+})
+
+test('custom Anthropic endpoints use the third-party default description', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+  process.env.ANTHROPIC_MODEL = 'proxy-model'
+  process.env.ANTHROPIC_API_KEY = 'proxy-key'
+
+  const { getModelOptions } = await importFreshModelOptionsModule('firstParty')
+  const defaultOption = getModelOptions().find(option => option.value === null)
+
+  expect(defaultOption?.description).toContain('currently proxy-model')
+  expect(defaultOption?.description).not.toContain('$')
 })
 
 test('OpenRouter active profile cache merges with the static route catalog', async () => {

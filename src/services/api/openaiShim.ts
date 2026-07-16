@@ -4260,7 +4260,7 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
+    if (params.stream && !isLikelyOllamaEndpoint(request.baseUrl)) {
       body.stream_options = { include_usage: true }
     }
 
@@ -4871,6 +4871,8 @@ class OpenAIShimMessages {
     let requestUrl = buildRequestUrl(activeBaseUrl)
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
     let didRetryWithoutTools = false
+    let didRetryWithoutToolStream = false
+    let retryCredentialLease: CredentialLease | null = null
     let didRefreshCopilotToken = false
     let refreshedCopilotToken: string | undefined
 
@@ -4983,7 +4985,7 @@ class OpenAIShimMessages {
       ? localRetryBaseUrls.length + 1
       : 0
     const credentialPoolAttempts = credentialPool?.size ?? 1
-    const maxAttempts = Math.max(
+    let maxAttempts = Math.max(
       2,
       Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
         maxSelfHealAttempts,
@@ -5051,7 +5053,8 @@ class OpenAIShimMessages {
       : 'openai'
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const credentialLease = credentialPool?.next() ?? null
+      const credentialLease = retryCredentialLease ?? credentialPool?.next() ?? null
+      retryCredentialLease = null
       if (credentialPool && !credentialLease) {
         throw APIError.generate(
           401,
@@ -5339,6 +5342,36 @@ class OpenAIShimMessages {
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
+          { level: 'warn' },
+        )
+        continue
+      }
+
+      // `tool_stream` self-heal (#1950): some OpenAI-compatible gateways (e.g.
+      // NVIDIA NIM) reject the Z.AI-proprietary `tool_stream` parameter with a
+      // 400. Drop only that parameter and retry with tools intact — streaming
+      // tool calls simply aren't streamed on such gateways. This guards against
+      // regressions where the parameter slips through the catalog/runtime
+      // gating that normally suppresses it.
+      if (
+        !didRetryWithoutToolStream &&
+        failure.category === 'tool_stream_unsupported' &&
+        body.tool_stream === true
+      ) {
+        didRetryWithoutToolStream = true
+        // Reserve one additional request only after this specific recovery is
+        // needed. Increasing the shared initial budget changes unrelated
+        // GitHub and credential-pool retry behavior.
+        maxAttempts += 1
+        delete body.tool_stream
+        refreshSerializedBody()
+        // This retry only changes request formatting. Reuse the credential that
+        // received the rejection so a pool with unequal model access cannot
+        // turn a recoverable 400 into an unrelated authorization failure.
+        retryCredentialLease = credentialLease
+
+        logForDebugging(
+          `[OpenAIShim] self-heal retry reason=tool_stream_unsupported method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
           { level: 'warn' },
         )
         continue

@@ -65,7 +65,7 @@ import {
 } from 'src/types/textInputTypes.js'
 import { randomUUID, type UUID } from 'crypto'
 import { getSettings_DEPRECATED } from './settings/settings.js'
-import { getAPIProvider } from './model/providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './model/providers.js'
 import { getEffortEnvOverride, modelSupportsXHighEffort } from './effort.js'
 import { getSnippetForTwoFileDiff } from 'src/tools/FileEditTool/utils.js'
 import type {
@@ -1540,6 +1540,7 @@ export function getUltracodePermissionAttachment(toolUseContext: ToolUseContext)
   if (
     !isUltracode ||
     getAPIProvider() !== 'firstParty' ||
+    !isFirstPartyAnthropicBaseUrl() ||
     // A per-agent providerOverride routes the actual request through a
     // third-party shim (runAgent.ts sets it; query.ts forwards it to
     // getAnthropicClient()), so the process-wide first-party check above is not

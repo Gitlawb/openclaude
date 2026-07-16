@@ -49,7 +49,8 @@ import {
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
-  shouldUseFirstPartyAnthropicAuth,
+  shouldUseCustomAnthropicBearerAuth,
+  shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
 import { AnthropicVertex } from './vertexClient.js'
@@ -465,8 +466,13 @@ export async function getAnthropicClient({
     applyAimlapiEnvOnlyDefaults()
   }
 
-  const shouldUseFirstPartyAuth =
-    shouldUseFirstPartyAnthropicAuth(providerOverride)
+  const apiProvider = getAPIProvider()
+  const isFirstPartyBaseUrl = isFirstPartyAnthropicBaseUrl()
+  const shouldUseFirstPartyAuth = shouldUseFirstPartyAnthropicAuthForProvider({
+    providerOverride,
+    apiProvider,
+    isFirstPartyBaseUrl,
+  })
   const useMiniMaxNativeProvider =
     useMiniMaxEnvOnlyProvider ||
     (getAPIProvider() === 'minimax' &&
@@ -480,9 +486,29 @@ export async function getAnthropicClient({
 
   const isClaudeAiSubscriber =
     shouldUseFirstPartyAuth && isClaudeAISubscriber()
+  const anthropicAuthToken = process.env.ANTHROPIC_AUTH_TOKEN?.trim()
+  const usesCustomAnthropicAuthToken = shouldUseCustomAnthropicBearerAuth({
+    providerOverride,
+    apiProvider,
+    isFirstPartyBaseUrl,
+    authToken: anthropicAuthToken,
+  })
 
-  if (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) {
-    await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
+  if (
+    (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) ||
+    usesCustomAnthropicAuthToken
+  ) {
+    await configureApiKeyHeaders(
+      defaultHeaders,
+      getIsNonInteractiveSession(),
+      usesCustomAnthropicAuthToken ? anthropicAuthToken : undefined,
+    )
+  } else if (apiProvider === 'firstParty' && !isFirstPartyBaseUrl) {
+    removeManagedAnthropicAuthHeaders(defaultHeaders)
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim()
+    if (anthropicApiKey) {
+      defaultHeaders['X-Api-Key'] = anthropicApiKey
+    }
   }
 
   const resolvedFetch = buildFetch(fetchOverride, source)
@@ -733,20 +759,28 @@ export async function getAnthropicClient({
 
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAiSubscriber
+    apiKey: isClaudeAiSubscriber || usesCustomAnthropicAuthToken
       ? null
       : useMiniMaxNativeProvider
         ? process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
-        : apiKey || getAnthropicApiKey(),
+        : apiKey ||
+          (!isFirstPartyBaseUrl
+            ? process.env.ANTHROPIC_API_KEY?.trim()
+            : getAnthropicApiKey()),
+    // Pass an explicit null for non-Bearer routes so the SDK cannot fall back
+    // to ANTHROPIC_AUTH_TOKEN from its own environment lookup.
     authToken: isClaudeAiSubscriber
       ? getClaudeAIOAuthTokens()?.accessToken
-      : undefined,
+      : usesCustomAnthropicAuthToken
+        ? anthropicAuthToken
+        : null,
     // Set baseURL from OAuth config when using staging OAuth
-    ...(process.env.USER_TYPE === 'ant' &&
+    ...(shouldUseFirstPartyAuth &&
+    process.env.USER_TYPE === 'ant' &&
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : process.env.ANTHROPIC_BASE_URL
-        ? { baseURL: process.env.ANTHROPIC_BASE_URL }
+        ? { baseURL: process.env.ANTHROPIC_BASE_URL.replace(/\/v1\/?$/i, '') }
         : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
@@ -758,13 +792,27 @@ export async function getAnthropicClient({
 async function configureApiKeyHeaders(
   headers: Record<string, string>,
   isNonInteractiveSession: boolean,
+  authToken?: string,
 ): Promise<void> {
-  const token =
-    process.env.ANTHROPIC_AUTH_TOKEN ||
-    (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
+  const token = authToken || (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
   if (token) {
+    removeManagedAnthropicAuthHeaders(headers)
     headers['Authorization'] = `Bearer ${token}`
   }
+}
+
+function removeManagedAnthropicAuthHeaders(headers: Record<string, string>): void {
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase()
+    if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') {
+      delete headers[name]
+    }
+  }
+  // The Anthropic SDK also reads ANTHROPIC_CUSTOM_HEADERS. Null sentinels clear
+  // those env-parsed managed auth headers before the supported credential wins.
+  headers.Authorization = null as unknown as string
+  headers['X-Api-Key'] = null as unknown as string
+  headers['api-key'] = null as unknown as string
 }
 
 function getCustomHeaders(): Record<string, string> {
@@ -784,7 +832,13 @@ function getCustomHeaders(): Record<string, string> {
     if (colonIdx === -1) continue
     const name = headerString.slice(0, colonIdx).trim()
     const value = headerString.slice(colonIdx + 1).trim()
-    if (name) {
+    const lowerName = name.toLowerCase()
+    if (
+      name &&
+      lowerName !== 'authorization' &&
+      lowerName !== 'x-api-key' &&
+      lowerName !== 'api-key'
+    ) {
       customHeaders[name] = value
     }
   }

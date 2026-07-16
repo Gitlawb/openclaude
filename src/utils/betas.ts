@@ -27,7 +27,11 @@ import { has1mContext } from './context.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
-import { getAPIProvider, isGithubNativeAnthropicMode } from './model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isGithubNativeAnthropicMode,
+} from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
 
 /**
@@ -103,7 +107,7 @@ export function modelSupportsISP(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
-  if (provider === 'firstParty') {
+  if (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return !canonical.includes('claude-3-')
   }
   return (
@@ -128,7 +132,7 @@ export function modelSupportsContextManagement(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
-  if (provider === 'firstParty') {
+  if (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return !canonical.includes('claude-3-')
   }
   return (
@@ -143,7 +147,10 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
   const canonical = getCanonicalName(model)
   const provider = getAPIProvider()
   // Structured outputs only supported on firstParty and Foundry (not Bedrock/Vertex yet)
-  if (provider !== 'firstParty' && provider !== 'foundry') {
+  if (
+    (provider !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) &&
+    provider !== 'foundry'
+  ) {
     return false
   }
   return (
@@ -165,7 +172,10 @@ export function modelSupportsAutoMode(model: string): boolean {
     // External: firstParty-only at launch (PI probes not wired for
     // Bedrock/Vertex/Foundry yet). Checked before allowModels so the GB
     // override can't enable auto mode on unsupported providers.
-    if (process.env.USER_TYPE !== 'ant' && getAPIProvider() !== 'firstParty') {
+    if (
+      getAPIProvider() !== 'firstParty' ||
+      !isFirstPartyAnthropicBaseUrl()
+    ) {
       return false
     }
     // GrowthBook override: tengu_auto_mode_config.allowModels force-enables
@@ -216,7 +226,8 @@ export function getToolSearchBetaHeader(): string {
  */
 export function shouldIncludeFirstPartyOnlyBetas(): boolean {
   return (
-    (getAPIProvider() === 'firstParty' || getAPIProvider() === 'foundry') &&
+    ((getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) ||
+      getAPIProvider() === 'foundry') &&
     !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)
   )
 }
@@ -229,8 +240,19 @@ export function shouldIncludeFirstPartyOnlyBetas(): boolean {
 export function shouldUseGlobalCacheScope(): boolean {
   return (
     getAPIProvider() === 'firstParty' &&
+    isFirstPartyAnthropicBaseUrl() &&
     !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)
   )
+}
+
+function getBetaCacheKey(model: string): string {
+  return [
+    model.toLowerCase(),
+    getAPIProvider(),
+    process.env.ANTHROPIC_BASE_URL ?? '',
+    process.env.USER_TYPE ?? '',
+    process.env.CLAUDE_CODE_USE_GITHUB ?? '',
+  ].join('\0')
 }
 
 export const getAllModelBetas = memoize((model: string): string[] => {
@@ -368,21 +390,25 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     )
   }
   return betaHeaders
-})
+}, getBetaCacheKey)
 
 export const getModelBetas = memoize((model: string): string[] => {
+  if (!shouldUseAnthropicBetaHeaders(model)) {
+    return []
+  }
   const modelBetas = getAllModelBetas(model)
   if (getAPIProvider() === 'bedrock') {
     return modelBetas.filter(b => !BEDROCK_EXTRA_PARAMS_HEADERS.has(b))
   }
   return modelBetas
-})
+}, getBetaCacheKey)
 
 export const getBedrockExtraBodyParamsBetas = memoize(
   (model: string): string[] => {
     const modelBetas = getAllModelBetas(model)
     return modelBetas.filter(b => BEDROCK_EXTRA_PARAMS_HEADERS.has(b))
   },
+  getBetaCacheKey,
 )
 
 /**
@@ -398,7 +424,12 @@ export const getBedrockExtraBodyParamsBetas = memoize(
  */
 export function isAnthropicProvider(): boolean {
   const provider = getAPIProvider()
-  return provider === 'firstParty' || provider === 'bedrock' || provider === 'vertex' || provider === 'foundry'
+  return (
+    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) ||
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry'
+  )
 }
 
 export function getMergedBetas(
@@ -407,8 +438,9 @@ export function getMergedBetas(
 ): string[] {
   // Beta headers are Anthropic-specific. Non-Anthropic providers (OpenAI,
   // Gemini, Codex, etc.) do not understand them and may reject requests
-  // containing unknown headers. GitHub Native Anthropic mode is an exception.
-  if (!isAnthropicProvider() && !isGithubNativeAnthropicMode(model)) {
+  // containing unknown headers. Custom Anthropic proxies and GitHub Native
+  // Anthropic mode are exceptions because both use Anthropic wire format.
+  if (!shouldUseAnthropicBetaHeaders(model)) {
     return []
   }
 
@@ -439,6 +471,13 @@ export function getMergedBetas(
 
   // Merge SDK betas without duplicates (already filtered by filterAllowedSdkBetas)
   return [...baseBetas, ...sdkBetas.filter(b => !baseBetas.includes(b))]
+}
+
+function shouldUseAnthropicBetaHeaders(model: string): boolean {
+  return (
+    isAnthropicProvider() ||
+    isGithubNativeAnthropicMode(model)
+  )
 }
 
 export function clearBetasCaches(): void {

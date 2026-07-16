@@ -125,6 +125,64 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
   ])
 })
 
+test('custom Anthropic credentials stay native and resolve to their proxy route', () => {
+  expect(getRouteCredentialEnvVars('custom-anthropic')).toEqual([
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+  ])
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_AUTH_TOKEN: 'first-party-token',
+    }),
+  ).toBe('anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'openai-key',
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('openai')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_API_KEY: 'tenant-key',
+    }),
+  ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://tenant.example/v1',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_API_KEY: 'tenant-key',
+      MINIMAX_API_KEY: 'ambient-minimax-key',
+    }),
+  ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://api.minimax.io/anthropic',
+      ANTHROPIC_MODEL: 'tenant-model',
+      ANTHROPIC_AUTH_TOKEN: 'tenant-token',
+    }),
+  ).toBe('custom-anthropic')
+})
+
 test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {
   expect(getRouteCredentialEnvVars('atlas-cloud')).toEqual([
     'ATLAS_CLOUD_API_KEY',

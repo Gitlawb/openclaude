@@ -17,6 +17,7 @@ import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { getRuntimeMainLoopModel, renderModelName } from '../utils/model/model.js';
 import type { Theme } from '../utils/theme.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
+import { formatTokenCount } from '../utils/format.js';
 
 /**
  * Built-in status bar shown when the user has NOT configured a custom
@@ -47,6 +48,12 @@ export type BuiltinStatusData = {
   modelName: string;
   /** 0–100, or null before the first assistant turn. */
   contextUsedPercent: number | null;
+  /** Current input token count (including cache), or null. */
+  contextInputTokens: number | null;
+  /** Model context window size in tokens. */
+  contextWindow: number | null;
+  /** When true, token counts are transcript-based estimates (e.g. all-zero provider response). */
+  contextIsEstimated?: boolean;
   costUSD: number;
   /** Worst rate-limit window, or null when no utilization data (API-key users). */
   rateLimit: {
@@ -60,15 +67,26 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
     priority: 0,
     text: data.modelName
   }];
-  if (data.contextUsedPercent !== null) {
+  if (data.contextUsedPercent !== null && data.contextInputTokens !== null && data.contextWindow !== null) {
     const pct = data.contextUsedPercent;
     const roundedPct = Math.round(pct);
+    const usedTokens = data.contextInputTokens;
+    const window = data.contextWindow;
     const pctText = pct > 0 && pct < 1 ? '<1' : String(roundedPct);
+    // Token display: "ctx ~5K/200K (7%)" — full form
+    // The ~ prefix signals that input token counts are transcript-based
+    // estimates (e.g. provider reported all-zero usage), matching the
+    // public custom-statusline contract which exposes is_estimated.
+    const prefix = data.contextIsEstimated ? '~' : '';
+    const tokenText = `${prefix}${formatTokenCount(usedTokens)}/${formatTokenCount(window)}`;
+    const text = `ctx ${tokenText} (${pctText}%)`;
+    // Short form: "ctx ~5K/200K"
+    const shortText = `ctx ${tokenText}`;
     segments.push({
       key: 'context',
       priority: 1,
-      text: `ctx ${pctText}%`,
-      shortText: `${pctText}%`,
+      text,
+      shortText,
       // Thresholds align with the auto-compact warnings
       color: roundedPct >= 90 ? 'error' : roundedPct >= 70 ? 'warning' : undefined
     });
@@ -178,10 +196,17 @@ function BuiltinStatusLineInner({
       exceeds200kTokens
     });
     const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
-    const contextPercentages = calculateContextPercentages(getCurrentUsage(msgs), contextWindowSize);
+    const currentUsage = getCurrentUsage(msgs);
+    const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
+    const inputTokens = currentUsage
+      ? currentUsage.input_tokens + currentUsage.cache_creation_input_tokens + currentUsage.cache_read_input_tokens
+      : null;
     return {
       modelName: renderModelName(runtimeModel),
       contextUsedPercent: contextPercentages.used,
+      contextInputTokens: inputTokens,
+      contextWindow: contextWindowSize,
+      contextIsEstimated: currentUsage?.is_estimated,
       costUSD: getTotalCost()
     };
     // messagesRef is stable; lastAssistantMessageId is the messages-changed signal

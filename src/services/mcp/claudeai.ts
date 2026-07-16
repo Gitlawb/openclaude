@@ -9,7 +9,10 @@ import { getClaudeAIOAuthTokens } from 'src/utils/auth.js'
 import { getGlobalConfig, saveGlobalConfig } from 'src/utils/config.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { isEnvDefinedFalsy } from 'src/utils/envUtils.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from 'src/utils/model/providers.js'
 import { clearMcpAuthCache } from './client.js'
 import { normalizeNameForMCP } from './normalization.js'
 import type { ScopedMcpServerConfig } from './types.js'
@@ -31,6 +34,13 @@ type ClaudeAIMcpServersResponse = {
 const FETCH_TIMEOUT_MS = 5000
 const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 
+function getClaudeAIMcpConfigsCacheKey(): string {
+  // Provider selection can change during a process lifetime. Keep the
+  // first-party result separate from a custom-endpoint no-op so an in-process
+  // switch cannot expose stale organization MCP configuration.
+  return `${getAPIProvider()}:${process.env.ANTHROPIC_BASE_URL ?? ''}`
+}
+
 /**
  * Fetches MCP server configurations from Claude.ai org configs.
  * These servers are managed by the organization via Claude.ai.
@@ -45,6 +55,14 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
         logEvent('tengu_claudeai_mcp_eligibility', {
           state:
             'non_first_party_provider' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        })
+        return {}
+      }
+      if (!isFirstPartyAnthropicBaseUrl()) {
+        logForDebugging('[claudeai-mcp] Skipped: non-first-party base URL')
+        logEvent('tengu_claudeai_mcp_eligibility', {
+          state:
+            'non_first_party_base_url' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         })
         return {}
       }
@@ -141,6 +159,7 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
       return {}
     }
   },
+  getClaudeAIMcpConfigsCacheKey,
 )
 
 /**

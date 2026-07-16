@@ -4184,6 +4184,37 @@ test('OPENAI_API_KEYS rotates to the next key on rate-limit failure', async () =
   expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
 })
 
+test('OPENAI_API_KEYS does not reuse a cooled-down key after every key is rate-limited', async () => {
+  const authorizations: Array<string | null> = []
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toThrow()
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+})
+
 test('comma-separated OPENAI_API_KEY rotates to the next key on rate-limit failure', async () => {
   const authorizations: Array<string | null> = []
 
@@ -9363,6 +9394,210 @@ test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs when thinking is d
   expect(requestBody?.thinking).toEqual({ type: 'disabled' })
   expect(requestBody?.reasoning_effort).toBeUndefined()
   expect(requestBody?.chat_template_kwargs).toBeUndefined()
+})
+
+// Regression test for #1950: GLM-5.2 served through NVIDIA NIM
+// (`integrate.api.nvidia.com`) must never receive the Z.AI-proprietary
+// `tool_stream` parameter. Streaming tool calls are simply not streamed on
+// this gateway; sending the parameter aborts the request with
+// `400 Unsupported parameter(s): tool_stream`.
+test('NVIDIA NIM Z.AI GLM streaming request with tools does not send tool_stream (regression #1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.NVIDIA_API_KEY = 'nvapi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'z-ai/glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'z-ai/glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'z-ai/glm-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [
+      {
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  // tool_stream is a Z.AI-only streaming extension; NVIDIA NIM rejects it with
+  // `400 Unsupported parameter(s): tool_stream`. Streaming tool calls simply
+  // aren't streamed on this gateway.
+  expect(requestBody?.tool_stream).toBeUndefined()
+})
+
+// Regression test for #1950: even if a gateway rejects `tool_stream` with a
+// 400 (e.g. NVIDIA NIM: `Unsupported parameter(s): tool_stream`), the shim
+// self-heals by dropping only that parameter and retrying with tools intact.
+// Here we exercise the generic self-heal using a Z.AI-contract gateway that
+// actually sends `tool_stream`, then rejects it — proving the retry drops the
+// parameter rather than surfacing a hard error.
+test('Shim self-heals a JSON `tool_stream` rejection by retrying without it (#1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  let callCount = 0
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+    callCount += 1
+    if (callCount === 1) {
+      return new Response(
+        '{"error":{"message":"tool_stream is unsupported"}}',
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  // Must not throw — the self-heal retry succeeds.
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [
+      {
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  // First attempt sent tool_stream; the self-heal dropped it and retried.
+  expect(requestBodies).toHaveLength(2)
+  expect(requestBodies[0]?.tool_stream).toBe(true)
+  expect(requestBodies[1]?.tool_stream).toBeUndefined()
+  // Tools are preserved across the retry.
+  expect(Array.isArray(requestBodies[1]?.tools)).toBe(true)
+})
+
+test('Shim stops after one tool_stream self-heal retry when the retry also fails (#1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+    return new Response(
+      '{"error":{"message":"tool_stream is unsupported"}}',
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'glm-5.2',
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools: [{
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      }],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(2)
+  expect(requestBodies[0]?.tool_stream).toBe(true)
+  expect(requestBodies[1]?.tool_stream).toBeUndefined()
+})
+
+test('Shim retries a tool_stream rejection with the same pooled credential (#1950)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  const authorizations: Array<string | null> = []
+  let callCount = 0
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    callCount += 1
+    if (callCount === 1) {
+      return new Response(
+        '{"error":{"message":"Validation: Unsupported parameter(s): `tool_stream`"}}',
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [{
+      name: 'Bash',
+      description: 'Run a shell command',
+      input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+    }],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-a'])
 })
 
 test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {

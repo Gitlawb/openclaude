@@ -16,6 +16,7 @@ const originalEnv = {
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
@@ -63,6 +64,7 @@ function clearProviderEnv(): void {
   delete process.env.MINIMAX_API_KEY
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.ANTHROPIC_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
@@ -81,6 +83,26 @@ test('first-party provider keeps Anthropic account setup flow enabled', () => {
       expect(usesAnthropicAccountFlow()).toBe(true)
     },
   )
+})
+
+test('custom Anthropic endpoints do not start the first-party account flow', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+
+  const { usesAnthropicAccountFlow } = await importFreshProvidersModule()
+  expect(usesAnthropicAccountFlow()).toBe(false)
+})
+
+test('HTTP Anthropic URLs do not enable the first-party account flow', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'http://api.anthropic.com'
+
+  const { isFirstPartyAnthropicBaseUrl, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(isFirstPartyAnthropicBaseUrl()).toBe(false)
+  expect(usesAnthropicAccountFlow()).toBe(false)
 })
 
 test.each([

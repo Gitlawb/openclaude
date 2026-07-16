@@ -13,11 +13,18 @@ const baseResult = {
   isJson: false,
   preview: 'first chunk',
   hasMore: true,
+  strategy: 'head-tail' as const,
 }
 
 test('buildLargeToolResultMessage says "Full output" when the file is complete', () => {
   const message = buildLargeToolResultMessage(baseResult)
   expect(message).toContain('Full output saved to: /tmp/tool-results/abc.txt')
+  expect(message).toContain('Output size: 100,000 bytes (97.7KB)')
+  expect(message).toContain(
+    'UTF-8-safe head and tail with an exact omitted-byte marker',
+  )
+  expect(message).toContain('2,000-byte total budget')
+  expect(message).not.toContain('Preview (first')
   expect(message).not.toContain('capped')
 })
 

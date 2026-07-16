@@ -19,7 +19,10 @@ import { env } from '../utils/env.js';
 import { type GitRepoState, getGitState, getIsGit } from '../utils/git.js';
 import { getAuthHeaders, getUserAgent } from '../utils/http.js';
 import { getInMemoryErrors, logError } from '../utils/log.js';
-import { getAPIProvider } from '../utils/model/providers.js';
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
 import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
@@ -488,7 +491,7 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
   try {
     // Third-party providers should not post feedback to Anthropic, but they
     // should still reach the done state so users can open a GitHub issue draft.
-    if (getAPIProvider() !== 'firstParty') {
+    if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
       return {
         success: true,
         issueDraftOnly: true

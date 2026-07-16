@@ -7,10 +7,12 @@ import type {
   PermissionDecisionReason,
 } from './PermissionResult.js'
 import {
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import { permissionUpdateSchema } from './PermissionUpdateSchema.js'
 import { applyPermissionUpdatesToLiveContext } from './permissionSetup.js'
+import { revalidatePlanModePermissionAllowWithRaceGuard } from './permissions.js'
 
 export const inputSchema = lazySchema(() =>
   z.object({
@@ -81,20 +83,46 @@ export type Output = z.infer<ReturnType<typeof outputSchema>>
 /**
  * Normalizes the result of a permission prompt tool to a PermissionDecision.
  */
-export function permissionPromptToolResultToPermissionDecision(
+export async function permissionPromptToolResultToPermissionDecision(
   result: Output,
   tool: Tool,
   input: { [key: string]: unknown },
   toolUseContext: ToolUseContext,
-): PermissionDecision {
+): Promise<PermissionDecision> {
   const decisionReason: PermissionDecisionReason = {
     type: 'permissionPromptTool',
     permissionPromptToolName: tool.name,
     toolResult: result,
   }
   if (result.behavior === 'allow') {
-    const updatedPermissions = result.updatedPermissions
-    if (updatedPermissions) {
+    // Mobile clients responding from a push notification don't have the
+    // original tool input, so they send `{}` to satisfy the schema. Treat an
+    // empty object as "use original" so the tool doesn't run with no args.
+    const updatedInput =
+      Object.keys(result.updatedInput).length > 0 ? result.updatedInput : input
+    const planModeWasActive =
+      toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+    const revalidation =
+      await revalidatePlanModePermissionAllowWithRaceGuard(
+        tool,
+        input,
+        updatedInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+    const enforcePlanMode =
+      planModeWasActive ||
+      toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+    if (revalidation) {
+      return revalidation
+    }
+
+    const updatedPermissions = filterPermissionRequestHookUpdates(
+      result.updatedPermissions ?? [],
+      enforcePlanMode ||
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
+    )
+    if (updatedPermissions.length > 0) {
       let updatedContext = toolUseContext.getAppState().toolPermissionContext
       toolUseContext.setAppState(prev => {
         updatedContext = applyPermissionUpdatesToLiveContext(
@@ -109,13 +137,21 @@ export function permissionPromptToolResultToPermissionDecision(
       })
       persistPermissionUpdates(updatedPermissions)
     }
-    // Mobile clients responding from a push notification don't have the
-    // original tool input, so they send `{}` to satisfy the schema. Treat an
-    // empty object as "use original" so the tool doesn't run with no args.
-    const updatedInput =
-      Object.keys(result.updatedInput).length > 0 ? result.updatedInput : input
+    const postUpdatePlanModeDecision =
+      await revalidatePlanModePermissionAllowWithRaceGuard(
+        tool,
+        input,
+        updatedInput,
+        toolUseContext,
+        enforcePlanMode ||
+          toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
+      )
+    if (postUpdatePlanModeDecision) {
+      return postUpdatePlanModeDecision
+    }
+    const { updatedPermissions: _updatedPermissions, ...allowResult } = result
     return {
-      ...result,
+      ...allowResult,
       updatedInput,
       decisionReason,
     }

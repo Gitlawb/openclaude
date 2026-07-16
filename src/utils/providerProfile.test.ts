@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { afterEach, beforeEach } from 'node:test'
@@ -508,7 +508,7 @@ test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env withou
 })
 
 test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stale profile', async () => {
-  const processEnv = {
+  const processEnv: NodeJS.ProcessEnv = {
     OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
     OPENAI_MODEL: 'qwen/qwen3.5-397b-a17b',
     NVIDIA_API_KEY: 'nvapi-live',
@@ -1111,6 +1111,29 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
   }
 })
 
+test('saveProfileFile restricts permissions when overwriting an existing profile', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-profile-mode-'))
+
+  try {
+    const filePath = join(cwd, PROFILE_FILE_NAME)
+    writeFileSync(filePath, '{}', { encoding: 'utf8', mode: 0o644 })
+    chmodSync(filePath, 0o644)
+
+    saveProfileFile(
+      createProfileFile('anthropic', {
+        ANTHROPIC_AUTH_TOKEN: 'custom-bearer-token',
+      }),
+      { cwd },
+    )
+
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(filePath).mode & 0o777, 0o600)
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('saveProfileFile defaults to user config instead of the working directory', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-workspace-profile-'))
   const configRoot = mkdtempSync(join(tmpdir(), 'openclaude-config-profile-'))
@@ -1436,6 +1459,64 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_API_KEY, 'gem-test')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+})
+
+test('buildStartupEnvFromProfile restores a persisted custom Anthropic Bearer token', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('anthropic', {
+      ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+      ANTHROPIC_MODEL: 'claude-proxy-model',
+      ANTHROPIC_AUTH_TOKEN: 'persisted-proxy-token',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Tenant: example',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://anthropic-proxy.example/v1')
+  assert.equal(env.ANTHROPIC_MODEL, 'claude-proxy-model')
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
+  assert.equal(env.ANTHROPIC_API_KEY, undefined)
+  assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, 'X-Tenant: example')
+})
+
+test('buildStartupEnvFromProfile does not leak a stray API key into a persisted custom Anthropic Bearer profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('anthropic', {
+      ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+      ANTHROPIC_MODEL: 'claude-proxy-model',
+      ANTHROPIC_AUTH_TOKEN: 'persisted-proxy-token',
+    }),
+    processEnv: { ANTHROPIC_API_KEY: 'sk-ant-stray-shell-key' },
+  })
+
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'persisted-proxy-token')
+  assert.equal(env.ANTHROPIC_API_KEY, undefined)
+})
+
+test('buildStartupEnvFromProfile preserves explicit custom Anthropic environment setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+    ANTHROPIC_MODEL: 'claude-proxy-model',
+    ANTHROPIC_AUTH_TOKEN: 'env-proxy-token',
+  }
+  const env = await buildStartupEnvFromProfile({ persisted: null, processEnv })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'env-proxy-token')
+})
+
+test('buildStartupEnvFromProfile preserves custom Anthropic x-api-key setup', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example/v1',
+    ANTHROPIC_MODEL: 'claude-proxy-model',
+    ANTHROPIC_API_KEY: 'env-proxy-key',
+  }
+  const env = await buildStartupEnvFromProfile({ persisted: null, processEnv })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.ANTHROPIC_API_KEY, 'env-proxy-key')
 })
 
 test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {

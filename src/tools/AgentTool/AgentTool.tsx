@@ -486,6 +486,7 @@ export const AgentTool = buildTool({
     }
 
     const forceSyncCopilot = shouldForceSyncSubagentsInCopilotMode();
+    const forcePlanModeSync = permissionMode === 'plan' || toolUseContext.getAppState().toolPermissionContext.mode === 'plan';
 
     // Use inline env check instead of coordinatorModule to avoid circular
     // dependency issues during test module loading.
@@ -515,7 +516,7 @@ export const AgentTool = buildTool({
         `or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1.`,
       );
     }
-    const shouldRunAsync = forceSyncCopilot
+    const shouldRunAsync = forceSyncCopilot || forcePlanModeSync
       ? false
       : (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
 
@@ -908,7 +909,7 @@ export const AgentTool = buildTool({
           type: 'background';
         }> | undefined;
         let cancelAutoBackground: (() => void) | undefined;
-        if (!isBackgroundTasksDisabled && !forceSyncCopilot) {
+        if (!isBackgroundTasksDisabled && !forceSyncCopilot && !forcePlanModeSync) {
           const registration = registerAgentForeground({
             agentId: syncAgentId,
             description,
@@ -965,7 +966,7 @@ export const AgentTool = buildTool({
             // Skip if background tasks are disabled or if Copilot mode is
             // forcing synchronous execution (no foreground registration, so
             // the hint would advertise a non-existent affordance).
-            if (!isBackgroundTasksDisabled && !forceSyncCopilot && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
+            if (!isBackgroundTasksDisabled && !forceSyncCopilot && !forcePlanModeSync && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
               backgroundHintShown = true;
               toolUseContext.setToolJSX({
                 jsx: <BackgroundHint />,

@@ -17,6 +17,7 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_API_KEY: 'single-key',
           MINIMAX_API_KEY: 'sk-minimax',
           VENICE_API_KEY: 'sk-venice',
+          ANTHROPIC_AUTH_TOKEN: 'stale-proxy-token',
           KEEP_ME: '1',
         },
       }),
@@ -39,6 +40,7 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_API_KEY: undefined,
           MINIMAX_API_KEY: undefined,
           VENICE_API_KEY: undefined,
+          ANTHROPIC_AUTH_TOKEN: undefined,
         }),
       }),
     )

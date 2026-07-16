@@ -1,9 +1,36 @@
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import {
   getAutoModeInstructions,
   getPlanModeInstructions,
   wrapInSystemReminder,
 } from './planMode.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+
+let originalPlanModeInterviewPhase: string | undefined
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/messages/planMode.test.ts')
+  // Other suites exercise the interview-phase flag. Pin this test's intended
+  // legacy full-reminder contract so cached feature-gate state cannot leak in.
+  originalPlanModeInterviewPhase =
+    process.env.CLAUDE_CODE_PLAN_MODE_INTERVIEW_PHASE
+  process.env.CLAUDE_CODE_PLAN_MODE_INTERVIEW_PHASE = 'false'
+})
+
+afterEach(() => {
+  try {
+    if (originalPlanModeInterviewPhase === undefined) {
+      delete process.env.CLAUDE_CODE_PLAN_MODE_INTERVIEW_PHASE
+    } else {
+      process.env.CLAUDE_CODE_PLAN_MODE_INTERVIEW_PHASE = originalPlanModeInterviewPhase
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 test('wrapInSystemReminder wraps content in system-reminder tags', () => {
   expect(wrapInSystemReminder('hello')).toBe(

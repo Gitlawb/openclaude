@@ -3,7 +3,8 @@
  */
 
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
-import { mkdir, writeFile } from 'fs/promises'
+import { isUtf8 } from 'node:buffer'
+import { mkdir, open, writeFile, type FileHandle } from 'fs/promises'
 import { join } from 'path'
 import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
 import {
@@ -80,10 +81,12 @@ export function getPersistenceThreshold(
 // Result of persisting a tool result to disk
 export type PersistedToolResult = {
   filepath: string
+  // UTF-8 byte size of the serialized content written to disk.
   originalSize: number
   isJson: boolean
   preview: string
   hasMore: boolean
+  strategy: PreviewStrategy
   // When true, the persisted file is capped (only the first portion of the
   // originalSize-byte output was written). The model-facing message must not
   // claim the full output is available.
@@ -111,6 +114,21 @@ export function getToolResultsDir(): string {
 
 // Preview size in bytes for the reference message
 export const PREVIEW_SIZE_BYTES = 2000
+
+export type PreviewMode = 'text' | 'json' | 'head-only'
+export type PreviewStrategy = 'complete' | 'head-tail' | 'head-only'
+
+export type PreviewResult = {
+  preview: string
+  hasMore: boolean
+  strategy: PreviewStrategy
+  /** Raw source bytes excluded by a generated head/tail marker. */
+  omittedBytes?: number
+  /** UTF-16 offset of the generated marker within preview. */
+  markerStart?: number
+  /** False when retained raw file bytes required replacement during decoding. */
+  retainedBytesValidUtf8?: false
+}
 
 /**
  * Get the filepath where a tool result would be persisted.
@@ -157,6 +175,7 @@ export async function persistToolResult(
   await ensureToolResultsDir()
   const filepath = getToolResultPath(toolUseId, isJson)
   const contentStr = isJson ? jsonStringify(content, null, 2) : content
+  const originalSize = Buffer.byteLength(contentStr, 'utf8')
 
   // tool_use_id is unique per invocation and content is deterministic for a
   // given id, so skip if the file already exists. This prevents re-writing
@@ -165,7 +184,7 @@ export async function persistToolResult(
   try {
     await writeFile(filepath, contentStr, { encoding: 'utf-8', flag: 'wx' })
     logForDebugging(
-      `Persisted tool result to ${filepath} (${formatFileSize(contentStr.length)})`,
+      `Persisted tool result to ${filepath} (${formatFileSize(originalSize)})`,
     )
   } catch (error) {
     if (getErrnoCode(error) !== 'EEXIST') {
@@ -176,20 +195,37 @@ export async function persistToolResult(
   }
 
   // Generate a preview
-  const { preview, hasMore } = generatePreview(contentStr, PREVIEW_SIZE_BYTES)
+  const { preview, hasMore, strategy } = generatePreview(
+    contentStr,
+    PREVIEW_SIZE_BYTES,
+    isJson ? 'json' : 'text',
+  )
 
   return {
     filepath,
-    originalSize: contentStr.length,
+    originalSize,
     isJson,
     preview,
     hasMore,
+    strategy,
   }
 }
 
 /**
  * Build a message for large tool results with preview
  */
+function describePreviewStrategy(result: PersistedToolResult): string {
+  if (result.strategy === 'head-tail') {
+    return 'UTF-8-safe head and tail with an exact omitted-byte marker'
+  }
+  if (result.strategy === 'head-only') {
+    return result.isJson
+      ? 'UTF-8-safe head-only partial serialized JSON fragment (may not be valid JSON)'
+      : 'UTF-8-safe head-only partial output'
+  }
+  return 'complete available inline output'
+}
+
 export function buildLargeToolResultMessage(
   result: PersistedToolResult,
 ): string {
@@ -197,10 +233,15 @@ export function buildLargeToolResultMessage(
   const savedDescription = result.truncated
     ? `Partial output saved to: ${result.filepath} (output was capped — the tail was not saved)`
     : `Full output saved to: ${result.filepath}`
-  message += `Output too large (${formatFileSize(result.originalSize)}). ${savedDescription}\n\n`
-  message += `Preview (first ${formatFileSize(PREVIEW_SIZE_BYTES)}):\n`
+  const previewDescription = describePreviewStrategy(result)
+  message +=
+    `Output size: ${result.originalSize.toLocaleString('en-US')} bytes ` +
+    `(${formatFileSize(result.originalSize)}). ${savedDescription}\n`
+  message +=
+    `Preview: ${previewDescription}, within a ` +
+    `${PREVIEW_SIZE_BYTES.toLocaleString('en-US')}-byte total budget:\n`
   message += result.preview
-  message += result.hasMore ? '\n...\n' : '\n'
+  message += '\n'
   message += PERSISTED_OUTPUT_CLOSING_TAG
   return message
 }
@@ -331,35 +372,265 @@ async function maybePersistLargeToolResult(
   logEvent('tengu_tool_result_persisted', {
     toolName: sanitizeToolNameForAnalytics(toolName),
     originalSizeBytes: result.originalSize,
-    persistedSizeBytes: message.length,
+    persistedSizeBytes: Buffer.byteLength(message, 'utf8'),
     estimatedOriginalTokens: Math.ceil(result.originalSize / BYTES_PER_TOKEN),
-    estimatedPersistedTokens: Math.ceil(message.length / BYTES_PER_TOKEN),
+    estimatedPersistedTokens: Math.ceil(
+      Buffer.byteLength(message, 'utf8') / BYTES_PER_TOKEN,
+    ),
     thresholdUsed: threshold,
   })
 
   return { ...toolResultBlock, content: message }
 }
 
+function safeHeadEnd(buffer: Buffer, maxBytes: number): number {
+  let end = Math.min(Math.max(0, maxBytes), buffer.length)
+  if (end === buffer.length) return end
+  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end--
+  return end
+}
+
+function safeTailStart(buffer: Buffer, maxBytes: number): number {
+  let start = Math.max(0, buffer.length - Math.max(0, maxBytes))
+  while (start < buffer.length && (buffer[start]! & 0xc0) === 0x80) start++
+  return start
+}
+
+function decodedByteLength(buffer: Buffer): number {
+  return Buffer.byteLength(buffer.toString('utf8'), 'utf8')
+}
+
+function invalidRetainedUtf8Metadata(
+  ...buffers: Buffer[]
+): Pick<PreviewResult, 'retainedBytesValidUtf8'> {
+  return buffers.every(buffer => isUtf8(buffer))
+    ? {}
+    : { retainedBytesValidUtf8: false }
+}
+
+function fitHeadEnd(buffer: Buffer, targetBytes: number): number {
+  let end = safeHeadEnd(buffer, Math.min(buffer.length, targetBytes))
+  while (
+    end > 0 &&
+    decodedByteLength(buffer.subarray(0, end)) > targetBytes
+  ) {
+    end = safeHeadEnd(buffer, end - 1)
+  }
+  return end
+}
+
+function fitTailStart(buffer: Buffer, targetBytes: number): number {
+  let start = safeTailStart(buffer, Math.min(buffer.length, targetBytes))
+  while (
+    start < buffer.length &&
+    decodedByteLength(buffer.subarray(start)) > targetBytes
+  ) {
+    start = safeTailStart(buffer, buffer.length - start - 1)
+  }
+  return start
+}
+
+function chooseHeadEnd(buffer: Buffer, targetBytes: number): number {
+  const hardEnd = fitHeadEnd(buffer, targetBytes)
+  if (hardEnd === 0) return 0
+  const newline = buffer.lastIndexOf(0x0a, hardEnd - 1)
+  const lineEnd = newline + 1
+  const lineBytes = decodedByteLength(buffer.subarray(0, lineEnd))
+  return lineBytes >= targetBytes * 0.5 ? lineEnd : hardEnd
+}
+
+function chooseTailStart(buffer: Buffer, targetBytes: number): number {
+  if (targetBytes <= 0) return buffer.length
+  const hardStart = fitTailStart(buffer, targetBytes)
+  const newline = buffer.indexOf(0x0a, hardStart)
+  if (newline === -1) return hardStart
+  const lineStart = newline > hardStart && buffer[newline - 1] === 0x0d
+    ? newline - 1
+    : newline
+  const lineBytes = decodedByteLength(buffer.subarray(lineStart))
+  return lineBytes >= targetBytes * 0.5 ? lineStart : hardStart
+}
+
+export function formatOmissionMarker(omittedBytes: number): string {
+  return `… ${omittedBytes} bytes omitted …`
+}
+
+function getHeadTailTargets(
+  totalBytes: number,
+  maxBytes: number,
+): { head: number; tail: number } | null {
+  const reservedMarkerBytes = Buffer.byteLength(
+    formatOmissionMarker(totalBytes),
+    'utf8',
+  )
+  if (reservedMarkerBytes > maxBytes) return null
+  const availableBytes = maxBytes - reservedMarkerBytes
+  const head = Math.floor(availableBytes * 0.6)
+  return { head, tail: availableBytes - head }
+}
+
+function generateHeadTailPreview(
+  buffer: Buffer,
+  maxBytes: number,
+): PreviewResult {
+  // Reserve using the total size, whose digit count is at least as wide as
+  // the exact omitted count. The final marker may be a byte or two shorter,
+  // but can never make the preview exceed the budget.
+  const targets = getHeadTailTargets(buffer.length, maxBytes)
+  if (targets === null) {
+    const end = chooseHeadEnd(buffer, maxBytes)
+    const retained = buffer.subarray(0, end)
+    return {
+      preview: retained.toString('utf8'),
+      hasMore: true,
+      strategy: 'head-only',
+      ...invalidRetainedUtf8Metadata(retained),
+    }
+  }
+
+  const headEnd = chooseHeadEnd(buffer, targets.head)
+  const tailStart = chooseTailStart(buffer, targets.tail)
+  const omittedBytes = tailStart - headEnd
+  const exactMarker = formatOmissionMarker(omittedBytes)
+  const headBuffer = buffer.subarray(0, headEnd)
+  const tailBuffer = buffer.subarray(tailStart)
+  const head = headBuffer.toString('utf8')
+  return {
+    preview:
+      head +
+      exactMarker +
+      tailBuffer.toString('utf8'),
+    hasMore: true,
+    strategy: 'head-tail',
+    omittedBytes,
+    markerStart: head.length,
+    ...invalidRetainedUtf8Metadata(headBuffer, tailBuffer),
+  }
+}
+
 /**
- * Generate a preview of content, truncating at a newline boundary when possible.
+ * Generate a UTF-8 byte-bounded preview. Plain text preserves head and tail;
+ * serialized JSON stays head-only so the preview never resembles valid JSON
+ * assembled from arbitrary fragments.
  */
 export function generatePreview(
   content: string,
   maxBytes: number,
-): { preview: string; hasMore: boolean } {
-  if (content.length <= maxBytes) {
-    return { preview: content, hasMore: false }
+  mode: PreviewMode = 'text',
+): PreviewResult {
+  const byteLimit = Math.max(0, Math.floor(maxBytes))
+  const contentBytes = Buffer.byteLength(content, 'utf8')
+  if (contentBytes <= byteLimit) {
+    return { preview: content, hasMore: false, strategy: 'complete' }
   }
 
-  // Find the last newline within the limit to avoid cutting mid-line
-  const truncated = content.slice(0, maxBytes)
-  const lastNewline = truncated.lastIndexOf('\n')
+  const buffer = Buffer.from(content, 'utf8')
+  if (mode !== 'text') {
+    const end = chooseHeadEnd(buffer, byteLimit)
+    return {
+      preview: buffer.subarray(0, end).toString('utf8'),
+      hasMore: true,
+      strategy: 'head-only',
+    }
+  }
+  return generateHeadTailPreview(buffer, byteLimit)
+}
 
-  // If we found a newline reasonably close to the limit, use it
-  // Otherwise fall back to the exact limit
-  const cutPoint = lastNewline > maxBytes * 0.5 ? lastNewline : maxBytes
+async function readFileBytes(
+  handle: FileHandle,
+  position: number,
+  length: number,
+): Promise<Buffer> {
+  const buffer = Buffer.alloc(length)
+  let offset = 0
+  while (offset < length) {
+    const { bytesRead } = await handle.read(
+      buffer,
+      offset,
+      length - offset,
+      position + offset,
+    )
+    if (bytesRead === 0) break
+    offset += bytesRead
+  }
+  return buffer.subarray(0, offset)
+}
 
-  return { preview: content.slice(0, cutPoint), hasMore: true }
+/**
+ * Build the same bounded text preview from a file without loading the full
+ * spill into memory. Size is derived from the opened handle so callers cannot
+ * provide stale metadata that would make the omitted-byte marker inaccurate.
+ */
+export async function generateFilePreview(
+  filepath: string,
+  maxBytes: number,
+): Promise<PreviewResult> {
+  const byteLimit = Math.max(0, Math.floor(maxBytes))
+  const handle = await open(filepath, 'r')
+  try {
+    const fileSizeBytes = (await handle.stat()).size
+    if (fileSizeBytes <= byteLimit) {
+      const content = await readFileBytes(handle, 0, fileSizeBytes)
+      const decoded = content.toString('utf8')
+      if (Buffer.byteLength(decoded, 'utf8') > byteLimit) {
+        return generateHeadTailPreview(content, byteLimit)
+      }
+      return {
+        preview: decoded,
+        hasMore: false,
+        strategy: 'complete',
+        ...invalidRetainedUtf8Metadata(content),
+      }
+    }
+
+    const targets = getHeadTailTargets(fileSizeBytes, byteLimit)
+    if (targets === null) {
+      const head = await readFileBytes(
+        handle,
+        0,
+        Math.min(fileSizeBytes, byteLimit + 3),
+      )
+      const headEnd = chooseHeadEnd(head, byteLimit)
+      const retained = head.subarray(0, headEnd)
+      return {
+        preview: retained.toString('utf8'),
+        hasMore: true,
+        strategy: 'head-only',
+        ...invalidRetainedUtf8Metadata(retained),
+      }
+    }
+
+    // Up to three lookahead bytes are enough to detect whether a requested
+    // boundary falls inside a four-byte UTF-8 code point.
+    const headReadLength = Math.min(fileSizeBytes, targets.head + 3)
+    const tailReadLength = Math.min(fileSizeBytes, targets.tail + 3)
+    const tailReadStart = fileSizeBytes - tailReadLength
+    const [head, tail] = await Promise.all([
+      readFileBytes(handle, 0, headReadLength),
+      readFileBytes(handle, tailReadStart, tailReadLength),
+    ])
+    const headEnd = chooseHeadEnd(head, targets.head)
+    const localTailStart = chooseTailStart(tail, targets.tail)
+    const tailStart = tailReadStart + localTailStart
+    const omittedBytes = tailStart - headEnd
+    const marker = formatOmissionMarker(omittedBytes)
+    const headBuffer = head.subarray(0, headEnd)
+    const tailBuffer = tail.subarray(localTailStart)
+    const headPreview = headBuffer.toString('utf8')
+    return {
+      preview:
+        headPreview +
+        marker +
+        tailBuffer.toString('utf8'),
+      hasMore: true,
+      strategy: 'head-tail',
+      omittedBytes,
+      markerStart: headPreview.length,
+      ...invalidRetainedUtf8Metadata(headBuffer, tailBuffer),
+    }
+  } finally {
+    await handle.close()
+  }
 }
 
 /**
@@ -888,7 +1159,7 @@ export async function enforceToolResultBudget(
     toPersist.map(async c => [c, await buildReplacement(c)] as const),
   )
   const newlyReplaced: ToolResultReplacementRecord[] = []
-  let replacedSize = 0
+  let replacedSizeBytes = 0
   for (const [candidate, replacement] of freshReplacements) {
     // Mark seen HERE, post-await, atomically with replacements.set for
     // success cases. For persist failures (replacement === null) the ID
@@ -896,7 +1167,7 @@ export async function enforceToolResultBudget(
     // model, so treating it as frozen going forward is correct.
     state.seenIds.add(candidate.toolUseId)
     if (replacement === null) continue
-    replacedSize += candidate.size
+    replacedSizeBytes += replacement.originalSize
     replacementMap.set(candidate.toolUseId, replacement.content)
     state.replacements.set(candidate.toolUseId, replacement.content)
     newlyReplaced.push({
@@ -906,12 +1177,12 @@ export async function enforceToolResultBudget(
     })
     logEvent('tengu_tool_result_persisted_message_budget', {
       originalSizeBytes: replacement.originalSize,
-      persistedSizeBytes: replacement.content.length,
+      persistedSizeBytes: Buffer.byteLength(replacement.content, 'utf8'),
       estimatedOriginalTokens: Math.ceil(
         replacement.originalSize / BYTES_PER_TOKEN,
       ),
       estimatedPersistedTokens: Math.ceil(
-        replacement.content.length / BYTES_PER_TOKEN,
+        Buffer.byteLength(replacement.content, 'utf8') / BYTES_PER_TOKEN,
       ),
     })
   }
@@ -924,12 +1195,12 @@ export async function enforceToolResultBudget(
     logForDebugging(
       `Per-message budget: persisted ${newlyReplaced.length} tool results ` +
         `across ${messagesOverBudget} over-budget message(s), ` +
-        `shed ~${formatFileSize(replacedSize)}, ${reappliedCount} re-applied`,
+        `shed ~${formatFileSize(replacedSizeBytes)}, ${reappliedCount} re-applied`,
     )
     logEvent('tengu_message_level_tool_result_budget_enforced', {
       resultsPersisted: newlyReplaced.length,
       messagesOverBudget,
-      replacedSizeBytes: replacedSize,
+      replacedSizeBytes,
       reapplied: reappliedCount,
     })
   }
