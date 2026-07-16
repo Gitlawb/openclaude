@@ -782,6 +782,33 @@ test('gpt-5.6 chat-completions escape hatch omits reasoning effort with tools', 
   expect(capturedBody).not.toHaveProperty('reasoning_effort')
 })
 
+test('gpt-5.4 chat-completions escape hatch omits reasoning effort with tools', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1', model: 'gpt-5.4',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ reasoningEffort: 'high' }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [{ name: 'get_weather', description: 'Get the weather', input_schema: { type: 'object', properties: {} } }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody).not.toHaveProperty('reasoning_effort')
+})
+
 test('gpt-5.6 chat-completions escape hatch keeps reasoning effort without tools', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_API_KEY = 'test-key'

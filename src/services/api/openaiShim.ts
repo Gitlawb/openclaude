@@ -3841,14 +3841,13 @@ class OpenAIShimMessages {
       openaiShimConfig: shimConfig,
       baseUrl: request.baseUrl,
     })
-    // The explicit chat-completions escape hatch for GPT-5.6 must
+    // The explicit chat-completions escape hatch for GPT-5.4/5.5/5.6 must
     // also omit reasoning effort: these models reject the tools + effort
     // combination on that API surface.
     const suppressReasoningForForcedChat =
       effectiveTransport === 'chat_completions' &&
       Array.isArray(params.tools) &&
       params.tools.length > 0 &&
-      request.resolvedModel.trim().toLowerCase().startsWith('gpt-5.6') &&
       modelRequiresResponsesApi(request.resolvedModel) &&
       baseUrlSupportsResponsesAutoRoute(request.baseUrl, process.env)
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
