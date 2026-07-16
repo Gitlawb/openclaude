@@ -1031,29 +1031,36 @@ export function getMcpConfigsByScope(
  * @returns The server configuration with scope, or undefined if not found
  */
 export function getMcpConfigByName(name: string): ScopedMcpServerConfig | null {
+  // The `servers` maps are plain object literals populated from JSON config, so
+  // a bare `servers[name]` lookup resolves inherited Object.prototype members
+  // (`constructor`, `toString`, `__proto__`, …) as truthy values. `mcp get
+  // constructor` would then skip the not-found guard and pass the Object
+  // constructor on as a server config. Gate every lookup on own-property.
   const { servers: enterpriseServers } = getMcpConfigsByScope('enterprise')
 
   // When MCP is locked to plugin-only, only enterprise servers are reachable
   // by name. User/project/local servers are blocked — same as getClaudeCodeMcpConfigs().
   if (isRestrictedToPluginOnly('mcp')) {
-    return enterpriseServers[name] ?? null
+    return Object.hasOwn(enterpriseServers, name)
+      ? enterpriseServers[name]!
+      : null
   }
 
   const { servers: userServers } = getMcpConfigsByScope('user')
   const { servers: projectServers } = getMcpConfigsByScope('project')
   const { servers: localServers } = getMcpConfigsByScope('local')
 
-  if (enterpriseServers[name]) {
-    return enterpriseServers[name]
+  if (Object.hasOwn(enterpriseServers, name)) {
+    return enterpriseServers[name]!
   }
-  if (localServers[name]) {
-    return localServers[name]
+  if (Object.hasOwn(localServers, name)) {
+    return localServers[name]!
   }
-  if (projectServers[name]) {
-    return projectServers[name]
+  if (Object.hasOwn(projectServers, name)) {
+    return projectServers[name]!
   }
-  if (userServers[name]) {
-    return userServers[name]
+  if (Object.hasOwn(userServers, name)) {
+    return userServers[name]!
   }
 
   return null
