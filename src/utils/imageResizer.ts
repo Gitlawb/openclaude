@@ -4,6 +4,8 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages.mjs'
 import {
   API_IMAGE_MAX_BASE64_SIZE,
+  IMAGE_MANY_IMAGE_MAX_HEIGHT,
+  IMAGE_MANY_IMAGE_MAX_WIDTH,
   IMAGE_MAX_HEIGHT,
   IMAGE_MAX_WIDTH,
   IMAGE_TARGET_RAW_SIZE,
@@ -420,6 +422,62 @@ export async function maybeResizeAndDownsampleImageBuffer(
       (imageBuffer.readUInt32BE(16) > IMAGE_MAX_WIDTH ||
         imageBuffer.readUInt32BE(20) > IMAGE_MAX_HEIGHT)
 
+    // The API enforces a *stricter* 2000px dimension limit when a request
+    // carries many images (a single oversized image is resized server-side,
+    // but an oversized image left in conversation history later breaks
+    // many-image requests with a 400 "image dimensions exceed ... many-image"
+    // error). The native processor has failed, so even when base64 is within
+    // the limit we must not let an image over this bound pass through unchanged.
+    const rawDims = readImageDimensions(imageBuffer)
+    const exceedsManyImageLimit = await imageExceedsManyImageLimit({
+      buffer: imageBuffer,
+      detectedFormat: detected,
+      rawWidth: rawDims?.width ?? 0,
+      rawHeight: rawDims?.height ?? 0,
+    })
+
+    if (
+      base64Size <= API_IMAGE_MAX_BASE64_SIZE &&
+      exceedsManyImageLimit
+    ) {
+      const downsampled = await tryDownsampleToManyImageLimit(
+        imageBuffer,
+        detected,
+        rawDims?.width ?? 0,
+        rawDims?.height ?? 0,
+      )
+      if (downsampled) {
+        // The downsample may still exceed the 5MB base64 payload budget (e.g.
+        // a high-entropy 2001x2001 image). Do not bypass the payload safeguard.
+        const downsampledBase64Size = Math.ceil(
+          (downsampled.length * 4) / 3,
+        )
+        if (downsampledBase64Size <= API_IMAGE_MAX_BASE64_SIZE) {
+          logEvent('tengu_image_resize_fallback', {
+            original_size_bytes: originalSize,
+            base64_size_bytes: base64Size,
+            error_type: errorType,
+            canvas_downsample: true,
+          })
+          logForDebugging(
+            '[imageResizer] processor failed but image exceeded many-image limit; downsampled via canvas fallback',
+            { level: 'warn' },
+          )
+          // Canvas can only emit PNG/JPEG; the result media type must match
+          // the emitted bytes (not the original format).
+          const downsampledMediaType =
+            detected === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+          return { buffer: downsampled, mediaType: downsampledMediaType }
+        }
+      }
+      // Could not safely downsample without the native processor — reject
+      // rather than returning an oversized original that would fail later.
+      throw new ImageResizeError(
+        `Unable to resize image — dimensions exceed the many-image limit (${IMAGE_MANY_IMAGE_MAX_WIDTH}x${IMAGE_MANY_IMAGE_MAX_HEIGHT}px) and image processing failed. ` +
+          `Please resize the image to reduce its pixel dimensions.`,
+      )
+    }
+
     // If original image's base64 encoding is within API limit, allow it through uncompressed
     if (base64Size <= API_IMAGE_MAX_BASE64_SIZE) {
       logEvent('tengu_image_resize_fallback', {
@@ -819,6 +877,270 @@ export function detectImageFormatFromBuffer(buffer: Buffer): ImageMediaType {
 
   // Default to PNG if unknown
   return 'image/png'
+}
+
+/**
+ * Reads width/height from an encoded image buffer using magic-byte parsing,
+ * without the native image processor. Used in the resize-failure fallback
+ * where `image.metadata()` is unavailable.
+ *
+ * - PNG: IHDR width/height at bytes 16-23.
+ * - JPEG: scans SOF0/SOF2/SOF3 markers for the frame height/width.
+ * - WebP: VP8 (lossy) keyframe header / VP8L (lossless) transform header.
+ * - GIF: logical screen descriptor at bytes 6-9.
+ *
+ * Returns null when the dimensions cannot be determined. Callers must fail
+ * safe (assume "exceeds limit") on null rather than treating it as 0×0.
+ */
+export function readImageDimensions(
+  buffer: Buffer,
+): { width: number; height: number } | null {
+  if (buffer.length >= 24) {
+    if (
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47
+    ) {
+      return {
+        width: buffer.readUInt32BE(16),
+        height: buffer.readUInt32BE(20),
+      }
+    }
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+      // GIF logical screen descriptor: width at 6-7, height at 8-9.
+      return {
+        width: buffer.readUInt16LE(6),
+        height: buffer.readUInt16LE(8),
+      }
+    }
+  }
+  const webp = readEncodedWebPDimensions(buffer)
+  if (webp) return webp
+  const jpeg = readJpegDimensions(buffer)
+  if (jpeg) return jpeg
+  return null
+}
+
+/**
+ * Minimal parser for encoded (lossy/lossless) WebP dimension metadata.
+ *
+ * Lossless WebP stores width/height in the VP8L transform header. Lossy WebP
+ * stores them in the VP8 keyframe header. The native image processor is
+ * unavailable in the fallback path, so we read these directly rather than
+ * depending on `sharp`/`image-processor-napi`.
+ *
+ * Returns null when the format is unrecognized or the buffer is too small.
+ */
+function readEncodedWebPDimensions(
+  buffer: Buffer,
+): { width: number; height: number } | null {
+  try {
+    if (buffer.length < 16) return null
+    // RIFF....WEBP
+    if (
+      buffer[0] !== 0x52 ||
+      buffer[1] !== 0x49 ||
+      buffer[2] !== 0x46 ||
+      buffer[3] !== 0x46 ||
+      buffer[8] !== 0x57 ||
+      buffer[9] !== 0x45 ||
+      buffer[10] !== 0x42 ||
+      buffer[11] !== 0x50
+    ) {
+      return null
+    }
+    const chunkFourCC = buffer.toString('ascii', 12, 16)
+    if (chunkFourCC === 'VP8L') {
+      // Lossless bitstream starts at byte 20 (after 'VP8L' + 4-byte size).
+      // First 14 bits = width-1, next 14 bits = height-1.
+      if (buffer.length < 24) return null
+      const bits =
+        buffer[20] | (buffer[21] << 8) | (buffer[22] << 16) | (buffer[23] << 24)
+      const width = ((bits & 0x3fff) + 1) >>> 0
+      const height = (((bits >>> 14) & 0x3fff) + 1) >>> 0
+      return { width, height }
+    }
+    if (chunkFourCC === 'VP8 ') {
+      // Lossy keyframe header begins at byte 16 (after the 4-byte chunk id +
+      // 4-byte chunk size). Start code is 0x9D 0x01 0x2A. The 14-bit width
+      // spans bytes 19-20 and the 14-bit height spans bytes 21-22.
+      // Source: RFC 6386 / common keyframe parsers.
+      if (buffer.length < 23) return null
+      const width = ((buffer.readUInt16LE(19) & 0x3fff) + 1) >>> 0
+      const height = ((buffer.readUInt16LE(21) & 0x3fff) + 1) >>> 0
+      return { width, height }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+/**
+ * Scans JPEG SOF (Start-Of-Frame) markers for frame height/width without the
+ * native image processor. Recognizes baseline (SOF0), progressive (SOF2), and
+ * lossless (SOF3) — the common cases. Returns null if not found.
+ */
+function readJpegDimensions(
+  buffer: Buffer,
+): { width: number; height: number } | null {
+  try {
+    if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+      return null
+    }
+    let i = 2
+    while (i + 9 < buffer.length) {
+      if (buffer[i] !== 0xff) {
+        i++
+        continue
+      }
+      const marker = buffer[i + 1]
+      // SOF markers: 0xC0-0xC3, 0xC5-0xC7, 0xC9-0xCB, 0xCD-0xCF (exclude
+      // 0xC4/0xC8/0xCC which are DHT/DAC tables, not SOF).
+      const isSof =
+        (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 &&
+          marker !== 0xc8 && marker !== 0xcc)
+      if (isSof) {
+        const height = buffer.readUInt16BE(i + 5)
+        const width = buffer.readUInt16BE(i + 7)
+        if (width > 0 && height > 0) return { width, height }
+        return null
+      }
+      // Skip non-SOF marker segments.
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+        i += 2
+        continue
+      }
+      const segLen = buffer.readUInt16BE(i + 2)
+      if (segLen < 2) return null
+      i += 2 + segLen
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+/**
+ * Determines whether an image exceeds the API's stricter many-image dimension
+ * limit (2000px per side). Used in the resize-failure fallback, where the
+ * native processor is unavailable and we must avoid returning an oversized
+ * image that would later break many-image requests.
+ *
+ * When dimensions cannot be read from the buffer (processor failed and the
+ * bytes are unparseable for this format), we fail safe and report that the
+ * limit is exceeded — an unknown image must not be allowed to pass through
+ * unchanged.
+ */
+async function imageExceedsManyImageLimit(args: {
+  buffer: Buffer
+  detectedFormat: ImageMediaType
+  rawWidth: number
+  rawHeight: number
+}): Promise<boolean> {
+  const { buffer, rawWidth, rawHeight } = args
+  // Prefer magic-byte dimensions (PNG IHDR / WebP / JPEG / GIF headers); fall
+  // back to the caller-supplied raw dimensions when the buffer is unparseable.
+  const dims = readImageDimensions(buffer)
+  const width = dims?.width ?? (rawWidth || Infinity)
+  const height = dims?.height ?? (rawHeight || Infinity)
+  return (
+    width > IMAGE_MANY_IMAGE_MAX_WIDTH ||
+    height > IMAGE_MANY_IMAGE_MAX_HEIGHT
+  )
+}
+
+/**
+ * Best-effort downsample to bring an image under the many-image dimension
+ * limit using platform Canvas APIs, when available (browser / Electron /
+ * Node canvas global). Used only in the resize-failure fallback so we never
+ * return an oversized image that would break many-image requests.
+ *
+ * Returns null when Canvas is unavailable or decoding/downsampling fails.
+ */
+async function tryDownsampleToManyImageLimit(
+  buffer: Buffer,
+  mediaType: string,
+  rawWidth: number,
+  rawHeight: number,
+): Promise<Buffer | null> {
+  const g = globalThis as Record<string, unknown>
+  const createElement = g.createElement
+  const ImageCtor = g.Image
+  const createImageBitmap = g.createImageBitmap
+  if (typeof createElement !== 'function' || typeof ImageCtor !== 'function') {
+    return null
+  }
+
+  try {
+    const sourceWidth = Math.max(rawWidth, 1)
+    const sourceHeight = Math.max(rawHeight, 1)
+    const scale = Math.min(
+      IMAGE_MANY_IMAGE_MAX_WIDTH / sourceWidth,
+      IMAGE_MANY_IMAGE_MAX_HEIGHT / sourceHeight,
+      1,
+    )
+    const targetWidth = Math.max(1, Math.round(sourceWidth * scale))
+    const targetHeight = Math.max(1, Math.round(sourceHeight * scale))
+
+    const canvas = (
+      createElement as (tag: string, w?: number, h?: number) => Record<
+        string,
+        unknown
+      >
+    )('canvas', targetWidth, targetHeight)
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+
+    const ctx = (canvas.getContext as (type: string) => Record<string, unknown> | null)(
+      '2d',
+    )
+    if (!ctx || typeof ctx.drawImage !== 'function') return null
+
+    const dataUrl = `data:${mediaType};base64,${buffer.toString('base64')}`
+
+    // Fully decode the source before drawing. A data-URL `Image` decodes
+    // asynchronously, so drawing on the same tick would render a blank canvas;
+    // prefer createImageBitmap (resolves already-decoded) and otherwise await
+    // the Image `load` event.
+    let drawable: unknown
+    if (typeof createImageBitmap === 'function') {
+      const blob = await (g.fetch as (url: string) => Promise<{ blob(): Promise<unknown> }>)(
+        dataUrl,
+      ).then((r) => r.blob())
+      drawable = await (
+        createImageBitmap as (input: unknown) => Promise<unknown>
+      )(blob)
+    } else {
+      drawable = await new Promise((resolve, reject) => {
+        const img = new (ImageCtor as new (src: string) => Record<string, unknown> & {
+          onload: (() => void) | null
+          onerror: ((e: unknown) => void) | null
+        })(dataUrl)
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('image decode failed'))
+      })
+    }
+
+    ;(ctx.drawImage as (...args: unknown[]) => void)(
+      drawable,
+      0,
+      0,
+      targetWidth,
+      targetHeight,
+    )
+
+    // Canvas can only emit PNG or JPEG; never GIF/WebP. Default unknown input
+    // to PNG.
+    const outType = mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+    const outDataUrl = (canvas.toDataURL as (type?: string) => string)(outType)
+    const commaIndex = outDataUrl.indexOf(',')
+    if (commaIndex === -1) return null
+    return Buffer.from(outDataUrl.slice(commaIndex + 1), 'base64')
+  } catch {
+    return null
+  }
 }
 
 /**

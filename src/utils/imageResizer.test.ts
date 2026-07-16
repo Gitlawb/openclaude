@@ -60,6 +60,51 @@ function makePngBuffer(width = 1920, height = 1080): Buffer {
   return buf
 }
 
+// JPEG with a single SOF2 marker carrying the frame dimensions. The parser
+// scans markers, so the byte positions of SOF itself don't matter — only the
+// height (readUInt16BE at offset+5) and width (readUInt16BE at offset+7).
+function makeJpegBuffer(width = 3840, height = 2160): Buffer {
+  const buf = Buffer.alloc(32)
+  buf[0] = 0xff
+  buf[1] = 0xd8 // SOI
+  // SOF2 (progressive): marker, length(2), precision(1), height(2), width(2)...
+  buf[2] = 0xff
+  buf[3] = 0xc2
+  buf.writeUInt16BE(17, 4) // segment length
+  buf[6] = 8 // precision
+  buf.writeUInt16BE(height, 7)
+  buf.writeUInt16BE(width, 9)
+  return buf
+}
+
+// GIF logical screen descriptor: width (LE at 6-7), height (LE at 8-9).
+function makeGifBuffer(width = 3000, height = 2500): Buffer {
+  const buf = Buffer.alloc(24)
+  buf[0] = 0x47 // G
+  buf[1] = 0x49 // I
+  buf[2] = 0x46 // F
+  buf.writeUInt16LE(width, 6)
+  buf.writeUInt16LE(height, 8)
+  return buf
+}
+
+// WebP lossy (VP8) keyframe matching the parser: start code 0x9D 0x01 0x2A at
+// bytes 16-18, width-1 at bytes 19-20 (14-bit), height-1 at bytes 21-22.
+function makeWebpLossyBuffer(width = 3800, height = 2100): Buffer {
+  const buf = Buffer.alloc(32)
+  buf.write('RIFF', 0, 'ascii')
+  buf.writeUInt32LE(24, 4)
+  buf.write('WEBP', 8, 'ascii')
+  buf.write('VP8 ', 12, 'ascii')
+  buf.writeUInt32LE(16, 16) // chunk size
+  buf[16] = 0x9d
+  buf[17] = 0x01
+  buf[18] = 0x2a
+  buf.writeUInt16LE((width - 1) & 0x3fff, 19)
+  buf.writeUInt16LE((height - 1) & 0x3fff, 21)
+  return buf
+}
+
 describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
   test('does not throw and returns a buffer when metadata is undefined', async () => {
     mock.module(imageProcessorPath, () => ({
@@ -133,6 +178,103 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
         'png',
       ),
     ).rejects.toBeInstanceOf(ImageResizeError)
+  })
+
+  test('catch block: image over 2000px many-image limit is rejected when downsample unavailable', async () => {
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(() => {
+        throw new Error('image_processor_napi crashed')
+      }),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer, ImageResizeError } =
+      await loadResizerModule()
+
+    // 3840x2160 PNG, small byte size -> base64 well under 5MB, but the
+    // 2000px many-image dimension limit is exceeded.
+    const imageBuffer = makePngBuffer(3840, 2160)
+
+    await expect(
+      maybeResizeAndDownsampleImageBuffer(
+        imageBuffer,
+        imageBuffer.length,
+        'png',
+      ),
+    ).rejects.toBeInstanceOf(ImageResizeError)
+  })
+
+  test('catch block: image over 2000px is downsampled via Canvas fallback when available', async () => {
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(() => {
+        throw new Error('image_processor_napi crashed')
+      }),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer } = await loadResizerModule()
+
+    // Fake Canvas so tryDownsampleToManyImageLimit succeeds.
+    const downsampledBytes = Buffer.from('downsampled-pixels')
+    const dataUrl = `data:image/png;base64,${downsampledBytes.toString('base64')}`
+    const savedCreateElement = (globalThis as any).createElement
+    const savedImage = (globalThis as any).Image
+    ;(globalThis as any).createElement = (_tag: string) => ({
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage() {} }),
+      toDataURL: () => dataUrl,
+    })
+    ;(globalThis as any).Image = class {
+      src: string
+      onload: (() => void) | null = null
+      constructor(src: string) {
+        this.src = src
+        // Simulate async decode completion on the next tick.
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+
+    const imageBuffer = makePngBuffer(3840, 2160)
+    try {
+      const result = await maybeResizeAndDownsampleImageBuffer(
+        imageBuffer,
+        imageBuffer.length,
+        'png',
+      )
+      expect(result.buffer).toBeInstanceOf(Buffer)
+      expect(result.buffer.equals(imageBuffer)).toBe(false)
+      expect(result.buffer.equals(downsampledBytes)).toBe(true)
+    } finally {
+      ;(globalThis as any).createElement = savedCreateElement
+      ;(globalThis as any).Image = savedImage
+    }
+  })
+
+  test('catch block: oversized non-PNG (WEBP/JPEG/GIF) is still rejected when downsample unavailable', async () => {
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(() => {
+        throw new Error('image_processor_napi crashed')
+      }),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer, ImageResizeError } =
+      await loadResizerModule()
+
+    // Each fixture exceeds 2000px and is base64-small, so the guard must fire
+    // even for these formats (regression for the JPEG/GIF/WebP false-negative).
+    const fixtures: Array<[Buffer, string]> = [
+      [makeJpegBuffer(3840, 2160), 'jpeg'],
+      [makeWebpLossyBuffer(3800, 2100), 'webp'],
+      [makeGifBuffer(3000, 2500), 'gif'],
+    ]
+    for (const [imageBuffer, ext] of fixtures) {
+      await expect(
+        maybeResizeAndDownsampleImageBuffer(
+          imageBuffer,
+          imageBuffer.length,
+          ext,
+        ),
+      ).rejects.toBeInstanceOf(ImageResizeError)
+    }
   })
 
   test('happy path: small in-limit PNG returns dimensions', async () => {
