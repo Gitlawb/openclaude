@@ -4326,7 +4326,10 @@ class OpenAIShimMessages {
       rawMessages,
       () => fastPath.skipToolHistoryCompression
         ? rawMessages
-        : compressToolHistory(rawMessages, request.resolvedModel),
+        : compressToolHistory(rawMessages, request.resolvedModel, {
+          textBlockSeparator:
+            effectiveTransport === 'chat_completions' ? '\n\n' : '\n',
+        }),
     )
     const useNativeOllamaChat =
       effectiveTransport === 'chat_completions' &&

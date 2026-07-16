@@ -87,7 +87,7 @@ export function setToolHistoryCompressionEnabledOverrideForTest(
   toolHistoryCompressionEnabledOverrideForTest = enabled
 }
 
-function extractText(content: unknown): string {
+function extractText(content: unknown, separator: string): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
@@ -96,7 +96,7 @@ function extractText(content: unknown): string {
           b?.type === 'text' && typeof b.text === 'string',
       )
       .map((b: { text?: string }) => b.text ?? '')
-      .join('\n\n')
+      .join(separator)
   }
   return ''
 }
@@ -170,6 +170,7 @@ function truncateTextContent(
   block: ToolResultBlock,
   maxChars: number,
   originalLength: number,
+  separator: string,
 ): ToolResultBlock {
   const marker = `\n[…truncated ${originalLength - maxChars} chars from tool history]`
   if (!Array.isArray(block.content)) {
@@ -206,7 +207,7 @@ function truncateTextContent(
     if (truncated) continue
 
     const text = (part as { text: string }).text
-    const separatorChars = sawText ? 2 : 0
+    const separatorChars = sawText ? separator.length : 0
     sawText = true
     if (remaining <= separatorChars) {
       appendMarker()
@@ -236,8 +237,9 @@ function truncateTextContent(
 function buildStub(
   block: ToolResultBlock,
   toolUsesById: Map<string, ToolUseBlock>,
+  separator: string,
 ): ToolResultBlock {
-  const original = extractText(block.content)
+  const original = extractText(block.content, separator)
   const toolUse = toolUsesById.get(block.tool_use_id ?? '')
   const name = toolUse?.name ?? 'tool'
   const args = toolUse?.input
@@ -256,11 +258,12 @@ function buildStub(
 function truncateBlock(
   block: ToolResultBlock,
   maxChars: number,
+  separator: string,
 ): ToolResultBlock {
   block = omitInlineBase64Images(block)
-  const text = extractText(block.content)
+  const text = extractText(block.content, separator)
   if (text.length <= maxChars) return block
-  return truncateTextContent(block, maxChars, text.length)
+  return truncateTextContent(block, maxChars, text.length, separator)
 }
 
 function getInner(msg: AnyMessage): { role?: string; content?: unknown } {
@@ -314,7 +317,7 @@ function rewriteMessage<T extends AnyMessage>(
 // Re-compressing produces a stub over a marker (e.g. `[Read args={} → 40
 // chars omitted]`), wasteful and less informative than the canonical marker.
 function isAlreadyCleared(block: ToolResultBlock): boolean {
-  const text = extractText(block.content)
+  const text = extractText(block.content, '\n\n')
   return text === TOOL_RESULT_CLEARED_MESSAGE
 }
 
@@ -336,7 +339,10 @@ function shouldCompressBlock(
 export function compressToolHistory<T extends AnyMessage>(
   messages: T[],
   model: string,
-  options: { effectiveContextWindowSize?: number } = {},
+  options: {
+    effectiveContextWindowSize?: number
+    textBlockSeparator?: string
+  } = {},
 ): T[] {
   // Master kill-switch. Returns the original reference so callers skip a
   // defensive copy when the feature is disabled.
@@ -348,6 +354,7 @@ export function compressToolHistory<T extends AnyMessage>(
   const tiers = getTiers(
     options.effectiveContextWindowSize ?? getEffectiveContextWindowSize(model),
   )
+  const textBlockSeparator = options.textBlockSeparator ?? '\n\n'
 
   const toolResults = indexToolResults(messages)
   const total = toolResults.length
@@ -398,8 +405,8 @@ export function compressToolHistory<T extends AnyMessage>(
       const tr = block as ToolResultBlock
       if (!shouldCompressBlock(tr, toolUsesById)) return block
       return fromEnd < tiers.recent + tiers.mid
-        ? truncateBlock(tr, MID_MAX_CHARS)
-        : buildStub(tr, toolUsesById)
+        ? truncateBlock(tr, MID_MAX_CHARS, textBlockSeparator)
+        : buildStub(tr, toolUsesById, textBlockSeparator)
     })
 
     return rewriteMessage(msg, newContent)

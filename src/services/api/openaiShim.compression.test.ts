@@ -623,6 +623,29 @@ test('Chat compression bounds structured text using its serialized separators', 
   expect(firstToolOutput.length).toBeLessThan(2_200)
 })
 
+test('Responses compression bounds structured text using its serialized separators', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const messages = buildLongConversation(10, 5_000)
+  messages[2] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_0',
+        content: Array.from({ length: 2_000 }, () => ({ type: 'text', text: 'x' })),
+      },
+    ],
+  }
+
+  const body = await captureResponsesRequestBody(messages, MID_TIER_MODEL)
+  const firstToolOutput = getResponsesFunctionOutputs(body)[0]?.output ?? ''
+
+  expect(firstToolOutput).toContain('[…truncated')
+  expect(firstToolOutput.length).toBeLessThan(2_200)
+  expect(firstToolOutput.length).toBeGreaterThan(2_000)
+})
+
 test('Responses compression preserves structured history and materially reduces the payload', async () => {
   mockState.effectiveWindow = 100_000
   const messages = buildStructuredLongConversation()
