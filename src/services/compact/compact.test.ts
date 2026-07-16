@@ -72,6 +72,15 @@ const _realConfigModule = await import(
 const _realProjectInstructionsModule = await import(
   `../../utils/projectInstructions.js?real=${Date.now()}-${Math.random()}`
 )
+const _realTokenEstimationModule = await import(
+  `../tokenEstimation.js?real=${Date.now()}-${Math.random()}`
+)
+const _realClaudeApiModule = await import(
+  `../api/claude.js?real=${Date.now()}-${Math.random()}`
+)
+const _realGrowthBookModule = await import(
+  `../analytics/growthbook.js?real=${Date.now()}-${Math.random()}`
+)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -669,6 +678,11 @@ afterAll(async () => {
   mock.module('../../utils/auth.js', () => ({ ..._realAuthModule }))
   mock.module('../../utils/path.js', () => ({ ..._realPathModule }))
   mock.module('../../utils/config.js', () => ({ ..._realConfigModule }))
+  // These compact-only stubs affect the standalone microcompact and
+  // auto-compact tests that run later in the serialized smoke suite.
+  mock.module('../tokenEstimation.js', () => ({ ..._realTokenEstimationModule }))
+  mock.module('../api/claude.js', () => ({ ..._realClaudeApiModule }))
+  mock.module('../analytics/growthbook.js', () => ({ ..._realGrowthBookModule }))
   // projectInstructions: the stub above replaces the whole module with only
   // getProjectInstructionFilePaths, so every other export becomes undefined.
   // Downstream CLAUDE.md discovery in runAgent.routing.test.ts then crashes in
