@@ -4047,7 +4047,7 @@ export function REPL({
         generationRequestId: null
       }
     }));
-  }, [setMessages, resetAutoCompactTracking, setAppState, interruptionCorrectionTracker]);
+  }, [setMessages, resetAutoCompactTracking, setAppState, interruptionCorrectionTracker, setConversationId]);
 
   // Synchronous rewind + input population. Used directly by auto-restore on
   // interrupt (so React batches with the abort's setMessages → single render,
@@ -4081,7 +4081,7 @@ export function REPL({
         setPastedContents(newPastedContents);
       }
     }
-  }, [rewindConversationTo, setInputValue]);
+  }, [rewindConversationTo, setInputValue, setInputMode]);
   restoreMessageSyncRef.current = restoreMessageSync;
 
   // MessageSelector path: defer via setImmediate so the "Interrupted" message
