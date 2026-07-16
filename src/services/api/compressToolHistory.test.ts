@@ -271,7 +271,7 @@ test('mid tier: preserves structured-part order across multiple text blocks', ()
     source: { type: 'url', url: 'https://example.com/result.png' },
   })
   expect(content[2].text).toBe(
-    `${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+    `${'b'.repeat(998)}\n[…truncated 502 chars from tool history]`,
   )
   expect(content[3]).toEqual({
     type: 'tool_reference',

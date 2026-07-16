@@ -583,6 +583,28 @@ test('Chat compression omits old and mid-tier inline base64 image payloads', asy
   expect(JSON.stringify(body).length).toBeLessThan(100_000)
 })
 
+test('Chat compression bounds structured text using its serialized separators', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const messages = buildLongConversation(10, 5_000)
+  messages[2] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_0',
+        content: Array.from({ length: 2_000 }, () => ({ type: 'text', text: 'x' })),
+      },
+    ],
+  }
+
+  const body = await captureRequestBody(messages, MID_TIER_MODEL)
+  const firstToolOutput = getToolMessages(body)[0]?.content ?? ''
+
+  expect(firstToolOutput).toContain('[…truncated')
+  expect(firstToolOutput.length).toBeLessThan(2_200)
+})
+
 test('Responses compression preserves structured history and materially reduces the payload', async () => {
   mockState.effectiveWindow = 100_000
   const messages = buildStructuredLongConversation()
@@ -1000,6 +1022,49 @@ test('local self-healing follows the serialized image-free Chat body', async () 
     'http://localhost:8000/v1/chat/completions',
   ])
   expect(requestBodies[0]).not.toContain('"type":"image_url"')
+  expect(requestBodies[1]).toBe(requestBodies[0])
+})
+
+test('local image requests probe alternate OpenAI-compatible endpoints before failing', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:8000'
+  const requestUrls: string[] = []
+  const requestBodies: string[] = []
+
+  globalThis.fetch = (async (input, init) => {
+    requestUrls.push(String(input))
+    requestBodies.push(String(init?.body))
+    if (requestUrls.length === 1) {
+      return new Response('Not Found', { status: 404 })
+    }
+    return makeFakeResponse()
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: MID_TIER_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'inspect the attachment' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'aGVsbG8=',
+            },
+          },
+        ],
+      },
+    ],
+  })
+
+  expect(requestUrls).toEqual([
+    'http://localhost:8000/chat/completions',
+    'http://localhost:8000/v1/chat/completions',
+  ])
+  expect(requestBodies[0]).toContain('"type":"image_url"')
   expect(requestBodies[1]).toBe(requestBodies[0])
 })
 

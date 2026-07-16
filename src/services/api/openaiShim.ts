@@ -5493,7 +5493,6 @@ class OpenAIShimMessages {
       const shouldRetryLocalEndpoint404 =
         failure.category === 'endpoint_not_found' ||
         (
-          useNativeOllamaChat &&
           response.status === 404 &&
           failure.category === 'vision_not_supported'
         )

@@ -96,7 +96,7 @@ function extractText(content: unknown): string {
           b?.type === 'text' && typeof b.text === 'string',
       )
       .map((b: { text?: string }) => b.text ?? '')
-      .join('\n')
+      .join('\n\n')
   }
   return ''
 }
@@ -197,7 +197,7 @@ function truncateTextContent(
     if (truncated) continue
 
     const text = (part as { text: string }).text
-    const separatorChars = sawText ? 1 : 0
+    const separatorChars = sawText ? 2 : 0
     sawText = true
     if (remaining <= separatorChars) {
       appendMarker()
