@@ -281,7 +281,9 @@ describe('pruneRedundantToolOutputs', () => {
     ).toBe('y'.repeat(500))
   })
 
-  test('Write supersedes Read for same file', () => {
+  test('Write does not supersede Read for same file', () => {
+    // Write is an acknowledgement, not file content. It should NOT strip an
+    // earlier Read (otherwise the model loses the file snapshot).
     const messages: Message[] = [
       assistantWithToolUse('Read', 'tool-1', { file_path: '/a.ts' }),
       userWithToolResult('tool-1', 'x'.repeat(500)),
@@ -292,16 +294,18 @@ describe('pruneRedundantToolOutputs', () => {
     const map = buildToolUseMap(messages)
     const { messages: result, strippedCount } = pruneRedundantToolOutputs(messages, map)
 
-    expect(strippedCount).toBe(1)
+    expect(strippedCount).toBe(0)
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(strippedMarker('/a.ts'))
+    ).toBe('x'.repeat(500))
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
     ).toBe('y'.repeat(500))
   })
 
-  test('Edit supersedes Read for same file', () => {
+  test('Edit does not supersede Read for same file', () => {
+    // Edit is an acknowledgement, not file content. It should NOT strip an
+    // earlier Read (otherwise the model loses the file snapshot).
     const messages: Message[] = [
       assistantWithToolUse('Read', 'tool-1', { file_path: '/a.ts' }),
       userWithToolResult('tool-1', 'x'.repeat(500)),
@@ -312,10 +316,10 @@ describe('pruneRedundantToolOutputs', () => {
     const map = buildToolUseMap(messages)
     const { messages: result, strippedCount } = pruneRedundantToolOutputs(messages, map)
 
-    expect(strippedCount).toBe(1)
+    expect(strippedCount).toBe(0)
     expect(
       (result[1]!.message.content as Array<{ content: string }>)[0]!.content,
-    ).toBe(strippedMarker('/a.ts'))
+    ).toBe('x'.repeat(500))
     expect(
       (result[3]!.message.content as Array<{ content: string }>)[0]!.content,
     ).toBe('y'.repeat(500))

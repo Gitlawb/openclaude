@@ -87,7 +87,7 @@ This is used for the blocking-limit check AND the autocompact threshold decision
 messages[]
   ↓
 [ProactiveBudget] → strip old redundant Read/Write/Edit tool results (never drops messages)
-[Arc]             → extract facts from latest message  
+[Arc]             → extract facts from latest message
 [ToolBudget]      → cap per-tool-result size
 [SnipCompact]     → remove marked messages
 [Microcompact]    → stub markers for cache

@@ -31,6 +31,7 @@
 import type { Message } from '../../types/message.js'
 import { roughTokenCountEstimationForMessages } from '../tokenEstimation.js'
 import { getGlobalConfig } from '../../utils/config.js'
+import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -237,8 +238,11 @@ export function pruneRedundantToolOutputs(
       const filePath = getFilePathFromInput(meta.input)
       if (!filePath) continue
 
-      // If this file was already seen in a MORE RECENT tool result,
+      // If this file was already claimed by a MORE RECENT full-coverage Read,
       // this older result is redundant — strip it.
+      // Only full Reads (no offset/limit, with actual content) claim a file.
+      // Edit/Write acks, partial reads, and stubs do NOT supersede earlier
+      // full reads — otherwise the model would lose the file snapshot.
       if (seenFilePaths.has(filePath)) {
         if (isLargeContent(block.content)) {
           // Lazy clone: only copy when we actually need to mutate
@@ -252,8 +256,18 @@ export function pruneRedundantToolOutputs(
           changed = true
           strippedCount++
         }
-      } else {
-        // First time seeing this file (in reverse = most recent occurrence)
+      } else if (
+        // Only full Reads with actual content claim the file as "covered".
+        // Partial reads (offset/limit), Edit/Write acks, and small stubs
+        // don't provide a complete file snapshot and therefore shouldn't
+        // supersede older results.
+        meta.name === 'Read' &&
+        meta.input.offset === undefined &&
+        meta.input.limit === undefined &&
+        isLargeContent(block.content)
+      ) {
+        // First time seeing this file in the reverse walk = MOST RECENT
+        // full-coverage result. Mark it so older redundant reads get stripped.
         seenFilePaths.add(filePath)
       }
     }
@@ -286,16 +300,20 @@ export function pruneRedundantToolOutputs(
  * messages are sent as-is rather than dropping middle messages (which was
  * causing the model to forget where it was).
  *
- * Reads `proactiveBudgetLimit` from user config:
+ * Reads `proactiveBudgetLimit` from user config or settings.json:
  *  - 0 = disabled (send full context, original behavior)
  *  - undefined = uses default (100K)
  *  - positive number = target token budget (e.g. 50000 = try to stay under 50K)
+ *  Precedence: /config > settings.json > code default (100K).
  */
 export function applyProactiveBudget(
   messages: Message[],
 ): ProactiveBudgetResult {
   // Read user config. 0 = disabled. Unset defaults to 100K.
-  const limit = getGlobalConfig().proactiveBudgetLimit ?? PROACTIVE_BUDGET_TARGET_TOKENS_DEFAULT
+  // Check settings.json as fallback when /config hasn't set this value.
+  const configValue = getGlobalConfig().proactiveBudgetLimit
+  const settingsValue = getSettings_DEPRECATED()?.proactiveBudgetLimit
+  const limit = configValue ?? settingsValue ?? PROACTIVE_BUDGET_TARGET_TOKENS_DEFAULT
   if (limit <= 0) {
     return {
       messages,

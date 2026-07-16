@@ -15,6 +15,7 @@ import {
 import { consumeCompactionRequest } from './utils/memoryPressure.js'
 import { buildPostCompactMessages } from './services/compact/compact.js'
 import { applyProactiveBudget } from './services/compact/proactiveBudget.js'
+import { roughTokenCountEstimationForMessages } from './services/tokenEstimation.js'
 import type { MicrocompactResult } from './services/compact/microCompact.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const reactiveCompact = feature('REACTIVE_COMPACT')
@@ -679,10 +680,16 @@ async function* queryLoop(
     // compaction — this is a content-level optimization that reduces raw token
     // count so subsequent passes (autocompact, microcompact, snip) have less work.
     // No-ops when feature flag is off.
+    // budgetTokensSaved is plumbed to autocompact + blocking checks so their
+    // threshold decisions reflect what proactive budget removed (analogous to
+    // snipTokensFreed — see that variable's usage).
+    let budgetTokensSaved = 0
     if (feature('PROACTIVE_BUDGET')) {
+      const preBudgetTokens = roughTokenCountEstimationForMessages(messagesForQuery)
       const budgetResult = applyProactiveBudget(messagesForQuery)
       if (budgetResult.wasPruned) {
         messagesForQuery = budgetResult.messages
+        budgetTokensSaved = preBudgetTokens - budgetResult.estimatedTokens
       }
     }
 
@@ -752,6 +759,11 @@ async function* queryLoop(
       }
       queryCheckpoint('query_snip_end')
     }
+
+    // Combine savings: snip and proactive budget both reduce content that
+    // tokenCountWithEstimation can't see (stale usage records from API responses).
+    // The combined delta is plumbed to autocompact and blocking checks below.
+    snipTokensFreed += budgetTokensSaved
 
     // Apply microcompact before autocompact
     queryCheckpoint('query_microcompact_start')
