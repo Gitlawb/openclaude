@@ -35,6 +35,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logForDebugging } from '../utils/debug.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
 import { errorMessage } from '../utils/errors.js'
+import { truncateToWidth } from '../utils/format.js'
 import { getBranch, getRemoteUrl } from '../utils/git.js'
 import { toSDKMessages } from '../utils/messages/mappers.js'
 import {
@@ -559,7 +560,8 @@ const TITLE_MAX_LEN = 50
  * is empty (e.g. message was only <local-command-stdout>). Replaced by
  * generateSessionTitle once Haiku resolves (~1-15s).
  */
-function deriveTitle(raw: string): string | undefined {
+// exported for testing
+export function deriveTitle(raw: string): string | undefined {
   // Strip <ide_opened_file>, <session-start-hook>, etc. — these appear in
   // user messages when IDE/hooks inject context. stripDisplayTagsAllowEmpty
   // returns '' (not the original) so pure-tag messages are skipped.
@@ -570,7 +572,10 @@ function deriveTitle(raw: string): string | undefined {
   // Collapse newlines/tabs — titles are single-line in the claude.ai list.
   const flat = firstSentence.replace(/\s+/g, ' ').trim()
   if (!flat) return undefined
-  return flat.length > TITLE_MAX_LEN
-    ? flat.slice(0, TITLE_MAX_LEN - 1) + '\u2026'
-    : flat
+  // Truncate on grapheme boundaries. A raw slice cuts at a UTF-16 code-unit
+  // index, so an emoji/CJK-astral char straddling the boundary loses half its
+  // surrogate pair; the lone surrogate then goes over the wire as U+FFFD when
+  // the title is UTF-8-serialized to the claude.ai backend. truncateToWidth is
+  // the same helper deriveSessionTitle in bridgeMain.ts already uses.
+  return truncateToWidth(flat, TITLE_MAX_LEN)
 }
