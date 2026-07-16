@@ -1,6 +1,7 @@
 import { Command as CommanderCommand } from '@commander-js/extra-typings'
 
 import {
+  DEFAULT_MODEL,
   MAX_AMOUNT_USD_MINOR,
   MIN_AMOUNT_USD_MINOR,
 } from '../integrations/aimlapi/config.js'
@@ -36,7 +37,7 @@ export function registerAimlapiCommand(
     .option(
       '--model <model>',
       'Default model id written into the provider profile',
-      'anthropic/claude-sonnet-5',
+      DEFAULT_MODEL,
     )
     .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
     .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')

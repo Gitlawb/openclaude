@@ -1,6 +1,5 @@
 /** AI/ML API passwordless onboarding and partner-checkout orchestration. */
 
-import { randomUUID } from 'crypto'
 import chalk from 'chalk'
 
 import {
@@ -18,8 +17,8 @@ import {
 } from './config.js'
 import { openBrowser, promptText, saveProfileFile } from './topupDependencies.js'
 import {
+  claimAimlapiTopupState,
   clearAimlapiTopupState,
-  loadAimlapiTopupState,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
@@ -110,6 +109,15 @@ function maskKey(key: string): string {
   return key.length <= 10 ? '****' : `${key.slice(0, 6)}...${key.slice(-4)}`
 }
 
+function alreadyExchangedError(session: PartnerCheckoutSession): Error {
+  const keyHint = session.issuedKeyId?.trim()
+    ? ` for issued key ${session.issuedKeyId.trim()}`
+    : ''
+  return new Error(
+    `Session was already exchanged${keyHint}. Open https://aimlapi.com/app and rotate the issued key to recover access.`,
+  )
+}
+
 export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<void> {
   const endpoints = resolveEndpoints()
   const client = new AimlapiClient(endpoints)
@@ -131,7 +139,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     const code =
       options.code?.trim() ||
       process.env.AIMLAPI_CODE?.trim() ||
-      (await promptText('6-digit code'))
+      (await promptText('6-digit code', { mask: true }))
     if (!code) throw new Error('Sign-in code is required.')
     sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
     const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
@@ -152,18 +160,19 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     partnerId,
     partnerName,
     appBaseUrl: endpoints.appBaseUrl.trim().replace(/\/+$/, ''),
+    inferenceBaseUrl: endpoints.inferenceBaseUrl.trim().replace(/\/+$/, ''),
     payBaseUrl: endpoints.payBaseUrl.trim().replace(/\/+$/, ''),
     verificationBaseUrl: endpoints.verificationBaseUrl.trim().replace(/\/+$/, ''),
   }
-  const checkoutState = loadAimlapiTopupState(intent) ?? {
-    paymentSessionId: randomUUID(),
-    resumeSessionToken: '',
-  }
+  const checkoutState = claimAimlapiTopupState(intent)
   const persistSession = (resumeSessionToken: string): void => {
+    if (!resumeSessionToken) {
+      clearAimlapiTopupState(intent)
+      return
+    }
     checkoutState.resumeSessionToken = resumeSessionToken
     saveAimlapiTopupState({ ...intent, ...checkoutState })
   }
-  saveAimlapiTopupState({ ...intent, ...checkoutState })
 
   const provisioned = await provisionAimlapiKey({
     amountUsd: options.amountUsd,
@@ -422,9 +431,8 @@ async function resolveTopupSession(
       }
     case 'exchanged':
       if (options.byKey) return { sessionToken: resume, phase: 'exchange' }
-      throw new Error(
-        'Session was already exchanged. Rotate the key from the AI/ML API dashboard.',
-      )
+      options.onSession?.('')
+      throw alreadyExchangedError(session)
     default:
       options.onSession?.('')
       throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
@@ -443,9 +451,8 @@ async function pollUntilExchangeSettled(
     try {
       const session = await client.getSession(sessionToken, signal)
       if (session.status === 'exchanged') {
-        throw new Error(
-          'Session was already exchanged. Rotate the key from the AI/ML API dashboard.',
-        )
+        onSession?.('')
+        throw alreadyExchangedError(session)
       }
       if (
         session.status === 'cancelled' ||
@@ -494,7 +501,8 @@ export async function pollUntilPaid(
         case 'exchanging':
           return session
         case 'exchanged':
-          throw new Error('Session was already exchanged. Rotate the key from the AI/ML API dashboard.')
+          onSession?.('')
+          throw alreadyExchangedError(session)
         case 'cancelled':
         case 'expired':
         case 'failed':

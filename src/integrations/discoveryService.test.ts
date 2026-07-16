@@ -469,17 +469,13 @@ describe('discoverModelsForRoute', () => {
     })
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'anthropic/claude-sonnet-5',
-      'google/gemini-3.5-flash',
-      'openai/gpt-5.5-2026-04-23',
-      'qwen/qwen-3.7-max',
-      'deepseek/deepseek-v4-pro',
       'gpt-4o',
       'gemini-2.5-pro',
       'GLM-5.2',
     ])
-    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gpt-4o')).toMatchObject({
-      id: 'gpt-4o',
-      label: 'GPT-4o (OpenAI)',
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'anthropic/claude-sonnet-5')).toMatchObject({
+      id: 'aimlapi-claude-sonnet-5',
+      label: 'Claude Sonnet 5',
     })
     expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gemini-2.5-pro')).toMatchObject({
       label: 'Gemini 2.5 Pro (Google)',
@@ -543,14 +539,10 @@ describe('discoverModelsForRoute', () => {
 
     // Only `openai/chat-completions` entries survive discovery; the duplicate
     // gpt-3.5-turbo (responses/submit), embeddings, image, and anthropic
-    // endpoint types are dropped. The curated flagship fallback models ride
-    // along from the hybrid catalog.
+    // endpoint types are dropped. The curated Sonnet default rides along from
+    // the hybrid catalog.
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'anthropic/claude-sonnet-5',
-      'google/gemini-3.5-flash',
-      'openai/gpt-5.5-2026-04-23',
-      'qwen/qwen-3.7-max',
-      'deepseek/deepseek-v4-pro',
       'gpt-3.5-turbo',
       'claude-opus-4-1-20250805',
     ])

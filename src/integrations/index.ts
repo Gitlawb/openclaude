@@ -141,6 +141,7 @@ export {
   isCloudflareBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
   routeSupportsApiFormatSelection,
   routeSupportsAuthHeaders,

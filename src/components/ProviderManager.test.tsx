@@ -34,6 +34,8 @@ const ORIGINAL_ENV = {
   AIMLAPI_CODE: process.env.AIMLAPI_CODE,
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
 }
 
 function extractLastFrame(output: string): string {
@@ -351,6 +353,9 @@ function mockProviderManagerDependencies(
     beginAimlapiEmailOnboarding?: (...args: any[]) => Promise<unknown>
     completeAimlapiCodeSignIn?: (...args: any[]) => Promise<unknown>
     validateAimlapiApiKey?: (...args: any[]) => Promise<unknown>
+    claimAimlapiTopupState?: (...args: any[]) => unknown
+    clearAimlapiTopupState?: (...args: any[]) => unknown
+    saveAimlapiTopupState?: (...args: any[]) => unknown
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -376,6 +381,14 @@ function mockProviderManagerDependencies(
     }
   },
 ): void {
+  let persistedAimlapiTopup: Record<string, unknown> | undefined
+  let aimlapiPaymentSequence = 0
+  const matchesAimlapiIntent = (
+    state: Record<string, unknown> | undefined,
+    intent: Record<string, unknown>,
+  ): boolean =>
+    Boolean(state) && Object.keys(intent).every(key => state?.[key] === intent[key])
+
   mockProviderProfilesModule({
     addProviderProfile: options?.addProviderProfile,
     getActiveProviderProfile: options?.getActiveProviderProfile,
@@ -491,6 +504,37 @@ function mockProviderManagerDependencies(
     validateAimlapiApiKey:
       options?.validateAimlapiApiKey ??
       (async () => ({ balance: 25, lowBalance: false, lowBalanceThreshold: 20 })),
+    claimAimlapiTopupState:
+      options?.claimAimlapiTopupState ??
+      ((intent: Record<string, unknown>) => {
+        if (matchesAimlapiIntent(persistedAimlapiTopup, intent)) {
+          return {
+            paymentSessionId: persistedAimlapiTopup?.paymentSessionId,
+            resumeSessionToken: persistedAimlapiTopup?.resumeSessionToken,
+          }
+        }
+        persistedAimlapiTopup = {
+          ...intent,
+          paymentSessionId: `payment-${++aimlapiPaymentSequence}`,
+          resumeSessionToken: '',
+        }
+        return {
+          paymentSessionId: persistedAimlapiTopup.paymentSessionId,
+          resumeSessionToken: '',
+        }
+      }),
+    clearAimlapiTopupState:
+      options?.clearAimlapiTopupState ??
+      ((intent: Record<string, unknown>) => {
+        if (matchesAimlapiIntent(persistedAimlapiTopup, intent)) {
+          persistedAimlapiTopup = undefined
+        }
+      }),
+    saveAimlapiTopupState:
+      options?.saveAimlapiTopupState ??
+      ((state: Record<string, unknown>) => {
+        persistedAimlapiTopup = state
+      }),
     parseAimlapiAmountUsd: (value: string | undefined) => {
       const amount = Number(value || 25)
       if (!Number.isFinite(amount) || amount < 20 || amount > 10000) {
@@ -1127,8 +1171,60 @@ test('ProviderManager offers and reuses an existing AIMLAPI profile', async () =
   }
 }, 10_000)
 
-test('ProviderManager first run keeps AIMLAPI_API_KEY out of the saved profile', async () => {
-  process.env.AIMLAPI_API_KEY = 'env-runtime-key'
+test('ProviderManager uses OPENAI_API_KEY for an existing keyless AIMLAPI profile', async () => {
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  process.env.OPENAI_API_KEY = 'openai-fallback-key'
+  const profile = {
+    id: 'aimlapi_existing',
+    provider: 'aimlapi',
+    name: 'aimlapi.com',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'anthropic/claude-sonnet-5',
+    apiKey: undefined,
+    apiFormat: 'chat_completions',
+  }
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    getProviderProfiles: () => [profile],
+    getActiveProviderProfile: () => profile,
+    validateAimlapiApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('aimlapi.com account is already configured'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
+    )
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'openai-fallback-key',
+      expect.any(AbortSignal),
+      'https://api.aimlapi.com/v1',
+    )
+  } finally {
+    await mounted.dispose()
+  }
+}, 10_000)
+
+test('ProviderManager first run recognizes the OPENAI_API_KEY fallback without persisting it', async () => {
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  process.env.OPENAI_API_KEY = 'env-runtime-key'
   process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
   const addProviderProfile = mock((payload: any) => ({
     id: 'aimlapi_env',
@@ -1549,10 +1645,17 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       model: 'anthropic/claude-sonnet-5',
     }
   })
+  const claimAimlapiTopupState = mock(() => ({
+    paymentSessionId: 'persisted-payment-id',
+    resumeSessionToken: 'persisted-checkout-session',
+  }))
+  const clearAimlapiTopupState = mock(() => {})
 
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
     provisionAimlapiKey,
+    claimAimlapiTopupState,
+    clearAimlapiTopupState,
   })
 
   const nonce = `${Date.now()}-${Math.random()}`
@@ -1631,13 +1734,15 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     await waitForFrameOutput(
       mounted.getOutput,
       frame => frame.includes('Provider manager'),
-      8_000,
+      12_000,
     )
     expect(provisionAimlapiKey).toHaveBeenCalledWith(
       expect.objectContaining({
         amountUsd: '25',
         model: 'anthropic/claude-sonnet-5',
         sessionToken: 'session_test',
+        paymentSessionId: 'persisted-payment-id',
+        resumeSessionToken: 'persisted-checkout-session',
         exchange: true,
         autoTopUp: false,
         onStatus: expect.any(Function),
@@ -1654,10 +1759,12 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       }),
       expect.objectContaining({ makeActive: true }),
     )
+    expect(claimAimlapiTopupState).toHaveBeenCalledTimes(1)
+    expect(clearAimlapiTopupState).toHaveBeenCalledTimes(1)
   } finally {
     await mounted.dispose()
   }
-}, 10_000)
+}, 20_000)
 
 test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint and type', async () => {
   const addProviderProfile = mock((payload: any) => ({

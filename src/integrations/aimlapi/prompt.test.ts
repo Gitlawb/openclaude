@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, test } from 'bun:test'
+import type { createInterface } from 'node:readline'
 
 import { promptText } from './prompt.js'
 
@@ -60,4 +61,25 @@ test('promptText closes readline when question fails', async () => {
     'readline failed',
   )
   expect(close).toHaveBeenCalledTimes(1)
+})
+
+test('promptText masks secret input from terminal output', async () => {
+  setInteractive()
+  const written: string[] = []
+  const output = {
+    columns: 80,
+    write: (chunk: string) => written.push(chunk),
+  }
+  const createReadline = mock((options: Parameters<typeof createInterface>[0]) => ({
+    question: (_question: string, resolve: (answer: string) => void) => {
+      options.output?.write('123456')
+      resolve('123456')
+    },
+    close: () => {},
+  }))
+
+  await expect(
+    promptText('6-digit code', { mask: true }, createReadline, output),
+  ).resolves.toBe('123456')
+  expect(written.join('')).toBe('6-digit code: \n')
 })

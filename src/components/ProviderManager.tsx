@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import figures from 'figures'
 import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
@@ -45,6 +45,7 @@ import {
   routeShowsAuthHeaderValue,
   routeShowsCustomHeaders,
   resolveProfileRoute,
+  resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import {
@@ -57,12 +58,18 @@ import {
   validateAimlapiApiKey,
   AimlapiApiError,
   AIMLAPI_MESSAGES,
+  claimAimlapiTopupState,
+  clearAimlapiTopupState,
+  saveAimlapiTopupState,
+  type AimlapiTopupIntent,
   type AimlapiTopupStatus,
 } from './providerManagerAimlapi.js'
 import {
   DEFAULT_AMOUNT_USD_MINOR,
+  DEFAULT_PARTNER_NAME,
   isCanonicalAimlapiInferenceBaseUrl,
   resolveEndpoints,
+  resolvePartnerId,
 } from '../integrations/aimlapi/config.js'
 import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
@@ -965,7 +972,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [aimlapiIssuedKeyId, setAimlapiIssuedKeyId] = React.useState('')
   const [aimlapiTopupByKey, setAimlapiTopupByKey] = React.useState(false)
   const [aimlapiResumeSessionToken, setAimlapiResumeSessionToken] = React.useState('')
-  const [aimlapiPaymentSessionId, setAimlapiPaymentSessionId] = React.useState('')
+  const [, setAimlapiPaymentSessionId] = React.useState('')
   const [aimlapiExistingProfileId, setAimlapiExistingProfileId] = React.useState<string | null>(null)
   const [aimlapiExistingUsesEnv, setAimlapiExistingUsesEnv] = React.useState(false)
   const [aimlapiInferenceBaseUrl, setAimlapiInferenceBaseUrl] = React.useState(
@@ -982,8 +989,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [, setIsAimlapiTopupRunning] = React.useState(false)
   const [isAimlapiKeyValidating, setIsAimlapiKeyValidating] = React.useState(false)
   const aimlapiAbortRef = React.useRef<AbortController | null>(null)
+  const aimlapiPersistedIntentRef = React.useRef<AimlapiTopupIntent | null>(null)
 
   function resetAimlapiCheckoutIntent(): void {
+    if (aimlapiPersistedIntentRef.current) {
+      clearAimlapiTopupState(aimlapiPersistedIntentRef.current)
+      aimlapiPersistedIntentRef.current = null
+    }
     setAimlapiResumeSessionToken('')
     setAimlapiPaymentSessionId('')
   }
@@ -2565,7 +2577,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(undefined)
 
               if (draftProvider === 'aimlapi') {
-                const envKey = process.env.AIMLAPI_API_KEY?.trim()
+                const envKey = resolveRouteCredentialValue({
+                  routeId: 'aimlapi',
+                  baseUrl: nextDraft.baseUrl,
+                })?.trim()
                 if (mode === 'first-run' && envKey) {
                   setAimlapiIssuedKey(envKey)
                   setAimlapiExistingUsesEnv(true)
@@ -2773,7 +2788,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const isAimlapiProfile = (profile: ProviderProfile): boolean =>
       profile.provider === 'aimlapi' ||
       resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
-    const envKey = process.env.AIMLAPI_API_KEY?.trim()
+    const envKey = resolveRouteCredentialValue({
+      routeId: 'aimlapi',
+      baseUrl: resolveEndpoints().inferenceBaseUrl,
+    })?.trim()
     const active = profiles.find(profile => profile.id === activeProfileId)
     const candidates = active
       ? [active, ...profiles.filter(profile => profile.id !== active.id)]
@@ -2824,6 +2842,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       persistDraft(nextDraft, profile.provider, profile.id, {
         deferNavigation: true,
         onSaved: () => {
+          resetAimlapiCheckoutIntent()
           setAimlapiDoneKind(aimlapiTopupByKey ? 'topup' : 'ready')
           setErrorMessage(undefined)
           setScreen('aimlapi-done')
@@ -2918,6 +2937,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     persistDraft(nextDraft, draftProvider, null, {
       deferNavigation: true,
       onSaved: () => {
+        resetAimlapiCheckoutIntent()
         setAimlapiDoneKind(doneKind)
         setErrorMessage(undefined)
         setScreen('aimlapi-done')
@@ -3050,8 +3070,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setScreen('aimlapi-topup-amount')
       return
     }
+    let amountUsdMinor: number
     try {
-      parseAimlapiAmountUsd(amountUsd)
+      amountUsdMinor = parseAimlapiAmountUsd(amountUsd)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setScreen('aimlapi-topup-amount')
@@ -3063,6 +3084,33 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
+    const endpoints = resolveEndpoints()
+    const intentIdentity = aimlapiTopupByKey
+      ? `key:${createHash('sha256').update(aimlapiIssuedKey).digest('hex')}`
+      : aimlapiTopupEmail.trim().toLowerCase()
+    const intent: AimlapiTopupIntent = {
+      email: intentIdentity,
+      amountUsdMinor,
+      autoTopUp,
+      partnerId: resolvePartnerId(),
+      partnerName: DEFAULT_PARTNER_NAME,
+      appBaseUrl: endpoints.appBaseUrl.trim().replace(/\/+$/, ''),
+      inferenceBaseUrl: aimlapiInferenceBaseUrl.trim().replace(/\/+$/, ''),
+      payBaseUrl: endpoints.payBaseUrl.trim().replace(/\/+$/, ''),
+      verificationBaseUrl: endpoints.verificationBaseUrl.trim().replace(/\/+$/, ''),
+    }
+    let checkoutState: ReturnType<typeof claimAimlapiTopupState>
+    try {
+      checkoutState = claimAimlapiTopupState(intent)
+    } catch (error) {
+      setErrorMessage(safeAimlapiErrorMessage(error, [aimlapiIssuedKey]))
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    aimlapiPersistedIntentRef.current = intent
+    setAimlapiPaymentSessionId(checkoutState.paymentSessionId)
+    setAimlapiResumeSessionToken(checkoutState.resumeSessionToken)
+
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()
     aimlapiAbortRef.current = controller
@@ -3071,8 +3119,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiTopupStatus('creating-session')
     setAimlapiTopupDetail(undefined)
     setIsAimlapiTopupRunning(true)
-    const paymentSessionId = aimlapiPaymentSessionId || randomUUID()
-    if (!aimlapiPaymentSessionId) setAimlapiPaymentSessionId(paymentSessionId)
 
     void (async () => {
       try {
@@ -3081,8 +3127,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           if (detail?.trim()) setAimlapiTopupDetail(detail)
         }
         const reportSession = (sessionToken: string): void => {
+          if (!sessionToken) {
+            resetAimlapiCheckoutIntent()
+            return
+          }
+          checkoutState.resumeSessionToken = sessionToken
+          saveAimlapiTopupState({ ...intent, ...checkoutState })
           setAimlapiResumeSessionToken(sessionToken)
-          if (!sessionToken) setAimlapiPaymentSessionId('')
         }
         const provisioned = aimlapiTopupByKey
           ? await topUpAimlapiByApiKey({
@@ -3091,8 +3142,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               amountUsd,
               autoTopUp,
               model: draft.model,
-              paymentSessionId,
-              resumeSessionToken: aimlapiResumeSessionToken,
+              paymentSessionId: checkoutState.paymentSessionId,
+              resumeSessionToken: checkoutState.resumeSessionToken,
               signal: controller.signal,
               onStatus: reportStatus,
               onSession: reportSession,
@@ -3104,18 +3155,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               sessionToken: aimlapiSessionToken,
               inferenceBaseUrl: aimlapiInferenceBaseUrl,
               exchange: aimlapiNewAccount,
-              paymentSessionId,
+              paymentSessionId: checkoutState.paymentSessionId,
               existingApiKey: aimlapiIssuedKey,
               existingApiKeyId: aimlapiIssuedKeyId,
-              resumeSessionToken: aimlapiResumeSessionToken,
+              resumeSessionToken: checkoutState.resumeSessionToken,
               signal: controller.signal,
               onStatus: reportStatus,
               onSession: reportSession,
             })
         if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
-        setAimlapiResumeSessionToken('')
-        setAimlapiPaymentSessionId('')
         if (aimlapiTopupByKey) {
           if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
             setCursorOffset(provisioned.model.length)
@@ -3345,8 +3394,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           cursorOffset={cursorOffset}
           onAmountChange={value => {
             if (value !== aimlapiTopupAmountUsd) {
-              setAimlapiResumeSessionToken('')
-              setAimlapiPaymentSessionId('')
+              resetAimlapiCheckoutIntent()
             }
             setAimlapiTopupAmountUsd(value)
             setErrorMessage(undefined)
@@ -3354,8 +3402,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           onCursorOffsetChange={setCursorOffset}
           onAutoTopUpChange={value => {
             if (value !== aimlapiAutoTopUp) {
-              setAimlapiResumeSessionToken('')
-              setAimlapiPaymentSessionId('')
+              resetAimlapiCheckoutIntent()
             }
             setAimlapiAutoTopUp(value)
           }}

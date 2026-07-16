@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import * as realTopupDependencies from './topupDependencies.js'
+import { saveAimlapiTopupState } from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 mock.module('./topupDependencies.js', () => ({
@@ -122,6 +123,58 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
+test('CLI clears an already-exchanged persisted checkout and points to key recovery', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  saveAimlapiTopupState({
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+    paymentSessionId: 'persisted-payment',
+    resumeSessionToken: 'exchanged-session',
+  })
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      return Response.json({ token: 'account-token', exp: 1 })
+    }
+    if (url.endsWith('/v1/keys')) {
+      return Response.json({ key: 'key_test', id: 'created-key' })
+    }
+    if (url.endsWith('/sessions/exchanged-session')) {
+      return Response.json({
+        sessionToken: 'exchanged-session',
+        status: 'exchanged',
+        issuedKeyId: 'issued-key-id',
+      })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({
+      email: 'user@example.com',
+      code: '123456',
+      amountUsd: '25',
+      noOpen: true,
+    }),
+  ).rejects.toThrow('Open https://aimlapi.com/app')
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
 test('topUpAimlapiByApiKey funds the key account without exchange', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
@@ -218,8 +271,13 @@ test('provisionAimlapiKey does not repeat an already completed exchange', async 
   const calls: string[] = []
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
-    return Response.json({ sessionToken: 'session', status: 'exchanged' })
+    return Response.json({
+      sessionToken: 'session',
+      status: 'exchanged',
+      issuedKeyId: 'key_recoverable',
+    })
   }) as unknown as typeof fetch
+  const sessions: string[] = []
 
   await expect(
     provisionAimlapiKey({
@@ -229,18 +287,21 @@ test('provisionAimlapiKey does not repeat an already completed exchange', async 
       exchange: true,
       amountUsd: '25',
       noOpen: true,
+      onSession: session => sessions.push(session),
     }),
-  ).rejects.toThrow('Session was already exchanged')
+  ).rejects.toThrow('issued key key_recoverable')
 
   expect(calls).toEqual([
     'GET https://app.example.test/v3/partner-checkout/sessions/session',
   ])
+  expect(sessions).toEqual([''])
 })
 
 test('an in-progress exchange is observed without issuing a second exchange', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   const calls: string[] = []
   let reads = 0
+  const sessions: string[] = []
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
     reads += 1
@@ -258,9 +319,11 @@ test('an in-progress exchange is observed without issuing a second exchange', as
       exchange: true,
       amountUsd: '25',
       noOpen: true,
+      onSession: session => sessions.push(session),
     }),
   ).rejects.toThrow('Session was already exchanged')
   expect(calls.every(call => call.startsWith('GET '))).toBe(true)
+  expect(sessions).toEqual(['session', ''])
 })
 
 test('email-session checkout carries the stable payment id', async () => {

@@ -115,11 +115,12 @@ export default defineGateway({
     discoveryRefreshMode: 'startup',
     allowManualRefresh: true,
     models: [
-      { id: 'aimlapi-claude-sonnet-5', apiName: 'anthropic/claude-sonnet-5', modelDescriptorId: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-      { id: 'aimlapi-gemini-3.5-flash', apiName: 'google/gemini-3.5-flash', modelDescriptorId: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-      { id: 'aimlapi-gpt-5.5', apiName: 'openai/gpt-5.5-2026-04-23', modelDescriptorId: 'gpt-5.5', label: 'GPT-5.5' },
-      { id: 'aimlapi-qwen-3.7-max', apiName: 'qwen/qwen-3.7-max', modelDescriptorId: 'qwen3.7-max', label: 'Qwen 3.7 Max' },
-      { id: 'aimlapi-deepseek-v4', apiName: 'deepseek/deepseek-v4-pro', modelDescriptorId: 'deepseek-v4-pro', label: 'DeepSeek V4' },
+      {
+        id: 'aimlapi-claude-sonnet-5',
+        apiName: 'anthropic/claude-sonnet-5',
+        label: 'Claude Sonnet 5',
+        modelDescriptorId: 'claude-sonnet-4-6',
+      },
     ],
   },
   usage: { supported: false },
