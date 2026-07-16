@@ -693,6 +693,7 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
+    let requestOnlyMessages = params.requestOnlyMessages
     if (pendingToolFailureAdvisories.length > 0) {
       messagesForQuery.push(
         ...pendingToolFailureAdvisories.map(advisory => advisory.message),
@@ -911,6 +912,9 @@ async function* queryLoop(
     queryCheckpoint('query_autocompact_end')
 
     if (compactionResult) {
+      // A full rewrite removes the interrupted turn this correction context
+      // refers to, so it cannot be valid for the compacted request.
+      requestOnlyMessages = undefined
       const {
         preCompactTokenCount,
         postCompactTokenCount,
@@ -1320,10 +1324,7 @@ async function* queryLoop(
             messages: prependUserContext(
               injectRequestOnlyMessages(
                 messagesForQuery,
-                // A full compaction replaces the interrupted turn that gave
-                // the correction reminder its meaning. Do not carry that
-                // request-only context into the rewritten conversation.
-                compactionResult ? undefined : params.requestOnlyMessages,
+                requestOnlyMessages,
               ),
               userContext,
             ),
@@ -1901,6 +1902,9 @@ async function* queryLoop(
         })
 
         if (compacted) {
+          // The reactive path also replaces the complete conversation; do not
+          // re-inject request-only context whose referent was compacted away.
+          requestOnlyMessages = undefined
           // task_budget: same carryover as the proactive path above.
           // messagesForQuery still holds the pre-compact array here (the
           // 413-failed attempt's input).
