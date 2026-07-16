@@ -883,6 +883,22 @@ function parsePersistedDateMs(value: string): number {
   if (!PERSISTED_DATE_PATTERN.test(value)) {
     return NaN
   }
+  // A date-shaped prefix is not enough: Date.parse silently normalizes
+  // impossible calendar values (2026-02-30 parses as March 2), which would turn
+  // a corrupt persisted date into a fabricated span instead of the 0 fallback.
+  // Validate the spelled components against the real calendar, leap years
+  // included.
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  if (month < 1 || month > 12) {
+    return NaN
+  }
+  // With a 1-based month, day 0 of the next month is this month's last day.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day < 1 || day > daysInMonth) {
+    return NaN
+  }
   return Date.parse(value)
 }
 
