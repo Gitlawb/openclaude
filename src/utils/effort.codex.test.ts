@@ -582,6 +582,7 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
   const kimiCodeGateway = (await import('../integrations/gateways/kimi-code.js')).default
 
   expect(moonshotVendor.catalog?.models?.map(model => model.id)).toEqual([
+    'k3',
     'kimi-k2.7-code',
     'kimi-k2.6',
     'kimi-k2.5',
@@ -634,6 +635,17 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
     routeId: 'moonshot',
     catalogEntries: moonshotVendor.catalog?.models ?? [],
   })
+
+  expect(resolveModelReasoningControl('k3')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['max'],
+    defaultLevel: 'max',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('k3')).toEqual(['max'])
+  expect(resolveAppliedEffort('k3', undefined)).toBe('max')
 
   expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,

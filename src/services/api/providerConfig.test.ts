@@ -52,7 +52,7 @@ test('resolveProviderRequest maps explicit route catalog aliases to API model id
 })
 
 test('resolveProviderRequest maps K3 context catalog choices to the Kimi API model', () => {
-  for (const model of ['k3-256k', 'k3-1m']) {
+  for (const model of ['k3', 'k3-256k']) {
     const request = resolveProviderRequest({
       model,
       baseUrl: 'https://api.kimi.com/coding/v1',
