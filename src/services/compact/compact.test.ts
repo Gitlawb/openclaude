@@ -131,6 +131,7 @@ const COMPACT_STUB_MODULES = [
   './prompt.js',
 ] as const
 let realCompactStubModules: Map<string, object> | undefined
+let hasSharedMutationLock = false
 
 async function captureRealCompactStubModules(): Promise<Map<string, object>> {
   if (!realCompactStubModules) {
@@ -686,6 +687,7 @@ async function importCompact(options: CompactMockOptions = {}) {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/compact.test.ts')
+  hasSharedMutationLock = true
   try {
     await captureRealCompactStubModules()
     mock.module('../../utils/model/providers.js', () => ({
@@ -694,15 +696,20 @@ beforeEach(async () => {
     clearProviderEnv()
   } catch (error) {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
     throw error
   }
 })
 
 afterEach(async () => {
+  if (!hasSharedMutationLock) {
+    return
+  }
   try {
     await restoreCompactTestMocks()
   } finally {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
   }
 })
 
