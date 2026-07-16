@@ -53,6 +53,53 @@ export type BalanceResult = {
 const REQUEST_TIMEOUT_MS = 60_000
 const MAX_RESPONSE_BODY_BYTES = 1 << 20
 
+function requestLabel(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return 'AI/ML API endpoint'
+  }
+}
+
+function redactRequestSecrets(
+  message: string,
+  url: string,
+  bearer: string | undefined,
+): string {
+  const secrets = new Set<string>()
+  if (bearer?.trim()) secrets.add(bearer.trim())
+  try {
+    for (const segment of new URL(url).pathname.split('/')) {
+      if (segment.length < 6) continue
+      secrets.add(segment)
+      try {
+        secrets.add(decodeURIComponent(segment))
+      } catch {
+        // Keep the encoded segment when it is not valid percent-encoding.
+      }
+    }
+  } catch {
+    // The request label already handles malformed URLs without exposing them.
+  }
+  let redacted = message
+  for (const secret of secrets) {
+    if (secret) redacted = redacted.split(secret).join('[REDACTED]')
+  }
+  return redacted
+}
+
+function isBalanceResult(value: unknown): value is BalanceResult {
+  if (typeof value !== 'object' || value === null) return false
+  const result = value as Record<string, unknown>
+  return (
+    typeof result.balance === 'number' &&
+    Number.isFinite(result.balance) &&
+    typeof result.lowBalance === 'boolean' &&
+    typeof result.lowBalanceThreshold === 'number' &&
+    Number.isFinite(result.lowBalanceThreshold)
+  )
+}
+
 class AimlapiResponseTooLargeError extends Error {
   constructor() {
     super(`AI/ML API response body exceeds ${MAX_RESPONSE_BODY_BYTES} bytes.`)
@@ -158,10 +205,19 @@ export class AimlapiClient {
   }
 
   async getBalance(apiKey: string, signal?: AbortSignal): Promise<BalanceResult> {
-    return this.request<BalanceResult>(
-      `${this.endpoints.inferenceBaseUrl.replace(/\/+$/, '')}/billing/balance`,
+    const url = `${this.endpoints.inferenceBaseUrl.replace(/\/+$/, '')}/billing/balance`
+    const result = await this.request<unknown>(
+      url,
       { method: 'GET', bearer: apiKey, signal },
     )
+    if (!isBalanceResult(result)) {
+      throw new AimlapiApiError(
+        `GET ${requestLabel(url)} returned invalid balance response`,
+        200,
+        '',
+      )
+    }
+    return result
   }
 
   async createSession(
@@ -274,6 +330,7 @@ export class AimlapiClient {
       expectJson?: boolean
     },
   ): Promise<T> {
+    const label = requestLabel(url)
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer.trim()}`
@@ -292,8 +349,12 @@ export class AimlapiClient {
     } catch (error) {
       combined.cleanup()
       if (options.signal?.aborted) throw error
-      const reason = error instanceof Error ? error.message : String(error)
-      throw new AimlapiApiError(`Network request to ${url} failed: ${reason}`, 0, '')
+      const reason = redactRequestSecrets(
+        error instanceof Error ? error.message : String(error),
+        url,
+        options.bearer,
+      )
+      throw new AimlapiApiError(`Network request to ${label} failed: ${reason}`, 0, '')
     }
 
     let text: string
@@ -303,20 +364,24 @@ export class AimlapiClient {
       if (options.signal?.aborted) throw error
       if (error instanceof AimlapiResponseTooLargeError) {
         throw new AimlapiApiError(
-          `${options.method} ${url} response body exceeds ${MAX_RESPONSE_BODY_BYTES} bytes`,
+          `${options.method} ${label} response body exceeds ${MAX_RESPONSE_BODY_BYTES} bytes`,
           response.status,
           '',
         )
       }
-      const reason = error instanceof Error ? error.message : String(error)
-      throw new AimlapiApiError(`Network response from ${url} failed: ${reason}`, 0, '')
+      const reason = redactRequestSecrets(
+        error instanceof Error ? error.message : String(error),
+        url,
+        options.bearer,
+      )
+      throw new AimlapiApiError(`Network response from ${label} failed: ${reason}`, 0, '')
     } finally {
       combined.cleanup()
     }
 
     if (!response.ok) {
       throw new AimlapiApiError(
-        `${options.method} ${url} -> ${response.status}`,
+        `${options.method} ${label} -> ${response.status}`,
         response.status,
         text,
       )
@@ -324,7 +389,7 @@ export class AimlapiClient {
     if (!text.trim()) {
       if (options.expectJson === false) return undefined as T
       throw new AimlapiApiError(
-        `${options.method} ${url} returned empty body`,
+        `${options.method} ${label} returned empty body`,
         response.status,
         '',
       )
@@ -333,7 +398,7 @@ export class AimlapiClient {
       return JSON.parse(text) as T
     } catch {
       throw new AimlapiApiError(
-        `${options.method} ${url} returned non-JSON body`,
+        `${options.method} ${label} returned non-JSON body`,
         response.status,
         text,
       )

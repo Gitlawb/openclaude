@@ -15,8 +15,10 @@ export type AimlapiCodeSignInResult = {
   sessionToken: string
   apiKey: string
   apiKeyId: string
-  lowBalance: boolean
-}
+} & (
+  | { balanceStatus: 'confirmed'; lowBalance: boolean }
+  | { balanceStatus: 'unknown'; balanceError: string }
+)
 
 export async function validateAimlapiApiKey(
   apiKey: string,
@@ -54,17 +56,24 @@ export async function completeAimlapiCodeSignIn(
   const client = clientForInferenceBaseUrl(inferenceBaseUrl)
   const auth = await client.verifySignInCode(email, code, signal)
   const created = await client.createKey(auth.token, 'OpenClaude CLI', signal)
-  let lowBalance = false
   try {
-    lowBalance = (await client.getBalance(created.key, signal)).lowBalance
+    const balance = await client.getBalance(created.key, signal)
+    return {
+      sessionToken: auth.token,
+      apiKey: created.key,
+      apiKeyId: created.id,
+      balanceStatus: 'confirmed',
+      lowBalance: balance.lowBalance,
+    }
   } catch (error) {
     if (signal?.aborted) throw error
     // The key is already issued; a balance read failure must not discard it.
-  }
-  return {
-    sessionToken: auth.token,
-    apiKey: created.key,
-    apiKeyId: created.id,
-    lowBalance,
+    return {
+      sessionToken: auth.token,
+      apiKey: created.key,
+      apiKeyId: created.id,
+      balanceStatus: 'unknown',
+      balanceError: error instanceof Error ? error.message : String(error),
+    }
   }
 }

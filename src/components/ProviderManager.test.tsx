@@ -22,7 +22,6 @@ const actualSettingsModule = (await import(
 const actualProviderStartupOverridesModule = (await import(
   `../utils/providerStartupOverrides.ts?providerManagerStartupOverridesActual=${Date.now()}-${Math.random()}`
 )) as ProviderStartupOverridesModule
-
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -466,7 +465,7 @@ function mockProviderManagerDependencies(
     updateSettingsForSource: () => ({ error: null }),
   }))
 
-  mock.module('../integrations/aimlapi/index.js', () => ({
+  mock.module('./providerManagerAimlapi.js', () => ({
     AIMLAPI_MESSAGES,
     AimlapiApiError: class AimlapiApiError extends Error {
       constructor(
@@ -486,6 +485,7 @@ function mockProviderManagerDependencies(
         sessionToken: 'session_test',
         apiKey: 'issued_test',
         apiKeyId: 'key_test',
+        balanceStatus: 'confirmed' as const,
         lowBalance: false,
       })),
     validateAimlapiApiKey:
@@ -525,7 +525,7 @@ function mockProviderManagerDependencies(
 async function waitForFrameOutput(
   getOutput: () => string,
   predicate: (output: string) => boolean,
-  timeoutMs = 2500,
+  timeoutMs = 5000,
 ): Promise<string> {
   let output = ''
 
@@ -1113,8 +1113,11 @@ test('ProviderManager offers and reuses an existing AIMLAPI profile', async () =
       expect.any(AbortSignal),
       'https://api.aimlapi.com/v1',
     )
+    await Bun.sleep(25)
     mounted.stdin.write('\r')
-    await waitForCondition(() => updateProviderProfile.mock.calls.length > 0)
+    await waitForCondition(() => updateProviderProfile.mock.calls.length > 0, {
+      timeoutMs: 5000,
+    })
     expect(updateProviderProfile).toHaveBeenCalledWith(
       'aimlapi_existing',
       expect.objectContaining({ apiKey: 'saved-key' }),
@@ -1122,7 +1125,7 @@ test('ProviderManager offers and reuses an existing AIMLAPI profile', async () =
   } finally {
     await mounted.dispose()
   }
-})
+}, 10_000)
 
 test('ProviderManager first run keeps AIMLAPI_API_KEY out of the saved profile', async () => {
   process.env.AIMLAPI_API_KEY = 'env-runtime-key'
@@ -1131,8 +1134,14 @@ test('ProviderManager first run keeps AIMLAPI_API_KEY out of the saved profile',
     id: 'aimlapi_env',
     ...payload,
   }))
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
+    validateAimlapiApiKey,
   })
 
   const nonce = `${Date.now()}-${Math.random()}`
@@ -1155,8 +1164,58 @@ test('ProviderManager first run keeps AIMLAPI_API_KEY out of the saved profile',
       }),
       expect.objectContaining({ makeActive: true }),
     )
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'env-runtime-key',
+      expect.any(AbortSignal),
+      'https://proxy.example.test/v1',
+    )
   } finally {
     await mounted.dispose()
+  }
+})
+
+test('ProviderManager does not persist an invalid or low-balance first-run AIMLAPI env key', async () => {
+  process.env.AIMLAPI_API_KEY = 'env-runtime-key'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.aimlapi.com/v1'
+
+  for (const scenario of ['invalid', 'low-balance'] as const) {
+    const addProviderProfile = mock(() => null)
+    const validateAimlapiApiKey = mock(async () => {
+      if (scenario === 'invalid') {
+        throw Object.assign(new Error('Unauthorized'), { status: 401 })
+      }
+      return { balance: 5, lowBalance: true, lowBalanceThreshold: 20 }
+    })
+    mockProviderManagerDependencies(() => undefined, async () => undefined, {
+      addProviderProfile,
+      validateAimlapiApiKey,
+    })
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    const mounted = await mountProviderManager(ProviderManager, { mode: 'first-run' })
+    try {
+      await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Set up provider'))
+      await navigateToPreset(mounted.stdin, 'aimlapi.com')
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('Create provider profile') && frame.includes('Default model'),
+      )
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        scenario === 'invalid'
+          ? frame.includes('API key is invalid.')
+          : frame.includes('credits are running low'),
+      )
+      expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+        'env-runtime-key',
+        expect.any(AbortSignal),
+        'https://api.aimlapi.com/v1',
+      )
+      expect(addProviderProfile).not.toHaveBeenCalled()
+    } finally {
+      await mounted.dispose()
+    }
   }
 })
 
@@ -1226,6 +1285,7 @@ test('ProviderManager matches the AIMLAPI code and low-credit screen copy', asyn
     sessionToken: 'session_test',
     apiKey: 'issued_test',
     apiKeyId: 'key_test',
+    balanceStatus: 'confirmed' as const,
     lowBalance: true,
   }))
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
@@ -1314,7 +1374,7 @@ test('ProviderManager rejects an empty AIMLAPI top-up amount instead of charging
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
 
-    mounted.stdin.write('\x7f\x7f')
+    mounted.stdin.write('\x15')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
@@ -1325,7 +1385,7 @@ test('ProviderManager rejects an empty AIMLAPI top-up amount instead of charging
   } finally {
     await mounted.dispose()
   }
-})
+}, 10_000)
 
 test('ProviderManager drops a retained checkout when the onboarding email changes', async () => {
   delete process.env.AIMLAPI_EMAIL
@@ -1568,8 +1628,10 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       "We've emailed you a magic link to user@example.com. Use it to access your aimlapi.com account and review your usage.",
     )
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Provider manager'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Provider manager'),
+      8_000,
     )
     expect(provisionAimlapiKey).toHaveBeenCalledWith(
       expect.objectContaining({

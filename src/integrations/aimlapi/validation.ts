@@ -6,9 +6,14 @@ import {
 
 export function parseAimlapiAmountUsd(amountUsd: string | undefined): number {
   if (!amountUsd?.trim()) return DEFAULT_AMOUNT_USD_MINOR
-  const dollars = Number(amountUsd)
+  const normalized = amountUsd.trim()
+  const dollars = Number(normalized)
   if (!Number.isFinite(dollars) || dollars <= 0) {
     throw new Error(`Invalid amount: "${amountUsd}". Pass a positive number of USD.`)
+  }
+  const decimal = /^\d+\.(\d+)$/.exec(normalized)
+  if (decimal && decimal[1].length > 2) {
+    throw new Error(`Invalid amount: "${amountUsd}". Pass a valid USD amount.`)
   }
   const minor = Math.round(dollars * 100)
   if (minor < MIN_AMOUNT_USD_MINOR) {

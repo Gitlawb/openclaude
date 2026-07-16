@@ -58,7 +58,7 @@ import {
   AimlapiApiError,
   AIMLAPI_MESSAGES,
   type AimlapiTopupStatus,
-} from '../integrations/aimlapi/index.js'
+} from './providerManagerAimlapi.js'
 import {
   DEFAULT_AMOUNT_USD_MINOR,
   isCanonicalAimlapiInferenceBaseUrl,
@@ -2569,11 +2569,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 if (mode === 'first-run' && envKey) {
                   setAimlapiIssuedKey(envKey)
                   setAimlapiExistingUsesEnv(true)
-                  persistAimlapiKey(
+                  void validateAndPersistAimlapiKey(
                     envKey,
                     nextDraft.baseUrl,
                     nextDraft.model,
-                    'ready',
                     { preserveEnv: true },
                   )
                   return
@@ -2720,6 +2719,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     apiKey: string,
     baseUrl: string,
     model: string,
+    options: { preserveEnv?: boolean } = {},
   ): Promise<void> {
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()
@@ -2738,11 +2738,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiIssuedKey(apiKey.trim())
         setAimlapiIssuedKeyId('')
         setAimlapiTopupByKey(true)
+        setAimlapiExistingUsesEnv(options.preserveEnv === true)
         setIsAimlapiKeyValidating(false)
         setScreen('aimlapi-low-balance')
         return
       }
-      persistAimlapiKey(apiKey, baseUrl, model, 'ready')
+      persistAimlapiKey(apiKey, baseUrl, model, 'ready', options)
     } catch (error) {
       if (controller.signal.aborted) return
       const status =
@@ -3008,6 +3009,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiIssuedKeyId(result.apiKeyId)
         if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
+        if (result.balanceStatus === 'unknown') {
+          setDraft(prev => ({ ...prev, apiKey: result.apiKey }))
+          setCursorOffset(result.apiKey.length)
+          setErrorMessage(
+            safeAimlapiErrorMessage(result.balanceError, [result.apiKey]),
+          )
+          setScreen('preset-api-key')
+          return
+        }
         if (result.lowBalance) {
           setScreen('aimlapi-low-balance')
         } else {

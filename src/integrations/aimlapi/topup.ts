@@ -3,8 +3,6 @@
 import { randomUUID } from 'crypto'
 import chalk from 'chalk'
 
-import { openBrowser } from '../../utils/browser.js'
-import { saveProfileFile } from '../../utils/providerProfile.js'
 import {
   AimlapiApiError,
   AimlapiClient,
@@ -18,7 +16,7 @@ import {
   resolveEndpoints,
   resolvePartnerId,
 } from './config.js'
-import { promptText } from './prompt.js'
+import { openBrowser, promptText, saveProfileFile } from './topupDependencies.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 export type AimlapiTopupOptions = {
@@ -434,10 +432,7 @@ async function pollUntilExchangeSettled(
       }
     } catch (error) {
       if (signal?.aborted) throw abortError(signal)
-      if (
-        error instanceof AimlapiApiError &&
-        (error.status === 0 || error.status >= 500)
-      ) {
+      if (isRetryableSessionApiError(error)) {
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
@@ -478,7 +473,7 @@ export async function pollUntilPaid(
       }
     } catch (error) {
       if (signal?.aborted) throw abortError(signal)
-      if (error instanceof AimlapiApiError && (error.status === 0 || error.status >= 500)) {
+      if (isRetryableSessionApiError(error)) {
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
@@ -493,6 +488,17 @@ function isTerminalSessionApiError(error: unknown): boolean {
   return (
     error instanceof AimlapiApiError &&
     error.status >= 400 &&
-    error.status < 500
+    error.status < 500 &&
+    !isRetryableSessionApiError(error)
+  )
+}
+
+function isRetryableSessionApiError(error: unknown): boolean {
+  return (
+    error instanceof AimlapiApiError &&
+    (error.status === 0 ||
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500)
   )
 }

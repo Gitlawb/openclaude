@@ -6,6 +6,14 @@
 
 import { createInterface } from 'node:readline'
 
+type ReadlineInterface = {
+  question(question: string, callback: (answer: string) => void): void
+  close(): void
+}
+type CreateReadlineInterface = (
+  options: Parameters<typeof createInterface>[0],
+) => ReadlineInterface
+
 function assertInteractive(): void {
   if (!process.stdin.isTTY) {
     throw new Error(
@@ -17,10 +25,11 @@ function assertInteractive(): void {
 export async function promptText(
   question: string,
   opts: { defaultValue?: string } = {},
+  createReadline: CreateReadlineInterface = createInterface as CreateReadlineInterface,
 ): Promise<string> {
   assertInteractive()
   const suffix = opts.defaultValue ? ` [${opts.defaultValue}]` : ''
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const rl = createReadline({ input: process.stdin, output: process.stdout })
   try {
     const answer = await new Promise<string>((resolve) => {
       rl.question(`${question}${suffix}: `, resolve)

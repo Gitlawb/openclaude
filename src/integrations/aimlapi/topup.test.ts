@@ -2,13 +2,9 @@ import { afterEach, expect, mock, test } from 'bun:test'
 
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
-mock.module('../../utils/browser.js', () => ({
+mock.module('./topupDependencies.js', () => ({
   openBrowser: async () => {},
-}))
-mock.module('../../utils/providerProfile.js', () => ({
   saveProfileFile: () => 'profile.json',
-}))
-mock.module('./prompt.js', () => ({
   promptText: async () => '',
 }))
 const { pollUntilPaid, provisionAimlapiKey, topUpAimlapiByApiKey } =
@@ -37,6 +33,8 @@ test('parseAimlapiAmountUsd enforces checkout bounds', () => {
   expect(parseAimlapiAmountUsd('10000')).toBe(1_000_000)
   expect(() => parseAimlapiAmountUsd('19.99')).toThrow('Minimum top-up is $20')
   expect(() => parseAimlapiAmountUsd('10000.01')).toThrow('Maximum top-up is $10000')
+  expect(() => parseAimlapiAmountUsd('19.999')).toThrow('Pass a valid USD amount')
+  expect(() => parseAimlapiAmountUsd('10000.004')).toThrow('Pass a valid USD amount')
   expect(() => parseAimlapiAmountUsd('nope')).toThrow('Pass a positive number of USD')
   expect(() => parseAimlapiAmountUsd('Infinity')).toThrow('Pass a positive number of USD')
 })
@@ -340,6 +338,30 @@ test('polling retries a transient transport failure', async () => {
     expect.objectContaining({ status: 'paid' }),
   )
   expect(attempts).toBe(2)
+})
+
+test('polling retains and retries the same session after a rate limit', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  let attempts = 0
+  globalThis.fetch = mock(async () => {
+    attempts += 1
+    if (attempts === 1) return new Response('rate limited', { status: 429 })
+    return Response.json({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+  const client = new AimlapiClient({
+    authBaseUrl: 'https://auth.example.test',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  })
+  const sessions: string[] = []
+
+  await expect(
+    pollUntilPaid(client, 'session', undefined, value => sessions.push(value)),
+  ).resolves.toEqual(expect.objectContaining({ status: 'paid' }))
+  expect(attempts).toBe(2)
+  expect(sessions).toEqual([])
 })
 
 test('by-key billing stays on the endpoint that validated the key', async () => {

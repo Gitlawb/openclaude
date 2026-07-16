@@ -111,10 +111,8 @@ export function buildPartnerCheckoutReturnUrls(
   payBaseUrl: string,
   sessionToken: string,
 ): { successUrl?: string; cancelUrl?: string } {
-  const base = payBaseUrl.trim().replace(/\/+$/, '')
-  if (!base) {
-    return {}
-  }
+  const base = safeHttpBaseUrl(payBaseUrl)
+  if (!base) return {}
   const token = encodeURIComponent(sessionToken)
   const query = (status: string): string =>
     `checkout=${status}&partnerCheckout=1&sessionToken=${token}`
@@ -129,9 +127,25 @@ export function buildPartnerCheckoutReturnUrls(
  * this must be an ordinary HTTPS page rather than an unregistered custom scheme.
  */
 export function buildPartnerReturnUrl(frontendBaseUrl: string): string {
-  return (
-    process.env.AIMLAPI_RETURN_URL?.trim() ||
-    frontendBaseUrl.trim().replace(/\/+$/, '') ||
-    DEFAULT_RETURN_URL
-  )
+  const override = safeHttpBaseUrl(process.env.AIMLAPI_RETURN_URL)
+  if (override) return override
+  return safeHttpBaseUrl(frontendBaseUrl) ?? DEFAULT_RETURN_URL
+}
+
+function safeHttpBaseUrl(value: string | undefined): string | null {
+  const candidate = value?.trim()
+  if (!candidate) return null
+  try {
+    const url = new URL(candidate)
+    if (
+      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+      url.username ||
+      url.password
+    ) {
+      return null
+    }
+    return url.href.replace(/\/+$/, '')
+  } catch {
+    return null
+  }
 }

@@ -59,6 +59,27 @@ test('AIMLAPI_RETURN_URL overrides the browser landing page', () => {
   )
 })
 
+test('unsafe checkout and return URL overrides are rejected', () => {
+  expect(buildPartnerCheckoutReturnUrls('file:///tmp/pay', 'token')).toEqual({})
+  expect(
+    buildPartnerCheckoutReturnUrls('https://user:secret@pay.example.test', 'token'),
+  ).toEqual({})
+  expect(buildPartnerCheckoutReturnUrls('not a URL', 'token')).toEqual({})
+
+  for (const override of [
+    'file:///tmp/return',
+    'https://user:secret@return.example.test',
+    'not a URL',
+  ]) {
+    process.env.AIMLAPI_RETURN_URL = override
+    expect(buildPartnerReturnUrl('https://front.example.test/')).toBe(
+      'https://front.example.test',
+    )
+  }
+  process.env.AIMLAPI_RETURN_URL = 'javascript:alert(1)'
+  expect(buildPartnerReturnUrl('also invalid')).toBe('https://aimlapi.com/app')
+})
+
 test('partner id override is shared with the inference header', () => {
   process.env.AIMLAPI_PARTNER_ID = 'part_override'
   expect(resolvePartnerId()).toBe('part_override')

@@ -48,20 +48,25 @@ function resolveRouteOpenAIShimConfig(
 ): OpenAIShimTransportConfig | undefined {
   if (routeId !== 'aimlapi' || !config?.headers) return config
 
-  const headers = Object.fromEntries(
-    Object.entries(config.headers).filter(
-      ([name]) => !AIMLAPI_CATALOG_HEADER_NAMES.has(name.trim().toLowerCase()),
-    ),
-  )
   if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
-    headers[PARTNER_HEADER_NAME] = resolvePartnerId()
+    const headers: Record<string, string> = {}
     for (const [name, value] of Object.entries(config.headers)) {
       if (name.trim().toLowerCase() !== PARTNER_HEADER_NAME.toLowerCase()) {
         headers[name] = value
       }
     }
+    headers[PARTNER_HEADER_NAME] = resolvePartnerId()
+    return { ...config, headers }
   }
-  return { ...config, headers }
+
+  return {
+    ...config,
+    headers: Object.fromEntries(
+      Object.entries(config.headers).filter(
+        ([name]) => !AIMLAPI_CATALOG_HEADER_NAMES.has(name.trim().toLowerCase()),
+      ),
+    ),
+  }
 }
 
 function normalizeModelApiName(

@@ -135,6 +135,50 @@ test('typed requests reject an empty successful response', async () => {
   await expect(client.getBalance('key_test')).rejects.toThrow('returned empty body')
 })
 
+test('getBalance rejects malformed successful payloads', async () => {
+  const client = new AimlapiClient(endpoints)
+  for (const payload of [
+    {},
+    { balance: 25, lowBalance: false },
+    { balance: '25', lowBalance: false, lowBalanceThreshold: 20 },
+    { balance: 25, lowBalance: 'false', lowBalanceThreshold: 20 },
+    { balance: 25, lowBalance: false, lowBalanceThreshold: null },
+  ]) {
+    globalThis.fetch = mock(async () => jsonResponse(payload)) as unknown as typeof fetch
+    await expect(client.getBalance('key_test')).rejects.toThrow(
+      'returned invalid balance response',
+    )
+  }
+})
+
+test('session tokens are excluded from HTTP and network errors', async () => {
+  const client = new AimlapiClient(endpoints)
+  const token = 'session-secret-token'
+
+  globalThis.fetch = mock(async () => new Response('failed', { status: 500 })) as unknown as typeof fetch
+  let httpError: unknown
+  try {
+    await client.getSession(token)
+  } catch (error) {
+    httpError = error
+  }
+  expect(httpError).toBeInstanceOf(Error)
+  expect((httpError as Error).message).toContain('https://app.example.test')
+  expect((httpError as Error).message).not.toContain(token)
+
+  globalThis.fetch = mock(async () => {
+    throw new Error(`transport failed for ${token}`)
+  }) as unknown as typeof fetch
+  let networkError: unknown
+  try {
+    await client.exchange('bearer', token)
+  } catch (error) {
+    networkError = error
+  }
+  expect(networkError).toBeInstanceOf(Error)
+  expect((networkError as Error).message).not.toContain(token)
+})
+
 test('response bodies are capped before decoding or surfacing errors', async () => {
   globalThis.fetch = mock(
     async () => new Response('x'.repeat((1 << 20) + 1), { status: 502 }),

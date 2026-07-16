@@ -50,6 +50,7 @@ test('existing account onboarding sends a code, creates a key, and reports low b
     sessionToken: 'session',
     apiKey: 'key_test',
     apiKeyId: 'id_test',
+    balanceStatus: 'confirmed',
     lowBalance: true,
   })
   expect(calls).toEqual([
@@ -59,6 +60,28 @@ test('existing account onboarding sends a code, creates a key, and reports low b
     'POST https://app.example.test/v1/keys',
     'GET https://api.example.test/v1/billing/balance',
   ])
+})
+
+test('balance failures preserve the issued key without marking it ready', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'session', exp: 1 })
+    if (url.endsWith('/v1/keys')) return response({ key: 'key_test', id: 'id_test' })
+    return response({ error: 'unavailable' }, 503)
+  }) as unknown as typeof fetch
+
+  const result = await completeAimlapiCodeSignIn('user@example.com', '123456')
+  expect(result).toEqual({
+    sessionToken: 'session',
+    apiKey: 'key_test',
+    apiKeyId: 'id_test',
+    balanceStatus: 'unknown',
+    balanceError: 'GET https://api.example.test -> 503',
+  })
+  expect(result).not.toHaveProperty('lowBalance')
 })
 
 test('new account onboarding returns a passwordless session', async () => {
