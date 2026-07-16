@@ -192,11 +192,28 @@ export async function maybeResizeAndDownsampleImageBuffer(
     // passed through to keep paste working.
     if (!metadata?.width || !metadata.height) {
       if (originalSize > IMAGE_TARGET_RAW_SIZE) {
-        // Create fresh sharp instance for compression
-        const compressedBuffer = await sharp(imageBuffer)
-          .jpeg({ quality: 80 })
-          .toBuffer()
-        return { buffer: compressedBuffer, mediaType: 'jpeg' }
+        // No dimensions to drive a resize, so rely on compression alone. Use
+        // progressively lower JPEG quality (matching the "dimensions OK but
+        // too large" path below) and only return once the result fits the raw
+        // target budget. Without this check a noisy image could still exceed
+        // the 5MB base64 limit and be rejected by validateImagesForAPI,
+        // reintroducing the upload failure this PR recovers from.
+        for (const quality of [80, 60, 40, 20]) {
+          const compressedBuffer = await sharp(imageBuffer)
+            .jpeg({ quality })
+            .toBuffer()
+          if (compressedBuffer.length <= IMAGE_TARGET_RAW_SIZE) {
+            return { buffer: compressedBuffer, mediaType: 'jpeg' }
+          }
+        }
+        // Still too large after maximum compression and we have no dimensions
+        // to fall back to a dimension resize, so fail via the user-facing
+        // limit path instead of returning an oversized buffer that would be
+        // rejected downstream.
+        throw new ImageResizeError(
+          `Unable to resize image — the image exceeds the size limit even after compression and image processing failed to read its dimensions. ` +
+            `Please use a smaller or lower-resolution image.`,
+        )
       }
       // No metadata: detect format from magic bytes instead of trusting `ext`,
       // and return the buffer without dimensions.
@@ -464,9 +481,10 @@ export async function maybeResizeAndDownsampleImageBuffer(
             { level: 'warn' },
           )
           // Canvas can only emit PNG/JPEG; the result media type must match
-          // the emitted bytes (not the original format).
-          const downsampledMediaType =
-            detected === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+          // the emitted bytes (not the original format). ResizeResult.mediaType
+          // is the subtype (as everywhere else in this file), so return 'jpeg'
+          // or 'png', not a full MIME type.
+          const downsampledMediaType = detected === 'image/jpeg' ? 'jpeg' : 'png'
           return { buffer: downsampled, mediaType: downsampledMediaType }
         }
       }
@@ -952,23 +970,23 @@ function readEncodedWebPDimensions(
     }
     const chunkFourCC = buffer.toString('ascii', 12, 16)
     if (chunkFourCC === 'VP8L') {
-      // Lossless bitstream starts at byte 20 (after 'VP8L' + 4-byte size).
-      // First 14 bits = width-1, next 14 bits = height-1.
-      if (buffer.length < 24) return null
-      const bits =
-        buffer[20] | (buffer[21] << 8) | (buffer[22] << 16) | (buffer[23] << 24)
+      // Lossless transform header starts at byte 20 (after 'VP8L' + 4-byte
+      // size + 1-byte 0x2F signature). As a little-endian 32-bit word read
+      // from byte 21, bits [0..13] = width-1 and bits [14..27] = height-1.
+      // Verified against real sharp-encoded VP8L frames.
+      if (buffer.length < 25) return null
+      const bits = buffer.readUInt32LE(21)
       const width = ((bits & 0x3fff) + 1) >>> 0
       const height = (((bits >>> 14) & 0x3fff) + 1) >>> 0
       return { width, height }
     }
     if (chunkFourCC === 'VP8 ') {
-      // Lossy keyframe header begins at byte 16 (after the 4-byte chunk id +
-      // 4-byte chunk size). Start code is 0x9D 0x01 0x2A. The 14-bit width
-      // spans bytes 19-20 and the 14-bit height spans bytes 21-22.
-      // Source: RFC 6386 / common keyframe parsers.
-      if (buffer.length < 23) return null
-      const width = ((buffer.readUInt16LE(19) & 0x3fff) + 1) >>> 0
-      const height = ((buffer.readUInt16LE(21) & 0x3fff) + 1) >>> 0
+      // Lossy keyframe: 3-byte start code (0x9D 0x01 0x2A) is at bytes
+      // 23-25; the 14-bit width spans bytes 26-27 and the 14-bit height
+      // spans bytes 28-29. Verified against real sharp-encoded VP8 frames.
+      if (buffer.length < 30) return null
+      const width = ((buffer.readUInt16LE(26) & 0x3fff) + 1) >>> 0
+      const height = ((buffer.readUInt16LE(28) & 0x3fff) + 1) >>> 0
       return { width, height }
     }
   } catch {
@@ -1066,8 +1084,17 @@ async function tryDownsampleToManyImageLimit(
   rawHeight: number,
 ): Promise<Buffer | null> {
   const g = globalThis as Record<string, unknown>
-  const createElement = g.createElement
-  const ImageCtor = g.Image
+  // In browsers/Electron the Canvas APIs live on `document`, not globalThis;
+  // in some Node-canvas setups they are global. Resolve from either.
+  const doc = g.document as { createElement?: unknown } | undefined
+  const createElement =
+    typeof doc?.createElement === 'function'
+      ? doc.createElement
+      : (g.createElement as unknown)
+  const ImageCtor =
+    typeof g.Image === 'function'
+      ? g.Image
+      : (doc as Record<string, unknown> | undefined)?.Image
   const createImageBitmap = g.createImageBitmap
   if (typeof createElement !== 'function' || typeof ImageCtor !== 'function') {
     return null

@@ -88,20 +88,41 @@ function makeGifBuffer(width = 3000, height = 2500): Buffer {
   return buf
 }
 
-// WebP lossy (VP8) keyframe matching the parser: start code 0x9D 0x01 0x2A at
-// bytes 16-18, width-1 at bytes 19-20 (14-bit), height-1 at bytes 21-22.
+// WebP lossy (VP8) keyframe matching the parser. The VP8 chunk starts at
+// byte 12; its 4-byte size field is at 16-19; the VP8 bitstream (3-byte
+// start code 0x9D 0x01 0x2A) begins at byte 23; the 14-bit width-1 is at
+// bytes 26-27 and the 14-bit height-1 at bytes 28-29.
 function makeWebpLossyBuffer(width = 3800, height = 2100): Buffer {
   const buf = Buffer.alloc(32)
   buf.write('RIFF', 0, 'ascii')
-  buf.writeUInt32LE(24, 4)
+  // File size = total - 8 (RIFF header). Leave the WEBP/VP8 container intact.
+  buf.writeUInt32LE(buf.length - 8, 4)
   buf.write('WEBP', 8, 'ascii')
   buf.write('VP8 ', 12, 'ascii')
-  buf.writeUInt32LE(16, 16) // chunk size
-  buf[16] = 0x9d
-  buf[17] = 0x01
-  buf[18] = 0x2a
-  buf.writeUInt16LE((width - 1) & 0x3fff, 19)
-  buf.writeUInt16LE((height - 1) & 0x3fff, 21)
+  // VP8 chunk size = bytes from the bitstream onward.
+  buf.writeUInt32LE(buf.length - 20, 16)
+  // Start code at byte 23-25.
+  buf[23] = 0x9d
+  buf[24] = 0x01
+  buf[25] = 0x2a
+  buf.writeUInt16LE((width - 1) & 0x3fff, 26)
+  buf.writeUInt16LE((height - 1) & 0x3fff, 28)
+  return buf
+}
+
+// WebP lossless (VP8L) buffer: 1-byte 0x2F signature at byte 20, then the
+// 32-bit transform header at byte 21 (bits [0..13] = width-1, [14..27] =
+// height-1). Source: RFC 6386. Verified against sharp-encoded output.
+function makeWebpLosslessBuffer(width = 2500, height = 1800): Buffer {
+  const buf = Buffer.alloc(32)
+  buf.write('RIFF', 0, 'ascii')
+  buf.writeUInt32LE(buf.length - 8, 4)
+  buf.write('WEBP', 8, 'ascii')
+  buf.write('VP8L', 12, 'ascii')
+  buf.writeUInt32LE(buf.length - 20, 16)
+  buf[20] = 0x2f
+  const bits = ((width - 1) & 0x3fff) | (((height - 1) & 0x3fff) << 14)
+  buf.writeUInt32LE(bits >>> 0, 21)
   return buf
 }
 
@@ -126,6 +147,77 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
     expect(result.mediaType).toBe('png')
     // dimensions are intentionally omitted when metadata is unavailable
     expect(result.dimensions).toBeUndefined()
+  })
+
+  test('metadata-less + oversized: falls to lower JPEG quality until it fits', async () => {
+    // Simulate a noisy image that only fits the raw target at quality <= 60.
+    let lastQuality: number | undefined
+    const sharpWithQuality = (input: Buffer): any => {
+      const chain: any = {}
+      chain.metadata = () => Promise.resolve(undefined)
+      chain.resize = () => chain
+      chain.jpeg = (opts: { quality?: number }) => {
+        lastQuality = opts?.quality
+        // quality 80 still oversized; 60 and below fit (<= 3.75MB).
+        chain.toBuffer = () =>
+          Promise.resolve(
+            Buffer.alloc(lastQuality && lastQuality <= 60 ? 1000 : 4_000_000),
+          )
+        return chain
+      }
+      chain.png = () => chain
+      chain.webp = () => chain
+      if (!chain.toBuffer) chain.toBuffer = () => Promise.resolve(Buffer.alloc(1000))
+      return chain
+    }
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(sharpWithQuality),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer } = await loadResizerModule()
+
+    const imageBuffer = randomBytes(4_000_000)
+    const result = await maybeResizeAndDownsampleImageBuffer(
+      imageBuffer,
+      imageBuffer.length,
+      'png',
+    )
+
+    expect(result.mediaType).toBe('jpeg')
+    // Stopped at a quality that produces an in-budget buffer, not returning
+    // the oversized quality-80 output.
+    expect(result.buffer.length).toBeLessThanOrEqual(1_000_000)
+    expect(lastQuality).toBe(60)
+  })
+
+  test('metadata-less + oversized: throws user-facing limit error when no quality fits', async () => {
+    const sharpAlwaysTooBig = (input: Buffer): any => {
+      const chain: any = {}
+      chain.metadata = () => Promise.resolve(undefined)
+      chain.resize = () => chain
+      chain.jpeg = () => {
+        chain.toBuffer = () => Promise.resolve(Buffer.alloc(4_000_000))
+        return chain
+      }
+      chain.png = () => chain
+      chain.webp = () => chain
+      return chain
+    }
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(sharpAlwaysTooBig),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer, ImageResizeError } =
+      await loadResizerModule()
+
+    const imageBuffer = randomBytes(4_000_000)
+    await expect(
+      maybeResizeAndDownsampleImageBuffer(
+        imageBuffer,
+        imageBuffer.length,
+        'png',
+      ),
+    ).rejects.toBeInstanceOf(ImageResizeError)
   })
 
   test('catch block: large (overDim) but <=5MB image is allowed through, not thrown', async () => {
@@ -212,25 +304,27 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
     }))
     const { maybeResizeAndDownsampleImageBuffer } = await loadResizerModule()
 
-    // Fake Canvas so tryDownsampleToManyImageLimit succeeds.
+    // Fake Canvas so tryDownsampleToManyImageLimit succeeds. Mirror the
+    // browser/Electron shape the production code resolves first: a `document`
+    // object exposing createElement/Image, with Image firing onload.
     const downsampledBytes = Buffer.from('downsampled-pixels')
     const dataUrl = `data:image/png;base64,${downsampledBytes.toString('base64')}`
-    const savedCreateElement = (globalThis as any).createElement
-    const savedImage = (globalThis as any).Image
-    ;(globalThis as any).createElement = (_tag: string) => ({
-      width: 0,
-      height: 0,
-      getContext: () => ({ drawImage() {} }),
-      toDataURL: () => dataUrl,
-    })
-    ;(globalThis as any).Image = class {
-      src: string
-      onload: (() => void) | null = null
-      constructor(src: string) {
-        this.src = src
-        // Simulate async decode completion on the next tick.
-        queueMicrotask(() => this.onload?.())
-      }
+    const savedDocument = (globalThis as any).document
+    ;(globalThis as any).document = {
+      createElement: (_tag: string) => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage() {} }),
+        toDataURL: () => dataUrl,
+      }),
+      Image: class {
+        src: string
+        onload: (() => void) | null = null
+        constructor(src: string) {
+          this.src = src
+          queueMicrotask(() => this.onload?.())
+        }
+      },
     }
 
     const imageBuffer = makePngBuffer(3840, 2160)
@@ -244,8 +338,7 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
       expect(result.buffer.equals(imageBuffer)).toBe(false)
       expect(result.buffer.equals(downsampledBytes)).toBe(true)
     } finally {
-      ;(globalThis as any).createElement = savedCreateElement
-      ;(globalThis as any).Image = savedImage
+      ;(globalThis as any).document = savedDocument
     }
   })
 
@@ -275,6 +368,43 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
         ),
       ).rejects.toBeInstanceOf(ImageResizeError)
     }
+  })
+
+  test('readImageDimensions: parses real WebP VP8/VP8L byte offsets', async () => {
+    const { readImageDimensions } = await loadResizerModule()
+    // Oversized lossy + lossless are rejected by the many-image guard...
+    expect(readImageDimensions(makeWebpLossyBuffer(3800, 2100))).toEqual({
+      width: 3800,
+      height: 2100,
+    })
+    expect(readImageDimensions(makeWebpLosslessBuffer(2500, 1800))).toEqual({
+      width: 2500,
+      height: 1800,
+    })
+    // ...and an in-limit WebP is accepted (parsed exactly).
+    expect(readImageDimensions(makeWebpLossyBuffer(1500, 1200))).toEqual({
+      width: 1500,
+      height: 1200,
+    })
+  })
+
+  test('catch block: in-limit WEBP (<=2000px) is allowed through unchanged', async () => {
+    mock.module(imageProcessorPath, () => ({
+      ...actualImageProcessor,
+      getImageProcessor: () => Promise.resolve(() => {
+        throw new Error('image_processor_napi crashed')
+      }),
+    }))
+    const { maybeResizeAndDownsampleImageBuffer } = await loadResizerModule()
+    // 1500x1200 WebP, small byte size -> base64 well under 5MB.
+    const imageBuffer = makeWebpLossyBuffer(1500, 1200)
+    const result = await maybeResizeAndDownsampleImageBuffer(
+      imageBuffer,
+      imageBuffer.length,
+      'webp',
+    )
+    expect(result.buffer).toBeInstanceOf(Buffer)
+    expect(result.buffer.equals(imageBuffer)).toBe(true)
   })
 
   test('happy path: small in-limit PNG returns dimensions', async () => {
