@@ -53,6 +53,7 @@ import {
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isFireworksBaseUrl,
+  isLongcatBaseUrl,
   isNearaiBaseUrl,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
@@ -811,6 +812,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
       : true) &&
+    (isLongcatBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.LONGCAT_API_KEY, profile.apiKey)
+      : true) &&
     (isCloudflareBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLOUDFLARE_API_TOKEN, profile.apiKey)
@@ -1020,6 +1025,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'longcat' || isLongcatBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.LONGCAT_API_KEY = profile.apiKey
       }
       // Gate on the Workers AI path predicate (isCloudflareBaseUrl: exact
       // api.cloudflare.com host AND the `/client/v4/accounts/<id>/ai/v1` path),
@@ -1373,6 +1381,9 @@ function buildOpenAICompatibleStartupEnv(
       if (isFireworksBaseUrl(activeProfile.baseUrl)) {
         strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
       }
+      if (isLongcatBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.LONGCAT_API_KEY = activeProfile.apiKey
+      }
       // Cloudflare's transport reads the dedicated CLOUDFLARE_API_TOKEN; mirror
       // it like nearai/fireworks, but only when the base URL is a real Workers
       // AI endpoint per the isCloudflareBaseUrl path predicate (exact
@@ -1438,6 +1449,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isFireworksBaseUrl(activeProfile.baseUrl)) {
       env.FIREWORKS_API_KEY = activeProfile.apiKey
+    }
+    if (isLongcatBaseUrl(activeProfile.baseUrl)) {
+      env.LONGCAT_API_KEY = activeProfile.apiKey
     }
     // Cloudflare Workers AI authenticates over the generic OpenAI-compatible
     // header, so mirror the saved key into CLOUDFLARE_API_TOKEN only when the

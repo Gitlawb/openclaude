@@ -253,6 +253,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "longcat",
+    "routeKind": "vendor",
+    "routeId": "longcat",
+    "vendorId": "longcat",
+    "description": "LongCat OpenAI-compatible API (Meituan)",
+    "label": "LongCat",
+    "name": "LongCat",
+    "apiKeyEnvVars": [
+      "LONGCAT_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "minimax",
     "routeKind": "vendor",
     "routeId": "minimax",
@@ -525,6 +540,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "lmstudio",
   "atomic-chat",
   "ollama",
+  "longcat",
   "minimax",
   "mistral",
   "moonshotai",

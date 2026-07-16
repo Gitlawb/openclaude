@@ -112,6 +112,7 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
+  'LONGCAT_API_KEY',
   'CLINE_API_KEY',
   'OPENCODE_API_KEY',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
@@ -197,6 +198,7 @@ export type ProfileEnv = {
   CLINE_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
+  LONGCAT_API_KEY?: string
   OPENCODE_API_KEY?: string
   CLOUDFLARE_API_TOKEN?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
@@ -2045,6 +2047,7 @@ export async function buildLaunchEnv(options: {
     'ATLAS_CLOUD_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
+    'LONGCAT_API_KEY',
     'AIMLAPI_API_KEY',
     'MIMO_API_KEY',
     'NVIDIA_API_KEY',

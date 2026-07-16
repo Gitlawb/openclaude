@@ -40,6 +40,7 @@ const ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -88,6 +89,7 @@ const RESET_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -267,6 +269,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('venice')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
+    expect(VALID_PROVIDERS).toContain('longcat')
     expect(VALID_PROVIDERS).toContain('custom-anthropic')
   })
 })
@@ -757,6 +760,41 @@ describe('applyProviderFlag - zai', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(process.env.OPENAI_MODEL).toBe('glm-5.2')
+  })
+})
+
+describe('applyProviderFlag - longcat', () => {
+  test('sets LongCat OpenAI-compatible defaults and mirrors LONGCAT_API_KEY', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.longcat.chat/openai')
+    expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
+    expect(process.env.OPENAI_API_KEY).toBe('longcat-secret-key')
+  })
+
+  test('sets LongCat OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('longcat', ['--model', 'LongCat-2.0'])
+
+    expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
+  })
+
+  test('clears LONGCAT_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-live-key'
+
+    const longcatResult = applyProviderFlag('longcat', [])
+    expect(longcatResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('longcat-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 })
 
