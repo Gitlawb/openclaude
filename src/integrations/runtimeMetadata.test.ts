@@ -397,7 +397,7 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
     expect(k3.catalogEntry).toMatchObject({
       id: 'k3',
       contextWindow: 1_048_576,
-      label: 'K3 (1M)',
+      label: 'Kimi K3 (1M)',
     })
     expect(k3.catalogEntry?.reasoning?.levels).toEqual(['max'])
     expect(resolveModelRuntimeLimits({
