@@ -25,13 +25,16 @@ test('BRE mode keeps unescaped plus literal', () => {
   expect(result).toBe('literal-plus and aaab')
 })
 
-test('BRE mode treats escaped plus as one-or-more', () => {
-  const result = applySedSubstitution(
-    'abbb and a+b',
-    sedInfo('ab\\+', 'one-or-more'),
-  )
-
-  expect(result).toBe('one-or-more and a+b')
+test('BRE mode declines the GNU-only escaped plus and question mark', () => {
+  // `\+` and `\?` are GNU extensions: BSD/macOS sed matches them as literal
+  // `+`/`?`, so one platform's operator is the other's literal and a single
+  // preview cannot be right for both.
+  expect(
+    parseSedEditCommand("sed -i '' 's/ab\\+/X/' example.txt"),
+  ).toBeNull()
+  expect(
+    parseSedEditCommand("sed -i '' 's/ab\\?c/X/' example.txt"),
+  ).toBeNull()
 })
 
 test('BRE mode preserves escaped backslashes', () => {
@@ -65,19 +68,14 @@ test('BRE mode supports escaped interval ranges', () => {
   expect(result).toBe('Xc')
 })
 
-test('BRE mode supports the open lower-bound interval \\{,m\\}', () => {
-  // GNU sed accepts `\{,3\}` (up to three). JS has no `{,3}` quantifier, so it
-  // must be normalized to `{0,3}`; otherwise the preview showed no change while
-  // sed rewrote the run. Without `g` there is a single match, so sed's and JS's
-  // differing empty-match advance cannot come into play.
-  const result = applySedSubstitution('aaaab', {
-    filePath: 'example.txt',
-    pattern: 'a\\{,3\\}',
-    replacement: 'X',
-    flags: '',
-    extendedRegex: false,
-  })
-  expect(result).toBe('Xab')
+test('BRE mode declines the GNU-only open lower-bound interval \\{,m\\}', () => {
+  // `\{,3\}` is a GNU extension: BSD/macOS sed rejects it and leaves the file
+  // untouched, and this parser explicitly supports macOS via its `-i ''`
+  // handling. Previewing a {0,3} result would show an edit on platforms where
+  // the real command fails, so no sed edit is claimed even without `g`.
+  expect(
+    parseSedEditCommand("sed -i '' 's/a\\{,3\\}/X/' example.txt"),
+  ).toBeNull()
 })
 
 test('BRE mode supports the open upper-bound interval \\{n,\\}', () => {
@@ -97,20 +95,23 @@ test('BRE mode declines malformed intervals rather than guessing', () => {
   ).toBeNull()
 })
 
-test('BRE mode treats escaped alternation as an operator', () => {
-  const result = applySedSubstitution(
-    'cat and dog',
-    sedInfo('cat\\|dog', 'X'),
-  )
-  expect(result).toBe('X and X')
+test('BRE mode declines alternation rather than mis-selecting a branch', () => {
+  // POSIX regex picks the leftmost-longest alternative while JavaScript picks
+  // the first that matches: sed writes `\(a\|aa\)` on "aa" as "X", a JS
+  // preview as "Xa". Selection cannot be reproduced, so no edit is claimed.
+  expect(
+    parseSedEditCommand("sed -i '' 's/cat\\|dog/X/g' example.txt"),
+  ).toBeNull()
+  expect(
+    parseSedEditCommand("sed -i '' 's/\\(a\\|aa\\)\\{1\\}/X/' example.txt"),
+  ).toBeNull()
 })
 
-test('BRE mode treats escaped groups and question marks as operators', () => {
-  const result = applySedSubstitution('abab', sedInfo('\\(ab\\)\\+', 'X'))
-  expect(result).toBe('X')
-
-  const optional = applySedSubstitution('ac abc', sedInfo('ab\\?c', 'X'))
-  expect(optional).toBe('X X')
+test('BRE mode keeps escaped groups with portable interval quantifiers', () => {
+  // `\(...\)` and `\{n\}` are POSIX BRE, supported identically by GNU and
+  // BSD sed, so groups repeated via an interval still simulate.
+  const result = applySedSubstitution('abab cd', sedInfo('\\(ab\\)\\{2\\}', 'X'))
+  expect(result).toBe('X cd')
 })
 
 test('BRE mode applies g across multiple interval quantifiers', () => {
@@ -166,5 +167,39 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     // Previously `new RegExp` threw and the catch returned the original
     // content, rendering an invalid pattern as a silent "no change" diff.
     expect(parseSedEditCommand(cmd('s/a*\\{2\\}/X/g'))).toBeNull()
+  })
+
+  test('rejects an unterminated bracket expression', () => {
+    // GNU sed rejects `s/[/X/g` with an unterminated-address error and leaves
+    // the file untouched; rendering `[` as a literal would persist an edit the
+    // command cannot perform.
+    expect(parseSedEditCommand(cmd('s/[/X/g'))).toBeNull()
+  })
+
+  test('rejects POSIX character classes JavaScript cannot interpret', () => {
+    // `[[:digit:]]` is a digit class to sed but a plain character set to a JS
+    // regex, so the two produce different files ("1a2": sed XaX, JS unchanged).
+    expect(parseSedEditCommand(cmd('s/[[:digit:]]/X/g'))).toBeNull()
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/[[:alpha:]]+/X/g' example.txt"),
+    ).toBeNull()
+  })
+
+  test('rejects ERE alternation for the same POSIX-selection reason', () => {
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/(a|aa)/X/' example.txt"),
+    ).toBeNull()
+  })
+
+  test('applies the substitution once per line like sed, not once per file', () => {
+    // sed substitutes the first match on EVERY line even without `g`.
+    const info = parseSedEditCommand(cmd('s/a\\{2\\}/X/'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('aa\naa\n', info!)).toBe('X\nX\n')
+    // With `g`, all matches on every line.
+    const g = parseSedEditCommand(cmd('s/a\\{2\\}/X/g'))
+    expect(applySedSubstitution('aaaa\naa b aa\n', g!)).toBe('XX\nX b X\n')
+    // A trailing newline is preserved and never treated as an extra empty line.
+    expect(applySedSubstitution('aa', info!)).toBe('X')
   })
 })
