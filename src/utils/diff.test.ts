@@ -21,14 +21,22 @@ let countLinesChanged: Awaited<typeof import('./diff.js')>['countLinesChanged']
 let getTotalLinesAdded: Awaited<
   typeof import('../bootstrap/state.js')
 >['getTotalLinesAdded']
+let hasSharedMutationLock = false
 
 beforeAll(async () => {
   await acquireSharedMutationLock('utils/diff.test.ts')
-  mock.module('src/services/analytics/index.js', () => ({
-    logEvent: () => {},
-  }))
-  ;({ countLinesChanged } = await import('./diff.js'))
-  ;({ getTotalLinesAdded } = await import('../bootstrap/state.js'))
+  hasSharedMutationLock = true
+  try {
+    mock.module('src/services/analytics/index.js', () => ({
+      logEvent: () => {},
+    }))
+    ;({ countLinesChanged } = await import('./diff.js'))
+    ;({ getTotalLinesAdded } = await import('../bootstrap/state.js'))
+  } catch (error) {
+    releaseSharedMutationLock()
+    hasSharedMutationLock = false
+    throw error
+  }
 })
 
 // countLinesChanged is void; it feeds the running total via addToTotalLinesChanged.
@@ -40,12 +48,16 @@ function addedLinesFor(newFileContent: string): number {
 }
 
 afterAll(() => {
+  if (!hasSharedMutationLock) {
+    return
+  }
   try {
     mock.module('src/services/analytics/index.js', () => ({
       ...realAnalyticsModule,
     }))
   } finally {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
   }
 })
 

@@ -130,16 +130,23 @@ const COMPACT_STUB_MODULES = [
   './grouping.js',
   './prompt.js',
 ] as const
-const realCompactStubModules = new Map(
-  await Promise.all(
-    COMPACT_STUB_MODULES.map(async specifier =>
-      [
-        specifier,
-        await import(`${specifier}?real=${Date.now()}-${Math.random()}`),
-      ] as const,
-    ),
-  ),
-)
+let realCompactStubModules: Map<string, object> | undefined
+
+async function captureRealCompactStubModules(): Promise<Map<string, object>> {
+  if (!realCompactStubModules) {
+    realCompactStubModules = new Map(
+      await Promise.all(
+        COMPACT_STUB_MODULES.map(async specifier =>
+          [
+            specifier,
+            await import(`${specifier}?real=${Date.now()}-${Math.random()}`),
+          ] as const,
+        ),
+      ),
+    )
+  }
+  return realCompactStubModules
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -679,10 +686,16 @@ async function importCompact(options: CompactMockOptions = {}) {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/compact.test.ts')
-  mock.module('../../utils/model/providers.js', () => ({
-    ..._realProvidersModule,
-  }))
-  clearProviderEnv()
+  try {
+    await captureRealCompactStubModules()
+    mock.module('../../utils/model/providers.js', () => ({
+      ..._realProvidersModule,
+    }))
+    clearProviderEnv()
+  } catch (error) {
+    releaseSharedMutationLock()
+    throw error
+  }
 })
 
 afterEach(async () => {
@@ -698,6 +711,7 @@ afterEach(async () => {
 async function restoreCompactTestMocks() {
   mock.restore()
   clearProviderEnv()
+  const realCompactStubModules = await captureRealCompactStubModules()
   for (const specifier of COMPACT_STUB_MODULES) {
     const realModule = realCompactStubModules.get(specifier)
     if (!realModule) {
@@ -799,6 +813,7 @@ async function restoreCompactTestMocks() {
 afterAll(async () => {
   await acquireSharedMutationLock('services/compact/compact.test.ts teardown')
   try {
+    await captureRealCompactStubModules()
     await restoreCompactTestMocks()
   } finally {
     releaseSharedMutationLock()

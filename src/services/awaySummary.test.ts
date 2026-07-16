@@ -49,16 +49,24 @@ const realSessionMemoryUtilsModule = await import(
 let generateAwaySummary: Awaited<
   typeof import('./awaySummary.js')
 >['generateAwaySummary']
+let hasSharedMutationLock = false
 
 beforeAll(async () => {
   await acquireSharedMutationLock('services/awaySummary.test.ts')
-  mock.module('./api/claude.js', () => ({
-    queryModelWithoutStreaming: queryModelWithoutStreamingMock,
-  }))
-  mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
-    getSessionMemoryContent: mock(async () => null),
-  }))
-  ;({ generateAwaySummary } = await import('./awaySummary.js'))
+  hasSharedMutationLock = true
+  try {
+    mock.module('./api/claude.js', () => ({
+      queryModelWithoutStreaming: queryModelWithoutStreamingMock,
+    }))
+    mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
+      getSessionMemoryContent: mock(async () => null),
+    }))
+    ;({ generateAwaySummary } = await import('./awaySummary.js'))
+  } catch (error) {
+    releaseSharedMutationLock()
+    hasSharedMutationLock = false
+    throw error
+  }
 })
 
 const RECENT_WINDOW_FOR_TEST = 30
@@ -105,6 +113,9 @@ beforeEach(() => {
 })
 
 afterAll(() => {
+  if (!hasSharedMutationLock) {
+    return
+  }
   try {
     mock.module('./api/claude.js', () => ({ ...realClaudeModule }))
     mock.module('./SessionMemory/sessionMemoryUtils.js', () => ({
@@ -112,6 +123,7 @@ afterAll(() => {
     }))
   } finally {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
   }
 })
 
