@@ -530,7 +530,7 @@ test('FIX: 32k window tier → recent=3 keeps last 3 only', async () => {
   }
 })
 
-test('Chat compression omits old inline base64 image payloads', async () => {
+test('Chat compression omits old and mid-tier inline base64 image payloads', async () => {
   mockState.enabled = true
   mockState.effectiveWindow = 100_000
   const imageData = 'a'.repeat(100_000)
@@ -554,11 +554,31 @@ test('Chat compression omits old inline base64 image payloads', async () => {
       },
     ],
   }
+  messages[32] = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'toolu_15',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: imageData,
+            },
+          },
+        ],
+      },
+    ],
+  }
 
   const body = await captureRequestBody(messages, MID_TIER_MODEL)
-  const firstOutput = getToolMessages(body)[0]?.content
+  const toolOutputs = getToolMessages(body).map(message => message.content)
 
-  expect(firstOutput).toContain('[Inline image omitted from tool history]')
+  expect(toolOutputs[0]).toContain('0 chars omitted')
+  expect(toolOutputs[15]).toContain('[Inline image omitted from tool history]')
   expect(JSON.stringify(body)).not.toContain(imageData)
   expect(JSON.stringify(body).length).toBeLessThan(100_000)
 })

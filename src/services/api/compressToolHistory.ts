@@ -101,10 +101,31 @@ function extractText(content: unknown): string {
   return ''
 }
 
+function omitInlineBase64Images(block: ToolResultBlock): ToolResultBlock {
+  if (!Array.isArray(block.content)) return block
+
+  let omittedImage = false
+  const content = block.content.map(part => {
+    if (
+      part &&
+      typeof part === 'object' &&
+      (part as { type?: string }).type === 'image' &&
+      (part as { source?: { type?: string } }).source?.type === 'base64'
+    ) {
+      omittedImage = true
+      return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
+    }
+    return part
+  })
+
+  return omittedImage ? { ...block, content } : block
+}
+
 function replaceTextContent(
   block: ToolResultBlock,
   replacementText: string,
 ): ToolResultBlock {
+  block = omitInlineBase64Images(block)
   if (!Array.isArray(block.content)) {
     return {
       ...block,
@@ -114,14 +135,6 @@ function replaceTextContent(
 
   let replacedText = false
   const content = block.content.flatMap(part => {
-    if (
-      part &&
-      typeof part === 'object' &&
-      (part as { type?: string }).type === 'image' &&
-      (part as { source?: { type?: string } }).source?.type === 'base64'
-    ) {
-      return [{ type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }]
-    }
     if (
       part &&
       typeof part === 'object' &&
@@ -235,6 +248,7 @@ function truncateBlock(
   block: ToolResultBlock,
   maxChars: number,
 ): ToolResultBlock {
+  block = omitInlineBase64Images(block)
   const text = extractText(block.content)
   if (text.length <= maxChars) return block
   return truncateTextContent(block, maxChars, text.length)
