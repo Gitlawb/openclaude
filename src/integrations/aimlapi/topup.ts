@@ -167,7 +167,10 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   const checkoutState = claimAimlapiTopupState(intent)
   const persistSession = (resumeSessionToken: string): void => {
     if (!resumeSessionToken) {
-      clearAimlapiTopupState(intent)
+      clearAimlapiTopupState({
+        ...intent,
+        paymentSessionId: checkoutState.paymentSessionId,
+      })
       return
     }
     checkoutState.resumeSessionToken = resumeSessionToken
@@ -206,7 +209,10 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     },
     createdAt: new Date().toISOString(),
   })
-  clearAimlapiTopupState(intent)
+  clearAimlapiTopupState({
+    ...intent,
+    paymentSessionId: checkoutState.paymentSessionId,
+  })
 
   console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
   console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)

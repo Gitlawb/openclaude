@@ -1166,6 +1166,13 @@ test('ProviderManager offers and reuses an existing AIMLAPI profile', async () =
       'aimlapi_existing',
       expect.objectContaining({ apiKey: 'saved-key' }),
     )
+    // Continuing with a saved key never charges the account, so the done
+    // screen must report readiness rather than a phantom top-up.
+    const doneOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Everything is ready.'),
+    )
+    expect(doneOutput).not.toContain('Top-up successful')
+    expect(doneOutput).not.toContain('credited to your account')
   } finally {
     await mounted.dispose()
   }
@@ -1221,7 +1228,7 @@ test('ProviderManager uses OPENAI_API_KEY for an existing keyless AIMLAPI profil
   }
 }, 10_000)
 
-test('ProviderManager first run recognizes the OPENAI_API_KEY fallback without persisting it', async () => {
+test('ProviderManager does not send the OPENAI_API_KEY fallback to a custom AIMLAPI endpoint', async () => {
   delete process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_API_KEYS
   process.env.OPENAI_API_KEY = 'env-runtime-key'
@@ -1251,20 +1258,47 @@ test('ProviderManager first run recognizes the OPENAI_API_KEY fallback without p
       frame.includes('Create provider profile') && frame.includes('Default model'),
     )
     mounted.stdin.write('\r')
-    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
-    expect(addProviderProfile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: 'aimlapi',
-        baseUrl: 'https://proxy.example.test/v1',
-        apiKey: '',
-      }),
-      expect.objectContaining({ makeActive: true }),
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
     )
-    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
-      'env-runtime-key',
-      expect.any(AbortSignal),
-      'https://proxy.example.test/v1',
+    expect(validateAimlapiApiKey).not.toHaveBeenCalled()
+    expect(addProviderProfile).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager manage flow does not reuse env credentials for a custom AIMLAPI endpoint', async () => {
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  process.env.OPENAI_API_KEY = 'env-runtime-key'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    validateAimlapiApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
     )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
+    )
+    expect(validateAimlapiApiKey).not.toHaveBeenCalled()
   } finally {
     await mounted.dispose()
   }
@@ -1424,6 +1458,9 @@ test('ProviderManager matches the AIMLAPI code and low-credit screen copy', asyn
     expect(codeOutput).not.toContain('We sent a 6-digit code')
     mounted.stdin.write('123456')
     await Bun.sleep(25)
+    const maskedCodeOutput = mounted.getOutput()
+    expect(maskedCodeOutput).not.toContain('123456')
+    expect(maskedCodeOutput).toContain('******')
     mounted.stdin.write('\r')
 
     const lowCreditOutput = await waitForFrameOutput(mounted.getOutput, frame =>

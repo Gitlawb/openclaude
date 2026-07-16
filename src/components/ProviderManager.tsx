@@ -989,7 +989,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [, setIsAimlapiTopupRunning] = React.useState(false)
   const [isAimlapiKeyValidating, setIsAimlapiKeyValidating] = React.useState(false)
   const aimlapiAbortRef = React.useRef<AbortController | null>(null)
-  const aimlapiPersistedIntentRef = React.useRef<AimlapiTopupIntent | null>(null)
+  const aimlapiPersistedIntentRef = React.useRef<
+    (AimlapiTopupIntent & { paymentSessionId: string }) | null
+  >(null)
+  // True only once a top-up payment actually completes. `aimlapiTopupByKey`
+  // marks that the flow is driven by a saved key, not that money changed hands,
+  // so the done screen must key off this instead to avoid showing the "Top-up
+  // successful" copy when the user merely continued with a saved key.
+  const aimlapiTopupPaidRef = React.useRef(false)
 
   function resetAimlapiCheckoutIntent(): void {
     if (aimlapiPersistedIntentRef.current) {
@@ -1006,6 +1013,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiIssuedKey('')
     setAimlapiIssuedKeyId('')
     setAimlapiTopupByKey(false)
+    aimlapiTopupPaidRef.current = false
     setAimlapiNewAccount(false)
   }
 
@@ -1781,6 +1789,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiIssuedKey('')
     setAimlapiIssuedKeyId('')
     setAimlapiTopupByKey(false)
+    aimlapiTopupPaidRef.current = false
     setAimlapiResumeSessionToken('')
     setAimlapiPaymentSessionId('')
     setAimlapiExistingProfileId(null)
@@ -2581,7 +2590,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                   routeId: 'aimlapi',
                   baseUrl: nextDraft.baseUrl,
                 })?.trim()
-                if (mode === 'first-run' && envKey) {
+                if (
+                  mode === 'first-run' &&
+                  envKey &&
+                  isCanonicalAimlapiInferenceBaseUrl(nextDraft.baseUrl)
+                ) {
                   setAimlapiIssuedKey(envKey)
                   setAimlapiExistingUsesEnv(true)
                   void validateAndPersistAimlapiKey(
@@ -2788,9 +2801,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const isAimlapiProfile = (profile: ProviderProfile): boolean =>
       profile.provider === 'aimlapi' ||
       resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
+    const inferenceBaseUrl = resolveEndpoints().inferenceBaseUrl
+    if (!isCanonicalAimlapiInferenceBaseUrl(inferenceBaseUrl)) return null
     const envKey = resolveRouteCredentialValue({
       routeId: 'aimlapi',
-      baseUrl: resolveEndpoints().inferenceBaseUrl,
+      baseUrl: inferenceBaseUrl,
     })?.trim()
     const active = profiles.find(profile => profile.id === activeProfileId)
     const candidates = active
@@ -2824,7 +2839,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       ? {
           apiKey: envKey,
           usesEnv: true,
-          inferenceBaseUrl: resolveEndpoints().inferenceBaseUrl,
+          inferenceBaseUrl,
         }
       : null
   }
@@ -2843,7 +2858,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         deferNavigation: true,
         onSaved: () => {
           resetAimlapiCheckoutIntent()
-          setAimlapiDoneKind(aimlapiTopupByKey ? 'topup' : 'ready')
+          setAimlapiDoneKind(aimlapiTopupPaidRef.current ? 'topup' : 'ready')
           setErrorMessage(undefined)
           setScreen('aimlapi-done')
         },
@@ -2854,7 +2869,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       aimlapiIssuedKey,
       resolveEndpoints().inferenceBaseUrl,
       model,
-      aimlapiTopupByKey ? 'topup' : 'ready',
+      aimlapiTopupPaidRef.current ? 'topup' : 'ready',
       { preserveEnv: aimlapiExistingUsesEnv },
     )
   }
@@ -2882,6 +2897,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setErrorMessage('The existing AI/ML API key is unavailable. Configure again.')
       return
     }
+    // Continuing with a saved key is not a payment; clear any stale paid flag
+    // from an earlier top-up so the done screen shows "Everything is ready."
+    aimlapiTopupPaidRef.current = false
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()
     aimlapiAbortRef.current = controller
@@ -3107,7 +3125,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setScreen('aimlapi-topup-amount')
       return
     }
-    aimlapiPersistedIntentRef.current = intent
+    aimlapiPersistedIntentRef.current = {
+      ...intent,
+      paymentSessionId: checkoutState.paymentSessionId,
+    }
     setAimlapiPaymentSessionId(checkoutState.paymentSessionId)
     setAimlapiResumeSessionToken(checkoutState.resumeSessionToken)
 
@@ -3165,6 +3186,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             })
         if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
+        // A payment just cleared, so the done screen should report the top-up
+        // regardless of whether we route through the model picker first.
+        aimlapiTopupPaidRef.current = true
         if (aimlapiTopupByKey) {
           if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
             setCursorOffset(provisioned.model.length)
@@ -3337,6 +3361,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             onSubmit={verifyAimlapiSignInCode}
             focus={true}
             showCursor={true}
+            mask="*"
             placeholder={`6-digit code${figures.ellipsis}`}
             columns={inputColumns}
             cursorOffset={cursorOffset}

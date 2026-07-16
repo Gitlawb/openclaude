@@ -42,14 +42,15 @@ const intent: AimlapiTopupIntent = {
 
 test('top-up state round-trips only for the same checkout intent', () => {
   const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
   saveAimlapiTopupState({
     ...intent,
-    paymentSessionId: 'payment-id',
+    paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'session-token',
   })
 
   expect(loadAimlapiTopupState(intent)).toEqual({
-    paymentSessionId: 'payment-id',
+    paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'session-token',
   })
   expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 3000 })).toBeNull()
@@ -63,15 +64,20 @@ test('top-up state round-trips only for the same checkout intent', () => {
 
 test('top-up state is cleared only by its matching intent', () => {
   useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
   saveAimlapiTopupState({
     ...intent,
-    paymentSessionId: 'payment-id',
+    paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'session-token',
   })
 
-  clearAimlapiTopupState({ ...intent, email: 'other@example.com' })
+  clearAimlapiTopupState({
+    ...intent,
+    email: 'other@example.com',
+    paymentSessionId: claimed.paymentSessionId,
+  })
   expect(loadAimlapiTopupState(intent)).not.toBeNull()
-  clearAimlapiTopupState(intent)
+  clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
   expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
@@ -82,4 +88,33 @@ test('claiming the same checkout intent reuses one payment id', () => {
 
   expect(first.paymentSessionId).toBeTruthy()
   expect(second).toEqual(first)
+})
+
+test('stale writers cannot overwrite a newly claimed checkout', () => {
+  useTemporaryConfig()
+  const stale = claimAimlapiTopupState(intent)
+  clearAimlapiTopupState({ ...intent, paymentSessionId: stale.paymentSessionId })
+
+  const currentIntent = { ...intent, email: 'new@example.com' }
+  const current = claimAimlapiTopupState(currentIntent)
+  saveAimlapiTopupState({
+    ...intent,
+    ...stale,
+    resumeSessionToken: 'stale-session',
+  })
+
+  expect(loadAimlapiTopupState(currentIntent)).toEqual(current)
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+})
+
+test('stale clear cannot delete a replacement checkout', () => {
+  useTemporaryConfig()
+  const stale = claimAimlapiTopupState(intent)
+  clearAimlapiTopupState({ ...intent, paymentSessionId: stale.paymentSessionId })
+
+  const current = claimAimlapiTopupState(intent)
+  clearAimlapiTopupState({ ...intent, paymentSessionId: stale.paymentSessionId })
+
+  expect(current.paymentSessionId).not.toBe(stale.paymentSessionId)
+  expect(loadAimlapiTopupState(intent)).toEqual(current)
 })

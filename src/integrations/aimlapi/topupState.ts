@@ -38,6 +38,17 @@ function statePath(): string {
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
 const LOCK_STALE_MS = 30_000
+const INTENT_KEYS: ReadonlyArray<keyof AimlapiTopupIntent> = [
+  'email',
+  'amountUsdMinor',
+  'autoTopUp',
+  'partnerId',
+  'partnerName',
+  'appBaseUrl',
+  'inferenceBaseUrl',
+  'payBaseUrl',
+  'verificationBaseUrl',
+]
 
 function waitForLock(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS)
@@ -87,9 +98,7 @@ function matchesIntent(
   state: AimlapiPersistedTopup,
   intent: AimlapiTopupIntent,
 ): boolean {
-  return (Object.keys(intent) as Array<keyof AimlapiTopupIntent>).every(
-    key => state[key] === intent[key],
-  )
+  return INTENT_KEYS.every(key => state[key] === intent[key])
 }
 
 function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
@@ -112,22 +121,16 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   )
 }
 
-export function loadAimlapiTopupState(
-  intent: AimlapiTopupIntent,
-): Pick<AimlapiPersistedTopup, 'paymentSessionId' | 'resumeSessionToken'> | null {
+function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
   try {
     const state: unknown = JSON.parse(readFileSync(statePath(), 'utf8'))
-    if (!isPersistedTopup(state) || !matchesIntent(state, intent)) return null
-    return {
-      paymentSessionId: state.paymentSessionId,
-      resumeSessionToken: state.resumeSessionToken,
-    }
+    return isPersistedTopup(state) ? state : null
   } catch {
     return null
   }
 }
 
-export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
+function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
   const target = statePath()
   mkdirSync(dirname(target), { recursive: true })
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
@@ -144,22 +147,62 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
   }
 }
 
+export function loadAimlapiTopupState(
+  intent: AimlapiTopupIntent,
+): Pick<AimlapiPersistedTopup, 'paymentSessionId' | 'resumeSessionToken'> | null {
+  const state = readAimlapiTopupStateUnlocked()
+  if (!state || !matchesIntent(state, intent)) return null
+  return {
+    paymentSessionId: state.paymentSessionId,
+    resumeSessionToken: state.resumeSessionToken,
+  }
+}
+
+export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
+  withStateLock(() => {
+    const current = readAimlapiTopupStateUnlocked()
+    if (
+      !current ||
+      !matchesIntent(current, state) ||
+      current.paymentSessionId !== state.paymentSessionId
+    ) {
+      return
+    }
+    writeAimlapiTopupStateUnlocked(state)
+  })
+}
+
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
 ): Pick<AimlapiPersistedTopup, 'paymentSessionId' | 'resumeSessionToken'> {
   return withStateLock(() => {
-    const existing = loadAimlapiTopupState(intent)
-    if (existing) return existing
+    const existing = readAimlapiTopupStateUnlocked()
+    if (existing && matchesIntent(existing, intent)) {
+      return {
+        paymentSessionId: existing.paymentSessionId,
+        resumeSessionToken: existing.resumeSessionToken,
+      }
+    }
     const claimed = {
       paymentSessionId: randomUUID(),
       resumeSessionToken: '',
     }
-    saveAimlapiTopupState({ ...intent, ...claimed })
+    writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
     return claimed
   })
 }
 
-export function clearAimlapiTopupState(intent: AimlapiTopupIntent): void {
-  const current = loadAimlapiTopupState(intent)
-  if (current) rmSync(statePath(), { force: true })
+export function clearAimlapiTopupState(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): void {
+  withStateLock(() => {
+    const current = readAimlapiTopupStateUnlocked()
+    if (
+      current &&
+      matchesIntent(current, expected) &&
+      current.paymentSessionId === expected.paymentSessionId
+    ) {
+      rmSync(statePath(), { force: true })
+    }
+  })
 }

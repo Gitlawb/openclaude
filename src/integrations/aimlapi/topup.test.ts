@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import * as realTopupDependencies from './topupDependencies.js'
-import { saveAimlapiTopupState } from './topupState.js'
+import { claimAimlapiTopupState, saveAimlapiTopupState } from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 mock.module('./topupDependencies.js', () => ({
@@ -130,6 +130,17 @@ test('CLI retains an already-exchanged checkout and blocks identical retries', a
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const persisted = claimAimlapiTopupState({
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+  })
   saveAimlapiTopupState({
     email: 'user@example.com',
     amountUsdMinor: 2500,
@@ -140,7 +151,7 @@ test('CLI retains an already-exchanged checkout and blocks identical retries', a
     inferenceBaseUrl: 'https://api.aimlapi.com/v1',
     payBaseUrl: 'https://pay.example.test',
     verificationBaseUrl: 'https://aimlapi.com/app',
-    paymentSessionId: 'persisted-payment',
+    paymentSessionId: persisted.paymentSessionId,
     resumeSessionToken: 'exchanged-session',
   })
 
@@ -180,7 +191,7 @@ test('CLI retains an already-exchanged checkout and blocks identical retries', a
   expect(
     JSON.parse(readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8')),
   ).toMatchObject({
-    paymentSessionId: 'persisted-payment',
+    paymentSessionId: persisted.paymentSessionId,
     resumeSessionToken: 'exchanged-session',
   })
 })
