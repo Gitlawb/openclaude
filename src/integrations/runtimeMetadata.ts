@@ -27,6 +27,42 @@ import {
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
+import {
+  isCanonicalAimlapiInferenceBaseUrl,
+  PARTNER_HEADER_NAME,
+  resolvePartnerId,
+} from './aimlapi/config.js'
+
+const AIMLAPI_CATALOG_HEADER_NAMES = new Set([
+  PARTNER_HEADER_NAME.toLowerCase(),
+  'x-aimlapi-integration-repo',
+  'x-aimlapi-integration-version',
+  'http-referer',
+  'x-title',
+])
+
+function resolveRouteOpenAIShimConfig(
+  routeId: string | null,
+  baseUrl: string | undefined,
+  config: OpenAIShimTransportConfig | undefined,
+): OpenAIShimTransportConfig | undefined {
+  if (routeId !== 'aimlapi' || !config?.headers) return config
+
+  const headers = Object.fromEntries(
+    Object.entries(config.headers).filter(
+      ([name]) => !AIMLAPI_CATALOG_HEADER_NAMES.has(name.trim().toLowerCase()),
+    ),
+  )
+  if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
+    headers[PARTNER_HEADER_NAME] = resolvePartnerId()
+    for (const [name, value] of Object.entries(config.headers)) {
+      if (name.trim().toLowerCase() !== PARTNER_HEADER_NAME.toLowerCase()) {
+        headers[name] = value
+      }
+    }
+  }
+  return { ...config, headers }
+}
 
 function normalizeModelApiName(
   value: string | undefined,
@@ -281,6 +317,8 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     routeId && routeId !== 'anthropic'
       ? getRouteDescriptor(routeId)
       : null
+  const effectiveBaseUrl =
+    options?.baseUrl ?? runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   const catalogEntry =
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
@@ -297,7 +335,11 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     descriptor,
     catalogEntry,
     openaiShimConfig: mergeOpenAIShimConfig(
-      descriptor?.transportConfig.openaiShim,
+      resolveRouteOpenAIShimConfig(
+        routeId,
+        effectiveBaseUrl,
+        descriptor?.transportConfig.openaiShim,
+      ),
       catalogEntry?.transportOverrides?.openaiShim,
       inferredConfig,
     ),

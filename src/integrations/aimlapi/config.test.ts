@@ -1,0 +1,79 @@
+import { afterEach, expect, test } from 'bun:test'
+
+import {
+  buildPartnerCheckoutReturnUrls,
+  buildPartnerReturnUrl,
+  isCanonicalAimlapiInferenceBaseUrl,
+  resolvePartnerId,
+  resolveEndpoints,
+  withResolvedPartnerHeader,
+} from './config.js'
+
+const envNames = [
+  'AIMLAPI_AUTH_URL',
+  'AIMLAPI_APP_URL',
+  'AIMLAPI_INFERENCE_URL',
+  'AIMLAPI_PAY_URL',
+  'AIMLAPI_VERIFICATION_BASE_URL',
+  'AIMLAPI_RETURN_URL',
+  'AIMLAPI_PARTNER_ID',
+] as const
+const originalEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]))
+
+afterEach(() => {
+  for (const name of envNames) {
+    const value = originalEnv[name]
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+})
+
+test('resolveEndpoints returns the production passwordless and checkout endpoints', () => {
+  for (const name of envNames) delete process.env[name]
+  expect(resolveEndpoints()).toEqual({
+    authBaseUrl: 'https://auth.aimlapi.com',
+    appBaseUrl: 'https://app.aimlapi.com',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.aimlapi.com',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+  })
+})
+
+test('checkout and browser return URLs stay in the selected environment', () => {
+  expect(buildPartnerCheckoutReturnUrls('https://pay.example.test/', 'a/b')).toEqual({
+    successUrl:
+      'https://pay.example.test/checkout?checkout=success&partnerCheckout=1&sessionToken=a%2Fb',
+    cancelUrl:
+      'https://pay.example.test/checkout?checkout=cancel&partnerCheckout=1&sessionToken=a%2Fb',
+  })
+  expect(buildPartnerCheckoutReturnUrls('', 'token')).toEqual({})
+  expect(buildPartnerReturnUrl('https://front.example.test/')).toBe(
+    'https://front.example.test',
+  )
+})
+
+test('AIMLAPI_RETURN_URL overrides the browser landing page', () => {
+  process.env.AIMLAPI_RETURN_URL = 'https://return.example.test/done'
+  expect(buildPartnerReturnUrl('https://front.example.test')).toBe(
+    'https://return.example.test/done',
+  )
+})
+
+test('partner id override is shared with the inference header', () => {
+  process.env.AIMLAPI_PARTNER_ID = 'part_override'
+  expect(resolvePartnerId()).toBe('part_override')
+  expect(
+    withResolvedPartnerHeader({
+      'x-aimlapi-partner-id': 'part_catalog',
+      'X-Title': 'OpenClaude',
+    }),
+  ).toEqual({
+    'X-AIMLAPI-Partner-ID': 'part_override',
+    'X-Title': 'OpenClaude',
+  })
+})
+
+test('canonical endpoint check excludes proxies', () => {
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1/')).toBe(true)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
+})

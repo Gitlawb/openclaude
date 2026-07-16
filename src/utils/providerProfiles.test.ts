@@ -1031,6 +1031,26 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
   }, 20_000)
 
+  test('keyless AIMLAPI profile resolves AIMLAPI_API_KEY without persisting it', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'ambient-aimlapi-key'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: undefined,
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+  }, 20_000)
+
   test('openai profile on AI/ML API route mirrors AIMLAPI_API_KEY', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -2403,9 +2423,9 @@ describe('getProviderPresetDefaults', () => {
     const defaults = getProviderPresetDefaults('aimlapi')
 
     expect(defaults.provider).toBe('aimlapi')
-    expect(defaults.name).toBe('AI/ML API')
+    expect(defaults.name).toBe('aimlapi.com')
     expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
-    expect(defaults.model).toBe('gpt-4o')
+    expect(defaults.model).toBe('anthropic/claude-sonnet-5')
     expect(defaults.apiKey).toBe('aimlapi-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })

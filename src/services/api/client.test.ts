@@ -814,7 +814,7 @@ test('routes env-only AI/ML API requests through the OpenAI-compatible shim desp
   expect(capturedBody?.model).toBe('gpt-4o')
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
   expect(process.env.OPENAI_BASE_URL).toBe('https://api.aimlapi.com/v1')
-  expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+  expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-5')
   expect(process.env.OPENAI_API_KEY).toBe('aimlapi-test-key')
   expect(response).toMatchObject({
     role: 'assistant',

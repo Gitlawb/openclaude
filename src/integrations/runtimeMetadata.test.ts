@@ -162,6 +162,35 @@ describe('resolveModelRuntimeLimits', () => {
   })
 })
 
+describe('AIMLAPI runtime attribution', () => {
+  it('uses the partner override only on the canonical endpoint', () => {
+    const previous = process.env.AIMLAPI_PARTNER_ID
+    process.env.AIMLAPI_PARTNER_ID = 'part_runtime_override'
+    try {
+      const canonical = resolveOpenAIShimRuntimeContext({
+        activeProfileProvider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'anthropic/claude-sonnet-5',
+      })
+      expect(canonical.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_runtime_override',
+      )
+
+      const proxy = resolveOpenAIShimRuntimeContext({
+        activeProfileProvider: 'aimlapi',
+        baseUrl: 'https://proxy.example.test/v1',
+        model: 'anthropic/claude-sonnet-5',
+      })
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Repo']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['HTTP-Referer']).toBeUndefined()
+    } finally {
+      if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
+      else process.env.AIMLAPI_PARTNER_ID = previous
+    }
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
   it.each([
     'glm-5.2',

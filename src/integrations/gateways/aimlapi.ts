@@ -1,5 +1,6 @@
 import { defineGateway } from '../define.js'
 import { publicBuildVersion } from '../../utils/version.js'
+import { withResolvedPartnerHeader } from '../aimlapi/config.js'
 
 const AIMLAPI_CHAT_MODEL_TYPES = new Set([
   'openai/chat-completions',
@@ -57,10 +58,10 @@ function mapAimlapiModel(raw: unknown) {
 
 export default defineGateway({
   id: 'aimlapi',
-  label: 'AI/ML API',
+  label: 'aimlapi.com',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.aimlapi.com/v1',
-  defaultModel: 'gpt-4o',
+  defaultModel: 'anthropic/claude-sonnet-5',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -73,7 +74,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      headers: {
+      headers: withResolvedPartnerHeader({
         'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
         'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
         'X-AIMLAPI-Integration-Version': publicBuildVersion,
@@ -81,13 +82,13 @@ export default defineGateway({
         // (issue #835). `HTTP-Referer`/`X-Title` identify the referring app.
         'HTTP-Referer': 'OpenClaude',
         'X-Title': 'OpenClaude',
-      },
+      }),
       supportsAuthHeaders: false,
     },
   },
   preset: {
     id: 'aimlapi',
-    description: '1,000+ models OpenAI compatible endpoint',
+    description: '1,000+ models, one-click setup',
     badge: { text: 'Recommended', color: 'success' },
     apiKeyEnvVars: ['AIMLAPI_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
@@ -114,12 +115,11 @@ export default defineGateway({
     discoveryRefreshMode: 'startup',
     allowManualRefresh: true,
     models: [
-      {
-        id: 'aimlapi-gpt-4o',
-        apiName: 'gpt-4o',
-        label: 'GPT-4o',
-        modelDescriptorId: 'gpt-4o',
-      },
+      { id: 'aimlapi-claude-sonnet-5', apiName: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5' },
+      { id: 'aimlapi-gemini-3.5-flash', apiName: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+      { id: 'aimlapi-gpt-5.5', apiName: 'openai/gpt-5.5-2026-04-23', label: 'GPT-5.5' },
+      { id: 'aimlapi-qwen-3.7-max', apiName: 'qwen/qwen-3.7-max', label: 'Qwen 3.7 Max' },
+      { id: 'aimlapi-deepseek-v4', apiName: 'deepseek/deepseek-v4-pro', label: 'DeepSeek V4' },
     ],
   },
   usage: { supported: false },

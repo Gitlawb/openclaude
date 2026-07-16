@@ -994,12 +994,14 @@ export function applyProviderProfileToProcessEnv(
       }
     }
     if (isAimlapiProfile) {
-      const ambientOpenAIKey = trimOrUndefined(process.env.OPENAI_API_KEY)
+      const ambientAimlapiKey =
+        trimOrUndefined(process.env.AIMLAPI_API_KEY) ??
+        trimOrUndefined(process.env.OPENAI_API_KEY)
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
       openAIProfileEnv.OPENAI_API_KEY =
-        openAIProfileEnv.OPENAI_API_KEY ?? ambientOpenAIKey
+        openAIProfileEnv.OPENAI_API_KEY ?? ambientAimlapiKey
       openAIProfileEnv.AIMLAPI_API_KEY =
-        openAIProfileEnv.AIMLAPI_API_KEY ?? ambientOpenAIKey
+        openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'

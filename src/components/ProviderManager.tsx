@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import figures from 'figures'
 import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
-import { Box, Text } from '../ink.js'
+import { Box, Text, useInput } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
@@ -48,14 +49,21 @@ import {
 } from '../integrations/index.js'
 import {
   provisionAimlapiKey,
+  topUpAimlapiByApiKey,
+  parseAimlapiAmountUsd,
+  isValidAimlapiEmail,
+  beginAimlapiEmailOnboarding,
+  completeAimlapiCodeSignIn,
+  validateAimlapiApiKey,
+  AimlapiApiError,
+  AIMLAPI_MESSAGES,
   type AimlapiTopupStatus,
 } from '../integrations/aimlapi/index.js'
 import {
   DEFAULT_AMOUNT_USD_MINOR,
-  MAX_AMOUNT_USD_MINOR,
-  MIN_AMOUNT_USD_MINOR,
+  isCanonicalAimlapiInferenceBaseUrl,
+  resolveEndpoints,
 } from '../integrations/aimlapi/config.js'
-import type { PaymentMethod } from '../integrations/aimlapi/client.js'
 import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
@@ -90,13 +98,15 @@ import {
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
-import { redactUrlForDisplay } from '../utils/redaction.js'
+import { redactSensitiveInfo, redactUrlForDisplay } from '../utils/redaction.js'
+import { registerCleanup } from '../utils/cleanupRegistry.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
   Select,
 } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
+import { Spinner } from './Spinner.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
 import { useXaiOAuthFlow } from './useXaiOAuthFlow.js'
@@ -124,11 +134,13 @@ type Screen =
   | 'form'
   | 'preset-model'
   | 'aimlapi-api-key-choice'
+  | 'aimlapi-configured'
   | 'aimlapi-topup-email'
-  | 'aimlapi-topup-password'
+  | 'aimlapi-signin-code'
+  | 'aimlapi-low-balance'
   | 'aimlapi-topup-amount'
-  | 'aimlapi-topup-method'
   | 'aimlapi-topup-progress'
+  | 'aimlapi-done'
   | 'preset-api-key'
   | 'select-active'
   | 'select-edit'
@@ -789,6 +801,120 @@ function CodexOAuthSetup({
   )
 }
 
+type AimlapiTopupFormProps = {
+  amountUsd: string
+  autoTopUp: boolean
+  columns: number
+  cursorOffset: number
+  onAmountChange: (value: string) => void
+  onCursorOffsetChange: (offset: number) => void
+  onAutoTopUpChange: (enabled: boolean) => void
+  onSubmit: () => void
+}
+
+function wrapAimlapiCheckoutUrl(url: string, width: number): string[] {
+  const characters = Array.from(url.trim())
+  const chunkSize = Math.max(20, width)
+  const lines: string[] = []
+  for (let offset = 0; offset < characters.length; offset += chunkSize) {
+    lines.push(characters.slice(offset, offset + chunkSize).join(''))
+  }
+  return lines
+}
+
+function safeAimlapiErrorMessage(
+  error: unknown,
+  secrets: Array<string | undefined> = [],
+): string {
+  // AimlapiApiError.message deliberately excludes its server-controlled body.
+  // Redact exact active values as well as keys matching known credential shapes.
+  let message = error instanceof Error ? error.message : String(error)
+  for (const secret of secrets) {
+    const value = secret?.trim()
+    if (value) message = message.split(value).join('[REDACTED]')
+  }
+  return redactSensitiveInfo(message)
+}
+
+function AimlapiTopupForm({
+  amountUsd,
+  autoTopUp,
+  columns,
+  cursorOffset,
+  onAmountChange,
+  onCursorOffsetChange,
+  onAutoTopUpChange,
+  onSubmit,
+}: AimlapiTopupFormProps): React.ReactNode {
+  const [focusedField, setFocusedField] = React.useState<'amount' | 'auto'>(
+    'amount',
+  )
+
+  // This small form intentionally mirrors Zero's two-row top-up control while
+  // keeping OpenClaude's native input and event system.
+  useInput((input, key, event) => {
+    if (key.tab || key.upArrow || key.downArrow) {
+      setFocusedField(field => (field === 'amount' ? 'auto' : 'amount'))
+      event.stopImmediatePropagation()
+      return
+    }
+    if (focusedField !== 'auto') return
+    if (key.leftArrow || key.rightArrow || input === ' ') {
+      onAutoTopUpChange(!autoTopUp)
+      event.stopImmediatePropagation()
+      return
+    }
+    if (key.return) {
+      onSubmit()
+      event.stopImmediatePropagation()
+      return
+    }
+    if (!key.escape) event.stopImmediatePropagation()
+  })
+
+  const amountFocused = focusedField === 'amount'
+  const autoFocused = focusedField === 'auto'
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row">
+        <Text color={amountFocused ? 'suggestion' : undefined} bold={amountFocused}>
+          {amountFocused ? `${figures.pointer} ` : '  '}Amount: $
+        </Text>
+        <TextInput
+          value={amountUsd}
+          onChange={onAmountChange}
+          onSubmit={() => onSubmit()}
+          focus={amountFocused}
+          showCursor={amountFocused}
+          columns={columns}
+          cursorOffset={cursorOffset}
+          onChangeCursorOffset={onCursorOffsetChange}
+        />
+      </Box>
+      <Box flexDirection="row">
+        <Text color={autoFocused ? 'suggestion' : undefined} bold={autoFocused}>
+          {autoFocused ? `${figures.pointer} ` : '  '}Auto top up:{' '}
+        </Text>
+        <Text
+          color={autoFocused ? 'suggestion' : undefined}
+          dimColor={!autoTopUp}
+          bold={autoFocused && autoTopUp}
+        >
+          on
+        </Text>
+        <Text color={autoFocused ? 'suggestion' : undefined}>/</Text>
+        <Text
+          color={autoFocused ? 'suggestion' : undefined}
+          dimColor={autoTopUp}
+          bold={autoFocused && !autoTopUp}
+        >
+          off
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const { columns: terminalColumns } = useTerminalSize()
   const inputColumns = Math.max(20, Math.min(80, terminalColumns - 4))
@@ -833,13 +959,52 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [aimlapiTopupAmountUsd, setAimlapiTopupAmountUsd] = React.useState(
     String(DEFAULT_AMOUNT_USD_MINOR / 100),
   )
-  const [aimlapiTopupMethod, setAimlapiTopupMethod] =
-    React.useState<PaymentMethod>('card')
-  const [aimlapiTopupPassword, setAimlapiTopupPassword] = React.useState('')
+  const [aimlapiSignInCode, setAimlapiSignInCode] = React.useState('')
+  const [aimlapiSessionToken, setAimlapiSessionToken] = React.useState('')
+  const [aimlapiIssuedKey, setAimlapiIssuedKey] = React.useState('')
+  const [aimlapiIssuedKeyId, setAimlapiIssuedKeyId] = React.useState('')
+  const [aimlapiTopupByKey, setAimlapiTopupByKey] = React.useState(false)
+  const [aimlapiResumeSessionToken, setAimlapiResumeSessionToken] = React.useState('')
+  const [aimlapiPaymentSessionId, setAimlapiPaymentSessionId] = React.useState('')
+  const [aimlapiExistingProfileId, setAimlapiExistingProfileId] = React.useState<string | null>(null)
+  const [aimlapiExistingUsesEnv, setAimlapiExistingUsesEnv] = React.useState(false)
+  const [aimlapiInferenceBaseUrl, setAimlapiInferenceBaseUrl] = React.useState(
+    () => resolveEndpoints().inferenceBaseUrl,
+  )
+  const [aimlapiNewAccount, setAimlapiNewAccount] = React.useState(false)
+  const [aimlapiAutoTopUp, setAimlapiAutoTopUp] = React.useState(true)
   const [aimlapiTopupStatus, setAimlapiTopupStatus] =
     React.useState<AimlapiTopupStatus | undefined>()
   const [aimlapiTopupDetail, setAimlapiTopupDetail] = React.useState<string | undefined>()
-  const [isAimlapiTopupRunning, setIsAimlapiTopupRunning] = React.useState(false)
+  const [aimlapiDoneKind, setAimlapiDoneKind] = React.useState<'ready' | 'topup'>(
+    'ready',
+  )
+  const [, setIsAimlapiTopupRunning] = React.useState(false)
+  const [isAimlapiKeyValidating, setIsAimlapiKeyValidating] = React.useState(false)
+  const aimlapiAbortRef = React.useRef<AbortController | null>(null)
+
+  function resetAimlapiCheckoutIntent(): void {
+    setAimlapiResumeSessionToken('')
+    setAimlapiPaymentSessionId('')
+  }
+
+  function resetAimlapiOnboardingIdentity(): void {
+    resetAimlapiCheckoutIntent()
+    setAimlapiSessionToken('')
+    setAimlapiIssuedKey('')
+    setAimlapiIssuedKeyId('')
+    setAimlapiTopupByKey(false)
+    setAimlapiNewAccount(false)
+  }
+
+  React.useEffect(() => {
+    const cancelAimlapi = (): void => aimlapiAbortRef.current?.abort()
+    const unregister = registerCleanup(cancelAimlapi)
+    return () => {
+      unregister()
+      cancelAimlapi()
+    }
+  }, [])
   const [menuFocusValue, setMenuFocusValue] = React.useState<string | undefined>()
   const [hasStoredCodexOAuthCredentials, setHasStoredCodexOAuthCredentials] =
     React.useState(false)
@@ -1477,6 +1642,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function closeWithCancelled(message: string): void {
+    aimlapiAbortRef.current?.abort()
+    aimlapiAbortRef.current = null
     onDone({
       action: 'cancelled',
       message:
@@ -1578,7 +1745,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const provider = defaults.provider ?? 'openai'
     const nextDraft = {
       name: defaults.name,
-      baseUrl: defaults.baseUrl,
+      baseUrl:
+        preset === 'aimlapi'
+          ? resolveEndpoints().inferenceBaseUrl
+          : defaults.baseUrl,
       model: defaults.model,
       apiKey: defaults.apiKey ?? '',
       apiFormat: 'chat_completions',
@@ -1592,14 +1762,33 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setPresetRequiresApiKey(defaults.requiresApiKey)
     setAimlapiTopupEmail('')
     setAimlapiTopupAmountUsd(String(DEFAULT_AMOUNT_USD_MINOR / 100))
-    setAimlapiTopupMethod('card')
-    setAimlapiTopupPassword('')
+    aimlapiAbortRef.current?.abort()
+    aimlapiAbortRef.current = null
+    setAimlapiSignInCode('')
+    setAimlapiSessionToken('')
+    setAimlapiIssuedKey('')
+    setAimlapiIssuedKeyId('')
+    setAimlapiTopupByKey(false)
+    setAimlapiResumeSessionToken('')
+    setAimlapiPaymentSessionId('')
+    setAimlapiExistingProfileId(null)
+    setAimlapiExistingUsesEnv(false)
+    setAimlapiInferenceBaseUrl(
+      preset === 'aimlapi' ? nextDraft.baseUrl : resolveEndpoints().inferenceBaseUrl,
+    )
+    setAimlapiNewAccount(false)
+    setAimlapiAutoTopUp(true)
     setAimlapiTopupStatus(undefined)
     setAimlapiTopupDetail(undefined)
+    setAimlapiDoneKind('ready')
     setIsAimlapiTopupRunning(false)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
+
+    if (preset === 'aimlapi' && mode === 'manage' && startExistingAimlapi(nextDraft)) {
+      return
+    }
 
     if (preset === 'ollama') {
       setOllamaSelection({ state: 'loading' })
@@ -1647,6 +1836,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     nextDraft: ProviderDraft = draft,
     provider: ProviderProfile['provider'] = draftProvider,
     profileId: string | null = editingProfileId,
+    options: { deferNavigation?: boolean; onSaved?: () => void } = {},
   ): void {
     if (
       provider === 'custom-anthropic' &&
@@ -1744,6 +1934,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         ? `${finalSuccessMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
         : finalSuccessMessage,
     )
+
+    if (options.deferNavigation) {
+      options.onSaved?.()
+      return
+    }
 
     if (mode === 'first-run') {
       onDone({
@@ -1997,6 +2192,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   })
 
   function handleBackFromPresetApiKey(): void {
+    if (draftProvider === 'aimlapi') {
+      aimlapiAbortRef.current?.abort()
+      aimlapiAbortRef.current = null
+      setIsAimlapiKeyValidating(false)
+    }
     setErrorMessage(undefined)
     setCursorOffset(draft.model.length)
     setScreen(draftProvider === 'aimlapi' ? 'aimlapi-api-key-choice' : 'preset-model')
@@ -2018,7 +2218,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'aimlapi-api-key-choice',
   })
 
+  function handleBackFromAimlapiConfigured(): void {
+    aimlapiAbortRef.current?.abort()
+    aimlapiAbortRef.current = null
+    setIsAimlapiKeyValidating(false)
+    setErrorMessage(undefined)
+    setScreen('select-preset')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiConfigured, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-configured',
+  })
+
   function handleBackFromAimlapiTopupEmail(): void {
+    aimlapiAbortRef.current?.abort()
     setErrorMessage(undefined)
     setCursorOffset(0)
     setScreen('aimlapi-api-key-choice')
@@ -2031,8 +2245,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function handleBackFromAimlapiTopupAmount(): void {
     setErrorMessage(undefined)
-    setCursorOffset(aimlapiTopupPassword.length)
-    setScreen('aimlapi-topup-password')
+    setScreen(aimlapiNewAccount ? 'aimlapi-topup-email' : 'aimlapi-low-balance')
   }
 
   useKeybinding('confirm:no', handleBackFromAimlapiTopupAmount, {
@@ -2040,40 +2253,78 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'aimlapi-topup-amount',
   })
 
-  function handleBackFromAimlapiTopupPassword(): void {
+  function handleBackFromAimlapiSignInCode(): void {
+    aimlapiAbortRef.current?.abort()
     setErrorMessage(undefined)
-    setAimlapiTopupPassword('')
+    setAimlapiSignInCode('')
     setCursorOffset(aimlapiTopupEmail.length)
     setScreen('aimlapi-topup-email')
   }
 
-  useKeybinding('confirm:no', handleBackFromAimlapiTopupPassword, {
+  useKeybinding('confirm:no', handleBackFromAimlapiSignInCode, {
     context: 'Settings',
-    isActive: screen === 'aimlapi-topup-password',
+    isActive: screen === 'aimlapi-signin-code',
   })
 
-  function handleBackFromAimlapiTopupMethod(): void {
+  function handleBackFromAimlapiLowBalance(): void {
     setErrorMessage(undefined)
-    setCursorOffset(aimlapiTopupAmountUsd.length)
-    setScreen('aimlapi-topup-amount')
+    setScreen(
+      aimlapiExistingProfileId || aimlapiExistingUsesEnv
+        ? 'aimlapi-configured'
+        : 'aimlapi-api-key-choice',
+    )
   }
 
-  useKeybinding('confirm:no', handleBackFromAimlapiTopupMethod, {
+  useKeybinding('confirm:no', handleBackFromAimlapiLowBalance, {
     context: 'Settings',
-    isActive: screen === 'aimlapi-topup-method',
+    isActive: screen === 'aimlapi-low-balance',
   })
 
   function handleCancelAimlapiTopupProgress(): void {
-    if (isAimlapiTopupRunning) {
-      return
-    }
+    aimlapiAbortRef.current?.abort()
+    aimlapiAbortRef.current = null
+    setIsAimlapiTopupRunning(false)
     setErrorMessage(undefined)
-    setScreen('aimlapi-api-key-choice')
+    setScreen(
+      aimlapiTopupStatus === 'checking-account' ||
+        aimlapiTopupStatus === 'sending-code' ||
+        aimlapiTopupStatus === 'creating-account'
+        ? 'aimlapi-topup-email'
+        : aimlapiTopupStatus === 'verifying-code' ||
+            aimlapiTopupStatus === 'creating-key'
+          ? 'aimlapi-signin-code'
+          : 'aimlapi-topup-amount',
+    )
   }
 
   useKeybinding('confirm:no', handleCancelAimlapiTopupProgress, {
     context: 'Settings',
     isActive: screen === 'aimlapi-topup-progress',
+  })
+
+  function finishAimlapiDone(): void {
+    if (mode === 'first-run') {
+      const active = getActiveProviderProfile()
+      onDone({
+        action: 'saved',
+        activeProfileId: active?.id,
+        activeProviderName: active?.name,
+        activeProviderModel: active ? getPrimaryModel(active.model) : undefined,
+        message: `Provider configured: ${active?.name ?? 'aimlapi.com'}`,
+      })
+      return
+    }
+    returnToMenu()
+  }
+
+  useKeybinding('confirm:yes', finishAimlapiDone, {
+    context: 'Confirmation',
+    isActive: screen === 'aimlapi-done',
+  })
+
+  useKeybinding('confirm:no', finishAimlapiDone, {
+    context: 'Confirmation',
+    isActive: screen === 'aimlapi-done',
   })
 
   // xAI OAuth setup renders a TextInput for the manual-code recovery
@@ -2313,6 +2564,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setDraft(nextDraft)
               setErrorMessage(undefined)
 
+              if (draftProvider === 'aimlapi') {
+                const envKey = process.env.AIMLAPI_API_KEY?.trim()
+                if (mode === 'first-run' && envKey) {
+                  setAimlapiIssuedKey(envKey)
+                  setAimlapiExistingUsesEnv(true)
+                  persistAimlapiKey(
+                    envKey,
+                    nextDraft.baseUrl,
+                    nextDraft.model,
+                    'ready',
+                    { preserveEnv: true },
+                  )
+                  return
+                }
+                if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
+                  persistExistingAimlapi(nextDraft.model)
+                  return
+                }
+                if (mode === 'manage' && startExistingAimlapi(nextDraft)) {
+                  return
+                }
+              }
+
               if (needsApiKey) {
                 setCursorOffset(0)
                 setScreen(
@@ -2342,14 +2616,72 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderPresetApiKey(): React.ReactNode {
+    const submitApiKey = (value: string): void => {
+      const apiKey = value.trim()
+      if (!apiKey) {
+        setErrorMessage(`API key is required for ${draft.name}.`)
+        return
+      }
+
+      const nextDraft = applyPresetApiFormat(
+        {
+          ...draft,
+          apiKey,
+        },
+        draftProvider,
+      )
+      setDraft(nextDraft)
+      setErrorMessage(undefined)
+      if (draftProvider === 'aimlapi') {
+        void validateAndPersistAimlapiKey(apiKey, nextDraft.baseUrl, nextDraft.model)
+        return
+      }
+      persistDraft(nextDraft, draftProvider, null)
+    }
+
+    if (draftProvider === 'aimlapi') {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text color="remember" bold>
+            {AIMLAPI_MESSAGES.apiKeyInputPrompt}
+          </Text>
+          <Text dimColor>{AIMLAPI_MESSAGES.apiKeyHiddenHint}</Text>
+          <Box flexDirection="row">
+            <Text>API key: </Text>
+            <TextInput
+              value={draft.apiKey}
+              onChange={value =>
+                setDraft(prev => ({
+                  ...prev,
+                  apiKey: value,
+                }))
+              }
+              onSubmit={submitApiKey}
+              focus={!isAimlapiKeyValidating}
+              showCursor={!isAimlapiKeyValidating}
+              placeholder={`Paste your key${figures.ellipsis}`}
+              mask="*"
+              columns={inputColumns}
+              cursorOffset={cursorOffset}
+              onChangeCursorOffset={setCursorOffset}
+            />
+          </Box>
+          {isAimlapiKeyValidating ? <Spinner /> : null}
+          {errorMessage && <Text color="error">{errorMessage}</Text>}
+          <Text dimColor>
+            Press Enter to save. Press Esc to go back.
+          </Text>
+        </Box>
+      )
+    }
+
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
           Create provider profile
         </Text>
         <Text dimColor>
-          Enter the API key for {draft.name}. Other preset details are already
-          configured.
+          Enter the API key for {draft.name}. Other preset details are already configured.
         </Text>
         <Text dimColor>
           Provider type:{' '}
@@ -2366,24 +2698,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 apiKey: value,
               }))
             }
-            onSubmit={value => {
-              const apiKey = value.trim()
-              if (!apiKey) {
-                setErrorMessage(`API key is required for ${draft.name}.`)
-                return
-              }
-
-              const nextDraft = applyPresetApiFormat(
-                {
-                  ...draft,
-                  apiKey,
-                },
-                draftProvider,
-              )
-              setDraft(nextDraft)
-              setErrorMessage(undefined)
-              persistDraft(nextDraft, draftProvider, null)
-            }}
+            onSubmit={submitApiKey}
             focus={true}
             showCursor={true}
             placeholder={`Enter API key${figures.ellipsis}`}
@@ -2401,125 +2716,508 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
-  function startAimlapiTopup(
-    email: string,
-    password: string,
-    method: PaymentMethod = aimlapiTopupMethod,
-  ): void {
-    const trimmedEmail = email.trim()
-    const amountUsd = aimlapiTopupAmountUsd.trim()
-    const parsedAmountUsd = Number(amountUsd)
-    if (!trimmedEmail) {
-      setErrorMessage('AI/ML API email is required.')
-      setScreen('aimlapi-topup-email')
-      return
-    }
-    if (!Number.isFinite(parsedAmountUsd) || parsedAmountUsd <= 0) {
-      setErrorMessage('Enter a valid top-up amount in USD.')
-      setScreen('aimlapi-topup-amount')
-      return
-    }
-    if (Math.round(parsedAmountUsd * 100) < MIN_AMOUNT_USD_MINOR) {
-      setErrorMessage(`Minimum AI/ML API top-up is $${MIN_AMOUNT_USD_MINOR / 100}.`)
-      setScreen('aimlapi-topup-amount')
-      return
-    }
-    if (Math.round(parsedAmountUsd * 100) > MAX_AMOUNT_USD_MINOR) {
-      setErrorMessage(`Maximum AI/ML API top-up is $${MAX_AMOUNT_USD_MINOR / 100}.`)
-      setScreen('aimlapi-topup-amount')
-      return
-    }
-    if (!password) {
-      setErrorMessage('AI/ML API password is required.')
-      setScreen('aimlapi-topup-password')
-      return
-    }
-
-    setScreen('aimlapi-topup-progress')
+  async function validateAndPersistAimlapiKey(
+    apiKey: string,
+    baseUrl: string,
+    model: string,
+  ): Promise<void> {
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+    setIsAimlapiKeyValidating(true)
     setErrorMessage(undefined)
-    setAimlapiTopupStatus('signing-in')
+
+    try {
+      const balance = await validateAimlapiApiKey(
+        apiKey,
+        controller.signal,
+        baseUrl,
+      )
+      if (controller.signal.aborted) return
+      if (balance.lowBalance) {
+        setAimlapiIssuedKey(apiKey.trim())
+        setAimlapiIssuedKeyId('')
+        setAimlapiTopupByKey(true)
+        setIsAimlapiKeyValidating(false)
+        setScreen('aimlapi-low-balance')
+        return
+      }
+      persistAimlapiKey(apiKey, baseUrl, model, 'ready')
+    } catch (error) {
+      if (controller.signal.aborted) return
+      const status =
+        typeof error === 'object' && error !== null && 'status' in error
+          ? Number(error.status)
+          : undefined
+      if (status === 401 || status === 403) {
+        setDraft(prev => ({ ...prev, apiKey: '' }))
+        setCursorOffset(0)
+        setErrorMessage(AIMLAPI_MESSAGES.apiKeyInvalid)
+        return
+      }
+      const detail = safeAimlapiErrorMessage(error, [apiKey])
+      setErrorMessage(detail)
+    } finally {
+      if (aimlapiAbortRef.current === controller) aimlapiAbortRef.current = null
+      if (!controller.signal.aborted) setIsAimlapiKeyValidating(false)
+    }
+  }
+
+  function existingAimlapiCredential(): {
+    apiKey: string
+    profile?: ProviderProfile
+    usesEnv: boolean
+    inferenceBaseUrl: string
+  } | null {
+    const isAimlapiProfile = (profile: ProviderProfile): boolean =>
+      profile.provider === 'aimlapi' ||
+      resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
+    const envKey = process.env.AIMLAPI_API_KEY?.trim()
+    const active = profiles.find(profile => profile.id === activeProfileId)
+    const candidates = active
+      ? [active, ...profiles.filter(profile => profile.id !== active.id)]
+      : profiles
+    for (const profile of candidates) {
+      if (!isAimlapiProfile(profile)) continue
+      // Saved credentials are eligible for the guided balance/top-up preflight
+      // only on the production catalog endpoint. A proxy/staging profile remains
+      // usable normally, but its key must never be sent to another environment.
+      if (!isCanonicalAimlapiInferenceBaseUrl(profile.baseUrl)) continue
+      const apiKey = profile.apiKey?.trim()
+      if (apiKey) {
+        return {
+          apiKey,
+          profile,
+          usesEnv: false,
+          inferenceBaseUrl: profile.baseUrl,
+        }
+      }
+      if (envKey) {
+        return {
+          apiKey: envKey,
+          profile,
+          usesEnv: true,
+          inferenceBaseUrl: profile.baseUrl,
+        }
+      }
+    }
+    return envKey
+      ? {
+          apiKey: envKey,
+          usesEnv: true,
+          inferenceBaseUrl: resolveEndpoints().inferenceBaseUrl,
+        }
+      : null
+  }
+
+  function persistExistingAimlapi(model = draft.model): void {
+    const profile = aimlapiExistingProfileId
+      ? profiles.find(candidate => candidate.id === aimlapiExistingProfileId)
+      : undefined
+    if (profile) {
+      const nextDraft = applyPresetApiFormat(
+        { ...toDraft(profile), model },
+        profile.provider,
+      )
+      setDraft(nextDraft)
+      persistDraft(nextDraft, profile.provider, profile.id, {
+        deferNavigation: true,
+        onSaved: () => {
+          setAimlapiDoneKind(aimlapiTopupByKey ? 'topup' : 'ready')
+          setErrorMessage(undefined)
+          setScreen('aimlapi-done')
+        },
+      })
+      return
+    }
+    persistAimlapiKey(
+      aimlapiIssuedKey,
+      resolveEndpoints().inferenceBaseUrl,
+      model,
+      aimlapiTopupByKey ? 'topup' : 'ready',
+      { preserveEnv: aimlapiExistingUsesEnv },
+    )
+  }
+
+  function startExistingAimlapi(nextDraft: ProviderDraft): boolean {
+    const existing = existingAimlapiCredential()
+    if (!existing) return false
+    setDraft({
+      ...nextDraft,
+      baseUrl: existing.profile?.baseUrl ?? existing.inferenceBaseUrl,
+    })
+    setAimlapiIssuedKey(existing.apiKey)
+    setAimlapiIssuedKeyId('')
+    setAimlapiExistingProfileId(existing.profile?.id ?? null)
+    setAimlapiExistingUsesEnv(existing.usesEnv)
+    setAimlapiInferenceBaseUrl(existing.inferenceBaseUrl)
+    setAimlapiTopupByKey(true)
+    setScreen('aimlapi-configured')
+    return true
+  }
+
+  function useExistingAimlapi(): void {
+    const apiKey = aimlapiIssuedKey.trim()
+    if (!apiKey) {
+      setErrorMessage('The existing AI/ML API key is unavailable. Configure again.')
+      return
+    }
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+    setIsAimlapiKeyValidating(true)
+    setErrorMessage(undefined)
+    void (async () => {
+      try {
+        const balance = await validateAimlapiApiKey(
+          apiKey,
+          controller.signal,
+          aimlapiInferenceBaseUrl,
+        )
+        if (controller.signal.aborted) return
+        setIsAimlapiKeyValidating(false)
+        if (balance.lowBalance) {
+          setScreen('aimlapi-low-balance')
+        } else {
+          setCursorOffset(draft.model.length)
+          setScreen('preset-model')
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setIsAimlapiKeyValidating(false)
+        const status = error instanceof AimlapiApiError ? error.status : undefined
+        setErrorMessage(
+          status === 401 || status === 403
+            ? 'The existing AI/ML API key is invalid. Configure again.'
+            : safeAimlapiErrorMessage(error, [apiKey]),
+        )
+      } finally {
+        if (aimlapiAbortRef.current === controller) aimlapiAbortRef.current = null
+      }
+    })()
+  }
+
+  function persistAimlapiKey(
+    apiKey: string,
+    baseUrl: string,
+    model = draft.model,
+    doneKind: 'ready' | 'topup' = 'ready',
+    options: { preserveEnv?: boolean } = {},
+  ): void {
+    const nextDraft = applyPresetApiFormat(
+      {
+        ...draft,
+        apiKey: options.preserveEnv ? '' : apiKey.trim(),
+        baseUrl,
+        model,
+      },
+      draftProvider,
+    )
+    setDraft(nextDraft)
+    persistDraft(nextDraft, draftProvider, null, {
+      deferNavigation: true,
+      onSaved: () => {
+        setAimlapiDoneKind(doneKind)
+        setErrorMessage(undefined)
+        setScreen('aimlapi-done')
+      },
+    })
+  }
+
+  function startAimlapiEmailOnboarding(email: string): void {
+    const trimmedEmail = email.trim()
+    if (!isValidAimlapiEmail(trimmedEmail)) {
+      setErrorMessage(AIMLAPI_MESSAGES.emailInvalid)
+      return
+    }
+    // Submitting the email starts a fresh account-bound flow. Retaining a
+    // checkout from an earlier email/key path could poll or exchange the wrong
+    // payment intent, so retries that should resume stay on the amount screen.
+    resetAimlapiOnboardingIdentity()
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+    setAimlapiTopupEmail(trimmedEmail)
+    setAimlapiTopupStatus('checking-account')
     setAimlapiTopupDetail(undefined)
+    setErrorMessage(undefined)
     setIsAimlapiTopupRunning(true)
+    setScreen('aimlapi-topup-progress')
 
     void (async () => {
       try {
-        const provisioned = await provisionAimlapiKey({
-          email: trimmedEmail,
-          password,
-          amountUsd,
-          method,
-          model: draft.model,
-          onStatus: (status, detail) => {
-            setAimlapiTopupStatus(status)
-            setAimlapiTopupDetail(detail)
-          },
-        })
-        const nextDraft = applyPresetApiFormat(
-          {
-            ...draft,
-            apiKey: provisioned.apiKey,
-            baseUrl: provisioned.baseUrl,
-            model: provisioned.model,
-          },
-          draftProvider,
+        const account = await beginAimlapiEmailOnboarding(
+          trimmedEmail,
+          controller.signal,
         )
-        setDraft(nextDraft)
-        setAimlapiTopupPassword('')
+        if (account.action === 'code-sent') {
+          setAimlapiTopupStatus('sending-code')
+          if (controller.signal.aborted) return
+          setAimlapiNewAccount(false)
+          setAimlapiSignInCode('')
+          setCursorOffset(0)
+          setIsAimlapiTopupRunning(false)
+          setScreen('aimlapi-signin-code')
+          return
+        }
+        setAimlapiTopupStatus('creating-account')
+        if (controller.signal.aborted) return
+        setAimlapiNewAccount(true)
+        setAimlapiSessionToken(account.sessionToken)
+        setCursorOffset(aimlapiTopupAmountUsd.length)
         setIsAimlapiTopupRunning(false)
-        persistDraft(nextDraft, draftProvider, null)
+        setScreen('aimlapi-topup-amount')
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
+        if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
-        setErrorMessage(`Could not finish AI/ML API top-up: ${detail}`)
+        setErrorMessage(
+          safeAimlapiErrorMessage(error, [trimmedEmail]),
+        )
+        setCursorOffset(trimmedEmail.length)
+        setScreen('aimlapi-topup-email')
+      } finally {
+        if (aimlapiAbortRef.current === controller) aimlapiAbortRef.current = null
       }
     })()
+  }
+
+  function verifyAimlapiSignInCode(code: string): void {
+    const trimmedCode = code.trim()
+    if (!trimmedCode) {
+      setErrorMessage(AIMLAPI_MESSAGES.codeIncorrect)
+      return
+    }
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+    setAimlapiTopupStatus('verifying-code')
+    setErrorMessage(undefined)
+    setIsAimlapiTopupRunning(true)
+    setScreen('aimlapi-topup-progress')
+
+    void (async () => {
+      try {
+        const result = await completeAimlapiCodeSignIn(
+          aimlapiTopupEmail,
+          trimmedCode,
+          controller.signal,
+          aimlapiInferenceBaseUrl,
+        )
+        setAimlapiSessionToken(result.sessionToken)
+        setAimlapiIssuedKey(result.apiKey)
+        setAimlapiIssuedKeyId(result.apiKeyId)
+        if (controller.signal.aborted) return
+        setIsAimlapiTopupRunning(false)
+        if (result.lowBalance) {
+          setScreen('aimlapi-low-balance')
+        } else {
+          persistAimlapiKey(result.apiKey, aimlapiInferenceBaseUrl)
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setIsAimlapiTopupRunning(false)
+        setErrorMessage(
+          error instanceof AimlapiApiError && error.status === 400
+            ? AIMLAPI_MESSAGES.codeIncorrect
+            : safeAimlapiErrorMessage(error, [
+                aimlapiTopupEmail,
+                trimmedCode,
+                aimlapiSessionToken,
+              ]),
+        )
+        setCursorOffset(trimmedCode.length)
+        setScreen('aimlapi-signin-code')
+      } finally {
+        if (aimlapiAbortRef.current === controller) aimlapiAbortRef.current = null
+      }
+    })()
+  }
+
+  function startAimlapiTopup(autoTopUp = aimlapiAutoTopUp): void {
+    const amountUsd = aimlapiTopupAmountUsd.trim()
+    if (!amountUsd) {
+      setErrorMessage(AIMLAPI_MESSAGES.amountRequired)
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    try {
+      parseAimlapiAmountUsd(amountUsd)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    if (!aimlapiTopupByKey && !aimlapiSessionToken.trim()) {
+      setErrorMessage('Your AI/ML API session expired. Enter your email again.')
+      setScreen('aimlapi-topup-email')
+      return
+    }
+
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+    setScreen('aimlapi-topup-progress')
+    setErrorMessage(undefined)
+    setAimlapiTopupStatus('creating-session')
+    setAimlapiTopupDetail(undefined)
+    setIsAimlapiTopupRunning(true)
+    const paymentSessionId = aimlapiPaymentSessionId || randomUUID()
+    if (!aimlapiPaymentSessionId) setAimlapiPaymentSessionId(paymentSessionId)
+
+    void (async () => {
+      try {
+        const reportStatus = (status: AimlapiTopupStatus, detail?: string): void => {
+          setAimlapiTopupStatus(status)
+          if (detail?.trim()) setAimlapiTopupDetail(detail)
+        }
+        const reportSession = (sessionToken: string): void => {
+          setAimlapiResumeSessionToken(sessionToken)
+          if (!sessionToken) setAimlapiPaymentSessionId('')
+        }
+        const provisioned = aimlapiTopupByKey
+          ? await topUpAimlapiByApiKey({
+              apiKey: aimlapiIssuedKey,
+              inferenceBaseUrl: aimlapiInferenceBaseUrl,
+              amountUsd,
+              autoTopUp,
+              model: draft.model,
+              paymentSessionId,
+              resumeSessionToken: aimlapiResumeSessionToken,
+              signal: controller.signal,
+              onStatus: reportStatus,
+              onSession: reportSession,
+            })
+          : await provisionAimlapiKey({
+              amountUsd,
+              autoTopUp,
+              model: draft.model,
+              sessionToken: aimlapiSessionToken,
+              inferenceBaseUrl: aimlapiInferenceBaseUrl,
+              exchange: aimlapiNewAccount,
+              paymentSessionId,
+              existingApiKey: aimlapiIssuedKey,
+              existingApiKeyId: aimlapiIssuedKeyId,
+              resumeSessionToken: aimlapiResumeSessionToken,
+              signal: controller.signal,
+              onStatus: reportStatus,
+              onSession: reportSession,
+            })
+        if (controller.signal.aborted) return
+        setIsAimlapiTopupRunning(false)
+        setAimlapiResumeSessionToken('')
+        setAimlapiPaymentSessionId('')
+        if (aimlapiTopupByKey) {
+          if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
+            setCursorOffset(provisioned.model.length)
+            setScreen('preset-model')
+          } else {
+            persistExistingAimlapi(provisioned.model)
+          }
+        } else {
+          persistAimlapiKey(
+            provisioned.apiKey,
+            provisioned.baseUrl,
+            provisioned.model,
+            'topup',
+          )
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const detail = safeAimlapiErrorMessage(error, [
+          aimlapiIssuedKey,
+          aimlapiTopupEmail,
+          aimlapiSignInCode,
+          aimlapiSessionToken,
+          aimlapiResumeSessionToken,
+        ])
+        setIsAimlapiTopupRunning(false)
+        setErrorMessage(`${AIMLAPI_MESSAGES.topUpFailed} ${detail}`)
+        setCursorOffset(amountUsd.length)
+        setScreen('aimlapi-topup-amount')
+      } finally {
+        if (aimlapiAbortRef.current === controller) aimlapiAbortRef.current = null
+      }
+    })()
+  }
+
+  function renderAimlapiConfigured(): React.ReactNode {
+    if (isAimlapiKeyValidating) {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text color="remember" bold>aimlapi.com account is already configured</Text>
+          <Box flexDirection="row" gap={1}>
+            <Spinner />
+            <Text dimColor>Checking balance...</Text>
+          </Box>
+        </Box>
+      )
+    }
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>aimlapi.com account is already configured</Text>
+        <Select
+          options={[
+            {
+              value: 'existing',
+              label: 'Continue with your saved API key',
+            },
+            {
+              value: 'again',
+              label: 'Set up a new key or switch account',
+            },
+          ]}
+          onChange={(value: string) => {
+            setErrorMessage(undefined)
+            if (value === 'existing') {
+              useExistingAimlapi()
+              return
+            }
+            setAimlapiExistingProfileId(null)
+            setAimlapiExistingUsesEnv(false)
+            setAimlapiTopupByKey(false)
+            setAimlapiIssuedKey('')
+            setAimlapiInferenceBaseUrl(resolveEndpoints().inferenceBaseUrl)
+            setAimlapiResumeSessionToken('')
+            setAimlapiPaymentSessionId('')
+            setDraft(previous => ({ ...previous, apiKey: '' }))
+            setScreen('aimlapi-api-key-choice')
+          }}
+          onCancel={handleBackFromAimlapiConfigured}
+          visibleOptionCount={2}
+        />
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+      </Box>
+    )
   }
 
   function renderAimlapiApiKeyChoice(): React.ReactNode {
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
-          Create provider profile
+          {AIMLAPI_MESSAGES.pickPathPrompt}
         </Text>
-        <Text dimColor>
-          Choose how to configure AI/ML API. Endpoint and model are already
-          configured.
-        </Text>
-        <Text dimColor>
-          Provider type:{' '}
-          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
-        </Text>
-        <Text dimColor>Step 2 of 2: API key</Text>
         <Select
           options={[
             {
               value: 'topup',
-              label: 'Top up and get API key',
-              description: 'Open checkout, wait for payment, then save the issued key',
+              label: AIMLAPI_MESSAGES.pickPathNewUser,
             },
             {
               value: 'manual',
-              label: 'Enter existing API key',
-              description: 'Paste a key you already have from AI/ML API',
+              label: AIMLAPI_MESSAGES.pickPathHaveKey,
             },
           ]}
           onChange={(value: string) => {
             setErrorMessage(undefined)
             if (value === 'manual') {
+              resetAimlapiOnboardingIdentity()
               setCursorOffset(draft.apiKey.length)
               setScreen('preset-api-key')
               return
             }
 
+            resetAimlapiOnboardingIdentity()
             const envEmail = process.env.AIMLAPI_EMAIL?.trim() ?? ''
-            const envPassword = process.env.AIMLAPI_PASSWORD ?? ''
-            if (envEmail && envPassword) {
-              setAimlapiTopupEmail(envEmail)
-              setAimlapiTopupPassword(envPassword)
-              setCursorOffset(aimlapiTopupAmountUsd.length)
-              setScreen('aimlapi-topup-amount')
-              return
-            }
             setCursorOffset(envEmail.length)
             setAimlapiTopupEmail(envEmail)
             setScreen('aimlapi-topup-email')
@@ -2539,13 +3237,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
-          AI/ML API top-up
+          {AIMLAPI_MESSAGES.enterEmail}
         </Text>
-        <Text dimColor>
-          Enter your AI/ML API account email. The checkout flow will use it to
-          register or sign in.
-        </Text>
-        <Text dimColor>Step 2 of 2: Top up account</Text>
         <Box flexDirection="row" gap={1}>
           <Text>{figures.pointer}</Text>
           <TextInput
@@ -2553,14 +3246,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             onChange={setAimlapiTopupEmail}
             onSubmit={value => {
               const email = value.trim()
-              if (!email) {
-                setErrorMessage('AI/ML API email is required.')
-                return
-              }
-              setAimlapiTopupEmail(email)
-              setErrorMessage(undefined)
-              setCursorOffset(0)
-              setScreen('aimlapi-topup-password')
+              startAimlapiEmailOnboarding(email)
             }}
             focus={true}
             showCursor={true}
@@ -2578,169 +3264,148 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
+  function renderAimlapiSignInCode(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          {AIMLAPI_MESSAGES.codeSent(aimlapiTopupEmail)}
+        </Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={aimlapiSignInCode}
+            onChange={setAimlapiSignInCode}
+            onSubmit={verifyAimlapiSignInCode}
+            focus={true}
+            showCursor={true}
+            placeholder={`6-digit code${figures.ellipsis}`}
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>Press Enter to continue. Press Esc to go back.</Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiLowBalance(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>{AIMLAPI_MESSAGES.lowBalance}</Text>
+        <Select
+          options={[
+            { value: 'topup', label: AIMLAPI_MESSAGES.lowBalanceTopUp },
+            { value: 'skip', label: AIMLAPI_MESSAGES.lowBalanceSkip },
+          ]}
+          onChange={(value: string) => {
+            setErrorMessage(undefined)
+            if (value === 'skip') {
+              if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
+                setCursorOffset(draft.model.length)
+                setScreen('preset-model')
+              } else if (aimlapiTopupByKey) {
+                persistExistingAimlapi()
+              } else {
+                persistAimlapiKey(aimlapiIssuedKey, aimlapiInferenceBaseUrl)
+              }
+              return
+            }
+            setCursorOffset(aimlapiTopupAmountUsd.length)
+            setScreen('aimlapi-topup-amount')
+          }}
+          onCancel={handleBackFromAimlapiLowBalance}
+          visibleOptionCount={2}
+        />
+      </Box>
+    )
+  }
+
   function renderAimlapiTopupAmount(): React.ReactNode {
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
-          AI/ML API top-up
+          {AIMLAPI_MESSAGES.topUpPrompt}
         </Text>
-        <Text dimColor>
-          Choose a top-up amount in USD. Minimum is ${MIN_AMOUNT_USD_MINOR / 100}.
-        </Text>
-        <Text dimColor>Step 2 of 2: Top up account</Text>
-        <Box flexDirection="row" gap={1}>
-          <Text>{figures.pointer}</Text>
-          <TextInput
-            value={aimlapiTopupAmountUsd}
-            onChange={setAimlapiTopupAmountUsd}
-            onSubmit={value => {
-              const amountUsd = value.trim()
-              const parsedAmountUsd = Number(amountUsd)
-              if (!Number.isFinite(parsedAmountUsd) || parsedAmountUsd <= 0) {
-                setErrorMessage('Enter a valid top-up amount in USD.')
-                return
-              }
-              if (Math.round(parsedAmountUsd * 100) < MIN_AMOUNT_USD_MINOR) {
-                setErrorMessage(`Minimum AI/ML API top-up is $${MIN_AMOUNT_USD_MINOR / 100}.`)
-                return
-              }
-              if (Math.round(parsedAmountUsd * 100) > MAX_AMOUNT_USD_MINOR) {
-                setErrorMessage(`Maximum AI/ML API top-up is $${MAX_AMOUNT_USD_MINOR / 100}.`)
-                return
-              }
-              setAimlapiTopupAmountUsd(amountUsd)
-              setErrorMessage(undefined)
-              setScreen('aimlapi-topup-method')
-            }}
-            focus={true}
-            showCursor={true}
-            placeholder={`Enter amount${figures.ellipsis}`}
-            columns={inputColumns}
-            cursorOffset={cursorOffset}
-            onChangeCursorOffset={setCursorOffset}
-          />
-        </Box>
-        {errorMessage && <Text color="error">{errorMessage}</Text>}
-        <Text dimColor>
-          Press Enter to continue. Press Esc to go back.
-        </Text>
-      </Box>
-    )
-  }
-
-  function renderAimlapiTopupPassword(): React.ReactNode {
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text color="remember" bold>
-          AI/ML API top-up
-        </Text>
-        <Text dimColor>
-          Enter your AI/ML API password. The CLI will open checkout and save the
-          issued API key after payment.
-        </Text>
-        <Text dimColor>Step 2 of 2: Top up account</Text>
-        <Box flexDirection="row" gap={1}>
-          <Text>{figures.pointer}</Text>
-          <TextInput
-            value={aimlapiTopupPassword}
-            onChange={setAimlapiTopupPassword}
-            onSubmit={value => {
-              if (!value) {
-                setErrorMessage('AI/ML API password is required.')
-                return
-              }
-              setAimlapiTopupPassword(value)
-              setErrorMessage(undefined)
-              setCursorOffset(aimlapiTopupAmountUsd.length)
-              setScreen('aimlapi-topup-amount')
-            }}
-            focus={true}
-            showCursor={true}
-            placeholder={`Enter password${figures.ellipsis}`}
-            mask="*"
-            columns={inputColumns}
-            cursorOffset={cursorOffset}
-            onChangeCursorOffset={setCursorOffset}
-          />
-        </Box>
-        {errorMessage && <Text color="error">{errorMessage}</Text>}
-        <Text dimColor>
-          Press Enter to continue. Press Esc to go back.
-        </Text>
-      </Box>
-    )
-  }
-
-  function renderAimlapiTopupMethod(): React.ReactNode {
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text color="remember" bold>
-          AI/ML API top-up
-        </Text>
-        <Text dimColor>
-          Choose how to pay. The selected method decides which checkout invoice
-          AI/ML API opens.
-        </Text>
-        <Text dimColor>Step 2 of 2: Payment method</Text>
-        <Select
-          options={[
-            {
-              value: 'card',
-              label: 'Card',
-              description: 'Open a Stripe card checkout invoice',
-            },
-            {
-              value: 'crypto',
-              label: 'Crypto',
-              description: 'Open a crypto checkout invoice',
-            },
-          ]}
-          defaultValue={aimlapiTopupMethod}
-          defaultFocusValue={aimlapiTopupMethod}
-          onChange={(value: string) => {
-            const method: PaymentMethod = value === 'crypto' ? 'crypto' : 'card'
-            setAimlapiTopupMethod(method)
-            startAimlapiTopup(aimlapiTopupEmail, aimlapiTopupPassword, method)
+        <AimlapiTopupForm
+          amountUsd={aimlapiTopupAmountUsd}
+          autoTopUp={aimlapiAutoTopUp}
+          columns={inputColumns}
+          cursorOffset={cursorOffset}
+          onAmountChange={value => {
+            if (value !== aimlapiTopupAmountUsd) {
+              setAimlapiResumeSessionToken('')
+              setAimlapiPaymentSessionId('')
+            }
+            setAimlapiTopupAmountUsd(value)
+            setErrorMessage(undefined)
           }}
-          onCancel={handleBackFromAimlapiTopupMethod}
-          visibleOptionCount={2}
+          onCursorOffsetChange={setCursorOffset}
+          onAutoTopUpChange={value => {
+            if (value !== aimlapiAutoTopUp) {
+              setAimlapiResumeSessionToken('')
+              setAimlapiPaymentSessionId('')
+            }
+            setAimlapiAutoTopUp(value)
+          }}
+          onSubmit={startAimlapiTopup}
         />
         {errorMessage && <Text color="error">{errorMessage}</Text>}
-        <Text dimColor>
-          Press Enter to open checkout. Press Esc to go back.
-        </Text>
       </Box>
     )
   }
 
   function renderAimlapiTopupProgress(): React.ReactNode {
-    const labels: Record<AimlapiTopupStatus, string> = {
-      registering: 'Registering AI/ML API account...',
-      registered: 'Account registered.',
-      'signing-in': 'Signing in to AI/ML API...',
-      'signed-in': 'Signed in.',
-      'creating-session': 'Creating checkout session...',
-      'opening-checkout': 'Opening checkout...',
-      'waiting-payment': 'Waiting for payment...',
-      'provisioning-key': 'Issuing API key...',
-    }
-    const status = aimlapiTopupStatus
-      ? labels[aimlapiTopupStatus]
-      : 'Preparing AI/ML API top-up...'
-
     return (
       <Box flexDirection="column" gap={1}>
-        <Text color="remember" bold>
-          AI/ML API top-up
-        </Text>
-        <Text dimColor>{status}</Text>
-        {aimlapiTopupDetail ? <Text>{aimlapiTopupDetail}</Text> : null}
+        {aimlapiTopupDetail ? (
+          <>
+            <Text color="remember" bold>Opening checkout in browser...</Text>
+            <Text dimColor>{AIMLAPI_MESSAGES.topUpBrowserFallback}</Text>
+            {/* Stripe Checkout URLs are signed and can require their query and
+                fragment verbatim. This is an explicit user-facing fallback,
+                not a log field, so redacting it would make the link unusable. */}
+            <Box flexDirection="column">
+              {wrapAimlapiCheckoutUrl(
+                aimlapiTopupDetail,
+                terminalColumns - 4,
+              ).map((line, index) => (
+                <Text key={`${index}:${line}`} color="suggestion">{line}</Text>
+              ))}
+            </Box>
+          </>
+        ) : (
+          <Spinner />
+        )}
         {errorMessage ? <Text color="error">{errorMessage}</Text> : null}
-        <Text dimColor>
-          {isAimlapiTopupRunning
-            ? 'Complete checkout in the browser. This screen will continue automatically.'
-            : 'Press Esc to go back.'}
-        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiDone(): React.ReactNode {
+    const amountUsdMinor = parseAimlapiAmountUsd(aimlapiTopupAmountUsd)
+    const amountUsd =
+      amountUsdMinor % 100 === 0
+        ? String(amountUsdMinor / 100)
+        : (amountUsdMinor / 100).toFixed(2)
+    return (
+      <Box flexDirection="column">
+        {aimlapiDoneKind === 'topup' ? (
+          <>
+            <Text color="success" bold>{AIMLAPI_MESSAGES.topUpSuccess(amountUsd)}</Text>
+            {aimlapiNewAccount ? (
+              <>
+                <Text> </Text>
+                <Text>{AIMLAPI_MESSAGES.successMagicLink(aimlapiTopupEmail)}</Text>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <Text color="success" bold>{AIMLAPI_MESSAGES.everythingRuns}</Text>
+        )}
+        <Text> </Text>
+        <Text dimColor>Press Enter to continue.</Text>
       </Box>
     )
   }
@@ -3175,20 +3840,26 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     case 'aimlapi-api-key-choice':
       content = renderAimlapiApiKeyChoice()
       break
+    case 'aimlapi-configured':
+      content = renderAimlapiConfigured()
+      break
     case 'aimlapi-topup-email':
       content = renderAimlapiTopupEmail()
+      break
+    case 'aimlapi-signin-code':
+      content = renderAimlapiSignInCode()
+      break
+    case 'aimlapi-low-balance':
+      content = renderAimlapiLowBalance()
       break
     case 'aimlapi-topup-amount':
       content = renderAimlapiTopupAmount()
       break
-    case 'aimlapi-topup-password':
-      content = renderAimlapiTopupPassword()
-      break
-    case 'aimlapi-topup-method':
-      content = renderAimlapiTopupMethod()
-      break
     case 'aimlapi-topup-progress':
       content = renderAimlapiTopupProgress()
+      break
+    case 'aimlapi-done':
+      content = renderAimlapiDone()
       break
     case 'preset-api-key':
       content = renderPresetApiKey()

@@ -1,24 +1,6 @@
-/**
- * AI/ML API seamless top-up flow.
- *
- * End to end:
- *   1. Log in with AI/ML API credentials      -> Bearer token (held by the CLI)
- *   2. Create a partner-checkout session       -> one-time sessionToken
- *   3. `pay` binds the session + opens a hosted payment page (Stripe / crypto)
- *   4. Open the browser for the user to pay    -> no second login ("auto-login":
- *      the hosted page needs no AI/ML API account, the CLI already holds auth)
- *   5. Poll the session until it is `paid`
- *   6. Exchange the paid session for a raw key (once)
- *   7. Write the key into OpenClaude's provider profile -> the agent now runs
- *      on AI/ML API's OpenAI-compatible endpoint
- *
- * After pay/cancel the provider redirects the browser to the co-branded AI/ML
- * API `/checkout` success / failure screen - see
- * `buildPartnerCheckoutReturnUrls`.
- *
- * Uses the AI/ML API endpoints from config.ts.
- */
+/** AI/ML API passwordless onboarding and partner-checkout orchestration. */
 
+import { randomUUID } from 'crypto'
 import chalk from 'chalk'
 
 import { openBrowser } from '../../utils/browser.js'
@@ -27,32 +9,30 @@ import {
   AimlapiApiError,
   AimlapiClient,
   type PartnerCheckoutSession,
-  type PaymentMethod,
 } from './client.js'
 import {
   buildPartnerCheckoutReturnUrls,
-  DEFAULT_AMOUNT_USD_MINOR,
+  buildPartnerReturnUrl,
   DEFAULT_MODEL,
-  DEFAULT_PARTNER_ID,
   DEFAULT_PARTNER_NAME,
-  MAX_AMOUNT_USD_MINOR,
-  MIN_AMOUNT_USD_MINOR,
   resolveEndpoints,
+  resolvePartnerId,
 } from './config.js'
-import { promptHidden, promptText } from './prompt.js'
+import { promptText } from './prompt.js'
+import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 export type AimlapiTopupOptions = {
   email?: string
-  password?: string
+  code?: string
   /** Top-up amount in whole USD (e.g. "25"). */
   amountUsd?: string
-  method?: PaymentMethod
+  autoTopUp?: boolean
   model?: string
   partnerId?: string
   partnerName?: string
-  inviteCode?: string
   /** Skip opening the browser (print the URL instead). */
   noOpen?: boolean
+  signal?: AbortSignal
 }
 
 export type AimlapiProvisionedKey = {
@@ -63,297 +43,456 @@ export type AimlapiProvisionedKey = {
 }
 
 export type AimlapiTopupStatus =
-  | 'registering'
-  | 'registered'
-  | 'signing-in'
-  | 'signed-in'
+  | 'checking-account'
+  | 'sending-code'
+  | 'verifying-code'
+  | 'creating-account'
+  | 'creating-key'
   | 'creating-session'
   | 'opening-checkout'
   | 'waiting-payment'
   | 'provisioning-key'
 
-export type AimlapiProvisionOptions = AimlapiTopupOptions & {
+export type AimlapiProvisionOptions = Omit<AimlapiTopupOptions, 'email' | 'code'> & {
+  sessionToken: string
+  /** Endpoint that validated an existing key and must own any key-bound billing. */
+  inferenceBaseUrl?: string
+  exchange: boolean
+  existingApiKey?: string
+  existingApiKeyId?: string
+  resumeSessionToken?: string
+  /** Stable idempotency handle retained for one amount/auto-top-up intent. */
+  paymentSessionId: string
+  onSession?: (sessionToken: string) => void
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
-const POLL_INTERVAL_MS = 3000
-const POLL_TIMEOUT_MS = 20 * 60 * 1000 // 20 minutes
+export type AimlapiByKeyTopupOptions = Omit<AimlapiTopupOptions, 'email' | 'code'> & {
+  apiKey: string
+  inferenceBaseUrl?: string
+  paymentSessionId: string
+  resumeSessionToken?: string
+  onSession?: (sessionToken: string) => void
+  onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
+}
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
+type TopupPhase = 'pay' | 'poll' | 'exchange' | 'wait-exchange'
+
+const POLL_INTERVAL_MS = 3000
+const POLL_TIMEOUT_MS = 20 * 60 * 1000
+
+function abortError(signal?: AbortSignal): unknown {
+  return signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw abortError(signal)
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = (): void => signal?.removeEventListener('abort', onAbort)
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      cleanup()
+      reject(abortError(signal))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 function maskKey(key: string): string {
-  if (key.length <= 10) {
-    return '****'
-  }
-  return `${key.slice(0, 6)}...${key.slice(-4)}`
-}
-
-function parseAmount(amountUsd: string | undefined): number {
-  if (!amountUsd) {
-    return DEFAULT_AMOUNT_USD_MINOR
-  }
-  const dollars = Number(amountUsd)
-  if (!Number.isFinite(dollars) || dollars <= 0) {
-    throw new Error(`Invalid amount: "${amountUsd}". Pass a positive number of USD.`)
-  }
-  const minor = Math.round(dollars * 100)
-  if (minor < MIN_AMOUNT_USD_MINOR) {
-    throw new Error(`Minimum top-up is $${MIN_AMOUNT_USD_MINOR / 100}.`)
-  }
-  if (minor > MAX_AMOUNT_USD_MINOR) {
-    throw new Error(`Maximum top-up is $${MAX_AMOUNT_USD_MINOR / 100}.`)
-  }
-  return minor
-}
-
-function describeAimlapiAuthError(error: unknown): string {
-  if (error instanceof AimlapiApiError) {
-    const body = error.body.trim()
-    return body
-      ? `HTTP ${error.status}: ${body}`
-      : `HTTP ${error.status}: ${error.message}`
-  }
-  return error instanceof Error ? error.message : String(error)
-}
-
-async function authenticateAimlapiAccount(
-  client: AimlapiClient,
-  options: {
-    email: string
-    password: string
-    inviteCode?: string
-    onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
-  },
-): Promise<string> {
-  let signupError: unknown
-  try {
-    options.onStatus?.('registering')
-    const { token } = await client.signup({
-      email: options.email,
-      password: options.password,
-      inviteCode: options.inviteCode,
-    })
-    options.onStatus?.('registered')
-    return token
-  } catch (error) {
-    signupError = error
-  }
-
-  try {
-    options.onStatus?.('signing-in')
-    const { token } = await client.login(options.email, options.password)
-    options.onStatus?.('signed-in')
-    return token
-  } catch (loginError) {
-    throw new Error(
-      `Could not register or log in to AI/ML API. Registration: ${describeAimlapiAuthError(signupError)}. Login: ${describeAimlapiAuthError(loginError)}.`,
-    )
-  }
+  return key.length <= 10 ? '****' : `${key.slice(0, 6)}...${key.slice(-4)}`
 }
 
 export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<void> {
   const endpoints = resolveEndpoints()
   const client = new AimlapiClient(endpoints)
+  const email =
+    options.email?.trim() ||
+    process.env.AIMLAPI_EMAIL?.trim() ||
+    (await promptText('AI/ML API email'))
+  if (!isValidAimlapiEmail(email)) throw new Error('Email format is incorrect.')
 
-  const partnerId = options.partnerId?.trim() || process.env.AIMLAPI_PARTNER_ID?.trim() || DEFAULT_PARTNER_ID
-  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
-  const method: PaymentMethod = options.method === 'crypto' ? 'crypto' : 'card'
-  const model = options.model?.trim() || DEFAULT_MODEL
-  const amountUsdMinor = parseAmount(options.amountUsd)
+  console.log(chalk.bold('\n  AI/ML API top-up') + chalk.dim(`  -  ${endpoints.appBaseUrl}\n`))
+  const account = await client.checkAccount(email, options.signal)
+  let sessionToken: string
+  let apiKey = ''
+  let apiKeyId = ''
+  let exchange = account.action !== 'sign-in'
 
-  console.log(
-    chalk.bold(`\n  AI/ML API top-up`) +
-      chalk.dim(`  -  ${endpoints.appBaseUrl}\n`),
-  )
-
-  // 1. Credentials -> Bearer token.
-  const email = options.email?.trim() || process.env.AIMLAPI_EMAIL?.trim() || (await promptText('AI/ML API email'))
-  const password = options.password || process.env.AIMLAPI_PASSWORD || (await promptHidden('AI/ML API password'))
-  if (!email || !password) {
-    throw new Error('Email and password are required.')
-  }
-
-  console.log(chalk.dim('  -> Signing in...'))
-  const token = await authenticateAimlapiAccount(client, {
-    email,
-    password,
-    inviteCode: options.inviteCode || process.env.AIMLAPI_INVITE_CODE,
-  })
-  console.log(chalk.green('  [OK] Signed in'))
-
-  // 2. Partner-checkout session.
-  const session = await client.createSession({ partnerId, partnerName })
-  console.log(chalk.dim(`  -> Session ${session.id}`))
-
-  // 3. Bind + open hosted payment page. The co-branded return URLs make the
-  // post-payment browser redirect land on the AI/ML API success / failure
-  // screen for this partner.
-  const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
-    endpoints.appBaseUrl,
-    session.sessionToken,
-  )
-  const { checkout } = await client.pay(token, session.sessionToken, {
-    amountUsdMinor,
-    method,
-    successUrl,
-    cancelUrl,
-  })
-  if (!checkout.payUrl) {
-    throw new Error('Payment provider did not return a checkout URL.')
-  }
-
-  console.log(
-    chalk.bold(`\n  Pay $${(amountUsdMinor / 100).toFixed(2)} (${method}) to top up:\n`) +
-      `  ${chalk.cyan(checkout.payUrl)}\n`,
-  )
-  if (options.noOpen) {
-    console.log(chalk.dim('  (open the link above to complete payment)'))
+  if (account.action === 'sign-in') {
+    await client.sendSignInCode(email, options.signal)
+    const code =
+      options.code?.trim() ||
+      process.env.AIMLAPI_CODE?.trim() ||
+      (await promptText('6-digit code'))
+    if (!code) throw new Error('Sign-in code is required.')
+    sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
+    const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
+    apiKey = created.key
+    apiKeyId = created.id
+    exchange = false
   } else {
-    const opened = await openBrowser(checkout.payUrl)
-    if (!opened) {
-      console.log(chalk.dim('  (could not auto-open a browser - open the link above manually)'))
-    }
+    sessionToken = (await client.createPasswordlessAccount(email, options.signal)).token
   }
 
-  // 4./5. Poll until paid.
-  console.log(chalk.dim('\n  Waiting for payment...'))
-  const paid = await pollUntilPaid(client, session.sessionToken)
+  const provisioned = await provisionAimlapiKey({
+    amountUsd: options.amountUsd,
+    autoTopUp: options.autoTopUp,
+    model: options.model,
+    partnerId: options.partnerId,
+    partnerName: options.partnerName,
+    noOpen: options.noOpen,
+    signal: options.signal,
+    sessionToken,
+    exchange,
+    paymentSessionId: randomUUID(),
+    existingApiKey: apiKey,
+    existingApiKeyId: apiKeyId,
+    onStatus: (status, detail) => {
+      if (status === 'opening-checkout' && detail) console.log(`  ${chalk.cyan(detail)}`)
+      if (status === 'waiting-payment') console.log(chalk.dim('  Waiting for payment...'))
+    },
+  })
 
-  // 6. Exchange the paid session for the raw key (once).
-  console.log(chalk.dim('  -> Provisioning API key...'))
-  const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
-
-  // 7. Persist into OpenClaude's provider profile.
   const profilePath = saveProfileFile({
     profile: 'openai',
     env: {
-      OPENAI_BASE_URL: endpoints.inferenceBaseUrl,
-      OPENAI_API_KEY: apiKey,
-      OPENAI_MODEL: model,
+      OPENAI_BASE_URL: provisioned.baseUrl,
+      OPENAI_API_KEY: provisioned.apiKey,
+      AIMLAPI_API_KEY: provisioned.apiKey,
+      OPENAI_MODEL: provisioned.model,
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
     },
     createdAt: new Date().toISOString(),
   })
 
-  console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
-  console.log(`    key      ${chalk.dim(maskKey(apiKey))}  (id ${apiKeyId})`)
-  console.log(`    base URL ${chalk.dim(endpoints.inferenceBaseUrl)}`)
-  console.log(`    model    ${chalk.dim(model)}`)
+  console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
+  console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)
+  console.log(`    base URL ${chalk.dim(provisioned.baseUrl)}`)
+  console.log(`    model    ${chalk.dim(provisioned.model)}`)
   console.log(`    profile  ${chalk.dim(profilePath)}`)
-  console.log(chalk.dim(`\n  Run ${chalk.bold('openclaude')} to start coding on AI/ML API.\n`))
 }
 
 export async function provisionAimlapiKey(
   options: AimlapiProvisionOptions,
 ): Promise<AimlapiProvisionedKey> {
-  const endpoints = resolveEndpoints()
-  const client = new AimlapiClient(endpoints)
-
-  const partnerId =
-    options.partnerId?.trim() ||
-    process.env.AIMLAPI_PARTNER_ID?.trim() ||
-    DEFAULT_PARTNER_ID
-  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
-  const method: PaymentMethod = options.method === 'crypto' ? 'crypto' : 'card'
-  const model = options.model?.trim() || DEFAULT_MODEL
-  const amountUsdMinor = parseAmount(options.amountUsd)
-
-  const email =
-    options.email?.trim() ||
-    process.env.AIMLAPI_EMAIL?.trim() ||
-    (await promptText('AI/ML API email'))
-  const password =
-    options.password ||
-    process.env.AIMLAPI_PASSWORD ||
-    (await promptHidden('AI/ML API password'))
-  if (!email || !password) {
-    throw new Error('Email and password are required.')
+  if (!options.sessionToken.trim()) throw new Error('A session is required to top up.')
+  if (!options.paymentSessionId?.trim()) {
+    throw new Error('A payment session id is required to top up.')
   }
-
-  const token = await authenticateAimlapiAccount(client, {
-    email,
-    password,
-    inviteCode: options.inviteCode || process.env.AIMLAPI_INVITE_CODE,
-    onStatus: options.onStatus,
-  })
+  const endpoints = resolveEndpoints()
+  if (options.inferenceBaseUrl?.trim()) {
+    endpoints.inferenceBaseUrl = options.inferenceBaseUrl.trim()
+  }
+  const client = new AimlapiClient(endpoints)
+  const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
+  const partnerId = resolvePartnerId(options.partnerId)
+  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
 
   options.onStatus?.('creating-session')
-  const session = await client.createSession({ partnerId, partnerName })
-
-  options.onStatus?.('opening-checkout')
-  const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
-    endpoints.appBaseUrl,
-    session.sessionToken,
-  )
-  const { checkout } = await client.pay(token, session.sessionToken, {
-    amountUsdMinor,
-    method,
-    successUrl,
-    cancelUrl,
+  const { sessionToken, phase } = await resolveTopupSession(client, {
+    resumeSessionToken: options.resumeSessionToken,
+    partnerId,
+    partnerName,
+    verificationBaseUrl: endpoints.verificationBaseUrl,
+    signal: options.signal,
+    onSession: options.onSession,
   })
-  if (!checkout.payUrl) {
-    throw new Error('Payment provider did not return a checkout URL.')
-  }
+  options.onSession?.(sessionToken)
 
-  if (options.noOpen) {
-    options.onStatus?.('opening-checkout', checkout.payUrl)
-  } else {
-    const opened = await openBrowser(checkout.payUrl)
-    options.onStatus?.(
-      'opening-checkout',
-      opened ? checkout.payUrl : `Open manually: ${checkout.payUrl}`,
+  if (phase === 'pay') {
+    const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
+    options.onStatus?.('opening-checkout')
+    const { checkout } = await client.pay(
+      options.sessionToken,
+      sessionToken,
+      {
+        amountUsdMinor,
+        paymentSessionId: options.paymentSessionId,
+        ...returnUrls,
+        autoTopUp: options.autoTopUp,
+      },
+      options.signal,
     )
+    await announceCheckout(checkout.payUrl, options)
   }
 
-  options.onStatus?.('waiting-payment')
-  const paid = await pollUntilPaid(client, session.sessionToken)
-
-  options.onStatus?.('provisioning-key')
-  const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
+  let paidToken = sessionToken
+  let settledPhase = phase
+  if (phase === 'pay' || phase === 'poll') {
+    options.onStatus?.('waiting-payment')
+    const paid = await pollUntilPaid(
+      client,
+      sessionToken,
+      options.signal,
+      options.onSession,
+    )
+    paidToken = paid.sessionToken
+    if (paid.status === 'exchanging') settledPhase = 'wait-exchange'
+  }
+  let apiKey = options.existingApiKey?.trim() || ''
+  let apiKeyId = options.existingApiKeyId?.trim() || ''
+  if (options.exchange) {
+    options.onStatus?.('provisioning-key')
+    if (settledPhase === 'wait-exchange') {
+      await pollUntilExchangeSettled(
+        client,
+        sessionToken,
+        options.signal,
+        options.onSession,
+      )
+    }
+    const exchanged = await client.exchange(
+      options.sessionToken,
+      paidToken,
+      options.signal,
+    )
+    apiKey = exchanged.apiKey?.trim()
+    apiKeyId = exchanged.apiKeyId?.trim()
+  }
+  if (!apiKey) throw new Error('AI/ML API did not return an API key.')
 
   return {
     apiKey,
     apiKeyId,
     baseUrl: endpoints.inferenceBaseUrl,
-    model,
+    model: options.model?.trim() || DEFAULT_MODEL,
   }
 }
 
-async function pollUntilPaid(
+export async function topUpAimlapiByApiKey(
+  options: AimlapiByKeyTopupOptions,
+): Promise<AimlapiProvisionedKey> {
+  const apiKey = options.apiKey.trim()
+  if (!apiKey) throw new Error('An API key is required to top up.')
+  if (!options.paymentSessionId.trim()) {
+    throw new Error('A payment session id is required to top up.')
+  }
+  const endpoints = resolveEndpoints()
+  if (options.inferenceBaseUrl?.trim()) {
+    endpoints.inferenceBaseUrl = options.inferenceBaseUrl.trim()
+  }
+  const client = new AimlapiClient(endpoints)
+  const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
+  const partnerId = resolvePartnerId(options.partnerId)
+  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
+
+  options.onStatus?.('creating-session')
+  const { sessionToken, phase } = await resolveTopupSession(client, {
+    resumeSessionToken: options.resumeSessionToken,
+    partnerId,
+    partnerName,
+    verificationBaseUrl: endpoints.verificationBaseUrl,
+    signal: options.signal,
+    onSession: options.onSession,
+    byKey: true,
+  })
+  options.onSession?.(sessionToken)
+
+  if (phase === 'pay') {
+    const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
+    options.onStatus?.('opening-checkout')
+    const { checkout } = await client.topUpByKey(
+      apiKey,
+      {
+        sessionToken,
+        amountUsdMinor,
+        paymentSessionId: options.paymentSessionId,
+        ...returnUrls,
+        autoTopUp: options.autoTopUp,
+      },
+      options.signal,
+    )
+    await announceCheckout(checkout.payUrl, options)
+  }
+  if (phase === 'pay' || phase === 'poll') {
+    options.onStatus?.('waiting-payment')
+    await pollUntilPaid(client, sessionToken, options.signal, options.onSession)
+  }
+
+  return {
+    apiKey,
+    apiKeyId: '',
+    baseUrl: endpoints.inferenceBaseUrl,
+    model: options.model?.trim() || DEFAULT_MODEL,
+  }
+}
+
+async function announceCheckout(
+  payUrl: string | null,
+  options: Pick<AimlapiTopupOptions, 'noOpen'> & {
+    onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
+  },
+): Promise<void> {
+  const checkoutUrl = payUrl?.trim()
+  if (!checkoutUrl) throw new Error('Payment provider did not return a valid HTTPS checkout URL.')
+  let parsed: URL
+  try {
+    parsed = new URL(checkoutUrl)
+  } catch {
+    throw new Error('Payment provider did not return a valid HTTPS checkout URL.')
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    !parsed.hostname ||
+    parsed.username !== '' ||
+    parsed.password !== ''
+  ) {
+    throw new Error('Payment provider did not return a valid HTTPS checkout URL.')
+  }
+  if (!options.noOpen) await openBrowser(checkoutUrl)
+  options.onStatus?.('opening-checkout', checkoutUrl)
+}
+
+async function resolveTopupSession(
+  client: AimlapiClient,
+  options: {
+    resumeSessionToken?: string
+    partnerId: string
+    partnerName: string
+    verificationBaseUrl: string
+    signal?: AbortSignal
+    onSession?: (sessionToken: string) => void
+    byKey?: boolean
+  },
+): Promise<{ sessionToken: string; phase: TopupPhase }> {
+  const resume = options.resumeSessionToken?.trim()
+  if (!resume) {
+    const session = await client.createSession(
+      {
+        partnerId: options.partnerId,
+        partnerName: options.partnerName,
+        returnUrl: buildPartnerReturnUrl(options.verificationBaseUrl),
+      },
+      options.signal,
+    )
+    return { sessionToken: session.sessionToken, phase: 'pay' }
+  }
+  let session: PartnerCheckoutSession
+  try {
+    session = await client.getSession(resume, options.signal)
+  } catch (error) {
+    if (isTerminalSessionApiError(error)) options.onSession?.('')
+    throw error
+  }
+  switch (session.status) {
+    case 'pending_auth':
+      return { sessionToken: resume, phase: 'pay' }
+    case 'pending_payment':
+      return { sessionToken: resume, phase: 'poll' }
+    case 'paid':
+      return { sessionToken: resume, phase: 'exchange' }
+    case 'exchanging':
+      return {
+        sessionToken: resume,
+        phase: options.byKey ? 'exchange' : 'wait-exchange',
+      }
+    case 'exchanged':
+      if (options.byKey) return { sessionToken: resume, phase: 'exchange' }
+      throw new Error(
+        'Session was already exchanged. Rotate the key from the AI/ML API dashboard.',
+      )
+    default:
+      options.onSession?.('')
+      throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
+  }
+}
+
+async function pollUntilExchangeSettled(
   client: AimlapiClient,
   sessionToken: string,
+  signal?: AbortSignal,
+  onSession?: (sessionToken: string) => void,
+): Promise<never> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw abortError(signal)
+    try {
+      const session = await client.getSession(sessionToken, signal)
+      if (session.status === 'exchanged') {
+        throw new Error(
+          'Session was already exchanged. Rotate the key from the AI/ML API dashboard.',
+        )
+      }
+      if (
+        session.status === 'cancelled' ||
+        session.status === 'expired' ||
+        session.status === 'failed'
+      ) {
+        onSession?.('')
+        throw new Error(
+          `Key provisioning ${session.status}. Rotate the key from the AI/ML API dashboard.`,
+        )
+      }
+      if (session.status !== 'exchanging') {
+        throw new Error(
+          `Key provisioning returned to ${session.status}. Re-run the top-up.`,
+        )
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortError(signal)
+      if (
+        error instanceof AimlapiApiError &&
+        (error.status === 0 || error.status >= 500)
+      ) {
+        await sleep(POLL_INTERVAL_MS, signal)
+        continue
+      }
+      if (isTerminalSessionApiError(error)) onSession?.('')
+      throw error
+    }
+    await sleep(POLL_INTERVAL_MS, signal)
+  }
+  throw new Error(
+    'Timed out waiting for key provisioning. Retry to check the same session.',
+  )
+}
+
+export async function pollUntilPaid(
+  client: AimlapiClient,
+  sessionToken: string,
+  signal?: AbortSignal,
+  onSession?: (sessionToken: string) => void,
 ): Promise<PartnerCheckoutSession> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
-    let session: PartnerCheckoutSession
+    if (signal?.aborted) throw abortError(signal)
     try {
-      session = await client.getSession(sessionToken)
+      const session = await client.getSession(sessionToken, signal)
+      switch (session.status) {
+        case 'paid':
+        case 'exchanging':
+          return session
+        case 'exchanged':
+          throw new Error('Session was already exchanged. Rotate the key from the AI/ML API dashboard.')
+        case 'cancelled':
+        case 'expired':
+        case 'failed':
+          onSession?.('')
+          throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
+        default:
+          await sleep(POLL_INTERVAL_MS, signal)
+      }
     } catch (error) {
-      // Transient poll failures shouldn't abort a payment in progress.
-      // status 0 is a network-level failure (see client.ts), not a real HTTP response.
+      if (signal?.aborted) throw abortError(signal)
       if (error instanceof AimlapiApiError && (error.status === 0 || error.status >= 500)) {
-        await sleep(POLL_INTERVAL_MS)
+        await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
+      if (isTerminalSessionApiError(error)) onSession?.('')
       throw error
-    }
-
-    switch (session.status) {
-      case 'paid':
-      case 'exchanging':
-        return session
-      case 'exchanged':
-        throw new Error(
-          'Session was already exchanged. The key can only be issued once - rotate it from the AI/ML API dashboard.',
-        )
-      case 'cancelled':
-      case 'expired':
-      case 'failed':
-        throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
-      default:
-        // pending_auth / pending_payment -> keep waiting.
-        await sleep(POLL_INTERVAL_MS)
     }
   }
   throw new Error('Timed out waiting for payment. Re-run once the payment clears.')
+}
+
+function isTerminalSessionApiError(error: unknown): boolean {
+  return (
+    error instanceof AimlapiApiError &&
+    error.status >= 400 &&
+    error.status < 500
+  )
 }

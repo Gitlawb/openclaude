@@ -277,7 +277,7 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
 
 test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('aimlapi')).toBe('https://api.aimlapi.com/v1')
-  expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')
+  expect(getRouteDefaultModel('aimlapi')).toBe('anthropic/claude-sonnet-5')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1')).toBe('aimlapi')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1/chat/completions')).toBe('aimlapi')
 })
@@ -556,7 +556,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8', 'hicap'],
-  ['AI/ML API', 'https://api.aimlapi.com/v1', 'gpt-4o', 'aimlapi'],
+  ['aimlapi.com', 'https://api.aimlapi.com/v1', 'anthropic/claude-sonnet-5', 'aimlapi'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(

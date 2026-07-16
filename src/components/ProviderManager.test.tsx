@@ -7,6 +7,7 @@ import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import { AppStateProvider } from '../state/AppState.js'
+import { AIMLAPI_MESSAGES } from '../integrations/aimlapi/messages.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -31,7 +32,9 @@ const ORIGINAL_ENV = {
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   AIMLAPI_EMAIL: process.env.AIMLAPI_EMAIL,
-  AIMLAPI_PASSWORD: process.env.AIMLAPI_PASSWORD,
+  AIMLAPI_CODE: process.env.AIMLAPI_CODE,
+  AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
+  AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
 }
 
 function extractLastFrame(output: string): string {
@@ -114,8 +117,8 @@ async function waitForCondition(
 }
 
 // Provider list is sorted from generated preset metadata by description, with
-// Gitlawb Opengateway pinned first, Anthropic second, Codex OAuth injected
-// after DeepSeek, and the custom endpoints always pinned last. Keep the target-by-label
+// Gitlawb Opengateway pinned first, aimlapi.com second, Anthropic third, Codex OAuth injected
+// after DeepSeek, and Custom always pinned last. Keep the target-by-label
 // indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
 //
@@ -123,8 +126,8 @@ async function waitForCondition(
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
   'Gitlawb Opengateway',
+  'aimlapi.com',
   'Anthropic',
-  'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
   'Atlas Cloud',
@@ -267,9 +270,9 @@ function mockProviderProfilesModule(options?: {
       if (preset === 'aimlapi') {
         return {
           provider: 'aimlapi',
-          name: 'AI/ML API',
+          name: 'aimlapi.com',
           baseUrl: 'https://api.aimlapi.com/v1',
-          model: 'gpt-4o',
+          model: 'anthropic/claude-sonnet-5',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -345,6 +348,10 @@ function mockProviderManagerDependencies(
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
+    topUpAimlapiByApiKey?: (...args: any[]) => Promise<unknown>
+    beginAimlapiEmailOnboarding?: (...args: any[]) => Promise<unknown>
+    completeAimlapiCodeSignIn?: (...args: any[]) => Promise<unknown>
+    validateAimlapiApiKey?: (...args: any[]) => Promise<unknown>
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -460,10 +467,47 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../integrations/aimlapi/index.js', () => ({
+    AIMLAPI_MESSAGES,
+    AimlapiApiError: class AimlapiApiError extends Error {
+      constructor(
+        message: string,
+        readonly status: number,
+        readonly body = '',
+      ) {
+        super(message)
+      }
+    },
+    beginAimlapiEmailOnboarding:
+      options?.beginAimlapiEmailOnboarding ??
+      (async () => ({ action: 'new-account', sessionToken: 'session_test' })),
+    completeAimlapiCodeSignIn:
+      options?.completeAimlapiCodeSignIn ??
+      (async () => ({
+        sessionToken: 'session_test',
+        apiKey: 'issued_test',
+        apiKeyId: 'key_test',
+        lowBalance: false,
+      })),
+    validateAimlapiApiKey:
+      options?.validateAimlapiApiKey ??
+      (async () => ({ balance: 25, lowBalance: false, lowBalanceThreshold: 20 })),
+    parseAimlapiAmountUsd: (value: string | undefined) => {
+      const amount = Number(value || 25)
+      if (!Number.isFinite(amount) || amount < 20 || amount > 10000) {
+        throw new Error('Invalid top-up amount.')
+      }
+      return Math.round(amount * 100)
+    },
+    isValidAimlapiEmail: (value: string) => /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(value),
     provisionAimlapiKey:
       options?.provisionAimlapiKey ??
       (async () => {
         throw new Error('Unexpected AI/ML API top-up in test')
+      }),
+    topUpAimlapiByApiKey:
+      options?.topUpAimlapiByApiKey ??
+      (async () => {
+        throw new Error('Unexpected AI/ML API by-key top-up in test')
       }),
   }))
 
@@ -926,9 +970,15 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
     id: 'aimlapi_profile',
     ...payload,
   }))
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
 
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
+    validateAimlapiApiKey,
   })
 
   const nonce = `${Date.now()}-${Math.random()}`
@@ -945,43 +995,61 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'AI/ML API')
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
     mounted.stdin.write('\r')
     const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') &&
       frame.includes('Step 1 of 2: Default model'),
     )
 
-    expect(modelOutput).toContain('AI/ML API')
-    expect(modelOutput).toContain('gpt-4o')
+    expect(modelOutput).toContain('aimlapi.com')
+    expect(modelOutput).toContain('anthropic/claude-sonnet-5')
     expect(modelOutput).not.toContain('Provider name')
     expect(modelOutput).not.toContain('Base URL')
 
     mounted.stdin.write('\r')
     const choiceOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Step 2 of 2: API key'),
+      frame.includes('Do you have aimlapi.com key?'),
     )
-    expect(choiceOutput).toContain('Top up and get API key')
-    expect(choiceOutput).toContain('Enter existing API key')
+    expect(choiceOutput).toContain('I am a new user')
+    expect(choiceOutput).toContain('I already have aimlapi.com key')
+    expect(choiceOutput).not.toContain('One click set up')
+    expect(choiceOutput).not.toContain('Proceed to paste the key')
 
     mounted.stdin.write('j')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter the API key for AI/ML API'),
+    const apiKeyOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com key.'),
     )
+    expect(apiKeyOutput).toContain(
+      'Your API key will be hidden and verified automatically.',
+    )
+    expect(apiKeyOutput).toContain('API key:')
+    expect(apiKeyOutput).not.toContain('Create provider profile')
+    expect(apiKeyOutput).not.toContain('Provider type:')
+    expect(apiKeyOutput).not.toContain('Step 2 of 2: API key')
 
     mounted.stdin.write('aimlapi-test-key')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
     await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'aimlapi-test-key',
+      expect.any(AbortSignal),
+      'https://api.aimlapi.com/v1',
+    )
+    const doneOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Everything is ready.'),
+    )
+    expect(doneOutput).toContain('Press Enter to continue.')
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'aimlapi',
-        name: 'AI/ML API',
+        name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'gpt-4o',
+        model: 'anthropic/claude-sonnet-5',
         apiKey: 'aimlapi-test-key',
         apiFormat: 'chat_completions',
       }),
@@ -992,24 +1060,433 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
   }
 })
 
+test('ProviderManager offers and reuses an existing AIMLAPI profile', async () => {
+  delete process.env.AIMLAPI_API_KEY
+  const profile = {
+    id: 'aimlapi_existing',
+    provider: 'aimlapi',
+    name: 'aimlapi.com',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'old-model',
+    apiKey: 'saved-key',
+    apiFormat: 'chat_completions',
+  }
+  const updateProviderProfile = mock((id: string, payload: any) => ({
+    id,
+    ...payload,
+  }))
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    getProviderProfiles: () => [profile],
+    getActiveProviderProfile: () => profile,
+    updateProviderProfile,
+    validateAimlapiApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    const configured = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('aimlapi.com account is already configured'),
+    )
+    expect(configured).toContain('Continue with your saved API key')
+    expect(configured).toContain('Set up a new key or switch account')
+    expect(configured).not.toContain('Use existing configuration')
+    expect(configured).not.toContain('Configure again')
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
+    )
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'saved-key',
+      expect.any(AbortSignal),
+      'https://api.aimlapi.com/v1',
+    )
+    mounted.stdin.write('\r')
+    await waitForCondition(() => updateProviderProfile.mock.calls.length > 0)
+    expect(updateProviderProfile).toHaveBeenCalledWith(
+      'aimlapi_existing',
+      expect.objectContaining({ apiKey: 'saved-key' }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager first run keeps AIMLAPI_API_KEY out of the saved profile', async () => {
+  process.env.AIMLAPI_API_KEY = 'env-runtime-key'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_env',
+    ...payload,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, { mode: 'first-run' })
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Set up provider'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        baseUrl: 'https://proxy.example.test/v1',
+        apiKey: '',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager rejects an invalid AIMLAPI key using the Zero error copy', async () => {
+  const addProviderProfile = mock(() => null)
+  const validateAimlapiApiKey = mock(async () => {
+    throw Object.assign(new Error('Unauthorized'), { status: 401 })
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    validateAimlapiApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
+    )
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com key.'),
+    )
+
+    mounted.stdin.write('bad-aimlapi-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    const invalidOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes(
+        'API key is invalid. Please make sure you enter a valid aimlapi.com key.',
+      ),
+    )
+    expect(invalidOutput).toContain('Enter your aimlapi.com key.')
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'bad-aimlapi-key',
+      expect.any(AbortSignal),
+      'https://api.aimlapi.com/v1',
+    )
+    expect(addProviderProfile).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager matches the AIMLAPI code and low-credit screen copy', async () => {
+  const beginAimlapiEmailOnboarding = mock(async () => ({ action: 'code-sent' as const }))
+  const completeAimlapiCodeSignIn = mock(async () => ({
+    sessionToken: 'session_test',
+    apiKey: 'issued_test',
+    apiKeyId: 'key_test',
+    lowBalance: true,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    completeAimlapiCodeSignIn,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your email.'),
+    )
+    mounted.stdin.write('stan@aimlapi.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    const codeOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter the 6-digit code sent to stan@aimlapi.com.'),
+    )
+    expect(codeOutput).not.toContain('Enter it below to continue.')
+    expect(codeOutput).not.toContain('We sent a 6-digit code')
+    mounted.stdin.write('123456')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    const lowCreditOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Your aimlapi.com credits are running low - top up now?'),
+    )
+    expect(lowCreditOutput).toContain("Sure, let's do that")
+    expect(lowCreditOutput).toContain("I'll skip for now")
+    expect(lowCreditOutput).not.toContain(
+      'It is recommended to top up your balance.',
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager rejects an empty AIMLAPI top-up amount instead of charging the default', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  const provisionAimlapiKey = mock(async () => ({
+    apiKey: 'unexpected',
+    apiKeyId: 'unexpected',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'anthropic/claude-sonnet-5',
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+
+    mounted.stdin.write('\x7f\x7f')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Please enter a top-up amount.'),
+    )
+    expect(output).toContain('Please enter a top-up amount.')
+    expect(provisionAimlapiKey).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager drops a retained checkout when the onboarding email changes', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  const addProviderProfile = mock((payload: any) => ({ id: 'aimlapi_profile', ...payload }))
+  let accountSequence = 0
+  const beginAimlapiEmailOnboarding = mock(async () => ({
+    action: 'new-account' as const,
+    sessionToken: `account-session-${++accountSequence}`,
+  }))
+  let provisionSequence = 0
+  const provisionAimlapiKey = mock(async (options: any) => {
+    provisionSequence += 1
+    if (provisionSequence === 1) {
+      options.onSession?.('checkout-for-first-account')
+      throw new Error('temporary checkout failure')
+    }
+    return {
+      apiKey: 'issued-for-second-account',
+      apiKeyId: 'key_second',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'anthropic/claude-sonnet-5',
+    }
+  })
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    beginAimlapiEmailOnboarding,
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    const firstEmail = 'first@example.com'
+    mounted.stdin.write(firstEmail)
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 1)
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('temporary checkout failure'))
+
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('\x7f'.repeat(firstEmail.length))
+    mounted.stdin.write('second@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+
+    const firstOptions = provisionAimlapiKey.mock.calls[0]?.[0] as any
+    const secondOptions = provisionAimlapiKey.mock.calls[1]?.[0] as any
+    expect(firstOptions.sessionToken).toBe('account-session-1')
+    expect(secondOptions.sessionToken).toBe('account-session-2')
+    expect(secondOptions.resumeSessionToken).toBe('')
+    expect(secondOptions.paymentSessionId).not.toBe(firstOptions.paymentSessionId)
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager cancellation returns a live checkout to the resumable amount screen', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  let provisionSequence = 0
+  const provisionAimlapiKey = mock(async (options: any) => {
+    provisionSequence += 1
+    if (provisionSequence === 1) {
+      options.onSession?.('live-checkout')
+      await new Promise<never>((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(options.signal.reason), {
+          once: true,
+        })
+      })
+    }
+    return {
+      apiKey: 'issued-after-resume',
+      apiKeyId: 'key_after_resume',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'anthropic/claude-sonnet-5',
+    }
+  })
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 1)
+
+    const firstOptions = provisionAimlapiKey.mock.calls[0]?.[0] as any
+    mounted.stdin.write('\x1b')
+    const amountOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Add credits'),
+    )
+    expect(amountOutput).not.toContain('Do you have aimlapi.com key?')
+    expect(firstOptions.signal.aborted).toBe(true)
+
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+    const secondOptions = provisionAimlapiKey.mock.calls[1]?.[0] as any
+    expect(secondOptions.resumeSessionToken).toBe('live-checkout')
+    expect(secondOptions.paymentSessionId).toBe(firstOptions.paymentSessionId)
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager can top up AI/ML API and save the issued key', async () => {
   delete process.env.AIMLAPI_EMAIL
-  delete process.env.AIMLAPI_PASSWORD
+  delete process.env.AIMLAPI_CODE
 
   const addProviderProfile = mock((payload: any) => ({
     id: 'aimlapi_profile',
     ...payload,
   }))
+  const checkoutUrl =
+    'https://checkout.stripe.com/c/pay/cs_test_1234567890#signed-checkout-fragment-that-must-remain-visible-across-terminal-lines-tail'
   const provisionAimlapiKey = mock(async (options: any) => {
     options.onStatus?.('creating-session')
-    options.onStatus?.('opening-checkout', 'https://app.aimlapi.com/checkout/test')
+    await Bun.sleep(150)
+    options.onStatus?.('opening-checkout', checkoutUrl)
+    await Bun.sleep(150)
     options.onStatus?.('waiting-payment')
     options.onStatus?.('provisioning-key')
     return {
       apiKey: 'aimlapi-issued-key',
       apiKeyId: 'key_test',
       baseUrl: 'https://api.aimlapi.com/v1',
-      model: 'gpt-4o',
+      model: 'anthropic/claude-sonnet-5',
     }
   })
 
@@ -1032,7 +1509,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'AI/ML API')
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Step 1 of 2: Default model'),
@@ -1040,56 +1517,76 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Top up and get API key'),
+      frame.includes('I am a new user'),
     )
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter your AI/ML API account email'),
+      frame.includes('Enter your email.'),
     )
     mounted.stdin.write('user@example.com')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter your AI/ML API password'),
+      frame.includes('Add credits') &&
+      frame.includes('Auto top up: on/off'),
     )
-    mounted.stdin.write('secret-password')
+    await Bun.sleep(25)
+    mounted.stdin.write('\t')
+    await Bun.sleep(25)
+    mounted.stdin.write(' ')
+    await Bun.sleep(25)
+    mounted.stdin.write('\t')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Choose a top-up amount in USD') &&
-      frame.includes('25'),
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length > 0)
+    const spinnerOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      !frame.includes('Auto top up:') &&
+      !frame.includes('Top-up successful -'),
     )
-    mounted.stdin.write('\r')
+    expect(spinnerOutput).not.toContain('Creating checkout session...')
+    expect(spinnerOutput).not.toContain('Waiting for payment...')
+    expect(spinnerOutput).not.toContain('Issuing API key...')
 
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Payment method') &&
-      frame.includes('Card') &&
-      frame.includes('Crypto'),
+    const paymentOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Opening checkout in browser...'),
     )
-    mounted.stdin.write('j')
-    await Bun.sleep(25)
-    mounted.stdin.write('\r')
+    expect(paymentOutput).toContain(
+      'If the browser did not open automatically please use this link to top up your account:',
+    )
+    expect(paymentOutput).toContain('https://checkout.stripe.com/c/pay/cs_test_1234567890')
+    expect(paymentOutput.replace(/\s/g, '')).toContain(checkoutUrl)
 
     await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    const doneOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Top-up successful - $25 credited to your account'),
+    )
+    expect(doneOutput).not.toContain('has been added to your balance')
+    expect(doneOutput).toContain(
+      "We've emailed you a magic link to user@example.com. Use it to access your aimlapi.com account and review your usage.",
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
     expect(provisionAimlapiKey).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: 'user@example.com',
-        password: 'secret-password',
         amountUsd: '25',
-        method: 'crypto',
-        model: 'gpt-4o',
+        model: 'anthropic/claude-sonnet-5',
+        sessionToken: 'session_test',
+        exchange: true,
+        autoTopUp: false,
         onStatus: expect.any(Function),
       }),
     )
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'aimlapi',
-        name: 'AI/ML API',
+        name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'gpt-4o',
+        model: 'anthropic/claude-sonnet-5',
         apiKey: 'aimlapi-issued-key',
         apiFormat: 'chat_completions',
       }),

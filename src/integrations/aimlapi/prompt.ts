@@ -4,12 +4,12 @@
  * they are not supplied via flags/env.
  */
 
-import { createInterface, type Interface } from 'node:readline'
+import { createInterface } from 'node:readline'
 
 function assertInteractive(): void {
   if (!process.stdin.isTTY) {
     throw new Error(
-      'No interactive terminal available. Provide credentials via --email (or AIMLAPI_EMAIL) and the AIMLAPI_PASSWORD env var.',
+      'No interactive terminal available. Provide --email (or AIMLAPI_EMAIL) and, for an existing account, --code (or AIMLAPI_CODE).',
     )
   }
 }
@@ -27,36 +27,6 @@ export async function promptText(
     })
     const trimmed = answer.trim()
     return trimmed || opts.defaultValue || ''
-  } finally {
-    rl.close()
-  }
-}
-
-/** Prompt for a secret without echoing keystrokes to the terminal. */
-export async function promptHidden(question: string): Promise<string> {
-  assertInteractive()
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  }) as Interface & { _writeToOutput?: (chunk: string) => void }
-
-  // Mask everything except the prompt itself.
-  let muted = false
-  rl._writeToOutput = (chunk: string): void => {
-    if (muted) {
-      process.stdout.write('*')
-    } else {
-      process.stdout.write(chunk)
-    }
-  }
-
-  try {
-    const answer = await new Promise<string>((resolve) => {
-      rl.question(`${question}: `, resolve)
-      muted = true
-    })
-    process.stdout.write('\n')
-    return answer
   } finally {
     rl.close()
   }
