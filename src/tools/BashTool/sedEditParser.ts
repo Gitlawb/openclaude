@@ -509,6 +509,13 @@ export function applySedSubstitution(
     return content
   }
 
+  // An empty file has no lines, so sed never runs the substitution and the
+  // output stays empty; splitting '' would fabricate one empty line and let
+  // anchored patterns like s/^/X/ preview an edit sed does not make.
+  if (content.length === 0) {
+    return content
+  }
+
   // sed applies s/// to each line of the pattern space independently: without
   // `g` it substitutes the first match on EVERY line, not the first match in
   // the file. A single whole-buffer replace previewed `sed 's/a\{2\}/X/'` on

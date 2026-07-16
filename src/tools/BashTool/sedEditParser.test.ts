@@ -202,4 +202,12 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     // A trailing newline is preserved and never treated as an extra empty line.
     expect(applySedSubstitution('aa', info!)).toBe('X')
   })
+
+  test('leaves an empty file empty like sed', () => {
+    // An empty file has no lines: sed never runs the substitution, so even an
+    // anchored pattern that matches the empty string writes nothing.
+    const info = parseSedEditCommand(cmd('s/^/X/'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('', info!)).toBe('')
+  })
 })
