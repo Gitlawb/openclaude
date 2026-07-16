@@ -82,10 +82,12 @@ import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  baseUrlSupportsResponsesAutoRoute,
   isAzureStyleBaseUrl,
   isDirectLocalOllamaEndpoint,
   isLikelyOllamaEndpoint,
   isLocalProviderUrl,
+  modelRequiresResponsesApi,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
@@ -3839,13 +3841,21 @@ class OpenAIShimMessages {
       openaiShimConfig: shimConfig,
       baseUrl: request.baseUrl,
     })
+    // The explicit chat-completions escape hatch for GPT-5.6 must
+    // also omit reasoning effort: these models reject the tools + effort
+    // combination on that API surface.
+    const suppressReasoningForForcedChat =
+      effectiveTransport === 'chat_completions' &&
+      request.resolvedModel.trim().toLowerCase().startsWith('gpt-5.6') &&
+      modelRequiresResponsesApi(request.resolvedModel) &&
+      baseUrlSupportsResponsesAutoRoute(request.baseUrl, process.env)
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
       model: request.resolvedModel,
-      requestedEffort: request.reasoning?.effort,
+      requestedEffort: suppressReasoningForForcedChat ? undefined : request.reasoning?.effort,
       requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
       defaultThinkingType: request.thinking?.type,
       thinkingRequestFormat: shimConfig.thinkingRequestFormat,
-      routeId: runtimeShimContext.routeId,
+      routeId: runtimeShimContext.routeId ?? 'custom',
       useRuntimeFallback: false,
       reasoningControl,
     })
@@ -4470,7 +4480,7 @@ class OpenAIShimMessages {
       if (!isAzure) {
         return `${trimmedBase}/responses`
       }
-      let normalizedBase = trimmedBase
+      let normalizedBase = trimmedBase.split(/[?#]/, 1)[0] ?? trimmedBase
       for (;;) {
         const stripped = normalizedBase
           .replace(/\/(openai\/)?v1$/i, '')

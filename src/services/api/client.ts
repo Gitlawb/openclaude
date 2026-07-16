@@ -370,10 +370,11 @@ export async function getAnthropicClient({
     : undefined
   const providerOverrideShimConfig = providerOverrideRuntimeContext?.openaiShimConfig
   const providerOverrideEffortContext = providerOverrideRuntimeContext
-    ? {
-        routeId: providerOverrideRuntimeContext.routeId,
+      ? {
+        routeId: providerOverrideRuntimeContext.routeId ?? 'custom',
         useRuntimeFallback: false,
         openaiShimConfig: providerOverrideShimConfig,
+        baseUrl: providerOverride?.baseURL,
         apiProvider: providerOverrideRuntimeContext.routeId === 'openai'
           ? 'openai' as const
           : providerOverrideRuntimeContext.routeId === 'codex'
