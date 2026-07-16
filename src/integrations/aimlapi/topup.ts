@@ -17,6 +17,12 @@ import {
   resolvePartnerId,
 } from './config.js'
 import { openBrowser, promptText, saveProfileFile } from './topupDependencies.js'
+import {
+  clearAimlapiTopupState,
+  loadAimlapiTopupState,
+  saveAimlapiTopupState,
+  type AimlapiTopupIntent,
+} from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 export type AimlapiTopupOptions = {
@@ -136,19 +142,44 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     sessionToken = (await client.createPasswordlessAccount(email, options.signal)).token
   }
 
+  const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
+  const partnerId = resolvePartnerId(options.partnerId)
+  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
+  const intent: AimlapiTopupIntent = {
+    email: email.toLowerCase(),
+    amountUsdMinor,
+    autoTopUp: options.autoTopUp === true,
+    partnerId,
+    partnerName,
+    appBaseUrl: endpoints.appBaseUrl.trim().replace(/\/+$/, ''),
+    payBaseUrl: endpoints.payBaseUrl.trim().replace(/\/+$/, ''),
+    verificationBaseUrl: endpoints.verificationBaseUrl.trim().replace(/\/+$/, ''),
+  }
+  const checkoutState = loadAimlapiTopupState(intent) ?? {
+    paymentSessionId: randomUUID(),
+    resumeSessionToken: '',
+  }
+  const persistSession = (resumeSessionToken: string): void => {
+    checkoutState.resumeSessionToken = resumeSessionToken
+    saveAimlapiTopupState({ ...intent, ...checkoutState })
+  }
+  saveAimlapiTopupState({ ...intent, ...checkoutState })
+
   const provisioned = await provisionAimlapiKey({
     amountUsd: options.amountUsd,
     autoTopUp: options.autoTopUp,
     model: options.model,
-    partnerId: options.partnerId,
-    partnerName: options.partnerName,
+    partnerId,
+    partnerName,
     noOpen: options.noOpen,
     signal: options.signal,
     sessionToken,
     exchange,
-    paymentSessionId: randomUUID(),
+    paymentSessionId: checkoutState.paymentSessionId,
+    resumeSessionToken: checkoutState.resumeSessionToken,
     existingApiKey: apiKey,
     existingApiKeyId: apiKeyId,
+    onSession: persistSession,
     onStatus: (status, detail) => {
       if (status === 'opening-checkout' && detail) console.log(`  ${chalk.cyan(detail)}`)
       if (status === 'waiting-payment') console.log(chalk.dim('  Waiting for payment...'))
@@ -166,6 +197,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     },
     createdAt: new Date().toISOString(),
   })
+  clearAimlapiTopupState(intent)
 
   console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
   console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)

@@ -30,7 +30,7 @@ import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import {
   isCanonicalAimlapiInferenceBaseUrl,
   PARTNER_HEADER_NAME,
-  resolvePartnerId,
+  withResolvedPartnerHeader,
 } from './aimlapi/config.js'
 
 const AIMLAPI_CATALOG_HEADER_NAMES = new Set([
@@ -49,14 +49,7 @@ function resolveRouteOpenAIShimConfig(
   if (routeId !== 'aimlapi' || !config?.headers) return config
 
   if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
-    const headers: Record<string, string> = {}
-    for (const [name, value] of Object.entries(config.headers)) {
-      if (name.trim().toLowerCase() !== PARTNER_HEADER_NAME.toLowerCase()) {
-        headers[name] = value
-      }
-    }
-    headers[PARTNER_HEADER_NAME] = resolvePartnerId()
-    return { ...config, headers }
+    return { ...config, headers: withResolvedPartnerHeader(config.headers) }
   }
 
   return {

@@ -65,10 +65,28 @@ test('unsafe checkout and return URL overrides are rejected', () => {
     buildPartnerCheckoutReturnUrls('https://user:secret@pay.example.test', 'token'),
   ).toEqual({})
   expect(buildPartnerCheckoutReturnUrls('not a URL', 'token')).toEqual({})
+  expect(buildPartnerCheckoutReturnUrls('http://pay.example.test', 'token')).toEqual(
+    {},
+  )
+  expect(
+    buildPartnerCheckoutReturnUrls('https://pay.example.test?environment=test', 'token'),
+  ).toEqual({})
+  expect(
+    buildPartnerCheckoutReturnUrls('https://pay.example.test/#checkout', 'token'),
+  ).toEqual({})
+  expect(buildPartnerCheckoutReturnUrls('http://127.0.0.1:3000/', 'token')).toEqual({
+    successUrl:
+      'http://127.0.0.1:3000/checkout?checkout=success&partnerCheckout=1&sessionToken=token',
+    cancelUrl:
+      'http://127.0.0.1:3000/checkout?checkout=cancel&partnerCheckout=1&sessionToken=token',
+  })
 
   for (const override of [
     'file:///tmp/return',
     'https://user:secret@return.example.test',
+    'http://return.example.test',
+    'https://return.example.test/done?source=test',
+    'https://return.example.test/done#checkout',
     'not a URL',
   ]) {
     process.env.AIMLAPI_RETURN_URL = override

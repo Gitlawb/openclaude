@@ -1,5 +1,9 @@
 import { afterEach, expect, mock, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 mock.module('./topupDependencies.js', () => ({
@@ -7,19 +11,25 @@ mock.module('./topupDependencies.js', () => ({
   saveProfileFile: () => 'profile.json',
   promptText: async () => '',
 }))
-const { pollUntilPaid, provisionAimlapiKey, topUpAimlapiByApiKey } =
+const { pollUntilPaid, provisionAimlapiKey, runAimlapiTopup, topUpAimlapiByApiKey } =
   await import('./topup.js')
 const { AimlapiClient } = await import('./client.js')
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
+  AIMLAPI_AUTH_URL: process.env.AIMLAPI_AUTH_URL,
   AIMLAPI_APP_URL: process.env.AIMLAPI_APP_URL,
   AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
   AIMLAPI_PAY_URL: process.env.AIMLAPI_PAY_URL,
 }
+const temporaryDirectories: string[] = []
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  setClaudeConfigHomeDirForTesting(undefined)
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true })
+  }
   for (const [name, value] of Object.entries(originalEnv)) {
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
@@ -44,6 +54,67 @@ test('isValidAimlapiEmail rejects incomplete domains', () => {
   expect(isValidAimlapiEmail('user@example')).toBe(false)
   expect(isValidAimlapiEmail('user@example.c')).toBe(false)
   expect(isValidAimlapiEmail('user@.example.com')).toBe(false)
+})
+
+test('CLI retries reuse the persisted checkout session and payment id', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+
+  let accountChecks = 0
+  const payBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) {
+      accountChecks += 1
+      return Response.json({ action: accountChecks === 1 ? 'sign-up' : 'sign-in' })
+    }
+    if (url.endsWith('/passwordless')) {
+      return Response.json({ token: 'account-token-one', exp: 1 })
+    }
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      return Response.json({ token: 'account-token-two', exp: 2 })
+    }
+    if (url.endsWith('/v1/keys')) {
+      return Response.json({ key: 'key_test', id: 'key_id' })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return Response.json({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/pay')) {
+      payBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      throw new Error('ambiguous payment response')
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
+      return Response.json({ sessionToken: 'checkout-session', status: 'paid' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('ambiguous payment response')
+
+  const saved = JSON.parse(
+    readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8'),
+  ) as { paymentSessionId: string; resumeSessionToken: string }
+  expect(saved.paymentSessionId).toBeTruthy()
+  expect(saved.resumeSessionToken).toBe('checkout-session')
+  expect(payBodies).toHaveLength(1)
+  expect(payBodies[0]?.paymentSessionId).toBe(saved.paymentSessionId)
+
+  await runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  })
+  expect(payBodies).toHaveLength(1)
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
 test('topUpAimlapiByApiKey funds the key account without exchange', async () => {

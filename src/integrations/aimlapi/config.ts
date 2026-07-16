@@ -137,10 +137,16 @@ function safeHttpBaseUrl(value: string | undefined): string | null {
   if (!candidate) return null
   try {
     const url = new URL(candidate)
+    const loopback =
+      url.hostname === 'localhost' ||
+      url.hostname.startsWith('127.') ||
+      url.hostname === '[::1]'
     if (
-      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+      (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) ||
       url.username ||
-      url.password
+      url.password ||
+      url.search ||
+      url.hash
     ) {
       return null
     }
