@@ -9,6 +9,8 @@ import {
   test,
 } from 'bun:test'
 import { randomUUID } from 'crypto'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 import {
   acquireSharedMutationLock,
@@ -83,6 +85,10 @@ const _realErrorsModule = await import(
 )
 const _realTokensModule = await import(
   `../../utils/tokens.js?real=${Date.now()}-${Math.random()}`
+)
+const compactTestTaskOutputPath = join(
+  tmpdir(),
+  `openclaude-compact-test-${process.pid}-${randomUUID()}`,
 )
 
 const COMPACT_STUB_MODULES = [
@@ -619,7 +625,7 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 
   // --- Task output (DEFENSIVE) ---
   mock.module('../../utils/task/diskOutput.js', () => ({
-    getTaskOutputPath: mock(() => '/tmp/task'),
+    getTaskOutputPath: mock(() => compactTestTaskOutputPath),
   }))
 
   // --- Errors (DEFENSIVE) ---
@@ -810,10 +816,10 @@ async function restoreCompactTestMocks() {
   mock.module('../../utils/projectInstructions.js', () => ({
     ..._realProjectInstructionsModule,
   }))
-  // Clean up the stale /tmp/task symlink left by the mock path.
+  // Clean up only the unique test-owned path returned by the mock above.
   try {
     const { unlink } = await import('fs/promises')
-    await unlink('/tmp/task').catch(() => {})
+    await unlink(compactTestTaskOutputPath).catch(() => {})
   } catch {}
 }
 
