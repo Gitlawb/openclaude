@@ -1320,7 +1320,10 @@ async function* queryLoop(
             messages: prependUserContext(
               injectRequestOnlyMessages(
                 messagesForQuery,
-                params.requestOnlyMessages,
+                // A full compaction replaces the interrupted turn that gave
+                // the correction reminder its meaning. Do not carry that
+                // request-only context into the rewritten conversation.
+                compactionResult ? undefined : params.requestOnlyMessages,
               ),
               userContext,
             ),

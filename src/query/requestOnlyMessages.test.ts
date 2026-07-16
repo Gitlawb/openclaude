@@ -225,12 +225,8 @@ for (const preserveCorrection of [false, true]) {
     )
     expect(userTexts(modelCalls[0]!)).toEqual(
       preserveCorrection
-        ? [
-            'compact summary',
-            INTERRUPTION_CORRECTION_REMINDER,
-            'do Y instead',
-          ]
-        : [INTERRUPTION_CORRECTION_REMINDER, 'compact summary'],
+        ? ['compact summary', 'do Y instead']
+        : ['compact summary'],
     )
     expect(
       yielded.some(

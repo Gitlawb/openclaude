@@ -3146,6 +3146,7 @@ export function REPL({
     logQueryLifecycle('guard_start', queryContext);
     let didThrow = false;
     let interruptionCorrectionRequestOnlyMessages: readonly MessageType[] = [];
+    let preflightVetoed = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3190,12 +3191,19 @@ export function REPL({
           if (onBeforeQueryCallback && input) {
             const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
             if (!shouldProceed) {
+              // No provider request owns this reminder when preflight vetoes
+              // the turn. Return false so handlePromptSubmit restores it for
+              // the next eligible correction prompt.
+              preflightVetoed = true;
               return;
             }
           }
           await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
         }
       });
+      if (preflightVetoed) {
+        return false;
+      }
     } catch (error) {
       didThrow = true;
       throw error;
