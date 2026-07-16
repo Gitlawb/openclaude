@@ -609,6 +609,9 @@ export async function performCodexRequest(options: {
       content?: unknown
     }>,
     options.request.resolvedModel,
+    // Codex Responses flattens structured tool-result text with a single
+    // newline, unlike Chat's double-newline message serialization.
+    { textBlockSeparator: '\n' },
   )
   const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {

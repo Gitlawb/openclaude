@@ -753,6 +753,31 @@ describe('Codex request translation', () => {
     ])
   })
 
+  test('joins structured tool-result text with the Responses separator', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_123', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_123',
+          content: [
+            { type: 'text', text: 'first block' },
+            { type: 'text', text: 'second block' },
+          ],
+        }],
+      },
+    ])
+
+    const output = items.find(item => item.type === 'function_call_output') as
+      | { type: 'function_call_output'; output: string }
+      | undefined
+    expect(output?.output).toBe('first block\nsecond block')
+  })
+
   test('renders tool_reference blocks from ToolSearch results as readable text', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       {
