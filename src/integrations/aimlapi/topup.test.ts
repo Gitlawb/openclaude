@@ -1,9 +1,10 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, expect, mock, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
+import * as realTopupDependencies from './topupDependencies.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 mock.module('./topupDependencies.js', () => ({
@@ -23,6 +24,10 @@ const originalEnv = {
   AIMLAPI_PAY_URL: process.env.AIMLAPI_PAY_URL,
 }
 const temporaryDirectories: string[] = []
+
+afterAll(() => {
+  mock.module('./topupDependencies.js', () => realTopupDependencies)
+})
 
 afterEach(() => {
   globalThis.fetch = originalFetch

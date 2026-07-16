@@ -69,6 +69,9 @@ test('unsafe checkout and return URL overrides are rejected', () => {
     {},
   )
   expect(
+    buildPartnerCheckoutReturnUrls('http://127.0.0.1.evil.example', 'token'),
+  ).toEqual({})
+  expect(
     buildPartnerCheckoutReturnUrls('https://pay.example.test?environment=test', 'token'),
   ).toEqual({})
   expect(
@@ -80,6 +83,9 @@ test('unsafe checkout and return URL overrides are rejected', () => {
     cancelUrl:
       'http://127.0.0.1:3000/checkout?checkout=cancel&partnerCheckout=1&sessionToken=token',
   })
+  expect(buildPartnerReturnUrl('http://127.1:3000/')).toBe(
+    'http://127.0.0.1:3000',
+  )
 
   for (const override of [
     'file:///tmp/return',

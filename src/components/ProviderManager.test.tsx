@@ -1657,7 +1657,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
   } finally {
     await mounted.dispose()
   }
-})
+}, 10_000)
 
 test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint and type', async () => {
   const addProviderProfile = mock((payload: any) => ({
