@@ -530,7 +530,7 @@ test('FIX: 32k window tier → recent=3 keeps last 3 only', async () => {
   }
 })
 
-test('Chat compression omits old and mid-tier inline base64 image payloads', async () => {
+test('Chat compression omits old and mid-tier inline image payloads', async () => {
   mockState.enabled = true
   mockState.effectiveWindow = 100_000
   const imageData = 'a'.repeat(100_000)
@@ -545,9 +545,8 @@ test('Chat compression omits old and mid-tier inline base64 image payloads', asy
           {
             type: 'image',
             source: {
-              type: 'base64',
-              media_type: 'image/png',
-              data: imageData,
+              type: 'url',
+              url: `data:image/png;base64,${imageData}`,
             },
           },
         ],

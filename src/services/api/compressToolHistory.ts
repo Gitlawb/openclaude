@@ -101,17 +101,26 @@ function extractText(content: unknown): string {
   return ''
 }
 
+function isInlineBase64Image(part: unknown): boolean {
+  if (!part || typeof part !== 'object' || (part as { type?: string }).type !== 'image') {
+    return false
+  }
+
+  const source = (part as { source?: { type?: string; url?: string } }).source
+  return source?.type === 'base64' ||
+    (
+      source?.type === 'url' &&
+      typeof source.url === 'string' &&
+      /^data:image\/[^;,]+;base64,/i.test(source.url)
+    )
+}
+
 function omitInlineBase64Images(block: ToolResultBlock): ToolResultBlock {
   if (!Array.isArray(block.content)) return block
 
   let omittedImage = false
   const content = block.content.map(part => {
-    if (
-      part &&
-      typeof part === 'object' &&
-      (part as { type?: string }).type === 'image' &&
-      (part as { source?: { type?: string } }).source?.type === 'base64'
-    ) {
+    if (isInlineBase64Image(part)) {
       omittedImage = true
       return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
     }
