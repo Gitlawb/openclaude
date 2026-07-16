@@ -14,6 +14,16 @@ import {
 import type { Message } from '../../types/message.js'
 import * as realConfig from '../../utils/config.js'
 
+const realContext = await import(
+  `../../utils/context.js?real=${Date.now()}-${Math.random()}`
+)
+const realErrors = await import(
+  `../../utils/errors.js?real=${Date.now()}-${Math.random()}`
+)
+const realTokens = await import(
+  `../../utils/tokens.js?real=${Date.now()}-${Math.random()}`
+)
+
 const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
 
 type ImportAutoCompactOptions = {
@@ -22,6 +32,11 @@ type ImportAutoCompactOptions = {
 }
 
 async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
+  // compact.test.ts uses process-global module stubs. Re-register the real
+  // dependencies this standalone suite needs before importing autoCompact.
+  mock.module('../../utils/context.js', () => ({ ...realContext }))
+  mock.module('../../utils/errors.js', () => ({ ...realErrors }))
+  mock.module('../../utils/tokens.js', () => ({ ...realTokens }))
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
     getGlobalConfig: () => ({ autoCompactEnabled: true }),

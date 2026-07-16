@@ -748,10 +748,20 @@ afterAll(async () => {
   mock.module('../../utils/tokens.js', () => ({ ..._realTokensModule }))
   // Keep the cleanup load-bearing: these modules are consumed by standalone
   // auto-compact tests when this file happens to run first in the smoke suite.
-  const [restoredContext, restoredErrors, restoredTokens] = await Promise.all([
+  const [
+    restoredContext,
+    restoredErrors,
+    restoredTokens,
+    restoredTokenEstimation,
+    restoredClaudeApi,
+    restoredGrowthBook,
+  ] = await Promise.all([
     import('../../utils/context.js'),
     import('../../utils/errors.js'),
     import('../../utils/tokens.js'),
+    import('../tokenEstimation.js'),
+    import('../api/claude.js'),
+    import('../analytics/growthbook.js'),
   ])
   expect(restoredContext.getContextWindowForModel).toBe(
     _realContextModule.getContextWindowForModel,
@@ -761,6 +771,15 @@ afterAll(async () => {
   )
   expect(restoredTokens.tokenCountWithEstimation).toBe(
     _realTokensModule.tokenCountWithEstimation,
+  )
+  expect(restoredTokenEstimation.roughTokenCountEstimation).toBe(
+    _realTokenEstimationModule.roughTokenCountEstimation,
+  )
+  expect(restoredClaudeApi.getMaxOutputTokensForModel).toBe(
+    _realClaudeApiModule.getMaxOutputTokensForModel,
+  )
+  expect(restoredGrowthBook.getFeatureValue_CACHED_MAY_BE_STALE).toBe(
+    _realGrowthBookModule.getFeatureValue_CACHED_MAY_BE_STALE,
   )
   // projectInstructions: the stub above replaces the whole module with only
   // getProjectInstructionFilePaths, so every other export becomes undefined.
