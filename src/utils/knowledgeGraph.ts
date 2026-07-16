@@ -434,6 +434,29 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
     // Retire BOTH live legacy sources (and WAL sidecars) so a fresh process does not remigrate (H5)
     const legacyPath = getLegacyGraphPath()
     const sqlitePath = getLegacySqlitePath()
+
+    // Archive the non-selected source before retiring it, so a recoverable
+    // snapshot exists if generated fact files are incomplete or a migration
+    // bug is discovered. The selected source was already backed up above.
+    for (const p of [legacyPath, sqlitePath]) {
+      if (p !== sourcePath && existsSync(p)) {
+        const altBackupPath = `${p}.migration-backup`
+        try {
+          writeFileSync(altBackupPath, readFileSync(p))
+          if (p === sqlitePath) {
+            for (const sidecar of ['-wal', '-shm']) {
+              const sidecarPath = `${p}${sidecar}`
+              if (existsSync(sidecarPath)) {
+                writeFileSync(`${sidecarPath}.migration-backup`, readFileSync(sidecarPath))
+              }
+            }
+          }
+        } catch {
+          console.error(`[knowledgeGraph] Legacy migration: cannot create backup for ${p}`)
+        }
+      }
+    }
+
     if (existsSync(legacyPath)) {
       try { rmSync(legacyPath, { force: true }) } catch { /* non-fatal */ }
     }

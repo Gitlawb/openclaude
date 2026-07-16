@@ -21,6 +21,7 @@ import {
 } from '../memdir/vectorIndex.js'
 import { extractKeywords } from './knowledgeGraph.js'
 import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
+import { redactLikelySecrets } from './redaction.js'
 
 export interface Goal {
   id: string
@@ -234,7 +235,7 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       const goalPattern = /\b(?:implement|add|create|build|write|fix|make)\s+(?:a\s+|an\s+)?(.{3,80}?)(?:\.|$)/gi
       let gmatch: RegExpExecArray | null
       while ((gmatch = goalPattern.exec(content)) !== null) {
-        const desc = gmatch[1].trim()
+        const desc = redactLikelySecrets(gmatch[1].trim())
         const normDesc = desc.toLowerCase().replace(/\s+/g, ' ')
         if (desc.length > 3 && !arc.goals.some(g => g.description.toLowerCase().replace(/\s+/g, ' ') === normDesc)) {
           arc.goals.push({
@@ -254,7 +255,7 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       const decisionPattern = /\b(?:decided\s+to|decided\s+on|chose|switching\s+to|using|preferring)\s+(.{10,120}?)(?:\.|$)/gi
       let dmatch: RegExpExecArray | null
       while ((dmatch = decisionPattern.exec(content)) !== null) {
-        const desc = dmatch[1].trim()
+        const desc = redactLikelySecrets(dmatch[1].trim())
         const normDesc = desc.toLowerCase().replace(/\s+/g, ' ')
         if (desc.length > 5 && !arc.decisions.some(d => d.description.toLowerCase().replace(/\s+/g, ' ') === normDesc)) {
           arc.decisions.push({
@@ -555,10 +556,19 @@ export async function appendArcToSystemPrompt(
           + `Total Tokens: ${stats.totalTokens}\n`
           + `Average Tokens Per Turn: ${stats.avgTokensPerTurn}\n`
         const recent = getRecentTurns(3)
+        const MAX_TOOL_INPUT_CHARS = 2000
         for (const turn of recent) {
+          const toolCallsStr = turn.toolCalls.map(tc => {
+            const input = JSON.stringify(tc.input)
+            const redacted = redactLikelySecrets(input)
+            const truncated = redacted.length > MAX_TOOL_INPUT_CHARS
+              ? redacted.slice(0, MAX_TOOL_INPUT_CHARS) + '...[truncated]'
+              : redacted
+            return `${tc.name}(${truncated})`
+          }).join(', ') || 'None'
           multiTurnContent += `- Turn ID: ${turn.turnId}\n`
             + `  Duration: ${Math.round((Date.now() - turn.startTime) / 1000)}s ago\n`
-            + `  Tool Calls: ${turn.toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.input)})`).join(', ') || 'None'}\n`
+            + `  Tool Calls: ${toolCallsStr}\n`
         }
         multiTurnContent += '--- END MULTI-TURN CONTEXT TRACKING ---\n'
       }
