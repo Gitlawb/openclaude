@@ -4,13 +4,10 @@ import type { ModelOption } from './modelOptions.js'
 function toDescription(
   entry: ModelCatalogEntry,
   routeLabel: string,
-  routeDefaultModel?: string,
+  isRouteDefault: boolean,
 ): string {
   const parts: string[] = []
-  const isRecommended =
-    entry.default ||
-    (routeDefaultModel !== undefined &&
-      entry.apiName.trim().toLowerCase() === routeDefaultModel.trim().toLowerCase())
+  const isRecommended = entry.default || isRouteDefault
 
   if (isRecommended) {
     parts.push('Recommended')
@@ -52,6 +49,9 @@ export function buildRouteCatalogModelOptions(
   const seen = new Set<string>()
   const options: ModelOption[] = []
   const apiNameCounts = new Map<string, number>()
+  const normalizedRouteDefault = routeDefaultModel?.trim().toLowerCase()
+  const routeDefaultMatchesEntryId = normalizedRouteDefault !== undefined &&
+    entries.some(entry => entry.id.trim().toLowerCase() === normalizedRouteDefault)
   for (const entry of entries) {
     const key = entry.apiName.trim().toLowerCase()
     apiNameCounts.set(key, (apiNameCounts.get(key) ?? 0) + 1)
@@ -68,7 +68,11 @@ export function buildRouteCatalogModelOptions(
 
     seen.add(value.toLowerCase())
     const label = entry.label?.trim() || value
-    const description = toDescription(entry, routeLabel, routeDefaultModel)
+    const isRouteDefault = normalizedRouteDefault !== undefined &&
+      (routeDefaultMatchesEntryId
+        ? entry.id.trim().toLowerCase() === normalizedRouteDefault
+        : apiName.toLowerCase() === normalizedRouteDefault)
+    const description = toDescription(entry, routeLabel, isRouteDefault)
 
     options.push({
       value,
