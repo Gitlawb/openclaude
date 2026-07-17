@@ -54,6 +54,28 @@ test('does not arm after the model turn has completed', async () => {
   expect(tracker.takeReminder()).toBeNull()
 })
 
+test('keeps correction ownership through post-response tool work', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(queryGuard, () => 'session-a')
+  const turn = queryGuard.tryStart({
+    queryId: 'tool-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+
+  // The provider response completed and handed the turn off to a tool. The
+  // active query is not terminal yet, so cancellation must still arm context.
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({ isUserInitiated: true, isRemoteMode: false })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
+})
+
 test('clears a pending reminder when the interrupted context is rewritten', () => {
   const queryGuard = new QueryGuard()
   const tracker = new InterruptionCorrectionTracker(

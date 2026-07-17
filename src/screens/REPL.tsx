@@ -3082,11 +3082,6 @@ export function REPL({
             onModelRequestStart?.()
           }
         : undefined,
-      onModelRequestEnd: interruptionCorrectionQueryId
-        ? () => interruptionCorrectionTracker.finishModelTurn(
-            interruptionCorrectionQueryId,
-          )
-        : undefined,
       systemPrompt,
       userContext,
       systemContext,
@@ -3227,6 +3222,10 @@ export function REPL({
       }
       throw error;
     } finally {
+      // A provider response can hand off to tools before the assistant turn
+      // finishes. Keep correction ownership through that work (and retries),
+      // then clear it only when this query reaches its terminal cleanup.
+      interruptionCorrectionTracker.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();

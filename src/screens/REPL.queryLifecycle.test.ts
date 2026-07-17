@@ -24,6 +24,14 @@ function getQueryFinallyBody(): string {
   return source.slice(finallyStart, finallyEnd)
 }
 
+function getOnQueryImplBody(): string {
+  const start = source.indexOf('const onQueryImpl = useCallback')
+  expect(start).toBeGreaterThan(-1)
+  const end = source.indexOf('const onQuery = useCallback', start)
+  expect(end).toBeGreaterThan(start)
+  return source.slice(start, end)
+}
+
 describe('REPL query lifecycle timeout logging', () => {
   test('constructs QueryGuard with resolved hard max config', () => {
     expect(source).toContain(
@@ -64,6 +72,16 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(body).toContain("guardCompletedContext?.terminalReason === 'hard-max-query-timeout'")
     expect(body).toContain('guardCompletedContext.queryGeneration === thisGeneration')
     expect(body).toContain('logCompletedLifecycle(guardCompletedContext)')
+  })
+
+  test('keeps correction ownership through post-response tool work', () => {
+    const impl = getOnQueryImplBody()
+    const finallyBody = getQueryFinallyBody()
+
+    expect(impl).not.toContain('onModelRequestEnd: interruptionCorrectionQueryId')
+    expect(finallyBody).toContain(
+      'interruptionCorrectionTracker.finishModelTurn(queryContext.queryId)',
+    )
   })
 
   test('executes correction arming and consumption through QueryGuard', () => {
