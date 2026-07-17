@@ -310,7 +310,7 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
         baseUrl: 'https://api.moonshot.ai/v1',
         processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
       }),
-    ).toEqual({ contextWindow: 1_048_576, maxOutputTokens: 1_048_576 })
+    ).toEqual({ contextWindow: 1_048_576, maxOutputTokens: 32_768 })
 
     expect(
       resolveModelRuntimeLimits({

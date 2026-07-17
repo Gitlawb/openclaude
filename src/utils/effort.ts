@@ -966,6 +966,14 @@ export function resolveAppliedEffort(
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model, context)
   const control = resolveModelReasoningControl(model, context)
   if (
+    resolved === 'xhigh' &&
+    control.source === 'metadata' &&
+    control.wireFormat === 'reasoning_effort' &&
+    control.levels.includes('max')
+  ) {
+    return 'max'
+  }
+  if (
     typeof resolved === 'string' &&
     (control.source === 'metadata' || control.source === 'capability' || control.source === 'compat') &&
     control.levels.length > 0 &&
