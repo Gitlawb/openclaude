@@ -527,6 +527,30 @@ The previous assistant turn was interrupted by the user. Treat the user's latest
   ).toEqual({ pendingSessionId: null, reminder: null })
 })
 
+test('clears a pending reminder when switching sessions', () => {
+  const queryGuard = new QueryGuard()
+  let sessionId = 'session-a'
+  const tracker = new InterruptionCorrectionTracker(queryGuard, () => sessionId)
+  const turn = queryGuard.tryStart({
+    queryId: 'interrupted-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({ isUserInitiated: true, isRemoteMode: false })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  sessionId = 'session-b'
+  tracker.handleSessionChange()
+  sessionId = 'session-a'
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
 test('keeps the correction reminder in one request without persisting it', () => {
   const priorMessage = createUserMessage({ content: 'start with X' })
   const reminder = consumeInterruptionCorrectionReminder(

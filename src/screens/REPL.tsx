@@ -2018,6 +2018,7 @@ export function REPL({
       // Clear any active loading state (no queryId since we're not in a query)
       resetLoadingState();
       setAbortController(null);
+      interruptionCorrectionTracker.handleSessionChange();
       setConversationId(sessionId);
 
       // Get target session's costs BEFORE saving current session

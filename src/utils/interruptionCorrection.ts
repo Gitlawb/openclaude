@@ -239,6 +239,12 @@ export class InterruptionCorrectionTracker {
     this.pendingSessionId = this.getSessionId()
   }
 
+  handleSessionChange(): void {
+    this.pendingSessionId = null
+    this.modelBoundQueryId = null
+    this.preservePendingReminderForRewrite = false
+  }
+
   takeReminder(): UserMessage | null {
     const result = consumeInterruptionCorrectionReminder(
       this.pendingSessionId,

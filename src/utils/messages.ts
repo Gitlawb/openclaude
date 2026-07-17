@@ -1414,6 +1414,26 @@ export function normalizeMessagesForAPI(
         ) as typeof block.content,
       }
     })
+  const stripMediaFromUserMessage = (
+    message: UserMessage,
+    types: Set<string>,
+  ): UserMessage => {
+    const content = message.message.content
+    if (!Array.isArray(content)) return message
+    const filtered = stripTargetsFromContent(content, types)
+    return {
+      ...message,
+      message: {
+        ...message.message,
+        content: filtered.length > 0
+          ? filtered
+          : [{
+              type: 'text',
+              text: '[Media removed after provider rejection.]',
+            }],
+      },
+    }
+  }
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
@@ -1459,6 +1479,16 @@ export function normalizeMessagesForAPI(
   // Walk the reordered messages to build a targeted strip map:
   // userMessageUUID → set of block types to strip from that message.
   const stripTargets = new Map<string, Set<string>>()
+  const addStripTarget = (uuid: string, types: Set<string>): void => {
+    const existing = stripTargets.get(uuid)
+    if (existing) {
+      for (const type of types) {
+        existing.add(type)
+      }
+      return
+    }
+    stripTargets.set(uuid, new Set(types))
+  }
   for (let i = 0; i < reorderedMessages.length; i++) {
     const msg = reorderedMessages[i]!
     if (!isSyntheticApiErrorMessage(msg)) {
@@ -1491,13 +1521,16 @@ export function normalizeMessagesForAPI(
         ) {
           continue
         }
-        const existing = stripTargets.get(candidate.uuid)
-        if (existing) {
-          for (const t of blockTypesToStrip) {
-            existing.add(t)
-          }
-        } else {
-          stripTargets.set(candidate.uuid, new Set(blockTypesToStrip))
+        addStripTarget(candidate.uuid, blockTypesToStrip)
+        continue
+      }
+      if (candidate.type === 'attachment') {
+        const normalized = normalizeAttachmentForAPI(candidate.attachment)
+        if (normalized.some(message =>
+          Array.isArray(message.message.content) &&
+          containsStripTarget(message.message.content, blockTypesToStrip)
+        )) {
+          addStripTarget(candidate.uuid, blockTypesToStrip)
         }
         continue
       }
@@ -1505,8 +1538,12 @@ export function normalizeMessagesForAPI(
       if (isSyntheticApiErrorMessage(candidate)) {
         continue
       }
-      // Stop if we hit an assistant message or other non-user message.
-      break
+      // Only an assistant message starts an earlier API turn. Progress and
+      // filtered system records are not sent to the provider and must not
+      // prevent cleanup of media in the failed request.
+      if (candidate.type === 'assistant') {
+        break
+      }
     }
   }
 
@@ -1589,21 +1626,10 @@ export function normalizeMessagesForAPI(
           // the problematic content on every subsequent API call.
           const typesToStrip = stripTargets.get(normalizedMessage.uuid)
           if (typesToStrip) {
-            const content = normalizedMessage.message.content
-            if (Array.isArray(content)) {
-              const filtered = stripTargetsFromContent(content, typesToStrip)
-              if (filtered.length === 0) {
-                // All content blocks were stripped; skip this message entirely
-                return
-              }
-              normalizedMessage = {
-                ...normalizedMessage,
-                message: {
-                  ...normalizedMessage.message,
-                  content: filtered,
-                },
-              }
-            }
+            normalizedMessage = stripMediaFromUserMessage(
+              normalizedMessage,
+              typesToStrip,
+            )
           }
 
           // Server renders tool_reference expansion as <functions>...</functions>
@@ -1759,11 +1785,20 @@ export function normalizeMessagesForAPI(
           const rawAttachmentMessage = normalizeAttachmentForAPI(
             message.attachment,
           )
+          const typesToStrip = stripTargets.get(message.uuid)
+          const strippedAttachmentMessage = typesToStrip
+            ? rawAttachmentMessage.map(attachmentMessage => {
+                return stripMediaFromUserMessage(
+                  attachmentMessage,
+                  typesToStrip,
+                )
+              })
+            : rawAttachmentMessage
           const attachmentMessage = checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
             'tengu_chair_sermon',
           )
-            ? rawAttachmentMessage.map(ensureSystemReminderWrap)
-            : rawAttachmentMessage
+            ? strippedAttachmentMessage.map(ensureSystemReminderWrap)
+            : strippedAttachmentMessage
 
           // If the last message is also a user message, merge them
           const lastMessage = last(result)

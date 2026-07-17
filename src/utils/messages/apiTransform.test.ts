@@ -14,6 +14,7 @@ import {
   stripToolReferenceBlocksFromUserMessage,
 } from './apiTransform.js'
 import type { UserMessage } from '../../types/message.js'
+import { createAttachmentMessage } from '../attachments.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
@@ -82,6 +83,52 @@ describe('appendMessageTagToUserMessage', () => {
 
     expect(retryContent).toContain('describe this image')
     expect(retryContent).not.toContain('oversized-pasted-image')
+  })
+
+  test('keeps a placeholder for an image-only pasted prompt on retry', () => {
+    const prompt = createUserMessage({
+      content: [{
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'image-only-prompt',
+        },
+      }],
+    })
+    const retry = normalizeMessagesForAPI([
+      prompt,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('Media removed after provider rejection.')
+    expect(retryContent).not.toContain('image-only-prompt')
+  })
+
+  test('retries strip rejected media from a file attachment', () => {
+    const attachment = createAttachmentMessage({
+      type: 'file',
+      filename: '/tmp/oversized.png',
+      displayPath: 'oversized.png',
+      content: {
+        type: 'image',
+        file: {
+          base64: 'attachment-image',
+          type: 'image/png',
+          originalSize: 1,
+        },
+      },
+    })
+    const retry = normalizeMessagesForAPI([
+      createUserMessage({ content: 'describe this file' }),
+      attachment,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry.map(message => message.message.content))
+
+    expect(retryContent).toContain('Media removed after provider rejection.')
+    expect(retryContent).not.toContain('attachment-image')
   })
 
   test('retries strip rejected media nested in a tool result', () => {

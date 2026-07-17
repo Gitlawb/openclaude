@@ -32,6 +32,16 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(source).toContain('new QueryGuard(getQueryGuardOptionsFromEnv())')
   })
 
+  test('clears interruption-correction state before resuming another session', () => {
+    const switchSessionIndex = source.indexOf('switchSession(asSessionId(sessionId)')
+    const sessionChangeIndex = source.indexOf(
+      'interruptionCorrectionTracker.handleSessionChange()',
+    )
+    expect(switchSessionIndex).toBeGreaterThan(-1)
+    expect(sessionChangeIndex).toBeGreaterThan(-1)
+    expect(sessionChangeIndex).toBeLessThan(switchSessionIndex)
+  })
+
   test('does not emit terminal timeout end from timeout handler', () => {
     const body = getAbortTimedOutQueryBody()
     const queueMicrotaskIndex = body.indexOf('queueMicrotask(() => {')
