@@ -305,6 +305,7 @@ function resolveRouteCatalogAliasApiName(options: {
     baseUrl: options.baseUrl,
     model: options.model,
     treatAsLocal: options.baseUrl ? isLocalProviderUrl(options.baseUrl) : false,
+    preferBaseUrlRoute: options.baseUrl !== undefined,
   })
   const routeId = runtimeShimContext.routeId
   if (!routeId || routeId === 'anthropic' || routeId === 'openai') {

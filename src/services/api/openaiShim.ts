@@ -4319,9 +4319,6 @@ class OpenAIShimMessages {
       content?: unknown
     }>
     const runtimeModel = request.requestedModel
-    const compressedMessages = fastPath.skipToolHistoryCompression
-      ? rawMessages
-      : compressToolHistory(rawMessages, runtimeModel)
     const runtimeShimContext = resolveOpenAIShimRuntimeContext({
       processEnv: requestProcessEnv,
       baseUrl: request.baseUrl,
@@ -4329,6 +4326,16 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
       preferBaseUrlRoute: Boolean(this.providerOverride),
     })
+    const compressedMessages = fastPath.skipToolHistoryCompression
+      ? rawMessages
+      : compressToolHistory(rawMessages, runtimeModel, {
+          runtimeLimits: runtimeShimContext.catalogEntry
+            ? {
+                contextWindow: runtimeShimContext.catalogEntry.contextWindow,
+                maxOutputTokens: runtimeShimContext.catalogEntry.maxOutputTokens,
+              }
+            : undefined,
+        })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
     // API contract rather than request.transport from providerConfig.

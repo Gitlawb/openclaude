@@ -62,6 +62,19 @@ test('resolveProviderRequest maps K3 context catalog choices to the Kimi API mod
   }
 })
 
+test('resolveProviderRequest maps K3 context choices against an explicit Kimi base URL', () => {
+  const request = resolveProviderRequest({
+    model: 'k3-256k',
+    baseUrl: 'https://api.kimi.com/coding/v1',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+  })
+
+  expect(request.resolvedModel).toBe('k3')
+})
+
 test('resolveProviderRequest preserves K3 max reasoning from its model query', () => {
   const request = resolveProviderRequest({
     model: 'k3?reasoning=max',

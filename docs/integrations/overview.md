@@ -126,6 +126,19 @@ fields. Only add `reasoning` metadata when the exact route/model request shape,
 accepted levels, and disable behavior have been verified. See
 `docs/integrations/reasoning-effort.md`.
 
+### Moonshot and Kimi K3 catalogs
+
+The direct Moonshot API exposes Kimi K3 as `kimi-k3`, with a 1,048,576-token
+context window, 32,768 maximum output tokens, and `reasoning_effort: "max"` as
+its only supported reasoning control. The Kimi Code subscription endpoint uses
+the `k3` API model for two catalog selections: `k3` provides the 1M Allegretto+
+window, while `k3-256k` keeps Moderato+ sessions within their 256K limit.
+
+Kimi Code also lists `kimi-for-coding-highspeed` for eligible Allegretto+
+subscriptions. It uses six times the speed and three times the quota; retain
+the selected catalog ID in client-side routing so its route-specific limits and
+capabilities are not lost when the outbound API model is normalized.
+
 ## Descriptor Authoring Pattern
 
 Normal descriptor files should:

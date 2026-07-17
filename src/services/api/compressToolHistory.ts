@@ -391,6 +391,7 @@ export function compressToolHistory<T extends AnyMessage>(
   options: {
     effectiveContextWindowSize?: number
     textBlockSeparator?: string
+    runtimeLimits?: { contextWindow?: number; maxOutputTokens?: number }
   } = {},
 ): T[] {
   // Master kill-switch. Returns the original reference so callers skip a
@@ -401,7 +402,10 @@ export function compressToolHistory<T extends AnyMessage>(
   if (!compressionEnabled) return messages
 
   const tiers = getTiers(
-    options.effectiveContextWindowSize ?? getEffectiveContextWindowSize(model),
+    options.effectiveContextWindowSize ?? getEffectiveContextWindowSize(
+      model,
+      options.runtimeLimits,
+    ),
   )
   const textBlockSeparator = options.textBlockSeparator ?? '\n\n'
 

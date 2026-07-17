@@ -35,12 +35,24 @@ import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000
 
 // Returns the context window size minus the max output tokens for the model
-export function getEffectiveContextWindowSize(model: string): number {
+export function getEffectiveContextWindowSize(
+  model: string,
+  runtimeLimits?: { contextWindow?: number; maxOutputTokens?: number },
+): number {
   const reservedTokensForSummary = Math.min(
-    getMaxOutputTokensForModel(model),
+    runtimeLimits?.maxOutputTokens === undefined
+      ? getMaxOutputTokensForModel(model)
+      : Math.min(
+          runtimeLimits.maxOutputTokens,
+          getMaxOutputTokensForModel(model),
+        ),
     MAX_OUTPUT_TOKENS_FOR_SUMMARY,
   )
-  let contextWindow = getContextWindowForModel(model, getSdkBetas())
+  let contextWindow = getContextWindowForModel(
+    model,
+    getSdkBetas(),
+    runtimeLimits,
+  )
 
   const autoCompactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
   if (autoCompactWindow) {

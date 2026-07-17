@@ -268,6 +268,40 @@ describe('getEffectiveContextWindowSize', () => {
       restoreEnv()
     }
   })
+
+  test('uses explicit route runtime limits instead of ambient provider state', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+
+    expect(getEffectiveContextWindowSize('k3-256k', {
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })).toBe(242_144)
+  })
+
+  test('keeps internal context caps above explicit route runtime limits', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+    process.env.USER_TYPE = 'ant'
+    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = '100000'
+
+    expect(getEffectiveContextWindowSize('k3-256k', {
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })).toBe(80_000)
+  })
+
+  test('keeps session context caps above explicit route runtime limits', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+    realContext.setSessionContextWindowOverride('k3-256k', 150_000)
+
+    try {
+      expect(getEffectiveContextWindowSize('k3-256k', {
+        contextWindow: 262_144,
+        maxOutputTokens: 32_768,
+      })).toBe(130_000)
+    } finally {
+      realContext.clearSessionContextWindowOverride('k3-256k')
+    }
+  })
 })
 
 describe('getAutoCompactThreshold', () => {
