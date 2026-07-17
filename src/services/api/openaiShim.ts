@@ -366,49 +366,64 @@ async function fetchWithHeadersDeadline(
     timeoutMs: number
   },
 ): Promise<Response> {
-  const deadlineController = new AbortController()
-  const timeoutReason = new ResponseHeadersTimeoutError(
-    options.timeoutMs,
-    redactUrlForDiagnostics(url),
-  )
-  const {
-    signal,
-    cleanupAfterHeaders,
-    cleanup,
-    cleanupAfterBody,
-  } = combineRequestSignals(options.callerSignal, deadlineController.signal)
-  const timer = setTimeout(
-    () => deadlineController.abort(timeoutReason),
-    options.timeoutMs,
-  )
-  timer.unref?.()
+  const redactedUrl = redactUrlForDiagnostics(url)
+  const fetchWithAttemptDeadline: typeof fetch = async (input, attemptInit) => {
+    const deadlineController = new AbortController()
+    const timeoutReason = new ResponseHeadersTimeoutError(
+      options.timeoutMs,
+      redactedUrl,
+    )
+    const {
+      signal,
+      cleanupAfterHeaders,
+      cleanup,
+      cleanupAfterBody,
+    } = combineRequestSignals(options.callerSignal, deadlineController.signal)
+    const timer = setTimeout(
+      () => deadlineController.abort(timeoutReason),
+      options.timeoutMs,
+    )
+    timer.unref?.()
 
-  let headersReceived = false
-  try {
-    const response = await fetchWithProxyRetry(url, { ...init, signal })
-    headersReceived = true
-    return cleanupAfterBody
-      ? wrapResponseBodyWithCleanup(response, cleanupAfterBody)
-      : response
-  } catch (error) {
-    if (options.callerSignal?.aborted) {
-      throw preserveCallerAbortError(error, options.callerSignal)
-    }
-    if (
-      deadlineController.signal.aborted &&
-      deadlineController.signal.reason === timeoutReason
-    ) {
-      throw timeoutReason
-    }
-    throw error
-  } finally {
-    clearTimeout(timer)
-    if (headersReceived) {
-      cleanupAfterHeaders()
-    } else {
-      cleanup()
+    let headersReceived = false
+    try {
+      const response = await fetch(input, { ...attemptInit, signal })
+      if (signal.aborted) {
+        throw (
+          signal.reason ??
+          new DOMException('The operation was aborted.', 'AbortError')
+        )
+      }
+      headersReceived = true
+      return cleanupAfterBody
+        ? wrapResponseBodyWithCleanup(response, cleanupAfterBody)
+        : response
+    } catch (error) {
+      if (options.callerSignal?.aborted) {
+        throw preserveCallerAbortError(error, options.callerSignal)
+      }
+      if (
+        deadlineController.signal.aborted &&
+        deadlineController.signal.reason === timeoutReason
+      ) {
+        throw timeoutReason
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      if (headersReceived) {
+        cleanupAfterHeaders()
+      } else {
+        cleanup()
+      }
     }
   }
+
+  return fetchWithProxyRetry(
+    url,
+    { ...init, signal: options.callerSignal },
+    { fetcher: fetchWithAttemptDeadline },
+  )
 }
 
 async function readWithIdleTimeout(

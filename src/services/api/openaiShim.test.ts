@@ -7142,6 +7142,31 @@ test('deadline wins when an abort-ignoring fetch resolves 504 afterward', async 
   expect(fetchCalls).toBe(1)
 })
 
+test('gives a proxy retry its own response-header deadline', async () => {
+  process.env.API_TIMEOUT_MS = '50'
+  let fetchCalls = 0
+  globalThis.fetch = (async () => {
+    fetchCalls++
+    if (fetchCalls === 1) {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      return new Response('Gateway Timeout', { status: 504 })
+    }
+    await new Promise(resolve => setTimeout(resolve, 30))
+    return makeChatCompletionResponse('gpt-4o-mini')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const response = await client.beta.messages.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(response).toBeDefined()
+  expect(fetchCalls).toBe(2)
+})
+
 test('bounds nested URL decoding while retaining encoded secret redaction', async () => {
   const secret = 'route/key+AbC123'
   const secretVariants = [secret]
