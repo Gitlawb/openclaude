@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -136,6 +143,49 @@ test('sign-in key cache round-trips by normalized email and clears', () => {
   // A different email must not read this key.
   expect(loadAimlapiSignInKey('other@example.com')).toBeNull()
 
-  clearAimlapiSignInKey()
+  clearAimlapiSignInKey('user@example.com', 'id_signin')
   expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+})
+
+test('sign-in key cache rejects records missing the key identifier', () => {
+  const directory = useTemporaryConfig()
+  const cachePath = join(directory, 'aimlapi-signin-key.json')
+
+  // A persisted record without a usable apiKeyId cannot bypass createKey.
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ email: 'user@example.com', apiKey: 'k_signin', apiKeyId: '' }),
+  )
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ email: 'user@example.com', apiKey: 'k_signin' }),
+  )
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+
+  // The save guard refuses to persist an incomplete receipt in the first place.
+  rmSync(cachePath, { force: true })
+  saveAimlapiSignInKey('user@example.com', 'k_signin', '  ')
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+  expect(existsSync(cachePath)).toBe(false)
+})
+
+test('sign-in key clear leaves a newer cached record intact', () => {
+  useTemporaryConfig()
+  saveAimlapiSignInKey('user@example.com', 'k_signin', 'id_signin')
+
+  // A concurrent flow replaced the cache with a newer key for another email.
+  saveAimlapiSignInKey('other@example.com', 'k_other', 'id_other')
+
+  // The stale completion for the original email/id must not delete it.
+  clearAimlapiSignInKey('user@example.com', 'id_signin')
+  expect(loadAimlapiSignInKey('other@example.com')).toEqual({
+    apiKey: 'k_other',
+    apiKeyId: 'id_other',
+  })
+
+  // The owning flow still clears its own record.
+  clearAimlapiSignInKey('other@example.com', 'id_other')
+  expect(loadAimlapiSignInKey('other@example.com')).toBeNull()
 })

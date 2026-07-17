@@ -83,8 +83,7 @@ function waitForLock(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS)
 }
 
-function withStateLock<T>(operation: () => T): T {
-  const target = statePath()
+function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   const lockPath = `${target}.lock`
   mkdirSync(dirname(target), { recursive: true })
   const deadline = Date.now() + LOCK_TIMEOUT_MS
@@ -359,29 +358,37 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }
 
+// A cached receipt is only useful if it can bypass createKey, which needs both
+// the key and its identifier; treat a record missing either as absent so the
+// flow mints a fresh, complete credential rather than propagating an empty id.
+function isSignInKey(value: unknown): value is AimlapiSignInKey {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.email === 'string' &&
+    typeof record.apiKey === 'string' &&
+    Boolean(record.apiKey.trim()) &&
+    typeof record.apiKeyId === 'string' &&
+    Boolean(record.apiKeyId.trim())
+  )
+}
+
+function readSignInKeyUnlocked(): AimlapiSignInKey | null {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(signInKeyPath(), 'utf8'))
+    return isSignInKey(raw) ? raw : null
+  } catch {
+    // Missing/corrupt cache: mint a fresh key.
+    return null
+  }
+}
+
 export function loadAimlapiSignInKey(
   email: string,
 ): { apiKey: string; apiKeyId: string } | null {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(signInKeyPath(), 'utf8'))
-    if (
-      typeof raw === 'object' &&
-      raw !== null &&
-      typeof (raw as Record<string, unknown>).email === 'string' &&
-      (raw as AimlapiSignInKey).email === normalizeEmail(email) &&
-      typeof (raw as Record<string, unknown>).apiKey === 'string' &&
-      (raw as AimlapiSignInKey).apiKey.trim()
-    ) {
-      const record = raw as AimlapiSignInKey
-      return {
-        apiKey: record.apiKey,
-        apiKeyId: typeof record.apiKeyId === 'string' ? record.apiKeyId : '',
-      }
-    }
-  } catch {
-    // Missing/corrupt cache: mint a fresh key.
-  }
-  return null
+  const record = readSignInKeyUnlocked()
+  if (!record || record.email !== normalizeEmail(email)) return null
+  return { apiKey: record.apiKey, apiKeyId: record.apiKeyId }
 }
 
 export function saveAimlapiSignInKey(
@@ -389,24 +396,38 @@ export function saveAimlapiSignInKey(
   apiKey: string,
   apiKeyId: string,
 ): void {
-  if (!apiKey.trim()) return
+  if (!apiKey.trim() || !apiKeyId.trim()) return
   const target = signInKeyPath()
-  mkdirSync(dirname(target), { recursive: true })
-  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
   const record: AimlapiSignInKey = { email: normalizeEmail(email), apiKey, apiKeyId }
-  try {
-    writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    })
-    chmodSync(temporary, 0o600)
-    renameSync(temporary, target)
-  } finally {
-    rmSync(temporary, { force: true })
-  }
+  withStateLock(() => {
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
+    try {
+      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      })
+      chmodSync(temporary, 0o600)
+      renameSync(temporary, target)
+    } finally {
+      rmSync(temporary, { force: true })
+    }
+  }, target)
 }
 
-export function clearAimlapiSignInKey(): void {
-  rmSync(signInKeyPath(), { force: true })
+// Delete the cache only when it still holds the record this flow saved. A stale
+// completion must not remove a newer key another concurrent flow cached for a
+// different email, which would force that flow to mint a redundant key.
+export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
+  const target = signInKeyPath()
+  withStateLock(() => {
+    const record = readSignInKeyUnlocked()
+    if (
+      record &&
+      record.email === normalizeEmail(email) &&
+      record.apiKeyId === apiKeyId
+    ) {
+      rmSync(target, { force: true })
+    }
+  }, target)
 }

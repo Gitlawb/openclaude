@@ -2866,7 +2866,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         deferNavigation: true,
         onSaved: () => {
           resetAimlapiCheckoutIntent()
-          clearAimlapiSignInKey()
+          clearAimlapiSignInKey(aimlapiTopupEmail, aimlapiIssuedKeyId)
           setAimlapiDoneKind(aimlapiTopupPaidRef.current ? 'topup' : 'ready')
           setErrorMessage(undefined)
           setScreen('aimlapi-done')
@@ -2965,7 +2965,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       deferNavigation: true,
       onSaved: () => {
         resetAimlapiCheckoutIntent()
-        clearAimlapiSignInKey()
+        clearAimlapiSignInKey(aimlapiTopupEmail, aimlapiIssuedKeyId)
         setAimlapiDoneKind(doneKind)
         setErrorMessage(undefined)
         setScreen('aimlapi-done')

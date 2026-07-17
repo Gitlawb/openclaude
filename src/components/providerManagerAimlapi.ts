@@ -68,5 +68,7 @@ export const saveAimlapiSignInKey: typeof saveAimlapiSignInKeyImpl = (
   apiKeyId,
 ) => saveAimlapiSignInKeyImpl(email, apiKey, apiKeyId)
 
-export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = () =>
-  clearAimlapiSignInKeyImpl()
+export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = (
+  email,
+  apiKeyId,
+) => clearAimlapiSignInKeyImpl(email, apiKeyId)
