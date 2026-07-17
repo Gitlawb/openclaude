@@ -258,17 +258,34 @@ function isClaudeConfigFilePath(filePath: string): boolean {
   )
 }
 
-// Check if file is the plan file for the current session
-function isSessionPlanFile(absolutePath: string): boolean {
-  // Check if path is a plan file for this session (main or agent-specific)
-  // Main plan file: {plansDir}/{planSlug}.md
-  // Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
-  const expectedPrefix = join(getPlansDirectory(), getPlanSlug())
+// Pure predicate for the two legitimate plan-file shapes getPlanFilePath emits:
+//   Main plan file:  {plansDir}/{planSlug}.md
+//   Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
+// Anchored on those exact delimiters. A bare startsWith on {plansDir}/{slug}
+// also matches any sibling whose name merely begins with the slug
+// ({slug}nova.md, {slug}-other.md, {slug}dir/x.md), which would silently
+// auto-allow reads and un-prompted writes to files that are not this session's
+// plan. Exported for testing.
+export function isPlanFilePath(
+  plansDir: string,
+  planSlug: string,
+  absolutePath: string,
+): boolean {
+  const expectedPrefix = join(plansDir, planSlug)
   // SECURITY: Normalize to prevent path traversal bypasses via .. segments
   const normalizedPath = normalize(absolutePath)
+  if (!normalizedPath.endsWith('.md')) {
+    return false
+  }
   return (
-    normalizedPath.startsWith(expectedPrefix) && normalizedPath.endsWith('.md')
+    normalizedPath === expectedPrefix + '.md' ||
+    normalizedPath.startsWith(expectedPrefix + '-agent-')
   )
+}
+
+// Check if file is the plan file for the current session
+function isSessionPlanFile(absolutePath: string): boolean {
+  return isPlanFilePath(getPlansDirectory(), getPlanSlug(), absolutePath)
 }
 
 /**
