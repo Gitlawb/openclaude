@@ -135,9 +135,11 @@ for two catalog selections: `k3` provides the 1M Allegretto+ window, while
 `k3-256k` keeps Moderato+ sessions within their 256K limit.
 
 Kimi Code also lists `kimi-for-coding-highspeed` for eligible Allegretto+
-subscriptions. It uses six times the speed and three times the quota; retain
-the selected catalog ID in client-side routing so its route-specific limits and
-capabilities are not lost when the outbound API model is normalized.
+subscriptions. [Kimi documents](https://www.kimi.com/code/docs/en/kimi-code/models.html)
+it as HighSpeed with approximately 6× output speed and 3× quota usage; plan
+availability can vary. Retain the selected catalog ID in client-side routing so
+its route-specific limits and capabilities are not lost when the outbound API
+model is normalized.
 
 ## Descriptor Authoring Pattern
 
