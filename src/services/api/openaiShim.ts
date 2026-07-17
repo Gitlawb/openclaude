@@ -4417,6 +4417,18 @@ class OpenAIShimMessages {
     if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
       body.reasoning_effort = reasoningRequestPlan.reasoningEffort
     }
+    // Kimi K3 uses the standard reasoning_effort field for levels, but its
+    // documented no-thinking mode is expressed separately. Without this the
+    // provider silently routes a disabled-thinking K3 request to K2.6.
+    if (
+      ((runtimeShimContext.routeId === 'kimi-code' && request.resolvedModel === 'k3') ||
+        (runtimeShimContext.routeId === 'moonshot' && request.resolvedModel === 'kimi-k3')) &&
+      ((params.thinking as { type?: string } | undefined)?.type === 'disabled' ||
+        request.thinking?.type === 'disabled')
+    ) {
+      body.thinking = { type: 'disabled' }
+      delete body.reasoning_effort
+    }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
     // Ensure max_tokens is a valid positive number before using it.
