@@ -198,6 +198,7 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
     getRouteDefaultModel('minimax')
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -226,6 +227,7 @@ function applyXiaomiMimoEnvOnlyDefaults(): void {
     getRouteDefaultModel('xiaomi-mimo')
   process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -246,6 +248,7 @@ function applyXaiEnvOnlyDefaults(): void {
     getRouteDefaultModel('xai')
   process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -281,6 +284,7 @@ function applyNearaiEnvOnlyDefaults(): void {
     getRouteDefaultModel('nearai')
   process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -317,6 +321,7 @@ function applyFireworksEnvOnlyDefaults(): void {
     getRouteDefaultModel('fireworks')
   process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -335,6 +340,7 @@ function applyAimlapiEnvOnlyDefaults(): void {
   process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('aimlapi')
   process.env.OPENAI_API_KEY = process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE

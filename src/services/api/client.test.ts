@@ -633,6 +633,7 @@ test('env-only MiniMax fallback drops stale OpenAI shim options', async () => {
   clearEnvForMiniMaxOnlyTest()
   process.env.MINIMAX_API_KEY = 'minimax-test-key'
   process.env.OPENAI_API_FORMAT = 'responses'
+  process.env.OPENAI_AZURE_STYLE = '1'
   process.env.OPENAI_AUTH_HEADER = 'api-key'
   process.env.OPENAI_AUTH_SCHEME = 'raw'
   process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-header-value'
@@ -677,6 +678,7 @@ test('env-only MiniMax fallback drops stale OpenAI shim options', async () => {
   expect(capturedHeaders?.get('x-api-key')).toBe('minimax-test-key')
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+  expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
   expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
   expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
   expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
