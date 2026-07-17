@@ -199,8 +199,8 @@ const FORM_STEPS: Array<{
   {
     key: 'apiFormat',
     label: 'API mode',
-    placeholder: 'chat_completions',
-    helpText: 'Choose the OpenAI-compatible API surface for this provider.',
+    placeholder: 'automatic',
+    helpText: 'Automatically select the API surface, or choose one explicitly.',
     optional: true,
   },
   {
@@ -251,7 +251,7 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     baseUrl: profile.baseUrl,
     model: profile.model,
     apiKey: profile.apiKey ?? '',
-    apiFormat: profile.apiFormat ?? 'chat_completions',
+    apiFormat: profile.apiFormat ?? 'auto',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
     customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
@@ -319,7 +319,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
     routeSupportsApiFormatSelection(routeId)
-      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : profile.apiFormat === 'chat_completions' ? 'chat/completions' : 'automatic'}`
       : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
@@ -1581,7 +1581,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: defaults.baseUrl,
       model: defaults.model,
       apiKey: defaults.apiKey ?? '',
-      apiFormat: 'chat_completions',
+      apiFormat: preset === 'custom' ? 'auto' : 'chat_completions',
       authHeader: '',
       authHeaderValue: '',
       customHeaders: '',
@@ -1674,17 +1674,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     const requestedResponses =
       supportsApiFormat && (nextDraft.apiFormat === 'responses' || nextDraft.apiFormat === 'responses_compat')
-    const shouldUseChatCompletions =
-      !supportsApiFormat ||
-      (nextDraft.apiFormat !== 'responses' && nextDraft.apiFormat !== 'responses_compat') ||
-      !routeSupportsResponsesModel(routeId, nextDraft.model)
+    const selectedApiFormat =
+      !supportsApiFormat
+        ? 'chat_completions'
+        : nextDraft.apiFormat === 'auto'
+          ? undefined
+        : requestedResponses && !routeSupportsResponsesModel(routeId, nextDraft.model)
+          ? 'chat_completions'
+          : nextDraft.apiFormat as OpenAICompatibleApiFormat
     const payload: ProviderProfileInput = {
       provider,
       name: nextDraft.name,
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat: shouldUseChatCompletions ? 'chat_completions' : (nextDraft.apiFormat as OpenAICompatibleApiFormat),
+      apiFormat: selectedApiFormat,
       authHeader:
         showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -2207,6 +2211,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           <Select
             options={[
               {
+                value: 'auto',
+                label: 'Automatic',
+                description: 'Use the provider and model defaults',
+              },
+              {
                 value: 'chat_completions',
                 label: 'Chat Completions',
                 description: 'Use /chat/completions for broad OpenAI-compatible support',
@@ -2223,14 +2232,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               },
             ]}
             defaultValue={
-              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : currentValue === 'chat_completions' ? 'chat_completions' : 'auto'
             }
             defaultFocusValue={
-              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : currentValue === 'chat_completions' ? 'chat_completions' : 'auto'
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={3}
+            visibleOptionCount={4}
           />
         ) : (
           <Box flexDirection="row" gap={1}>

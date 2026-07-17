@@ -698,7 +698,7 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
     mounted.stdin.write('\r')
 
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('API mode') && frame.includes('Chat Completions'),
+      frame.includes('API mode') && frame.includes('Automatic'),
     )
     expect(output).toContain('Responses')
   } finally {
