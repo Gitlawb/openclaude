@@ -9,6 +9,9 @@ import {
   test,
 } from 'bun:test'
 import { randomUUID } from 'crypto'
+import { unlink } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 import {
   acquireSharedMutationLock,
@@ -23,23 +26,12 @@ import * as realConfig from '../../utils/config.js'
 // NOT clear it, so the cached bare-path import of providers.js inside betas.ts
 // (which compact.ts transitively imports) resolves to that stub unless we
 // override it. We import the real providers module through a cache-busting URL
-// and re-register it under the bare specifier at module level.
+// and register it under the bare specifier while this suite holds the shared
+// mutation lock.
 const _realProvidersModule = await import(
   `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`
 )
-mock.module('../../utils/model/providers.js', () => ({
-  getAPIProvider: _realProvidersModule.getAPIProvider,
-  usesAnthropicAccountFlow: _realProvidersModule.usesAnthropicAccountFlow,
-  isGithubNativeAnthropicMode: _realProvidersModule.isGithubNativeAnthropicMode,
-  getAPIProviderForStatsig: _realProvidersModule.getAPIProviderForStatsig,
-  isFirstPartyAnthropicBaseUrl: _realProvidersModule.isFirstPartyAnthropicBaseUrl,
-}))
 
-// Pre-import the real diskOutput module so we can restore it in afterAll
-// (compact's mock of getTaskOutputPath leaks and breaks BashTool tests).
-const _realDiskOutputModule = await import(
-  `../../utils/task/diskOutput.js?real=${Date.now()}-${Math.random()}`
-)
 // Pre-import real modules that compact stubs but downstream tests need
 // (goal continuation controller, runAgent provider routing).
 const _realMessagesModule = await import(
@@ -72,6 +64,92 @@ const _realConfigModule = await import(
 const _realProjectInstructionsModule = await import(
   `../../utils/projectInstructions.js?real=${Date.now()}-${Math.random()}`
 )
+const _realTokenEstimationModule = await import(
+  `../tokenEstimation.js?real=${Date.now()}-${Math.random()}`
+)
+const _realClaudeApiModule = await import(
+  `../api/claude.js?real=${Date.now()}-${Math.random()}`
+)
+const _realGrowthBookModule = await import(
+  `../analytics/growthbook.js?real=${Date.now()}-${Math.random()}`
+)
+const _realContextModule = await import(
+  `../../utils/context.js?real=${Date.now()}-${Math.random()}`
+)
+const _realErrorsModule = await import(
+  `../../utils/errors.js?real=${Date.now()}-${Math.random()}`
+)
+const _realTokensModule = await import(
+  `../../utils/tokens.js?real=${Date.now()}-${Math.random()}`
+)
+const compactTestTaskOutputPath = join(
+  tmpdir(),
+  `openclaude-compact-test-${process.pid}-${randomUUID()}`,
+)
+
+const COMPACT_STUB_MODULES = [
+  '../analytics/growthbook.js',
+  '../analytics/index.js',
+  '../api/claude.js',
+  '../api/errors.js',
+  '../api/promptCacheBreakDetection.js',
+  '../api/withRetry.js',
+  '../tokenEstimation.js',
+  '../../bootstrap/state.js',
+  '../../tools/FileReadTool/FileReadTool.js',
+  '../../tools/FileReadTool/prompt.js',
+  '../../tools/ToolSearchTool/ToolSearchTool.js',
+  '../../utils/attachments.js',
+  '../../utils/auth.js',
+  '../../utils/config.js',
+  '../../utils/context.js',
+  '../../utils/contextAnalysis.js',
+  '../../utils/debug.js',
+  '../../utils/errors.js',
+  '../../utils/fileStateCache.js',
+  '../../utils/forkedAgent.js',
+  '../../utils/hooks.js',
+  '../../utils/log.js',
+  '../../utils/memory/types.js',
+  '../../utils/messages.js',
+  '../../utils/messages/systemFactories.js',
+  '../../utils/model/model.js',
+  '../../utils/model/providers.js',
+  '../../utils/model/modelSupportOverrides.js',
+  '../../utils/path.js',
+  '../../utils/plans.js',
+  '../../utils/projectInstructions.js',
+  '../../utils/sessionActivity.js',
+  '../../utils/sessionStart.js',
+  '../../utils/sessionStorage.js',
+  '../../utils/settings/settings.js',
+  '../../utils/sleep.js',
+  '../../utils/slowOperations.js',
+  '../../utils/systemPromptType.js',
+  '../../utils/task/diskOutput.js',
+  '../../utils/tokens.js',
+  '../../utils/toolSearch.js',
+  './grouping.js',
+  './prompt.js',
+] as const
+let realCompactStubModules: Map<string, object> | undefined
+let hasSharedMutationLock = false
+
+async function captureRealCompactStubModules(): Promise<Map<string, object>> {
+  if (!realCompactStubModules) {
+    realCompactStubModules = new Map(
+      await Promise.all(
+        COMPACT_STUB_MODULES.map(async specifier =>
+          [
+            specifier,
+            await import(`${specifier}?real=${Date.now()}-${Math.random()}`),
+          ] as const,
+        ),
+      ),
+    )
+  }
+  return realCompactStubModules
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -543,7 +621,7 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 
   // --- Task output (DEFENSIVE) ---
   mock.module('../../utils/task/diskOutput.js', () => ({
-    getTaskOutputPath: mock(() => '/tmp/task'),
+    getTaskOutputPath: mock(() => compactTestTaskOutputPath),
   }))
 
   // --- Errors (DEFENSIVE) ---
@@ -611,51 +689,47 @@ async function importCompact(options: CompactMockOptions = {}) {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/compact.test.ts')
-  clearProviderEnv()
+  hasSharedMutationLock = true
+  try {
+    await captureRealCompactStubModules()
+    mock.module('../../utils/model/providers.js', () => ({
+      ..._realProvidersModule,
+    }))
+    clearProviderEnv()
+  } catch (error) {
+    releaseSharedMutationLock()
+    hasSharedMutationLock = false
+    throw error
+  }
 })
 
-afterEach(() => {
+afterEach(async () => {
+  if (!hasSharedMutationLock) {
+    return
+  }
   try {
-    mock.restore()
-    clearProviderEnv()
-    // mock.module() persists process-wide in bun:test. Restore the message
-    // helpers after each compact test so downstream test files do not import
-    // the compact-only createUserMessage stub.
-    mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
-    mock.module('../../utils/messages/systemFactories.js', () => ({
-      ..._realSystemFactoriesModule,
-    }))
+    await restoreCompactTestMocks()
   } finally {
     releaseSharedMutationLock()
+    hasSharedMutationLock = false
   }
 })
 
 // Safety net: scrub provider env vars and restore mocks after all tests in
 // this file finish, so nothing leaks into subsequent test files.
-afterAll(async () => {
+async function restoreCompactTestMocks() {
   mock.restore()
   clearProviderEnv()
-  // The compact test registers many mock.module() stubs that persist
-  // process-wide. Restore the real implementations so downstream test files
-  // (goal controller, runAgent routing, BashTool) get correct behaviour.
-  mock.module('../../utils/task/diskOutput.js', () => ({
-    getTaskOutputDir: _realDiskOutputModule.getTaskOutputDir,
-    getTaskOutputPath: _realDiskOutputModule.getTaskOutputPath,
-    initTaskOutput: _realDiskOutputModule.initTaskOutput,
-    initTaskOutputAsSymlink: _realDiskOutputModule.initTaskOutputAsSymlink,
-    appendTaskOutput: _realDiskOutputModule.appendTaskOutput,
-    flushTaskOutput: _realDiskOutputModule.flushTaskOutput,
-    evictTaskOutput: _realDiskOutputModule.evictTaskOutput,
-    getTaskOutputDelta: _realDiskOutputModule.getTaskOutputDelta,
-    getTaskOutput: _realDiskOutputModule.getTaskOutput,
-    getTaskOutputSize: _realDiskOutputModule.getTaskOutputSize,
-    cleanupTaskOutput: _realDiskOutputModule.cleanupTaskOutput,
-    _clearOutputsForTest: _realDiskOutputModule._clearOutputsForTest,
-    _resetTaskOutputDirForTest: _realDiskOutputModule._resetTaskOutputDirForTest,
-    DiskTaskOutput: _realDiskOutputModule.DiskTaskOutput,
-    MAX_TASK_OUTPUT_BYTES: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES,
-    MAX_TASK_OUTPUT_BYTES_DISPLAY: _realDiskOutputModule.MAX_TASK_OUTPUT_BYTES_DISPLAY,
-  }))
+  const realCompactStubModules = await captureRealCompactStubModules()
+  for (const specifier of COMPACT_STUB_MODULES) {
+    const realModule = realCompactStubModules.get(specifier)
+    if (!realModule) {
+      throw new Error(`Missing real compact stub module: ${specifier}`)
+    }
+    mock.module(specifier, () => ({ ...realModule }))
+  }
+  // The generic loop above restores the full diskOutput module contract for
+  // downstream tests (goal controller, runAgent routing, BashTool).
   mock.module('../../utils/messages.js', () => ({ ..._realMessagesModule }))
   mock.module('../../utils/messages/systemFactories.js', () => ({
     ..._realSystemFactoriesModule,
@@ -669,6 +743,49 @@ afterAll(async () => {
   mock.module('../../utils/auth.js', () => ({ ..._realAuthModule }))
   mock.module('../../utils/path.js', () => ({ ..._realPathModule }))
   mock.module('../../utils/config.js', () => ({ ..._realConfigModule }))
+  // These compact-only stubs affect the standalone microcompact and
+  // auto-compact tests that run later in the serialized smoke suite.
+  mock.module('../tokenEstimation.js', () => ({ ..._realTokenEstimationModule }))
+  mock.module('../api/claude.js', () => ({ ..._realClaudeApiModule }))
+  mock.module('../analytics/growthbook.js', () => ({ ..._realGrowthBookModule }))
+  mock.module('../../utils/context.js', () => ({ ..._realContextModule }))
+  mock.module('../../utils/errors.js', () => ({ ..._realErrorsModule }))
+  mock.module('../../utils/tokens.js', () => ({ ..._realTokensModule }))
+  // Keep the cleanup load-bearing: these modules are consumed by standalone
+  // auto-compact tests when this file happens to run first in the smoke suite.
+  const [
+    restoredContext,
+    restoredErrors,
+    restoredTokens,
+    restoredTokenEstimation,
+    restoredClaudeApi,
+    restoredGrowthBook,
+  ] = await Promise.all([
+    import('../../utils/context.js'),
+    import('../../utils/errors.js'),
+    import('../../utils/tokens.js'),
+    import('../tokenEstimation.js'),
+    import('../api/claude.js'),
+    import('../analytics/growthbook.js'),
+  ])
+  expect(restoredContext.getContextWindowForModel).toBe(
+    _realContextModule.getContextWindowForModel,
+  )
+  expect(restoredErrors.hasExactErrorMessage).toBe(
+    _realErrorsModule.hasExactErrorMessage,
+  )
+  expect(restoredTokens.tokenCountWithEstimation).toBe(
+    _realTokensModule.tokenCountWithEstimation,
+  )
+  expect(restoredTokenEstimation.roughTokenCountEstimation).toBe(
+    _realTokenEstimationModule.roughTokenCountEstimation,
+  )
+  expect(restoredClaudeApi.getMaxOutputTokensForModel).toBe(
+    _realClaudeApiModule.getMaxOutputTokensForModel,
+  )
+  expect(restoredGrowthBook.getFeatureValue_CACHED_MAY_BE_STALE).toBe(
+    _realGrowthBookModule.getFeatureValue_CACHED_MAY_BE_STALE,
+  )
   // projectInstructions: the stub above replaces the whole module with only
   // getProjectInstructionFilePaths, so every other export becomes undefined.
   // Downstream CLAUDE.md discovery in runAgent.routing.test.ts then crashes in
@@ -676,11 +793,24 @@ afterAll(async () => {
   mock.module('../../utils/projectInstructions.js', () => ({
     ..._realProjectInstructionsModule,
   }))
-  // Clean up the stale /tmp/task symlink left by the mock path.
+  // Clean up only the unique test-owned path returned by the mock above.
   try {
-    const { unlink } = await import('fs/promises')
-    await unlink('/tmp/task').catch(() => {})
-  } catch {}
+    await unlink(compactTestTaskOutputPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error
+    }
+  }
+}
+
+afterAll(async () => {
+  await acquireSharedMutationLock('services/compact/compact.test.ts teardown')
+  try {
+    await captureRealCompactStubModules()
+    await restoreCompactTestMocks()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('compactConversation provider gate', () => {

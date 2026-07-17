@@ -1,9 +1,14 @@
 import { describe, expect, mock, test } from 'bun:test'
 
-import { clearStartupProviderOverrides } from './providerStartupOverrides.js'
+async function importStartupOverridesForTest() {
+  return import(
+    `./providerStartupOverrides.ts?startupOverridesTest=${Date.now()}-${Math.random()}`
+  )
+}
 
 describe('clearStartupProviderOverrides', () => {
-  test('removes stale provider env from user settings and global config env', () => {
+  test('removes stale provider env from user settings and global config env', async () => {
+    const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
     const updateUserSettings = mock(() => ({ error: null }))
     const saveConfig = mock((updater: (current: {
       env: Record<string, string>
