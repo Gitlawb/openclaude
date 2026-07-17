@@ -969,6 +969,7 @@ export function resolveAppliedEffort(
     resolved === 'xhigh' &&
     control.source === 'metadata' &&
     control.wireFormat === 'reasoning_effort' &&
+    control.levels.length === 1 &&
     control.levels.includes('max')
   ) {
     return 'max'

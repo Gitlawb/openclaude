@@ -647,6 +647,25 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
   expect(getAvailableEffortLevels('k3')).toEqual(['max'])
   expect(resolveAppliedEffort('k3', undefined)).toBe('max')
   expect(resolveAppliedEffort('k3', 'low')).toBe('max')
+  expect(resolveAppliedEffort('k3', 'xhigh')).toBe('max')
+
+  const { resolveAppliedEffort: resolveHicapAppliedEffort } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+      routeId: 'hicap',
+      catalogEntries: [{
+        id: 'hicap-claude-opus-4.8',
+        apiName: 'claude-opus-4.8',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+          wireFormat: 'reasoning_effort',
+        },
+      }],
+    })
+  expect(resolveHicapAppliedEffort('claude-opus-4.8', 'xhigh')).toBe('xhigh')
 
   expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,
