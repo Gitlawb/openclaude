@@ -204,6 +204,61 @@ describe('handlePromptSubmit', () => {
     expect(restoreCount).toBe(1)
   })
 
+  it('does not re-arm a reminder when an owned query rejects', async () => {
+    const correctionMessage = createUserMessage({ content: 'do Y instead' })
+    const reminderMessage = createUserMessage({
+      content: '<system-reminder>interrupted</system-reminder>',
+      isMeta: true,
+    })
+    mock.module('./processUserInput/processUserInput.js', () => ({
+      processUserInput: async () => ({
+        messages: [correctionMessage],
+        shouldQuery: true,
+      }),
+    }))
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+
+    let restoreCount = 0
+    const submission = handlePromptSubmit({
+      input: 'do Y instead',
+      mode: 'prompt',
+      pastedContents: {},
+      helpers: {
+        setCursorOffset: () => {},
+        clearBuffer: () => {},
+        resetHistory: () => {},
+      },
+      onInputChange: () => {},
+      setPastedContents: () => {},
+      takeInterruptionCorrectionReminder: () => reminderMessage,
+      restoreInterruptionCorrectionReminder: () => {
+        restoreCount++
+      },
+      queryGuard: {
+        isActive: false,
+        reserve: () => true,
+        cancelReservation: () => {},
+      } as never,
+      isExternalLoading: false,
+      commands: [],
+      messages: [],
+      mainLoopModel: 'sonnet',
+      ideSelection: undefined,
+      querySource: 'repl' as never,
+      setToolJSX: () => {},
+      getToolUseContext: () => ({}) as never,
+      setUserInputOnProcessing: () => {},
+      setAbortController: () => {},
+      onQuery: async () => {
+        throw new Error('completion failed')
+      },
+      setAppState: () => ({}) as never,
+    } as never)
+
+    await expect(submission).rejects.toThrow('completion failed')
+    expect(restoreCount).toBe(0)
+  })
+
   it('restores a reminder when a later queued normal prompt throws before dispatch', async () => {
     const reminderMessage = createUserMessage({
       content: '<system-reminder>interrupted</system-reminder>',

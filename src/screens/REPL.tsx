@@ -3065,17 +3065,21 @@ export function REPL({
     resetTurnToolDuration();
     resetTurnClassifierDuration();
     let expectedAutoCompactTracking = queryAutoCompactTracking;
-    if (interruptionCorrectionQueryId) {
-      interruptionCorrectionTracker.bindModelTurn({
-        shouldQuery,
-        isInterruptionCorrectionEligible: true,
-        queryId: interruptionCorrectionQueryId,
-      });
-    }
-    try {
-      for await (const event of query({
+    for await (const event of query({
       messages: messagesIncludingNewMessages,
       requestOnlyMessages,
+      onModelRequestStart: interruptionCorrectionQueryId
+        ? () => interruptionCorrectionTracker.bindModelTurn({
+            shouldQuery,
+            isInterruptionCorrectionEligible: true,
+            queryId: interruptionCorrectionQueryId,
+          })
+        : undefined,
+      onModelRequestEnd: interruptionCorrectionQueryId
+        ? () => interruptionCorrectionTracker.finishModelTurn(
+            interruptionCorrectionQueryId,
+          )
+        : undefined,
       systemPrompt,
       userContext,
       systemContext,
@@ -3091,14 +3095,8 @@ export function REPL({
         }
       }
       })) {
-        queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
-        onQueryEvent(event);
-      }
-    } finally {
-      // Only the provider request itself is interruption-eligible.
-      if (interruptionCorrectionQueryId) {
-        interruptionCorrectionTracker.finishModelTurn(interruptionCorrectionQueryId);
-      }
+      queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
+      onQueryEvent(event);
     }
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {

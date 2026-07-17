@@ -432,6 +432,9 @@ export type QueryParams = {
    * exposed to tools, or written to transcript state.
    */
   requestOnlyMessages?: Message[]
+  /** Called around each outbound model request, including retries. */
+  onModelRequestStart?: () => void
+  onModelRequestEnd?: () => void
   systemPrompt: SystemPrompt
   userContext: { [k: string]: string }
   systemContext: { [k: string]: string }
@@ -1322,7 +1325,9 @@ async function* queryLoop(
         try {
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
-          for await (const message of deps.callModel({
+          params.onModelRequestStart?.()
+          try {
+            for await (const message of deps.callModel({
             messages: prependUserContext(
               injectRequestOnlyMessages(
                 messagesForQuery,
@@ -1382,7 +1387,7 @@ async function* queryLoop(
                 },
               }),
             },
-          })) {
+            })) {
             // We won't use the tool_calls from the first attempt
             // We could.. but then we'd have to merge assistant messages
             // with different ids and double up on full the tool_results
@@ -1568,6 +1573,9 @@ async function* queryLoop(
                 }
               }
             }
+            }
+          } finally {
+            params.onModelRequestEnd?.()
           }
           queryCheckpoint('query_api_streaming_end')
 

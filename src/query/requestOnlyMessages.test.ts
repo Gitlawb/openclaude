@@ -187,6 +187,22 @@ test('leaves model messages unchanged when request-only context is absent', asyn
   expect(modelCalls[0]).toEqual(originalMessages)
 })
 
+test('scopes model-request lifecycle callbacks to callModel', async () => {
+  const events: string[] = []
+  const params = baseParams(
+    async function* () {
+      yield createAssistantMessage({ content: 'done' })
+    },
+    async () => ({ wasCompacted: false }),
+  )
+  params.onModelRequestStart = () => events.push('start')
+  params.onModelRequestEnd = () => events.push('end')
+
+  await collect(params)
+
+  expect(events).toEqual(['start', 'end'])
+})
+
 for (const preserveCorrection of [false, true]) {
   test(`reapplies request-only context after ${
     preserveCorrection ? 'suffix-preserving' : 'full'

@@ -484,7 +484,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // that case (only acts on dispatching state).
   let queryProfileOwnedByOnQuery = false
   let interruptionCorrectionReminder: Message | null | undefined
-  let interruptionCorrectionReminderOwnedByModel = false
+  let interruptionCorrectionModelRequested = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -628,6 +628,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             ? primaryCmd.value
             : undefined
         const shouldCallBeforeQuery = primaryMode === 'prompt'
+        interruptionCorrectionModelRequested = shouldQuery
         queryProfileOwnedByOnQuery = true
         const queryOwnershipResult = await onQuery(
           newMessages,
@@ -644,8 +645,6 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           // human turn may arm interruption-correction context.
           isInterruptionCorrectionEligible,
         )
-        interruptionCorrectionReminderOwnedByModel =
-          shouldQuery && queryOwnershipResult !== false
         if (queryOwnershipResult === false) {
           queryProfileOwnedByOnQuery = false
         }
@@ -675,11 +674,12 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
     }) // end runWithWorkload — ALS context naturally scoped, no finally needed
   } finally {
-    // Keep the reminder until an eligible model turn takes ownership. Local
-    // commands and preflight vetoes do not consume correction context.
+    // `onQuery` owns the reminder lifecycle once dispatch starts. It restores
+    // the reminder itself for preflight failures and returns false when the
+    // guard declined ownership; do not re-arm after a post-dispatch failure.
     if (
       interruptionCorrectionReminder &&
-      !interruptionCorrectionReminderOwnedByModel
+      (!queryProfileOwnedByOnQuery || !interruptionCorrectionModelRequested)
     ) {
       restoreInterruptionCorrectionReminder?.()
     }
