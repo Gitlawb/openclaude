@@ -100,22 +100,15 @@ test('resolveProviderRequest canonicalizes K3 model-query reasoning to max', () 
   }
 })
 
-test('resolveProviderRequest uses the direct Moonshot K3 API name and only permits max reasoning', () => {
-  const max = resolveProviderRequest({
-    model: 'k3?reasoning=max',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    processEnv: {},
-  })
-  expect(max.resolvedModel).toBe('kimi-k3')
-  expect(max.reasoning).toEqual({ effort: 'max' })
-
-  for (const effort of ['low', 'medium', 'high', 'xhigh']) {
+test('resolveProviderRequest maps direct Moonshot K3 reasoning to max', () => {
+  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
     const request = resolveProviderRequest({
-      model: `k3?reasoning=${effort}`,
+      model: `kimi-k3?reasoning=${effort}`,
       baseUrl: 'https://api.moonshot.ai/v1',
       processEnv: {},
     })
-    expect(request.reasoning).toBeUndefined()
+    expect(request.resolvedModel).toBe('kimi-k3')
+    expect(request.reasoning).toEqual({ effort: 'max' })
   }
 })
 

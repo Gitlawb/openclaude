@@ -2186,7 +2186,7 @@ test('providerOverride K3 canonicalizes model-query reasoning to max', async () 
   }
 })
 
-test('providerOverride direct Moonshot K3 sends max reasoning', async () => {
+test('providerOverride direct Moonshot K3 canonicalizes model-query reasoning to max', async () => {
   let requestBody: Record<string, unknown> | undefined
   let requestUrl: string | undefined
 
@@ -2205,7 +2205,7 @@ test('providerOverride direct Moonshot K3 sends max reasoning', async () => {
     const client = (await getAnthropicClient({
       maxRetries: 0,
       providerOverride: {
-        model: 'kimi-k3?reasoning=max',
+        model: 'kimi-k3?reasoning=low',
         baseURL: 'https://api.moonshot.ai/v1',
         apiKey: 'moonshot-test-key',
       },
