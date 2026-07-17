@@ -199,3 +199,24 @@ test('token-producing methods reject an empty token', async () => {
     'did not return an auth token',
   )
 })
+
+test('session methods reject a malformed or empty success payload', async () => {
+  // A structurally-invalid 200 must surface as a non-terminal (status 200)
+  // error rather than a session with an unknown status, so callers never clear
+  // the retained payment identity or take an ambiguous retry on it.
+  const client = new AimlapiClient(endpoints)
+
+  globalThis.fetch = mock(async () => jsonResponse({})) as unknown as typeof fetch
+  await expect(client.getSession('resume-token')).rejects.toMatchObject({
+    name: 'AimlapiApiError',
+    status: 200,
+  })
+
+  globalThis.fetch = mock(async () => jsonResponse(null)) as unknown as typeof fetch
+  await expect(client.getSession('resume-token')).rejects.toThrow('invalid session')
+
+  globalThis.fetch = mock(async () =>
+    jsonResponse({ sessionToken: 'session', status: 'nonsense' }),
+  ) as unknown as typeof fetch
+  await expect(client.createSession({ partnerId: 'part_x' })).rejects.toThrow('invalid session')
+})

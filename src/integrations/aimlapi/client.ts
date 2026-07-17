@@ -88,6 +88,28 @@ function redactRequestSecrets(
   return redacted
 }
 
+const PARTNER_CHECKOUT_STATUSES: ReadonlySet<string> = new Set<PartnerCheckoutSessionStatus>([
+  'pending_auth',
+  'pending_payment',
+  'paid',
+  'exchanging',
+  'exchanged',
+  'cancelled',
+  'expired',
+  'failed',
+])
+
+function isPartnerCheckoutSession(value: unknown): value is PartnerCheckoutSession {
+  if (typeof value !== 'object' || value === null) return false
+  const session = value as Record<string, unknown>
+  return (
+    typeof session.sessionToken === 'string' &&
+    Boolean(session.sessionToken) &&
+    typeof session.status === 'string' &&
+    PARTNER_CHECKOUT_STATUSES.has(session.status)
+  )
+}
+
 function isBalanceResult(value: unknown): value is BalanceResult {
   if (typeof value !== 'object' || value === null) return false
   const result = value as Record<string, unknown>
@@ -224,28 +246,35 @@ export class AimlapiClient {
     input: { partnerId: string; partnerName?: string | null; returnUrl?: string | null },
     signal?: AbortSignal,
   ): Promise<PartnerCheckoutSession> {
-    return this.request<PartnerCheckoutSession>(
-      `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions`,
-      {
-        method: 'POST',
-        body: {
-          partnerId: input.partnerId,
-          ...(input.partnerName ? { partnerName: input.partnerName } : {}),
-          ...(input.returnUrl ? { returnUrl: input.returnUrl } : {}),
-        },
-        signal,
+    const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions`
+    const result = await this.request<unknown>(url, {
+      method: 'POST',
+      body: {
+        partnerId: input.partnerId,
+        ...(input.partnerName ? { partnerName: input.partnerName } : {}),
+        ...(input.returnUrl ? { returnUrl: input.returnUrl } : {}),
       },
-    )
+      signal,
+    })
+    if (!isPartnerCheckoutSession(result)) {
+      throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid session`, 200, '')
+    }
+    return result
   }
 
   async getSession(
     sessionToken: string,
     signal?: AbortSignal,
   ): Promise<PartnerCheckoutSession> {
-    return this.request<PartnerCheckoutSession>(
-      `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}`,
-      { method: 'GET', signal },
-    )
+    const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}`
+    const result = await this.request<unknown>(url, { method: 'GET', signal })
+    // A malformed/empty 200 must not read as an unknown status: that would let
+    // callers clear the retained payment identity or take an ambiguous retry.
+    // Surface it as a non-terminal error so retained state is preserved.
+    if (!isPartnerCheckoutSession(result)) {
+      throw new AimlapiApiError(`GET ${requestLabel(url)} returned an invalid session`, 200, '')
+    }
+    return result
   }
 
   async pay(

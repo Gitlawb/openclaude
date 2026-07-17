@@ -23,6 +23,11 @@ const originalEnv = {
   AIMLAPI_APP_URL: process.env.AIMLAPI_APP_URL,
   AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
   AIMLAPI_PAY_URL: process.env.AIMLAPI_PAY_URL,
+  AIMLAPI_PARTNER_ID: process.env.AIMLAPI_PARTNER_ID,
+  AIMLAPI_VERIFICATION_BASE_URL: process.env.AIMLAPI_VERIFICATION_BASE_URL,
+  AIMLAPI_RETURN_URL: process.env.AIMLAPI_RETURN_URL,
+  AIMLAPI_EMAIL: process.env.AIMLAPI_EMAIL,
+  AIMLAPI_CODE: process.env.AIMLAPI_CODE,
 }
 const temporaryDirectories: string[] = []
 

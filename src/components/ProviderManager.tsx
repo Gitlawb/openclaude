@@ -3471,23 +3471,32 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderAimlapiDone(): React.ReactNode {
-    const amountUsdMinor = parseAimlapiAmountUsd(aimlapiTopupAmountUsd)
-    const amountUsd =
-      amountUsdMinor % 100 === 0
-        ? String(amountUsdMinor / 100)
-        : (amountUsdMinor / 100).toFixed(2)
+    // Only parse the amount for the top-up screen. When funding is skipped
+    // (e.g. after an invalid amount), aimlapiTopupAmountUsd may hold an unparsable
+    // value, and the "ready" screen never shows it — parsing it would throw.
+    let topUpBody: React.ReactNode = null
+    if (aimlapiDoneKind === 'topup') {
+      const amountUsdMinor = parseAimlapiAmountUsd(aimlapiTopupAmountUsd)
+      const amountUsd =
+        amountUsdMinor % 100 === 0
+          ? String(amountUsdMinor / 100)
+          : (amountUsdMinor / 100).toFixed(2)
+      topUpBody = (
+        <>
+          <Text color="success" bold>{AIMLAPI_MESSAGES.topUpSuccess(amountUsd)}</Text>
+          {aimlapiNewAccount ? (
+            <>
+              <Text> </Text>
+              <Text>{AIMLAPI_MESSAGES.successMagicLink(aimlapiTopupEmail)}</Text>
+            </>
+          ) : null}
+        </>
+      )
+    }
     return (
       <Box flexDirection="column">
         {aimlapiDoneKind === 'topup' ? (
-          <>
-            <Text color="success" bold>{AIMLAPI_MESSAGES.topUpSuccess(amountUsd)}</Text>
-            {aimlapiNewAccount ? (
-              <>
-                <Text> </Text>
-                <Text>{AIMLAPI_MESSAGES.successMagicLink(aimlapiTopupEmail)}</Text>
-              </>
-            ) : null}
-          </>
+          topUpBody
         ) : (
           <Text color="success" bold>{AIMLAPI_MESSAGES.everythingRuns}</Text>
         )}

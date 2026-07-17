@@ -1000,8 +1000,10 @@ export function applyProviderProfileToProcessEnv(
       // Only forward it when the profile targets the canonical inference host;
       // a keyless `aimlapi` profile can point at a user-controlled proxy, and
       // injecting the credential there would leak it. This mirrors the
-      // guided-flow validation, which also gates on the canonical URL.
-      if (isCanonicalAimlapiInferenceBaseUrl(profile.baseUrl)) {
+      // guided-flow validation, which also gates on the canonical URL. A missing
+      // base URL resolves to the aimlapi default (which is canonical), so treat
+      // it as canonical rather than passing undefined into the string helper.
+      if (!profile.baseUrl || isCanonicalAimlapiInferenceBaseUrl(profile.baseUrl)) {
         const ambientAimlapiKey =
           trimOrUndefined(process.env.AIMLAPI_API_KEY) ??
           trimOrUndefined(process.env.OPENAI_API_KEY)

@@ -1053,6 +1053,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
   }, 20_000)
 
+  test('keyless AIMLAPI profile without a base URL resolves the ambient key as canonical', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'ambient-aimlapi-key'
+
+    // A missing base URL resolves to the canonical aimlapi default; the guard
+    // must treat it as canonical rather than crash on undefined.trim().
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: undefined,
+        model: 'gpt-4o',
+        apiKey: undefined,
+      }),
+    )
+
+    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+  }, 20_000)
+
   test('openai profile on AI/ML API route mirrors AIMLAPI_API_KEY', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

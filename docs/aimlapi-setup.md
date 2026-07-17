@@ -13,13 +13,13 @@ None. You do not need to visit <https://aimlapi.com> first - the guided top-up f
 ## Option 1 - Interactive (`/provider`)
 
 1. Start OpenClaude and run `/provider`.
-2. Choose **AI/ML API**.
-3. If AI/ML API is already configured, choose one of:
-   - **Use existing configuration** - validate the saved key or `AIMLAPI_API_KEY`, check its balance, optionally top up a low balance, then choose a model.
-   - **Configure again** - enter the normal new-user or existing-key flow.
+2. Choose **aimlapi.com**.
+3. If aimlapi.com is already configured, choose one of:
+   - **Continue with your saved API key** - validate the saved key or `AIMLAPI_API_KEY`, check its balance, optionally top up a low balance, then choose a model.
+   - **Set up a new key or switch account** - enter the new-user or existing-key flow.
 4. Otherwise choose how to get an API key:
    - **I am a new user** - enter your email. OpenClaude creates a passwordless account, lets you pick a top-up amount and automatic top-up preference, opens card checkout, then saves the issued key.
-   - **I already have an AI/ML API key** - paste a key from the dashboard. OpenClaude validates it, checks its balance, and offers an optional API-key top-up when the balance is low.
+   - **I already have aimlapi.com key** - paste a key from the dashboard. OpenClaude validates it, checks its balance, and offers an optional API-key top-up when the balance is low.
 
 For an email that already has an account, AI/ML API sends a 6-digit sign-in code. OpenClaude creates a new API key for that account, checks its balance, and only offers checkout when the balance is low. You can top up or save the key and skip funding for now.
 
