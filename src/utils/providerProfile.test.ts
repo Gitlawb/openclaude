@@ -685,6 +685,7 @@ test('openai launch preserves shell responses format and custom auth overrides',
       OPENAI_BASE_URL: 'https://persisted.example/v1',
       OPENAI_MODEL: 'persisted-model',
       OPENAI_API_FORMAT: 'chat_completions',
+      OPENAI_AZURE_STYLE: '1',
       OPENAI_AUTH_HEADER: 'X-Persisted-Key',
       OPENAI_AUTH_SCHEME: 'raw',
       OPENAI_AUTH_HEADER_VALUE: 'persisted-secret',
@@ -705,6 +706,7 @@ test('openai launch preserves shell responses format and custom auth overrides',
   assert.equal(env.OPENAI_BASE_URL, 'https://shell.example/v1')
   assert.equal(env.OPENAI_MODEL, 'shell-model')
   assert.equal(env.OPENAI_API_FORMAT, 'responses')
+  assert.equal(env.OPENAI_AZURE_STYLE, '1')
   assert.equal(env.OPENAI_AUTH_HEADER, 'api-key')
   assert.equal(env.OPENAI_AUTH_SCHEME, 'raw')
   assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'shell-secret')
@@ -2084,6 +2086,19 @@ test('openai profiles keep shell base and model when shell format is responses',
   assert.equal(env?.OPENAI_BASE_URL, 'https://shell.example/v1')
   assert.equal(env?.OPENAI_MODEL, 'shell-model')
   assert.equal(env?.OPENAI_API_KEY, 'sk-live')
+})
+
+test('openai profiles persist Azure-style routing from the shell environment', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://azure.example/openai/v1',
+      OPENAI_API_KEY: 'azure-key',
+      OPENAI_AZURE_STYLE: '1',
+    },
+  })
+
+  assert.equal(env?.OPENAI_AZURE_STYLE, '1')
 })
 
 test('openai profiles use the first model from a semicolon-separated list', () => {

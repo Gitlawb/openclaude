@@ -27,6 +27,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -74,6 +75,7 @@ const RESET_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -448,6 +450,14 @@ describe('applyProviderFlag - ollama', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('ollama', ['--model', 'llama3.2'])
     expect(process.env.OPENAI_MODEL).toBe('llama3.2')
+  })
+
+  test('clears Azure-only routing mode', () => {
+    process.env.OPENAI_AZURE_STYLE = '1'
+
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
   })
 
   test('does not override existing OPENAI_BASE_URL when user set a custom one', () => {
