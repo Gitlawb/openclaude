@@ -113,6 +113,32 @@ describe('appendMessageTagToUserMessage', () => {
     expect(retryContent).not.toContain('"type":"image"')
   })
 
+  test('keeps a placeholder when nested media is the only tool result', () => {
+    const toolResult = createUserMessage({
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'toolu_image_only',
+        content: [{
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: 'only-nested-image',
+          },
+        }],
+      }],
+    })
+    const retry = normalizeMessagesForAPI([
+      toolResult,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('Media removed after provider rejection.')
+    expect(retryContent).not.toContain('only-nested-image')
+    expect(retryContent).not.toContain('"type":"image"')
+  })
+
   test('strips every ambiguous image attachment in the failed turn', () => {
     const oldAttachment = createUserMessage({
       content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'old-invalid-image' } }],

@@ -1395,17 +1395,25 @@ export function normalizeMessagesForAPI(
     types: Set<string>,
   ): ContentBlockParam[] => content
     .filter(block => !types.has(block.type))
-    .map(block =>
-      block.type === 'tool_result' && Array.isArray(block.content)
-        ? {
-            ...block,
-            content: stripTargetsFromContent(
-              block.content as ContentBlockParam[],
-              types,
-            ) as typeof block.content,
-          }
-        : block,
-    )
+    .map(block => {
+      if (block.type !== 'tool_result' || !Array.isArray(block.content)) {
+        return block
+      }
+      const strippedContent = stripTargetsFromContent(
+        block.content as ContentBlockParam[],
+        types,
+      )
+      return {
+        ...block,
+        // A tool result must retain content to preserve the paired tool-use
+        // contract and avoid OpenAI-compatible providers rejecting an empty
+        // role: tool message after media is removed.
+        content: (strippedContent.length > 0
+          ? strippedContent
+          : [{ type: 'text', text: '[Media removed after provider rejection.]' }]
+        ) as typeof block.content,
+      }
+    })
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
