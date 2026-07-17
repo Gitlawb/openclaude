@@ -3304,6 +3304,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
+            // Guided provisioning mints a production-account key via production
+            // auth; it must never be written against a non-canonical inference
+            // endpoint. Pasting an existing key stays allowed for custom
+            // endpoints (handled by the 'manual' branch above).
+            if (!isCanonicalAimlapiInferenceBaseUrl(aimlapiInferenceBaseUrl)) {
+              setErrorMessage(AIMLAPI_MESSAGES.guidedNeedsCanonicalEndpoint)
+              return
+            }
+
             resetAimlapiOnboardingIdentity()
             const envEmail = process.env.AIMLAPI_EMAIL?.trim() ?? ''
             setCursorOffset(envEmail.length)

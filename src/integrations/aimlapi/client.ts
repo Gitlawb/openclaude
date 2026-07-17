@@ -423,8 +423,9 @@ export class AimlapiClient {
         '',
       )
     }
+    let parsed: unknown
     try {
-      return JSON.parse(text) as T
+      parsed = JSON.parse(text)
     } catch {
       throw new AimlapiApiError(
         `${options.method} ${label} returned non-JSON body`,
@@ -432,5 +433,17 @@ export class AimlapiClient {
         text,
       )
     }
+    // Every endpoint returns a JSON object. Reject null/non-object bodies here so
+    // no method dereferences a null/primitive success payload (which would throw
+    // a raw TypeError instead of a controlled, non-terminal error); endpoint
+    // guards below still validate structural completeness.
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new AimlapiApiError(
+        `${options.method} ${label} returned an unexpected body`,
+        response.status,
+        '',
+      )
+    }
+    return parsed as T
   }
 }

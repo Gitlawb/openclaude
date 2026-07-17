@@ -17,6 +17,8 @@ export const AIMLAPI_MESSAGES = {
   lowBalanceSkip: "I'll skip for now",
   topUpPrompt: 'Add credits (min $20).',
   amountRequired: 'Please enter a top-up amount.',
+  guidedNeedsCanonicalEndpoint:
+    'Creating a new key requires the aimlapi.com production endpoint. Unset AIMLAPI_INFERENCE_URL, or paste an existing key to use a custom endpoint.',
   topUpBrowserFallback:
     'If the browser did not open automatically please use this link to top up your account:',
   topUpFailed: 'Top up failed. Please try again.',

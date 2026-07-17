@@ -1268,6 +1268,47 @@ test('ProviderManager does not send the OPENAI_API_KEY fallback to a custom AIML
   }
 })
 
+test('ProviderManager refuses guided new-key creation on a custom AIMLAPI endpoint', async () => {
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.AIMLAPI_EMAIL
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  const beginAimlapiEmailOnboarding = mock(async () => ({ action: 'code-sent' as const }))
+  const provisionAimlapiKey = mock(async () => ({
+    apiKey: 'issued',
+    apiKeyId: 'id',
+    baseUrl: 'https://proxy.example.test/v1',
+    model: 'anthropic/claude-sonnet-5',
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, { mode: 'first-run' })
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Set up provider'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
+    )
+    // Selecting "I am a new user" must be refused off the canonical endpoint,
+    // since guided provisioning would mint a production key against the proxy.
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('production endpoint'))
+    expect(beginAimlapiEmailOnboarding).not.toHaveBeenCalled()
+    expect(provisionAimlapiKey).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager manage flow does not reuse env credentials for a custom AIMLAPI endpoint', async () => {
   delete process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_API_KEYS

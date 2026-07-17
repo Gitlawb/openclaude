@@ -663,6 +663,31 @@ test('polling retains and retries the same session after a rate limit', async ()
   expect(sessions).toEqual([])
 })
 
+test('aborting during polling stops requests and preserves the retained session', async () => {
+  const controller = new AbortController()
+  let getCount = 0
+  globalThis.fetch = mock(async () => {
+    getCount += 1
+    controller.abort()
+    return Response.json({ sessionToken: 'session', status: 'pending_payment' })
+  }) as unknown as typeof fetch
+  const client = new AimlapiClient({
+    authBaseUrl: 'https://auth.example.test',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  })
+  const sessions: string[] = []
+
+  await expect(
+    pollUntilPaid(client, 'session', controller.signal, value => sessions.push(value)),
+  ).rejects.toThrow()
+  // Aborted before the next poll: exactly one GET, and the session is not cleared.
+  expect(getCount).toBe(1)
+  expect(sessions).toEqual([])
+})
+
 test('by-key billing stays on the endpoint that validated the key', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   process.env.AIMLAPI_INFERENCE_URL = 'https://override.example.test/v1'

@@ -298,7 +298,7 @@ export async function provisionAimlapiKey(
       },
       options.signal,
     )
-    await announceCheckout(checkout.payUrl, options)
+    await announceCheckout(checkout?.payUrl, options)
   }
 
   let paidToken = sessionToken
@@ -387,7 +387,7 @@ export async function topUpAimlapiByApiKey(
       },
       options.signal,
     )
-    await announceCheckout(checkout.payUrl, options)
+    await announceCheckout(checkout?.payUrl, options)
   }
   if (phase === 'pay' || phase === 'poll') {
     options.onStatus?.('waiting-payment')
@@ -412,7 +412,7 @@ export async function topUpAimlapiByApiKey(
 }
 
 async function announceCheckout(
-  payUrl: string | null,
+  payUrl: string | null | undefined,
   options: Pick<AimlapiTopupOptions, 'noOpen'> & {
     onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
   },

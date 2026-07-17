@@ -206,17 +206,51 @@ test('session methods reject a malformed or empty success payload', async () => 
   // the retained payment identity or take an ambiguous retry on it.
   const client = new AimlapiClient(endpoints)
 
+  // Empty object: passes the request-level object guard, rejected by the
+  // session shape check (no valid status).
   globalThis.fetch = mock(async () => jsonResponse({})) as unknown as typeof fetch
   await expect(client.getSession('resume-token')).rejects.toMatchObject({
     name: 'AimlapiApiError',
     status: 200,
   })
 
+  // null / non-object: rejected by the request-level guard.
   globalThis.fetch = mock(async () => jsonResponse(null)) as unknown as typeof fetch
-  await expect(client.getSession('resume-token')).rejects.toThrow('invalid session')
+  await expect(client.getSession('resume-token')).rejects.toMatchObject({
+    name: 'AimlapiApiError',
+    status: 200,
+  })
 
+  // Unknown status: object with a status outside the allowlist.
   globalThis.fetch = mock(async () =>
     jsonResponse({ sessionToken: 'session', status: 'nonsense' }),
   ) as unknown as typeof fetch
-  await expect(client.createSession({ partnerId: 'part_x' })).rejects.toThrow('invalid session')
+  await expect(client.createSession({ partnerId: 'part_x' })).rejects.toMatchObject({
+    name: 'AimlapiApiError',
+    status: 200,
+  })
+})
+
+test('a request forwards the abort signal to fetch and rejects when cancelled', async () => {
+  const controller = new AbortController()
+  let forwardedSignal: AbortSignal | undefined
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    forwardedSignal = init?.signal ?? undefined
+    // Model a transport that only settles when the request is aborted.
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+        { once: true },
+      )
+    })
+  }) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const pending = client.getSession('resume-token', controller.signal)
+  controller.abort()
+  await expect(pending).rejects.toThrow()
+  // The signal reached the transport layer and observed the cancellation.
+  expect(forwardedSignal).toBeInstanceOf(AbortSignal)
+  expect(forwardedSignal?.aborted).toBe(true)
 })
