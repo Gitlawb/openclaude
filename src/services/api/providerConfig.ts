@@ -148,7 +148,13 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 type ThinkingType = 'enabled' | 'disabled'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
-const KIMI_K3_REASONING_LEVELS = new Set<ReasoningEffort>(['low', 'high', 'max'])
+const KIMI_CODE_K3_REASONING_ALIASES: Record<ReasoningEffort, ReasoningEffort> = {
+  low: 'low',
+  medium: 'high',
+  high: 'high',
+  xhigh: 'max',
+  max: 'max',
+}
 
 export type ProviderTransport = 'chat_completions' | 'responses' | 'responses_compat' | 'codex_responses'
 export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses' | 'responses_compat'
@@ -1139,19 +1145,26 @@ export function resolveProviderRequest(options?: {
         /^gpt-5\.6/.test(descriptor.baseModel)
       ? undefined
       : descriptor.reasoning
-  const supportsMaxReasoning =
-    (explicitBaseUrlRuntimeContext?.routeId === 'kimi-code' && resolvedModel === 'k3') ||
-    (explicitBaseUrlRuntimeContext?.catalogEntry?.reasoning?.wireFormat === 'reasoning_effort' &&
-      explicitBaseUrlRuntimeContext.catalogEntry.reasoning.levels?.includes('max') === true)
   const isKimiCodeK3 =
     explicitBaseUrlRuntimeContext?.routeId === 'kimi-code' && resolvedModel === 'k3'
-  const reasoning =
-    (requestedReasoning?.effort === 'max' && !supportsMaxReasoning) ||
-      (isKimiCodeK3 &&
-        requestedReasoning?.effort !== undefined &&
-        !KIMI_K3_REASONING_LEVELS.has(requestedReasoning.effort))
-      ? undefined
+  const normalizedReasoning =
+    isKimiCodeK3 && requestedReasoning?.effort !== undefined
+      ? { effort: KIMI_CODE_K3_REASONING_ALIASES[requestedReasoning.effort] }
       : requestedReasoning
+  const catalogReasoningLevels =
+    explicitBaseUrlRuntimeContext?.catalogEntry?.modelDescriptorId === 'k3' &&
+    explicitBaseUrlRuntimeContext.catalogEntry.reasoning?.wireFormat === 'reasoning_effort'
+      ? explicitBaseUrlRuntimeContext.catalogEntry.reasoning.levels
+      : undefined
+  const supportsMaxReasoning =
+    catalogReasoningLevels?.includes('max') === true
+  const reasoning =
+    (normalizedReasoning?.effort === 'max' && !supportsMaxReasoning) ||
+      (catalogReasoningLevels !== undefined &&
+        normalizedReasoning?.effort !== undefined &&
+        !catalogReasoningLevels.includes(normalizedReasoning.effort))
+      ? undefined
+      : normalizedReasoning
 
   return {
     transport,

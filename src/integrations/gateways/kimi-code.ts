@@ -5,7 +5,9 @@ export default defineGateway({
   label: 'Moonshot AI - Kimi Code',
   category: 'hosted',
   defaultBaseUrl: 'https://api.kimi.com/coding/v1',
-  defaultModel: 'k3',
+  // Moderato subscriptions are limited to 256K; users with Allegretto+ can
+  // explicitly select the 1M variant.
+  defaultModel: 'k3-256k',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

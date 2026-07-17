@@ -217,29 +217,46 @@ async function captureRequestBody(
   model: string,
   options: { useModelWindow?: boolean } = {},
 ): Promise<Record<string, unknown>> {
-  setCompressionEnabledForTest(mockState.enabled)
-  if (options.useModelWindow) {
-    delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
-    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
-  } else {
-    setEffectiveWindowForTest(mockState.effectiveWindow)
+  const originalAutoCompactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+  const originalMaxOutputTokens = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  const originalFetch = globalThis.fetch
+  try {
+    setCompressionEnabledForTest(mockState.enabled)
+    if (options.useModelWindow) {
+      delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+      delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    } else {
+      setEffectiveWindowForTest(mockState.effectiveWindow)
+    }
+    let captured: Record<string, unknown> | undefined
+
+    globalThis.fetch = (async (_input, init) => {
+      captured = JSON.parse(String(init?.body))
+      return makeFakeResponse()
+    }) as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    await client.beta.messages.create({
+      model,
+      system: 'system prompt',
+      messages,
+    })
+
+    if (!captured) throw new Error('request not captured')
+    return captured
+  } finally {
+    if (originalAutoCompactWindow === undefined) {
+      delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+    } else {
+      process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = originalAutoCompactWindow
+    }
+    if (originalMaxOutputTokens === undefined) {
+      delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    } else {
+      process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = originalMaxOutputTokens
+    }
+    globalThis.fetch = originalFetch
   }
-  let captured: Record<string, unknown> | undefined
-
-  globalThis.fetch = (async (_input, init) => {
-    captured = JSON.parse(String(init?.body))
-    return makeFakeResponse()
-  }) as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  await client.beta.messages.create({
-    model,
-    system: 'system prompt',
-    messages,
-  })
-
-  if (!captured) throw new Error('request not captured')
-  return captured
 }
 
 async function captureResponsesRequestBody(

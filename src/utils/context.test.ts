@@ -841,7 +841,7 @@ test('Kimi Code kimi-for-coding uses provider-specific context and output caps',
   })
 })
 
-test('Kimi Code K3 defaults to the Allegretto 1M cap', () => {
+test('Kimi Code K3 1M choice uses the Allegretto cap', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS

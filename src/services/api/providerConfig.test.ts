@@ -87,14 +87,33 @@ test('resolveProviderRequest preserves K3 documented reasoning levels from its m
   }
 })
 
-test('resolveProviderRequest rejects unsupported K3 reasoning from its model query', () => {
-  for (const effort of ['medium', 'xhigh']) {
+test('resolveProviderRequest canonicalizes Kimi Code K3 reasoning aliases', () => {
+  for (const [effort, expected] of [['medium', 'high'], ['xhigh', 'max']] as const) {
     const request = resolveProviderRequest({
       model: `k3?reasoning=${effort}`,
       baseUrl: 'https://api.kimi.com/coding/v1',
       processEnv: {},
     })
 
+    expect(request.reasoning).toEqual({ effort: expected })
+  }
+})
+
+test('resolveProviderRequest uses the direct Moonshot K3 API name and only permits max reasoning', () => {
+  const max = resolveProviderRequest({
+    model: 'k3?reasoning=max',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    processEnv: {},
+  })
+  expect(max.resolvedModel).toBe('kimi-k3')
+  expect(max.reasoning).toEqual({ effort: 'max' })
+
+  for (const effort of ['low', 'medium', 'high', 'xhigh']) {
+    const request = resolveProviderRequest({
+      model: `k3?reasoning=${effort}`,
+      baseUrl: 'https://api.moonshot.ai/v1',
+      processEnv: {},
+    })
     expect(request.reasoning).toBeUndefined()
   }
 })
