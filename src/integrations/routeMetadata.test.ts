@@ -556,7 +556,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8', 'hicap'],
-  ['AI/ML API', 'https://api.aimlapi.com/v1', 'gpt-4o', 'aimlapi'],
+  ['aimlapi.com', 'https://api.aimlapi.com/v1', 'gpt-4o', 'aimlapi'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(

@@ -33,6 +33,7 @@ import {
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
+import { isCanonicalAimlapiInferenceBaseUrl } from '../integrations/aimlapi/config.js'
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getCatalogEntriesForRoute,
@@ -994,12 +995,23 @@ export function applyProviderProfileToProcessEnv(
       }
     }
     if (isAimlapiProfile) {
-      const ambientOpenAIKey = trimOrUndefined(process.env.OPENAI_API_KEY)
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
-      openAIProfileEnv.OPENAI_API_KEY =
-        openAIProfileEnv.OPENAI_API_KEY ?? ambientOpenAIKey
-      openAIProfileEnv.AIMLAPI_API_KEY =
-        openAIProfileEnv.AIMLAPI_API_KEY ?? ambientOpenAIKey
+      // The ambient AIMLAPI_API_KEY is the canonical aimlapi.com credential.
+      // Only forward it when the profile targets the canonical inference host;
+      // a keyless `aimlapi` profile can point at a user-controlled proxy, and
+      // injecting the credential there would leak it. This mirrors the
+      // guided-flow validation, which also gates on the canonical URL. A missing
+      // base URL resolves to the aimlapi default (which is canonical), so treat
+      // it as canonical rather than passing undefined into the string helper.
+      if (!profile.baseUrl || isCanonicalAimlapiInferenceBaseUrl(profile.baseUrl)) {
+        const ambientAimlapiKey =
+          trimOrUndefined(process.env.AIMLAPI_API_KEY) ??
+          trimOrUndefined(process.env.OPENAI_API_KEY)
+        openAIProfileEnv.OPENAI_API_KEY =
+          openAIProfileEnv.OPENAI_API_KEY ?? ambientAimlapiKey
+        openAIProfileEnv.AIMLAPI_API_KEY =
+          openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
+      }
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
