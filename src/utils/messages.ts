@@ -1381,6 +1381,31 @@ export function normalizeMessagesForAPI(
   messages: Message[],
   tools: Tools = [],
 ): (UserMessage | AssistantMessage)[] {
+  const containsStripTarget = (
+    content: ContentBlockParam[],
+    types: Set<string>,
+  ): boolean => content.some(block =>
+    types.has(block.type) ||
+    (block.type === 'tool_result' &&
+      Array.isArray(block.content) &&
+      containsStripTarget(block.content as ContentBlockParam[], types)),
+  )
+  const stripTargetsFromContent = (
+    content: ContentBlockParam[],
+    types: Set<string>,
+  ): ContentBlockParam[] => content
+    .filter(block => !types.has(block.type))
+    .map(block =>
+      block.type === 'tool_result' && Array.isArray(block.content)
+        ? {
+            ...block,
+            content: stripTargetsFromContent(
+              block.content as ContentBlockParam[],
+              types,
+            ) as typeof block.content,
+          }
+        : block,
+    )
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
@@ -1454,7 +1479,7 @@ export function normalizeMessagesForAPI(
         const content = candidate.message.content
         if (
           !Array.isArray(content) ||
-          !content.some(block => blockTypesToStrip.has(block.type))
+          !containsStripTarget(content, blockTypesToStrip)
         ) {
           continue
         }
@@ -1558,9 +1583,7 @@ export function normalizeMessagesForAPI(
           if (typesToStrip) {
             const content = normalizedMessage.message.content
             if (Array.isArray(content)) {
-              const filtered = content.filter(
-                block => !typesToStrip.has(block.type),
-              )
+              const filtered = stripTargetsFromContent(content, typesToStrip)
               if (filtered.length === 0) {
                 // All content blocks were stripped; skip this message entirely
                 return
