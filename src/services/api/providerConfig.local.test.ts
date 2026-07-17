@@ -394,6 +394,8 @@ test('modelRequiresResponsesApi matches gpt-5.4/5.5/5.6 (excl. mini/nano) only',
     'gpt-5.5-mini',
     'gpt-5.5-nano',
     'gpt-5.6-mini-high',
+    'gpt-5.4-2026-01-01-mini',
+    'gpt-5.6.1-nano',
     'gpt-5.10',
     'gpt-5.41',
     // unverified future minors are deliberately not auto-routed

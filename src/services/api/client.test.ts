@@ -1701,6 +1701,38 @@ test('providerOverride Azure gpt effort uses the override base for catalog metad
 
   expect(requestBody?.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' })
 })
+
+test('providerOverride does not inherit Azure-style routing from its parent', async () => {
+  let requestUrl = ''
+  let requestHeaders: Headers | undefined
+  process.env.OPENAI_AZURE_STYLE = '1'
+
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input)
+    requestHeaders = new Headers(init?.headers)
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-provider-override-gateway', model: 'gpt-5.6-sol',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    providerOverride: {
+      model: 'gpt-5.6-sol',
+      baseURL: 'https://gateway.example/v1',
+      apiKey: 'provider-test-key',
+    },
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({ model: 'unused', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  expect(requestUrl).toBe('https://gateway.example/v1/chat/completions')
+  expect(requestHeaders?.get('authorization')).toBe('Bearer provider-test-key')
+  expect(requestHeaders?.get('api-key')).toBeNull()
+})
+
 test('providerOverride custom OpenAI-compatible gpt effort uses legacy support', async () => {
   let requestBody: Record<string, unknown> | undefined
 

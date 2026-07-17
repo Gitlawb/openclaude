@@ -3562,8 +3562,18 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
-      const response = await self._doRequest(request, params, options)
+      // A provider override is a complete route, so it must not inherit an
+      // Azure-style escape hatch intended for the parent route.
+      const requestProcessEnv = self.providerOverride
+        ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+        : process.env
+      const request = resolveProviderRequest({
+        model: self.providerOverride?.model ?? params.model,
+        baseUrl: self.providerOverride?.baseURL,
+        reasoningEffortOverride: self.reasoningEffort,
+        processEnv: requestProcessEnv,
+      })
+      const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response
 
       if (params.stream) {
@@ -3675,6 +3685,7 @@ class OpenAIShimMessages {
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
@@ -3779,13 +3790,14 @@ class OpenAIShimMessages {
       })
     }
 
-    return this._doOpenAIRequest(request, params, options)
+    return this._doOpenAIRequest(request, params, options, requestProcessEnv)
   }
 
   private async _doOpenAIRequest(
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
     // Local backends (llama.cpp, vLLM, Ollama, LM Studio, …) do not implement
     // the cloud-side caching/strict-validation behaviours that several of our
@@ -3802,7 +3814,7 @@ class OpenAIShimMessages {
       ? rawMessages
       : compressToolHistory(rawMessages, request.resolvedModel)
     const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-      processEnv: process.env,
+      processEnv: requestProcessEnv,
       baseUrl: request.baseUrl,
       model: request.resolvedModel,
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
@@ -4364,7 +4376,7 @@ class OpenAIShimMessages {
     }
     // Reads live process.env by design; must agree with the responses
     // auto-route gate's processEnv (both default to process.env today).
-    const isAzure = isAzureStyleBaseUrl(request.baseUrl)
+    const isAzure = isAzureStyleBaseUrl(request.baseUrl, requestProcessEnv)
 
     let isBankr = false
     try {

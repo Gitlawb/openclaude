@@ -427,7 +427,8 @@ function shouldUseGithubResponsesApi(model: string): boolean {
 // gpt-5-mini, gpt-4.x, o-series, and claude-* stay on chat/completions.
 export function modelRequiresResponsesApi(model: string): boolean {
   const normalized = model.trim().toLowerCase().split('?', 1)[0] ?? ''
-  return /^gpt-5\.[4-6](?!\d)(?!-(?:mini|nano)(?:-|$))/.test(normalized)
+  return /^gpt-5\.[4-6](?!\d)/.test(normalized) &&
+    !/(?:^|[-.])(?:mini|nano)(?:[-.]|$)/.test(normalized)
 }
 
 // The responses auto-route only fires for the OpenAI first-party surface
