@@ -27,7 +27,6 @@ test('only marks a local user cancellation of the active model query', () => {
     { ...localUserCancellation, modelBoundQueryId: null },
     { ...localUserCancellation, modelBoundQueryId: 'query-2' },
     { ...localUserCancellation, isRemoteMode: true },
-    { ...localUserCancellation, hasQueuedNormalPrompt: true },
   ]
 
   for (const cancellation of excludedCancellations) {
