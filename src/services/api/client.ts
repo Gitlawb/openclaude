@@ -359,11 +359,14 @@ export async function getAnthropicClient({
 }): Promise<Anthropic> {
   // Convert the runtime effort value to the OpenAI-shaped enum the shim
   // expects. Undefined → shim falls back to descriptor/alias defaults.
+  const effortProcessEnv = providerOverride
+    ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+    : process.env
   const effortModel = providerOverride?.model ?? model
   const effortBaseUrl = providerOverride?.baseURL ?? process.env.OPENAI_BASE_URL
   const effortRuntimeContext = effortModel
     ? resolveOpenAIShimRuntimeContext({
-      processEnv: process.env,
+      processEnv: effortProcessEnv,
       baseUrl: effortBaseUrl,
       model: effortModel,
       preferBaseUrlRoute:
@@ -377,6 +380,7 @@ export async function getAnthropicClient({
         useRuntimeFallback: false,
         openaiShimConfig: effortShimConfig,
         baseUrl: effortBaseUrl,
+        processEnv: effortProcessEnv,
         apiProvider: effortRuntimeContext.routeId === 'openai'
           ? 'openai' as const
           : effortRuntimeContext.routeId === 'codex'

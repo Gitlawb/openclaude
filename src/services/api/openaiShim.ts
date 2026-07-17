@@ -3852,6 +3852,7 @@ class OpenAIShimMessages {
       useRuntimeFallback: false,
       openaiShimConfig: shimConfig,
       baseUrl: request.baseUrl,
+      processEnv: requestProcessEnv,
     })
     // The explicit chat-completions escape hatch for GPT-5.4/5.5/5.6 must
     // also omit reasoning effort: these models reject the tools + effort
@@ -3861,7 +3862,7 @@ class OpenAIShimMessages {
       Array.isArray(params.tools) &&
       params.tools.length > 0 &&
       modelRequiresResponsesApi(request.resolvedModel) &&
-      baseUrlSupportsResponsesAutoRoute(request.baseUrl, process.env)
+      baseUrlSupportsResponsesAutoRoute(request.baseUrl, requestProcessEnv)
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
       model: request.resolvedModel,
       requestedEffort: suppressReasoningForForcedChat ? undefined : request.reasoning?.effort,

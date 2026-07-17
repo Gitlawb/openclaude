@@ -78,6 +78,7 @@ export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
   modelDescriptors?: Readonly<Record<string, Pick<ModelDescriptor, 'capabilities' | 'reasoning'>>>
   openaiShimConfig?: Partial<OpenAIShimTransportConfig>
   baseUrl?: string
+  processEnv?: NodeJS.ProcessEnv
 }
 
 const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
@@ -330,11 +331,11 @@ function resolveCatalogReasoningMetadata(
   const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
   let entry = entries.find(matchesModel)
   const fallbackBaseUrl =
-    context?.baseUrl ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+    context?.baseUrl ?? context?.processEnv?.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
   if (
     !entry &&
     routeId === 'custom' &&
-    baseUrlSupportsResponsesAutoRoute(fallbackBaseUrl, process.env)
+    baseUrlSupportsResponsesAutoRoute(fallbackBaseUrl, context?.processEnv ?? process.env)
   ) {
     // Azure and regional/first-party OpenAI surfaces resolve to route 'custom'
     // (their host is not a registered route; see resolveActiveRouteIdFromEnv),
