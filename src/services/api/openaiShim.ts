@@ -3565,7 +3565,11 @@ class OpenAIShimMessages {
       // A provider override is a complete route, so it must not inherit an
       // Azure-style escape hatch intended for the parent route.
       const requestProcessEnv = self.providerOverride
-        ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+        ? {
+          ...process.env,
+          OPENAI_API_FORMAT: undefined,
+          OPENAI_AZURE_STYLE: undefined,
+        }
         : process.env
       const request = resolveProviderRequest({
         model: self.providerOverride?.model ?? params.model,
