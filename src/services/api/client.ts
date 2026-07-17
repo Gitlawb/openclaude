@@ -435,7 +435,16 @@ export async function getAnthropicClient({
       )
       : modelSupportsWireEffort(effortModel)
     : false
-  const appliedEffort = effortModel && effortValue !== undefined
+  const reasoningControl = effortModel
+    ? resolveModelReasoningControl(effortModel, effortContext)
+    : undefined
+  const maxOnlyReasoningControl =
+    reasoningControl?.source === 'metadata' &&
+    reasoningControl.wireFormat === 'reasoning_effort' &&
+    reasoningControl.levels.length === 1 &&
+    reasoningControl.levels.includes('max')
+  const appliedEffort = effortModel &&
+    (effortValue !== undefined || maxOnlyReasoningControl)
     ? resolveAppliedEffort(
       effortModel,
       effortValue,
@@ -445,16 +454,13 @@ export async function getAnthropicClient({
   const appliedEffortLevel = appliedEffort === undefined
     ? undefined
     : convertEffortValueToLevel(appliedEffort)
-  const reasoningControl = effortModel
-    ? resolveModelReasoningControl(effortModel, effortContext)
-    : undefined
   const shimReasoningEffort: OpenAIShimEffortLevel | undefined =
     appliedEffortLevel !== undefined && supportsShimReasoningEffort
       ? (reasoningControl?.source === 'metadata' &&
           reasoningControl.wireFormat === 'reasoning_effort' &&
           appliedEffortLevel === 'max' &&
-          reasoningControl.levels.includes('max')
-          ? 'max'
+          maxOnlyReasoningControl
+            ? 'max'
           : standardEffortToOpenAI(appliedEffortLevel))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
