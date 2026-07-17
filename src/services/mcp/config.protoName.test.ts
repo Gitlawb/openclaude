@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
+  getCurrentProjectConfig,
   getGlobalConfig,
   saveCurrentProjectConfig,
   saveGlobalConfig,
@@ -21,10 +22,12 @@ const PROTO_NAMES = [
 ]
 
 let savedGlobalMcp: ReturnType<typeof getGlobalConfig>['mcpServers']
+let savedProjectMcp: ReturnType<typeof getCurrentProjectConfig>['mcpServers']
 
 beforeEach(() => {
   process.env.NODE_ENV = 'test'
   savedGlobalMcp = getGlobalConfig().mcpServers
+  savedProjectMcp = getCurrentProjectConfig().mcpServers
   saveGlobalConfig(config => ({
     ...config,
     mcpServers: { realserver: { command: 'echo', args: [] } },
@@ -37,7 +40,10 @@ beforeEach(() => {
 
 afterEach(() => {
   saveGlobalConfig(config => ({ ...config, mcpServers: savedGlobalMcp }))
-  saveCurrentProjectConfig(config => ({ ...config, mcpServers: undefined }))
+  saveCurrentProjectConfig(config => ({
+    ...config,
+    mcpServers: savedProjectMcp,
+  }))
 })
 
 test('resolves a real server by name', () => {
