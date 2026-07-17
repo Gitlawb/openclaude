@@ -100,7 +100,10 @@ function handleInterruptionCorrectionMessageUpdate(
 ): void {
   const previousBoundary = previousMessages.findLast(isCompactBoundaryMessage)
   const nextBoundary = nextMessages.findLast(isCompactBoundaryMessage)
-  if (nextBoundary?.uuid !== previousBoundary?.uuid) {
+  if (
+    nextBoundary?.uuid !== previousBoundary?.uuid ||
+    (previousMessages.length > 0 && nextMessages.length === 0)
+  ) {
     tracker.handleConversationRewrite()
   }
 }

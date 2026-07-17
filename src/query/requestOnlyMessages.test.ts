@@ -244,3 +244,80 @@ for (const preserveCorrection of [false, true]) {
     ).toBe(false)
   })
 }
+
+test('does not restore request-only context after compaction retries the turn', async () => {
+  const modelCalls: Message[][] = []
+  const inspectTool = buildTool({
+    name: 'InspectContextAfterCompact',
+    inputSchema: z.object({}),
+    maxResultSizeChars: Infinity,
+    async description() {
+      return 'Inspect current context'
+    },
+    async prompt() {
+      return ''
+    },
+    async call() {
+      return { data: 'ok' }
+    },
+    mapToolResultToToolResultBlockParam(content, toolUseID) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUseID,
+        content: String(content),
+      }
+    },
+    renderToolUseMessage() {
+      return null
+    },
+    renderToolResultMessage() {
+      return null
+    },
+  })
+  const callModel: QueryDeps['callModel'] = async function* ({ messages }) {
+    modelCalls.push(messages)
+    if (modelCalls.length === 1) {
+      yield createAssistantMessage({
+        content: [
+          {
+            type: 'tool_use',
+            id: 'inspect-after-compact',
+            name: 'InspectContextAfterCompact',
+            input: {},
+          },
+        ],
+      })
+      return
+    }
+    yield createAssistantMessage({ content: 'done' })
+  }
+  let compacted = false
+  const autocompact: QueryDeps['autocompact'] = async () => {
+    if (compacted) return { wasCompacted: false }
+    compacted = true
+    return {
+      wasCompacted: true,
+      consecutiveFailures: 0,
+      compactionResult: {
+        boundaryMarker: createCompactBoundaryMessage('auto', 10_000),
+        summaryMessages: [createUserMessage({ content: 'compact summary' })],
+        messagesToKeep: [createUserMessage({ content: 'do Y instead' })],
+        attachments: [],
+        hookResults: [],
+        preCompactTokenCount: 10_000,
+        postCompactTokenCount: 500,
+        truePostCompactTokenCount: 500,
+      },
+    }
+  }
+
+  await collect(baseParams(callModel, autocompact, [inspectTool]))
+
+  expect(modelCalls).toHaveLength(2)
+  expect(userTexts(modelCalls[0]!)).not.toContain(
+    INTERRUPTION_CORRECTION_REMINDER,
+  )
+  expect(userTexts(modelCalls[1]!)).not.toContain(
+    INTERRUPTION_CORRECTION_REMINDER,
+  )
+})

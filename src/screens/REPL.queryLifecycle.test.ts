@@ -194,4 +194,12 @@ describe('REPL query lifecycle timeout logging', () => {
 
     expect(tracker.takeReminder()).toBeNull()
   })
+
+  test('keeps maxTurns in the query callback dependencies', () => {
+    const start = source.indexOf('const onQueryImpl = useCallback')
+    expect(start).toBeGreaterThan(-1)
+    const end = source.indexOf('const onQuery = useCallback', start)
+    expect(end).toBeGreaterThan(start)
+    expect(source.slice(start, end)).toContain('titleDisabled, maxTurns,')
+  })
 })

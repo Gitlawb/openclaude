@@ -594,6 +594,9 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  // Request-only context can be invalidated by a full conversation rewrite.
+  // Keep it outside the loop so that invalidation survives every retry state.
+  let requestOnlyMessages = params.requestOnlyMessages
   let pendingToolFailureAdvisories: {
     message: ReturnType<typeof createUserMessage>
     threshold: number
@@ -693,7 +696,6 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
-    let requestOnlyMessages = params.requestOnlyMessages
     if (pendingToolFailureAdvisories.length > 0) {
       messagesForQuery.push(
         ...pendingToolFailureAdvisories.map(advisory => advisory.message),

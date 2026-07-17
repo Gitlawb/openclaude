@@ -332,6 +332,22 @@ test('clears a pending reminder when an existing compact boundary is removed', (
   expect(tracker.takeReminder()).toBeNull()
 })
 
+test('clears a pending reminder when the conversation is cleared', () => {
+  const tracker = new InterruptionCorrectionTracker(
+    new QueryGuard(),
+    () => 'session-a',
+  )
+  tracker.restoreReminder()
+
+  applyInterruptionCorrectionAwareMessageUpdate(
+    { current: [createUserMessage({ content: 'discard this turn' })] },
+    [],
+    tracker,
+  )
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
 test('does not restore a consumed reminder after programmatic auto-restore cancellation', () => {
   const queryGuard = new QueryGuard()
   const tracker = new InterruptionCorrectionTracker(

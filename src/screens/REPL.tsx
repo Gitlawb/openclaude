@@ -3102,7 +3102,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
