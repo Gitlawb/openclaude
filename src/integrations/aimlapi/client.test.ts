@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 
-import { AimlapiClient } from './client.js'
+import { AimlapiApiError, AimlapiClient } from './client.js'
 import type { AimlapiEndpoints } from './config.js'
 
 const originalFetch = globalThis.fetch
@@ -209,26 +209,25 @@ test('session methods reject a malformed or empty success payload', async () => 
   // Empty object: passes the request-level object guard, rejected by the
   // session shape check (no valid status).
   globalThis.fetch = mock(async () => jsonResponse({})) as unknown as typeof fetch
-  await expect(client.getSession('resume-token')).rejects.toMatchObject({
-    name: 'AimlapiApiError',
-    status: 200,
-  })
+  const emptyError = await client.getSession('resume-token').catch((error: unknown) => error)
+  expect(emptyError).toBeInstanceOf(AimlapiApiError)
+  expect(emptyError).toHaveProperty('status', 200)
 
   // null / non-object: rejected by the request-level guard.
   globalThis.fetch = mock(async () => jsonResponse(null)) as unknown as typeof fetch
-  await expect(client.getSession('resume-token')).rejects.toMatchObject({
-    name: 'AimlapiApiError',
-    status: 200,
-  })
+  const nullError = await client.getSession('resume-token').catch((error: unknown) => error)
+  expect(nullError).toBeInstanceOf(AimlapiApiError)
+  expect(nullError).toHaveProperty('status', 200)
 
   // Unknown status: object with a status outside the allowlist.
   globalThis.fetch = mock(async () =>
     jsonResponse({ sessionToken: 'session', status: 'nonsense' }),
   ) as unknown as typeof fetch
-  await expect(client.createSession({ partnerId: 'part_x' })).rejects.toMatchObject({
-    name: 'AimlapiApiError',
-    status: 200,
-  })
+  const badStatusError = await client
+    .createSession({ partnerId: 'part_x' })
+    .catch((error: unknown) => error)
+  expect(badStatusError).toBeInstanceOf(AimlapiApiError)
+  expect(badStatusError).toHaveProperty('status', 200)
 })
 
 test('a request forwards the abort signal to fetch and rejects when cancelled', async () => {
