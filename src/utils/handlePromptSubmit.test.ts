@@ -249,7 +249,19 @@ describe('handlePromptSubmit', () => {
       getToolUseContext: () => ({}) as never,
       setUserInputOnProcessing: () => {},
       setAbortController: () => {},
-      onQuery: async () => {
+      onQuery: async (
+        _messages,
+        _abortController,
+        _shouldQuery,
+        _tools,
+        _model,
+        _beforeQuery,
+        _input,
+        _effort,
+        _eligible,
+        onModelRequestStart,
+      ) => {
+        onModelRequestStart?.()
         throw new Error('completion failed')
       },
       setAppState: () => ({}) as never,

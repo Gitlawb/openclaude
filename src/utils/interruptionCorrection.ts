@@ -11,15 +11,18 @@ export function shouldMarkInterruptionCorrection({
   activeQueryId,
   modelBoundQueryId,
   isRemoteMode,
+  hasQueuedNormalPrompt = false,
 }: {
   isUserInitiated: boolean
   activeQueryId: string | null
   modelBoundQueryId: string | null
   isRemoteMode: boolean
+  hasQueuedNormalPrompt?: boolean
 }): boolean {
   return (
     isUserInitiated &&
     !isRemoteMode &&
+    !hasQueuedNormalPrompt &&
     activeQueryId !== null &&
     activeQueryId === modelBoundQueryId
   )
@@ -184,9 +187,11 @@ export class InterruptionCorrectionTracker {
   handleCancellation({
     isUserInitiated,
     isRemoteMode,
+    hasQueuedNormalPrompt = false,
   }: {
     isUserInitiated: boolean
     isRemoteMode: boolean
+    hasQueuedNormalPrompt?: boolean
   }): void {
     const activeQueryId = this.queryGuard.activeContext?.queryId ?? null
     if (
@@ -195,6 +200,7 @@ export class InterruptionCorrectionTracker {
         activeQueryId,
         modelBoundQueryId: this.modelBoundQueryId,
         isRemoteMode,
+        hasQueuedNormalPrompt,
       })
     ) {
       this.pendingSessionId = this.getSessionId()

@@ -104,6 +104,7 @@ type BaseExecutionParams = {
     input?: string,
     effort?: EffortValue,
     isInterruptionCorrectionEligible?: boolean,
+    onModelRequestStart?: () => void,
     // Return false when the query guard declines ownership before a turn starts.
   ) => Promise<void | false>
   setAppState: (updater: (prev: AppState) => AppState) => void
@@ -484,7 +485,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // that case (only acts on dispatching state).
   let queryProfileOwnedByOnQuery = false
   let interruptionCorrectionReminder: Message | null | undefined
-  let interruptionCorrectionModelRequested = false
+  let interruptionCorrectionReminderOwnedByModel = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -628,7 +629,6 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             ? primaryCmd.value
             : undefined
         const shouldCallBeforeQuery = primaryMode === 'prompt'
-        interruptionCorrectionModelRequested = shouldQuery
         queryProfileOwnedByOnQuery = true
         const queryOwnershipResult = await onQuery(
           newMessages,
@@ -644,6 +644,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           // Fail closed for mixed-provenance batches: only an entirely local
           // human turn may arm interruption-correction context.
           isInterruptionCorrectionEligible,
+          () => {
+            interruptionCorrectionReminderOwnedByModel = true
+          },
         )
         if (queryOwnershipResult === false) {
           queryProfileOwnedByOnQuery = false
@@ -674,12 +677,10 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
     }) // end runWithWorkload — ALS context naturally scoped, no finally needed
   } finally {
-    // `onQuery` owns the reminder lifecycle once dispatch starts. It restores
-    // the reminder itself for preflight failures and returns false when the
-    // guard declined ownership; do not re-arm after a post-dispatch failure.
+    // Keep the reminder until an actual model request takes ownership.
     if (
       interruptionCorrectionReminder &&
-      (!queryProfileOwnedByOnQuery || !interruptionCorrectionModelRequested)
+      !interruptionCorrectionReminderOwnedByModel
     ) {
       restoreInterruptionCorrectionReminder?.()
     }

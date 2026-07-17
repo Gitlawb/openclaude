@@ -2337,6 +2337,11 @@ export function REPL({
     interruptionCorrectionTracker.handleCancellation({
       isUserInitiated,
       isRemoteMode: activeRemote.isRemoteMode,
+      hasQueuedNormalPrompt: getCommandQueue().some(command =>
+        command.mode === 'prompt' &&
+        command.preExpansionValue !== undefined &&
+        command.allowInterruptionCorrection !== false,
+      ),
     });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
@@ -2928,7 +2933,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string, onModelRequestStart?: () => void) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -3069,11 +3074,14 @@ export function REPL({
       messages: messagesIncludingNewMessages,
       requestOnlyMessages,
       onModelRequestStart: interruptionCorrectionQueryId
-        ? () => interruptionCorrectionTracker.bindModelTurn({
-            shouldQuery,
-            isInterruptionCorrectionEligible: true,
-            queryId: interruptionCorrectionQueryId,
-          })
+        ? () => {
+            interruptionCorrectionTracker.bindModelTurn({
+              shouldQuery,
+              isInterruptionCorrectionEligible: true,
+              queryId: interruptionCorrectionQueryId,
+            })
+            onModelRequestStart?.()
+          }
         : undefined,
       onModelRequestEnd: interruptionCorrectionQueryId
         ? () => interruptionCorrectionTracker.finishModelTurn(
@@ -3114,7 +3122,7 @@ export function REPL({
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
   }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
-  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false): Promise<void | false> => {
+  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false, onModelRequestStart?: () => void): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
       const teamName = getTeamName();
@@ -3206,7 +3214,7 @@ export function REPL({
       }
       if (!preflightVetoed) {
         modelTurnStarted = true;
-        await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined);
+        await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined, onModelRequestStart);
       }
       if (preflightVetoed) {
         return false;
