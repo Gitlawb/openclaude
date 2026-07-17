@@ -2127,6 +2127,27 @@ export async function buildLaunchEnv(options: {
     env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = contextWindows
   }
 
+  // Self-hosted tool recovery flags (profile.selfHostedTools / shell override).
+  // Shell wins over persisted, same as API format / context windows. Without
+  // this, applyProfileEnvToProcessEnv clears PROFILE_ENV_KEYS on relaunch and
+  // drops OPENAI_SELF_HOSTED_TOOLS even when the legacy profile file had it.
+  const selfHostedToolsFlag =
+    processEnv.OPENAI_SELF_HOSTED_TOOLS ||
+    (usePersistedOpenAIConfig
+      ? persistedEnv.OPENAI_SELF_HOSTED_TOOLS
+      : undefined)
+  if (selfHostedToolsFlag) {
+    env.OPENAI_SELF_HOSTED_TOOLS = selfHostedToolsFlag
+  }
+  const parseTextToolCallsFlag =
+    processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS ||
+    (usePersistedOpenAIConfig
+      ? persistedEnv.OPENAI_PARSE_TEXT_TOOL_CALLS
+      : undefined)
+  if (parseTextToolCallsFlag) {
+    env.OPENAI_PARSE_TEXT_TOOL_CALLS = parseTextToolCallsFlag
+  }
+
   return buildCompatibilityProcessEnv({
     processEnv,
     compatibilityMode: 'openai',
