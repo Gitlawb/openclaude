@@ -484,8 +484,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // that case (only acts on dispatching state).
   let queryProfileOwnedByOnQuery = false
   let interruptionCorrectionReminder: Message | null | undefined
-  let interruptionCorrectionReminderInjected = false
-  let queryDispatchStarted = false
+  let interruptionCorrectionReminderOwnedByModel = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -565,7 +564,6 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           interruptionCorrectionReminder
         ) {
           newMessages.push(interruptionCorrectionReminder)
-          interruptionCorrectionReminderInjected = true
         }
         // Stamp origin here rather than threading another arg through
         // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
@@ -631,7 +629,6 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             : undefined
         const shouldCallBeforeQuery = primaryMode === 'prompt'
         queryProfileOwnedByOnQuery = true
-        queryDispatchStarted = shouldQuery
         const queryOwnershipResult = await onQuery(
           newMessages,
           abortController,
@@ -647,11 +644,10 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           // human turn may arm interruption-correction context.
           isInterruptionCorrectionEligible,
         )
+        interruptionCorrectionReminderOwnedByModel =
+          shouldQuery && queryOwnershipResult !== false
         if (queryOwnershipResult === false) {
           queryProfileOwnedByOnQuery = false
-          if (interruptionCorrectionReminderInjected) {
-            restoreInterruptionCorrectionReminder?.()
-          }
         }
       } else {
         // Local slash commands that skip messages (e.g., /model, /theme).
@@ -679,12 +675,11 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
     }) // end runWithWorkload — ALS context naturally scoped, no finally needed
   } finally {
-    // Processing can be vetoed by a UserPromptSubmit hook or throw before a
-    // model-bound query owns the reminder. Keep it for the next eligible
-    // correction instead of silently losing the interruption context.
+    // Keep the reminder until an eligible model turn takes ownership. Local
+    // commands and preflight vetoes do not consume correction context.
     if (
       interruptionCorrectionReminder &&
-      !queryDispatchStarted
+      !interruptionCorrectionReminderOwnedByModel
     ) {
       restoreInterruptionCorrectionReminder?.()
     }
