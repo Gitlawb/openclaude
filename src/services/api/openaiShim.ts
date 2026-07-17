@@ -4516,9 +4516,20 @@ class OpenAIShimMessages {
     let responsesInput: ReturnType<
       typeof convertAnthropicMessagesToResponsesInput
     > | undefined
+    let responsesMessages: typeof compressedMessages | undefined
     const getResponsesInput = () => {
+      // GitHub can reject a Chat request and retry it through Responses. That
+      // retry must budget structured text with the Responses separator rather
+      // than reusing the Chat-compressed form (which uses a double newline).
+      responsesMessages ??= effectiveTransport === 'chat_completions'
+        ? fastPath.skipToolHistoryCompression
+          ? rawMessages
+          : compressToolHistory(rawMessages, request.resolvedModel, {
+            textBlockSeparator: '\n',
+          })
+        : compressedMessages
       responsesInput ??= convertAnthropicMessagesToResponsesInput(
-        compressedMessages,
+        responsesMessages,
         effectiveTransport === 'responses_compat',
       )
       return responsesInput

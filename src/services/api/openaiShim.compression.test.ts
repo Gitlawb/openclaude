@@ -915,10 +915,23 @@ test('GitHub chat fallback compresses the retried Responses request', async () =
     return makeFakeResponsesResponse()
   }) as FetchType
 
+  const messages = buildLongConversation(30, 5_000)
+  messages[34] = {
+    role: 'user',
+    content: [{
+      type: 'tool_result',
+      tool_use_id: 'toolu_16',
+      content: [
+        { type: 'text', text: 'a'.repeat(1_000) },
+        { type: 'text', text: 'b'.repeat(1_500) },
+      ],
+    }],
+  }
+
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   await client.beta.messages.create({
     model: 'gpt-4o',
-    messages: buildLongConversation(30, 5_000),
+    messages,
   })
 
   expect(urls).toEqual([
@@ -927,7 +940,9 @@ test('GitHub chat fallback compresses the retried Responses request', async () =
   ])
   expect(fallbackBody).toBeDefined()
   const outputs = getResponsesFunctionOutputs(fallbackBody!)
-  expect(outputs[0]?.output).toContain('chars omitted')
+  expect(outputs[16]?.output).toBe(
+    `${'a'.repeat(1_000)}\n${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+  )
   expect(outputs[29]?.output).toHaveLength(5_000)
 })
 
