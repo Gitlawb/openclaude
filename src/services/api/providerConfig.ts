@@ -148,6 +148,7 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 type ThinkingType = 'enabled' | 'disabled'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
+const KIMI_K3_REASONING_LEVELS = new Set<ReasoningEffort>(['low', 'high', 'max'])
 
 export type ProviderTransport = 'chat_completions' | 'responses' | 'responses_compat' | 'codex_responses'
 export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses' | 'responses_compat'
@@ -1142,9 +1143,15 @@ export function resolveProviderRequest(options?: {
     (explicitBaseUrlRuntimeContext?.routeId === 'kimi-code' && resolvedModel === 'k3') ||
     (explicitBaseUrlRuntimeContext?.catalogEntry?.reasoning?.wireFormat === 'reasoning_effort' &&
       explicitBaseUrlRuntimeContext.catalogEntry.reasoning.levels?.includes('max') === true)
-  const reasoning = requestedReasoning?.effort === 'max' && !supportsMaxReasoning
-    ? undefined
-    : requestedReasoning
+  const isKimiCodeK3 =
+    explicitBaseUrlRuntimeContext?.routeId === 'kimi-code' && resolvedModel === 'k3'
+  const reasoning =
+    (requestedReasoning?.effort === 'max' && !supportsMaxReasoning) ||
+      (isKimiCodeK3 &&
+        requestedReasoning?.effort !== undefined &&
+        !KIMI_K3_REASONING_LEVELS.has(requestedReasoning.effort))
+      ? undefined
+      : requestedReasoning
 
   return {
     transport,

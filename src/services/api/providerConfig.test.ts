@@ -74,6 +74,31 @@ test('resolveProviderRequest preserves K3 max reasoning from its model query', (
   expect(request.reasoning).toEqual({ effort: 'max' })
 })
 
+test('resolveProviderRequest preserves K3 documented reasoning levels from its model query', () => {
+  for (const effort of ['low', 'high', 'max'] as const) {
+    const request = resolveProviderRequest({
+      model: `k3-256k?reasoning=${effort}`,
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: {},
+    })
+
+    expect(request.resolvedModel).toBe('k3')
+    expect(request.reasoning).toEqual({ effort })
+  }
+})
+
+test('resolveProviderRequest rejects unsupported K3 reasoning from its model query', () => {
+  for (const effort of ['medium', 'xhigh']) {
+    const request = resolveProviderRequest({
+      model: `k3?reasoning=${effort}`,
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: {},
+    })
+
+    expect(request.reasoning).toBeUndefined()
+  }
+})
+
 test('resolveProviderRequest rejects max reasoning for models without K3 support', () => {
   const request = resolveProviderRequest({
     model: 'gpt-4o?reasoning=max',

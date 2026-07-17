@@ -640,12 +640,13 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['max'],
+    levels: ['low', 'high', 'max'],
     defaultLevel: 'max',
     wireFormat: 'reasoning_effort',
   })
-  expect(getAvailableEffortLevels('k3')).toEqual(['max'])
+  expect(getAvailableEffortLevels('k3')).toEqual(['low', 'high', 'max'])
   expect(resolveAppliedEffort('k3', undefined)).toBe('max')
+  expect(resolveAppliedEffort('k3', 'low')).toBe('low')
 
   expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,
