@@ -200,6 +200,30 @@ test('token-producing methods reject an empty token', async () => {
   )
 })
 
+test('a request forwards the abort signal to fetch and rejects when cancelled', async () => {
+  const controller = new AbortController()
+  let forwardedSignal: AbortSignal | undefined
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    forwardedSignal = init?.signal ?? undefined
+    // Model a transport that only settles when the request is aborted.
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+        { once: true },
+      )
+    })
+  }) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const pending = client.getSession('resume-token', controller.signal)
+  controller.abort()
+  await expect(pending).rejects.toThrow()
+  // The signal reached the transport layer and observed the cancellation.
+  expect(forwardedSignal).toBeInstanceOf(AbortSignal)
+  expect(forwardedSignal?.aborted).toBe(true)
+})
+
 test('session methods reject a malformed or empty success payload', async () => {
   // A structurally-invalid 200 must surface as a non-terminal (status 200)
   // error rather than a session with an unknown status, so callers never clear
@@ -228,28 +252,4 @@ test('session methods reject a malformed or empty success payload', async () => 
     .catch((error: unknown) => error)
   expect(badStatusError).toBeInstanceOf(AimlapiApiError)
   expect(badStatusError).toHaveProperty('status', 200)
-})
-
-test('a request forwards the abort signal to fetch and rejects when cancelled', async () => {
-  const controller = new AbortController()
-  let forwardedSignal: AbortSignal | undefined
-  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-    forwardedSignal = init?.signal ?? undefined
-    // Model a transport that only settles when the request is aborted.
-    return await new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener(
-        'abort',
-        () => reject(new DOMException('The operation was aborted.', 'AbortError')),
-        { once: true },
-      )
-    })
-  }) as unknown as typeof fetch
-
-  const client = new AimlapiClient(endpoints)
-  const pending = client.getSession('resume-token', controller.signal)
-  controller.abort()
-  await expect(pending).rejects.toThrow()
-  // The signal reached the transport layer and observed the cancellation.
-  expect(forwardedSignal).toBeInstanceOf(AbortSignal)
-  expect(forwardedSignal?.aborted).toBe(true)
 })
