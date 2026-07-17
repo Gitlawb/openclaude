@@ -204,14 +204,20 @@ describe('handlePromptSubmit', () => {
     expect(restoreCount).toBe(1)
   })
 
-  it('restores a reminder when processing the normal prompt throws', async () => {
+  it('restores a reminder when a later queued normal prompt throws before dispatch', async () => {
     const reminderMessage = createUserMessage({
       content: '<system-reminder>interrupted</system-reminder>',
       isMeta: true,
     })
+    let calls = 0
     mock.module('./processUserInput/processUserInput.js', () => ({
       processUserInput: async () => {
-        throw new Error('hook failed')
+        calls++
+        if (calls === 2) throw new Error('hook failed')
+        return {
+          messages: [createUserMessage({ content: 'first correction' })],
+          shouldQuery: true,
+        }
       },
     }))
     const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
@@ -221,6 +227,18 @@ describe('handlePromptSubmit', () => {
     const submission = handlePromptSubmit({
       input: 'do Y instead',
       mode: 'prompt',
+      queuedCommands: [
+        {
+          value: 'first correction',
+          preExpansionValue: 'first correction',
+          mode: 'prompt',
+        },
+        {
+          value: 'second correction',
+          preExpansionValue: 'second correction',
+          mode: 'prompt',
+        },
+      ],
       pastedContents: {},
       helpers: {
         setCursorOffset: () => {},

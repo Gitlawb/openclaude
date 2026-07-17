@@ -485,6 +485,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   let queryProfileOwnedByOnQuery = false
   let interruptionCorrectionReminder: Message | null | undefined
   let interruptionCorrectionReminderInjected = false
+  let queryDispatchStarted = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -630,6 +631,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             : undefined
         const shouldCallBeforeQuery = primaryMode === 'prompt'
         queryProfileOwnedByOnQuery = true
+        queryDispatchStarted = shouldQuery
         const queryOwnershipResult = await onQuery(
           newMessages,
           abortController,
@@ -682,7 +684,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     // correction instead of silently losing the interruption context.
     if (
       interruptionCorrectionReminder &&
-      !interruptionCorrectionReminderInjected
+      !queryDispatchStarted
     ) {
       restoreInterruptionCorrectionReminder?.()
     }
