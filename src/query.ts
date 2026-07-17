@@ -1863,6 +1863,9 @@ async function* queryLoop(
             querySource,
           )
           if (drained.committed > 0) {
+            // Draining replaces archived history with a summary, so a reminder
+            // about the pre-collapse interrupted turn is no longer valid.
+            requestOnlyMessages = undefined
             const next: State = {
               messages: drained.messages,
               toolUseContext,

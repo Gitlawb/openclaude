@@ -3175,32 +3175,33 @@ export function REPL({
       lastFlushedStreamingVisibleRef.current = null;
       setStreamingText(null);
 
-      await interruptionCorrectionTracker.runModelTurn({
-        shouldQuery,
-        isInterruptionCorrectionEligible,
-        queryId: queryContext.queryId,
-        run: async () => {
-          // Request-only context is passed separately to query(), so compaction,
-          // tools, transcript logging, later turns, and resume never persist it.
-          const latestMessages = persistentMessages;
-          if (input) {
-            await mrOnBeforeQuery(input, latestMessages, persistentNewMessages.length);
-          }
+      // Request-only context is passed separately to query(), so compaction,
+      // tools, transcript logging, later turns, and resume never persist it.
+      const latestMessages = persistentMessages;
+      if (input) {
+        await mrOnBeforeQuery(input, latestMessages, persistentNewMessages.length);
+      }
 
-          // Pass full conversation history to callback
-          if (onBeforeQueryCallback && input) {
-            const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
-            if (!shouldProceed) {
-              // No provider request owns this reminder when preflight vetoes
-              // the turn. Return false so handlePromptSubmit restores it for
-              // the next eligible correction prompt.
-              preflightVetoed = true;
-              return;
-            }
-          }
-          await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
+      // Pass full conversation history to callback
+      if (onBeforeQueryCallback && input) {
+        const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
+        if (!shouldProceed) {
+          // No provider request owns this reminder when preflight vetoes
+          // the turn. Return false so handlePromptSubmit restores it for
+          // the next eligible correction prompt.
+          preflightVetoed = true;
         }
-      });
+      }
+      if (!preflightVetoed) {
+        await interruptionCorrectionTracker.runModelTurn({
+          shouldQuery,
+          isInterruptionCorrectionEligible,
+          queryId: queryContext.queryId,
+          run: async () => {
+          await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
+          },
+        });
+      }
       if (preflightVetoed) {
         return false;
       }

@@ -123,48 +123,11 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(tracker.takeReminder()).toBeNull()
   })
 
-  test('arms when the user cancels during pre-query work', async () => {
-    const queryGuard = new QueryGuard()
-    const tracker = new InterruptionCorrectionTracker(
-      queryGuard,
-      () => 'session-a',
-    )
-    const modelTurn = queryGuard.tryStart({
-      queryId: 'pre-query-turn',
-      querySource: 'repl_main_thread',
-      startedAt: 1,
-    })!
-    let releasePreQuery!: () => void
-    const preQueryPending = new Promise<void>(resolve => {
-      releasePreQuery = resolve
-    })
-    let signalPreQueryStarted!: () => void
-    const preQueryStarted = new Promise<void>(resolve => {
-      signalPreQueryStarted = resolve
-    })
-    const turn = tracker.runModelTurn({
-      shouldQuery: true,
-      isInterruptionCorrectionEligible: true,
-      queryId: modelTurn.context.queryId,
-      run: async () => {
-        signalPreQueryStarted()
-        await preQueryPending
-      },
-    })
-
-    await preQueryStarted
-    tracker.handleCancellation({
-      isUserInitiated: true,
-      isRemoteMode: false,
-    })
-    queryGuard.forceEnd('user-abort', 'user-cancel')
-    releasePreQuery()
-    await turn
-
-    expect(tracker.takeReminder()).toMatchObject({
-      type: 'user',
-      isMeta: true,
-    })
+  test('binds correction tracking only after pre-query work', () => {
+    const preQuery = source.indexOf('await mrOnBeforeQuery')
+    const bind = source.indexOf('await interruptionCorrectionTracker.runModelTurn')
+    expect(preQuery).toBeGreaterThan(-1)
+    expect(bind).toBeGreaterThan(preQuery)
   })
 
   test('does not arm when the model turn is marked ineligible', async () => {
