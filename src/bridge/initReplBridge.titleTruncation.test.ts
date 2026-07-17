@@ -8,10 +8,12 @@ import { deriveTitle } from './initReplBridge.js'
 // an emoji or astral-plane character's surrogate pair, leaving a lone surrogate
 // that goes over the wire as the U+FFFD replacement character.
 
-// A high surrogate not followed by a low one (or vice versa) is an unpaired
-// code unit — exactly what a mid-pair slice leaves behind.
+// A high surrogate not followed by a low one (or a low surrogate not preceded
+// by a high one) is an unpaired code unit — exactly what a mid-pair slice
+// leaves behind. Written without a lookbehind to match the YARR/JSC constraint
+// the source regex in initReplBridge.ts documents.
 const LONE_SURROGATE =
-  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
 test('never emits a lone surrogate when truncating on an emoji boundary', () => {
   // The 😀 (U+1F600, a surrogate pair) sits exactly where a 50-char slice would
