@@ -218,7 +218,8 @@ test('a failed payment retains the issued key for the next run', async () => {
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
-  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  // Keep the canonical inference URL so the guided-provisioning gate allows the
+  // run; the flow uses the app/auth/pay hosts for its requests.
 
   let keyMints = 0
   let sessionStatus = 'expired'

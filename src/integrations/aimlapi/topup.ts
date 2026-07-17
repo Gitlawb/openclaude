@@ -12,6 +12,7 @@ import {
   buildPartnerReturnUrl,
   DEFAULT_MODEL,
   DEFAULT_PARTNER_NAME,
+  isCanonicalAimlapiInferenceBaseUrl,
   resolveEndpoints,
   resolvePartnerId,
 } from './config.js'
@@ -128,13 +129,22 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     (await promptText('AI/ML API email'))
   if (!isValidAimlapiEmail(email)) throw new Error('Email format is incorrect.')
 
-  console.log(chalk.bold('\n  AI/ML API top-up') + chalk.dim(`  -  ${endpoints.appBaseUrl}\n`))
-  const account = await client.checkAccount(email, options.signal)
+  // Guided provisioning mints/exchanges a production-account key via production
+  // auth and writes it as OPENAI_BASE_URL. Refuse a non-canonical inference
+  // override so a freshly minted key is never sent to a custom/proxy endpoint
+  // (mirrors the provider-manager gate).
+  if (!isCanonicalAimlapiInferenceBaseUrl(endpoints.inferenceBaseUrl)) {
+    throw new Error(
+      'Guided top-up requires the aimlapi.com production endpoint. Unset AIMLAPI_INFERENCE_URL to create or fund a key.',
+    )
+  }
 
-  // Validate the amount and claim (or reuse) the retained checkout before
-  // minting any credential: an invalid amount must not strand an unused key,
-  // and an interrupted checkout must resume on the same key rather than mint a
-  // fresh one on every retry.
+  console.log(chalk.bold('\n  AI/ML API top-up') + chalk.dim(`  -  ${endpoints.appBaseUrl}\n`))
+
+  // Validate the amount and claim (or reuse) the retained checkout before any
+  // account lookup or key mint: an invalid amount must not strand an unused
+  // key, and an interrupted checkout must resume on the same key rather than
+  // mint a fresh one on every retry.
   const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
   const partnerId = resolvePartnerId(options.partnerId)
   const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
@@ -150,6 +160,41 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     verificationBaseUrl: endpoints.verificationBaseUrl.trim().replace(/\/+$/, ''),
   }
   const checkoutState = claimAimlapiTopupState(intent)
+
+  const finishProfile = (provisioned: AimlapiProvisionedKey): void => {
+    const profilePath = saveProfileFile({
+      profile: 'openai',
+      env: {
+        OPENAI_BASE_URL: provisioned.baseUrl,
+        OPENAI_API_KEY: provisioned.apiKey,
+        AIMLAPI_API_KEY: provisioned.apiKey,
+        OPENAI_MODEL: provisioned.model,
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      },
+      createdAt: new Date().toISOString(),
+    })
+    clearAimlapiTopupState({ ...intent, paymentSessionId: checkoutState.paymentSessionId })
+    console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
+    console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)
+    console.log(`    base URL ${chalk.dim(provisioned.baseUrl)}`)
+    console.log(`    model    ${chalk.dim(provisioned.model)}`)
+    console.log(`    profile  ${chalk.dim(profilePath)}`)
+  }
+
+  // Resume: a prior run provisioned the key but was interrupted before the
+  // profile write. Finish that last step with the retained key instead of
+  // re-provisioning a now-exchanged (otherwise stranded) session.
+  if (checkoutState.settled && checkoutState.apiKey) {
+    finishProfile({
+      apiKey: checkoutState.apiKey,
+      apiKeyId: checkoutState.apiKeyId ?? '',
+      baseUrl: endpoints.inferenceBaseUrl,
+      model: options.model?.trim() || DEFAULT_MODEL,
+    })
+    return
+  }
+
+  const account = await client.checkAccount(email, options.signal)
   const persistSession = (resumeSessionToken: string): void => {
     if (!resumeSessionToken) {
       // A terminal checkout invalidates the payment session, but a minted
@@ -234,27 +279,15 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     },
   })
 
-  const profilePath = saveProfileFile({
-    profile: 'openai',
-    env: {
-      OPENAI_BASE_URL: provisioned.baseUrl,
-      OPENAI_API_KEY: provisioned.apiKey,
-      AIMLAPI_API_KEY: provisioned.apiKey,
-      OPENAI_MODEL: provisioned.model,
-      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
-    },
-    createdAt: new Date().toISOString(),
-  })
-  clearAimlapiTopupState({
-    ...intent,
-    paymentSessionId: checkoutState.paymentSessionId,
-  })
+  // Persist the provisioned key as recoverable before the profile write, so an
+  // interruption or a failed write resumes the write instead of stranding a
+  // paid, one-shot-exchanged key.
+  checkoutState.apiKey = provisioned.apiKey
+  checkoutState.apiKeyId = provisioned.apiKeyId
+  checkoutState.settled = true
+  saveAimlapiTopupState({ ...intent, ...checkoutState })
 
-  console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
-  console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)
-  console.log(`    base URL ${chalk.dim(provisioned.baseUrl)}`)
-  console.log(`    model    ${chalk.dim(provisioned.model)}`)
-  console.log(`    profile  ${chalk.dim(profilePath)}`)
+  finishProfile(provisioned)
 }
 
 export async function provisionAimlapiKey(
@@ -433,8 +466,17 @@ async function announceCheckout(
   ) {
     throw new Error('Payment provider did not return a valid HTTPS checkout URL.')
   }
-  if (!options.noOpen) await openBrowser(checkoutUrl)
+  // Surface the validated checkout URL before attempting to open a browser: a
+  // launcher failure (e.g. on a headless host) must not hide an already-created
+  // checkout, or the user cannot finish paying and retries only re-poll.
   options.onStatus?.('opening-checkout', checkoutUrl)
+  if (!options.noOpen) {
+    try {
+      await openBrowser(checkoutUrl)
+    } catch {
+      // The URL is already surfaced; a failed launch must not abort payment.
+    }
+  }
 }
 
 async function resolveTopupSession(

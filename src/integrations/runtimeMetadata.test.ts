@@ -170,7 +170,7 @@ describe('AIMLAPI runtime attribution', () => {
       const canonical = resolveOpenAIShimRuntimeContext({
         activeProfileProvider: 'aimlapi',
         baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'anthropic/claude-sonnet-5',
+        model: 'gpt-4o',
       })
       expect(canonical.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBe(
         'part_runtime_override',
@@ -179,7 +179,7 @@ describe('AIMLAPI runtime attribution', () => {
       const proxy = resolveOpenAIShimRuntimeContext({
         activeProfileProvider: 'aimlapi',
         baseUrl: 'https://proxy.example.test/v1',
-        model: 'anthropic/claude-sonnet-5',
+        model: 'gpt-4o',
       })
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Repo']).toBeUndefined()

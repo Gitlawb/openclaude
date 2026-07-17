@@ -99,8 +99,32 @@ const PARTNER_CHECKOUT_STATUSES: ReadonlySet<string> = new Set<PartnerCheckoutSe
   'failed',
 ])
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isAccountCheckResult(value: unknown): value is AccountCheckResult {
+  return isRecord(value) && typeof value.action === 'string'
+}
+
+function isAuthResult(value: unknown): value is AuthResult {
+  return isRecord(value) && isNonEmptyString(value.token)
+}
+
+function isCreatedKey(value: unknown): value is CreatedKey {
+  return isRecord(value) && isNonEmptyString(value.key)
+}
+
+function isExchangeResult(value: unknown): value is ExchangeResult {
+  return isRecord(value) && isNonEmptyString(value.apiKey)
+}
+
+function isPayResult(value: unknown): value is PayResult {
+  return isRecord(value) && isRecord(value.checkout)
 }
 
 function isPartnerCheckoutSession(value: unknown): value is PartnerCheckoutSession {
@@ -176,11 +200,16 @@ export class AimlapiClient {
   constructor(private readonly endpoints: AimlapiEndpoints) {}
 
   async checkAccount(email: string, signal?: AbortSignal): Promise<AccountCheckResult> {
-    return this.request<AccountCheckResult>(`${this.endpoints.authBaseUrl}/v1/auth/account`, {
+    const url = `${this.endpoints.authBaseUrl}/v1/auth/account`
+    const result = await this.request<unknown>(url, {
       method: 'PATCH',
       body: { email },
       signal,
     })
+    if (!isAccountCheckResult(result)) {
+      throw new AimlapiApiError(`PATCH ${requestLabel(url)} returned an invalid account response`, 200, '')
+    }
+    return result
   }
 
   async sendSignInCode(email: string, signal?: AbortSignal): Promise<void> {
@@ -197,20 +226,20 @@ export class AimlapiClient {
     code: string,
     signal?: AbortSignal,
   ): Promise<AuthResult> {
-    const result = await this.request<AuthResult>(
+    const result = await this.request<unknown>(
       `${this.endpoints.authBaseUrl}/v1/auth/sign-in/code/verify`,
       { method: 'POST', body: { email, code }, signal },
     )
-    if (!result.token?.trim()) throw new Error('AI/ML API did not return an auth token.')
+    if (!isAuthResult(result)) throw new Error('AI/ML API did not return an auth token.')
     return result
   }
 
   async createPasswordlessAccount(email: string, signal?: AbortSignal): Promise<AuthResult> {
-    const result = await this.request<AuthResult>(
+    const result = await this.request<unknown>(
       `${this.endpoints.authBaseUrl}/v1/auth/account/passwordless`,
       { method: 'POST', body: { email }, signal },
     )
-    if (!result.token?.trim()) throw new Error('AI/ML API did not return an auth token.')
+    if (!isAuthResult(result)) throw new Error('AI/ML API did not return an auth token.')
     return result
   }
 
@@ -219,13 +248,13 @@ export class AimlapiClient {
     name: string,
     signal?: AbortSignal,
   ): Promise<CreatedKey> {
-    const result = await this.request<CreatedKey>(`${this.endpoints.appBaseUrl}/v1/keys`, {
+    const result = await this.request<unknown>(`${this.endpoints.appBaseUrl}/v1/keys`, {
       method: 'POST',
       bearer,
       body: name.trim() ? { name: name.trim() } : {},
       signal,
     })
-    if (!result.key?.trim()) {
+    if (!isCreatedKey(result)) {
       throw new Error('AI/ML API did not return an API key.')
     }
     return result
@@ -294,22 +323,24 @@ export class AimlapiClient {
     },
     signal?: AbortSignal,
   ): Promise<PayResult> {
-    return this.request<PayResult>(
-      `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}/pay`,
-      {
-        method: 'POST',
-        bearer,
-        body: {
-          amountUsdMinor: input.amountUsdMinor,
-          paymentSessionId: input.paymentSessionId,
-          method: 'card',
-          ...(input.successUrl ? { successUrl: input.successUrl } : {}),
-          ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
-          ...(input.autoTopUp ? { autoTopUp: true } : {}),
-        },
-        signal,
+    const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}/pay`
+    const result = await this.request<unknown>(url, {
+      method: 'POST',
+      bearer,
+      body: {
+        amountUsdMinor: input.amountUsdMinor,
+        paymentSessionId: input.paymentSessionId,
+        method: 'card',
+        ...(input.successUrl ? { successUrl: input.successUrl } : {}),
+        ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
+        ...(input.autoTopUp ? { autoTopUp: true } : {}),
       },
-    )
+      signal,
+    })
+    if (!isPayResult(result)) {
+      throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid checkout`, 200, '')
+    }
+    return result
   }
 
   async topUpByKey(
@@ -328,7 +359,8 @@ export class AimlapiClient {
       .trim()
       .replace(/\/+$/, '')
       .replace(/\/v1$/i, '')
-    return this.request<TopUpByKeyResult>(`${inferenceBase}/v2/billing/topup`, {
+    const url = `${inferenceBase}/v2/billing/topup`
+    const result = await this.request<unknown>(url, {
       method: 'POST',
       bearer: apiKey,
       body: {
@@ -341,6 +373,10 @@ export class AimlapiClient {
       },
       signal,
     })
+    if (!isPayResult(result)) {
+      throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid checkout`, 200, '')
+    }
+    return result
   }
 
   async exchange(
@@ -348,10 +384,12 @@ export class AimlapiClient {
     sessionToken: string,
     signal?: AbortSignal,
   ): Promise<ExchangeResult> {
-    return this.request<ExchangeResult>(
-      `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}/exchange`,
-      { method: 'POST', bearer, signal },
-    )
+    const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}/exchange`
+    const result = await this.request<unknown>(url, { method: 'POST', bearer, signal })
+    if (!isExchangeResult(result)) {
+      throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid exchange response`, 200, '')
+    }
+    return result
   }
 
   private async request<T>(

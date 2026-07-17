@@ -4,7 +4,7 @@ OpenClaude connects to [AI/ML API](https://aimlapi.com) through its OpenAI-compa
 
 ## Overview
 
-AI/ML API is an aggregating gateway that exposes many chat models behind a single OpenAI-compatible API. OpenClaude ships a first-class `AI/ML API` provider preset: it uses `AIMLAPI_API_KEY`, sends the OpenClaude attribution headers, and discovers chat-capable models from the public `/models` catalog. It defaults to `anthropic/claude-sonnet-5`.
+AI/ML API is an aggregating gateway that exposes many chat models behind a single OpenAI-compatible API. OpenClaude ships a first-class `AI/ML API` provider preset: it uses `AIMLAPI_API_KEY`, sends the OpenClaude attribution headers, and discovers chat-capable models from the public `/models` catalog. It defaults to `gpt-4o`.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ When `AIMLAPI_API_KEY` supplies the credential, OpenClaude uses its runtime valu
 
 Checkout progress is retained while the provider flow remains open. Retrying an ambiguous payment or exchange failure resumes the original partner session instead of creating a second checkout.
 
-The base URL (`https://api.aimlapi.com/v1`) and default model (`anthropic/claude-sonnet-5`) are filled in automatically. Switch models any time with `/model`; only chat-capable models from the AI/ML API catalog are listed.
+The base URL (`https://api.aimlapi.com/v1`) and default model (`gpt-4o`) are filled in automatically. Switch models any time with `/model`; only chat-capable models from the AI/ML API catalog are listed.
 
 ## Option 2 - CLI (`openclaude aimlapi topup`)
 
@@ -41,7 +41,7 @@ openclaude aimlapi topup --email you@example.com --amount 25
 - `--amount`: top-up amount in USD (min 20, max 10000; defaults to 25).
 - Checkout always uses card payment; there is no separate payment-method step.
 - `--auto-top-up`: enroll the account in automatic top-up at checkout.
-- `--model`: default model id written into the provider profile (defaults to `anthropic/claude-sonnet-5`).
+- `--model`: default model id written into the provider profile (defaults to `gpt-4o`).
 - `--no-open`: print the payment URL instead of auto-opening a browser.
 
 The issued key is written into OpenClaude's provider profile automatically once payment clears.
@@ -60,7 +60,7 @@ To configure the OpenAI-compatible route explicitly:
 export CLAUDE_CODE_USE_OPENAI=1
 export AIMLAPI_API_KEY="your-aimlapi-key"
 export OPENAI_BASE_URL="https://api.aimlapi.com/v1"
-export OPENAI_MODEL="anthropic/claude-sonnet-5"
+export OPENAI_MODEL="gpt-4o"
 ```
 
 `OPENAI_API_KEY` also works as a fallback credential for the route.

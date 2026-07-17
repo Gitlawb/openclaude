@@ -273,7 +273,7 @@ function mockProviderProfilesModule(options?: {
           provider: 'aimlapi',
           name: 'aimlapi.com',
           baseUrl: 'https://api.aimlapi.com/v1',
-          model: 'anthropic/claude-sonnet-5',
+          model: 'gpt-4o',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -1047,7 +1047,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
     )
 
     expect(modelOutput).toContain('aimlapi.com')
-    expect(modelOutput).toContain('anthropic/claude-sonnet-5')
+    expect(modelOutput).toContain('gpt-4o')
     expect(modelOutput).not.toContain('Provider name')
     expect(modelOutput).not.toContain('Base URL')
 
@@ -1093,7 +1093,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
         provider: 'aimlapi',
         name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'anthropic/claude-sonnet-5',
+        model: 'gpt-4o',
         apiKey: 'aimlapi-test-key',
         apiFormat: 'chat_completions',
       }),
@@ -1187,7 +1187,7 @@ test('ProviderManager uses OPENAI_API_KEY for an existing keyless AIMLAPI profil
     provider: 'aimlapi',
     name: 'aimlapi.com',
     baseUrl: 'https://api.aimlapi.com/v1',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'gpt-4o',
     apiKey: undefined,
     apiFormat: 'chat_completions',
   }
@@ -1277,7 +1277,7 @@ test('ProviderManager refuses guided new-key creation on a custom AIMLAPI endpoi
     apiKey: 'issued',
     apiKeyId: 'id',
     baseUrl: 'https://proxy.example.test/v1',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'gpt-4o',
   }))
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     beginAimlapiEmailOnboarding,
@@ -1523,7 +1523,7 @@ test('ProviderManager rejects an empty AIMLAPI top-up amount instead of charging
     apiKey: 'unexpected',
     apiKeyId: 'unexpected',
     baseUrl: 'https://api.aimlapi.com/v1',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'gpt-4o',
   }))
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     provisionAimlapiKey,
@@ -1580,7 +1580,7 @@ test('ProviderManager drops a retained checkout when the onboarding email change
       apiKey: 'issued-for-second-account',
       apiKeyId: 'key_second',
       baseUrl: 'https://api.aimlapi.com/v1',
-      model: 'anthropic/claude-sonnet-5',
+      model: 'gpt-4o',
     }
   })
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
@@ -1651,7 +1651,7 @@ test('ProviderManager cancellation returns a live checkout to the resumable amou
       apiKey: 'issued-after-resume',
       apiKeyId: 'key_after_resume',
       baseUrl: 'https://api.aimlapi.com/v1',
-      model: 'anthropic/claude-sonnet-5',
+      model: 'gpt-4o',
     }
   })
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
@@ -1720,7 +1720,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       apiKey: 'aimlapi-issued-key',
       apiKeyId: 'key_test',
       baseUrl: 'https://api.aimlapi.com/v1',
-      model: 'anthropic/claude-sonnet-5',
+      model: 'gpt-4o',
     }
   })
   const claimAimlapiTopupState = mock(() => ({
@@ -1817,7 +1817,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     expect(provisionAimlapiKey).toHaveBeenCalledWith(
       expect.objectContaining({
         amountUsd: '25',
-        model: 'anthropic/claude-sonnet-5',
+        model: 'gpt-4o',
         sessionToken: 'session_test',
         paymentSessionId: 'persisted-payment-id',
         resumeSessionToken: 'persisted-checkout-session',
@@ -1831,7 +1831,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
         provider: 'aimlapi',
         name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'anthropic/claude-sonnet-5',
+        model: 'gpt-4o',
         apiKey: 'aimlapi-issued-key',
         apiFormat: 'chat_completions',
       }),

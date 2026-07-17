@@ -61,7 +61,7 @@ export default defineGateway({
   label: 'aimlapi.com',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.aimlapi.com/v1',
-  defaultModel: 'anthropic/claude-sonnet-5',
+  defaultModel: 'gpt-4o',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -116,10 +116,10 @@ export default defineGateway({
     allowManualRefresh: true,
     models: [
       {
-        id: 'aimlapi-claude-sonnet-5',
-        apiName: 'anthropic/claude-sonnet-5',
-        label: 'Claude Sonnet 5',
-        modelDescriptorId: 'claude-sonnet-4-6',
+        id: 'aimlapi-gpt-4o',
+        apiName: 'gpt-4o',
+        label: 'GPT-4o',
+        modelDescriptorId: 'gpt-4o',
       },
     ],
   },

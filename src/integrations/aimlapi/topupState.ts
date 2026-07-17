@@ -35,11 +35,18 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
    */
   apiKey?: string
   apiKeyId?: string
+  /**
+   * Set once payment/exchange has completed and `apiKey` is the final
+   * provisioned credential. The next run then resumes the profile write with
+   * that key instead of re-provisioning a one-shot-exchanged (now stranded)
+   * session.
+   */
+  settled?: boolean
 }
 
 type AimlapiCheckoutState = Pick<
   AimlapiPersistedTopup,
-  'paymentSessionId' | 'resumeSessionToken' | 'apiKey' | 'apiKeyId'
+  'paymentSessionId' | 'resumeSessionToken' | 'apiKey' | 'apiKeyId' | 'settled'
 >
 
 function statePath(): string {
@@ -189,7 +196,8 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     Boolean(state.paymentSessionId.trim()) &&
     typeof state.resumeSessionToken === 'string' &&
     (state.apiKey === undefined || typeof state.apiKey === 'string') &&
-    (state.apiKeyId === undefined || typeof state.apiKeyId === 'string')
+    (state.apiKeyId === undefined || typeof state.apiKeyId === 'string') &&
+    (state.settled === undefined || typeof state.settled === 'boolean')
   )
 }
 
@@ -229,6 +237,7 @@ export function loadAimlapiTopupState(
     resumeSessionToken: state.resumeSessionToken,
     apiKey: state.apiKey,
     apiKeyId: state.apiKeyId,
+    settled: state.settled,
   }
 }
 
@@ -257,6 +266,7 @@ export function claimAimlapiTopupState(
         resumeSessionToken: existing.resumeSessionToken,
         apiKey: existing.apiKey,
         apiKeyId: existing.apiKeyId,
+        settled: existing.settled,
       }
     }
     const claimed: AimlapiCheckoutState = {

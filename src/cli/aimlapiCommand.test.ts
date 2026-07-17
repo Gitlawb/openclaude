@@ -26,7 +26,7 @@ test('aimlapi topup forwards the passwordless CLI contract', async () => {
     code: '123456',
     amountUsd: undefined,
     autoTopUp: true,
-    model: 'anthropic/claude-sonnet-5',
+    model: 'gpt-4o',
     partnerId: undefined,
     noOpen: true,
   })

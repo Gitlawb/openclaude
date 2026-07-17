@@ -42,7 +42,7 @@ export const DEFAULT_PARTNER_NAME = 'Gitlawb'
 export const PARTNER_HEADER_NAME = 'X-AIMLAPI-Partner-ID'
 
 /** Default model id written into the profile - override with `--model`. */
-export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
+export const DEFAULT_MODEL = 'gpt-4o'
 export const DEFAULT_RETURN_URL = 'https://aimlapi.com/app'
 
 /** Top-up bounds enforced by the backend DTO (USD minor units / cents). */

@@ -2449,7 +2449,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('aimlapi')
     expect(defaults.name).toBe('aimlapi.com')
     expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
-    expect(defaults.model).toBe('anthropic/claude-sonnet-5')
+    expect(defaults.model).toBe('gpt-4o')
     expect(defaults.apiKey).toBe('aimlapi-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
