@@ -84,6 +84,35 @@ describe('appendMessageTagToUserMessage', () => {
     expect(retryContent).not.toContain('oversized-pasted-image')
   })
 
+  test('retries strip rejected media nested in a tool result', () => {
+    const toolResult = createUserMessage({
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'toolu_oversized_image',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'nested-oversized-image',
+            },
+          },
+          { type: 'text', text: 'remaining tool output' },
+        ],
+      }],
+    })
+    const retry = normalizeMessagesForAPI([
+      toolResult,
+      createAssistantAPIErrorMessage({ content: getImageTooLargeErrorMessage() }),
+    ])
+    const retryContent = JSON.stringify(retry[0]?.message.content)
+
+    expect(retryContent).toContain('remaining tool output')
+    expect(retryContent).not.toContain('nested-oversized-image')
+    expect(retryContent).not.toContain('"type":"image"')
+  })
+
   test('strips every ambiguous image attachment in the failed turn', () => {
     const oldAttachment = createUserMessage({
       content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'old-invalid-image' } }],

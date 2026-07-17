@@ -1588,14 +1588,12 @@ export function normalizeMessagesForAPI(
                 // All content blocks were stripped; skip this message entirely
                 return
               }
-              if (filtered.length < content.length) {
-                normalizedMessage = {
-                  ...normalizedMessage,
-                  message: {
-                    ...normalizedMessage.message,
-                    content: filtered,
-                  },
-                }
+              normalizedMessage = {
+                ...normalizedMessage,
+                message: {
+                  ...normalizedMessage.message,
+                  content: filtered,
+                },
               }
             }
           }
