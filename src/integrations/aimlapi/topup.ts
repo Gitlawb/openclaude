@@ -189,7 +189,9 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       apiKey: checkoutState.apiKey,
       apiKeyId: checkoutState.apiKeyId ?? '',
       baseUrl: endpoints.inferenceBaseUrl,
-      model: options.model?.trim() || DEFAULT_MODEL,
+      // Prefer the model captured when the key was provisioned; a retry with
+      // different --model must not silently reconfigure the settled profile.
+      model: checkoutState.model?.trim() || options.model?.trim() || DEFAULT_MODEL,
     })
     return
   }
@@ -279,11 +281,12 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     },
   })
 
-  // Persist the provisioned key as recoverable before the profile write, so an
-  // interruption or a failed write resumes the write instead of stranding a
-  // paid, one-shot-exchanged key.
+  // Persist the provisioned key (and its model) as recoverable before the
+  // profile write, so an interruption or a failed write resumes the write
+  // instead of stranding a paid, one-shot-exchanged key.
   checkoutState.apiKey = provisioned.apiKey
   checkoutState.apiKeyId = provisioned.apiKeyId
+  checkoutState.model = provisioned.model
   checkoutState.settled = true
   saveAimlapiTopupState({ ...intent, ...checkoutState })
 

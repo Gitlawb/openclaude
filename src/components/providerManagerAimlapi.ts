@@ -11,6 +11,9 @@ import {
   claimAimlapiTopupState as claimAimlapiTopupStateImpl,
   clearAimlapiTopupState as clearAimlapiTopupStateImpl,
   saveAimlapiTopupState as saveAimlapiTopupStateImpl,
+  loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
+  saveAimlapiSignInKey as saveAimlapiSignInKeyImpl,
+  clearAimlapiSignInKey as clearAimlapiSignInKeyImpl,
 } from '../integrations/aimlapi/topupState.js'
 import type {
   AimlapiPersistedTopup,
@@ -55,3 +58,15 @@ export const clearAimlapiTopupState: typeof clearAimlapiTopupStateImpl = intent 
 
 export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = state =>
   saveAimlapiTopupStateImpl(state)
+
+export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = email =>
+  loadAimlapiSignInKeyImpl(email)
+
+export const saveAimlapiSignInKey: typeof saveAimlapiSignInKeyImpl = (
+  email,
+  apiKey,
+  apiKeyId,
+) => saveAimlapiSignInKeyImpl(email, apiKey, apiKeyId)
+
+export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = () =>
+  clearAimlapiSignInKeyImpl()

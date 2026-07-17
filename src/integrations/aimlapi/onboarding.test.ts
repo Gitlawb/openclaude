@@ -136,3 +136,31 @@ test('unknown account actions are rejected instead of signing up', async () => {
     'unsupported account action',
   )
 })
+
+test('completeAimlapiCodeSignIn reuses a supplied key instead of minting a new one', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/billing/balance')) {
+      return response({ balance: 100, lowBalance: false, lowBalanceThreshold: 20 })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const result = await completeAimlapiCodeSignIn(
+    'user@example.com',
+    '123456',
+    undefined,
+    'https://api.example.test/v1',
+    { apiKey: 'existing-key', apiKeyId: 'existing-id' },
+  )
+
+  expect(result.apiKey).toBe('existing-key')
+  expect(result.apiKeyId).toBe('existing-id')
+  // No key was minted; only verify + balance were called.
+  expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
+})

@@ -356,6 +356,9 @@ function mockProviderManagerDependencies(
     claimAimlapiTopupState?: (...args: any[]) => unknown
     clearAimlapiTopupState?: (...args: any[]) => unknown
     saveAimlapiTopupState?: (...args: any[]) => unknown
+    loadAimlapiSignInKey?: (...args: any[]) => unknown
+    saveAimlapiSignInKey?: (...args: any[]) => unknown
+    clearAimlapiSignInKey?: (...args: any[]) => unknown
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -535,6 +538,9 @@ function mockProviderManagerDependencies(
       ((state: Record<string, unknown>) => {
         persistedAimlapiTopup = state
       }),
+    loadAimlapiSignInKey: options?.loadAimlapiSignInKey ?? (() => null),
+    saveAimlapiSignInKey: options?.saveAimlapiSignInKey ?? (() => {}),
+    clearAimlapiSignInKey: options?.clearAimlapiSignInKey ?? (() => {}),
     parseAimlapiAmountUsd: (value: string | undefined) => {
       const amount = Number(value || 25)
       if (!Number.isFinite(amount) || amount < 20 || amount > 10000) {

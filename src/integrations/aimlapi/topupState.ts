@@ -36,6 +36,12 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
   apiKey?: string
   apiKeyId?: string
   /**
+   * Model chosen for this provisioning; retained with the settled receipt so a
+   * resumed profile write configures the original model instead of recomputing
+   * it from (possibly different) retry arguments.
+   */
+  model?: string
+  /**
    * Set once payment/exchange has completed and `apiKey` is the final
    * provisioned credential. The next run then resumes the profile write with
    * that key instead of re-provisioning a one-shot-exchanged (now stranded)
@@ -46,7 +52,12 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
 
 type AimlapiCheckoutState = Pick<
   AimlapiPersistedTopup,
-  'paymentSessionId' | 'resumeSessionToken' | 'apiKey' | 'apiKeyId' | 'settled'
+  | 'paymentSessionId'
+  | 'resumeSessionToken'
+  | 'apiKey'
+  | 'apiKeyId'
+  | 'model'
+  | 'settled'
 >
 
 function statePath(): string {
@@ -197,6 +208,7 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     typeof state.resumeSessionToken === 'string' &&
     (state.apiKey === undefined || typeof state.apiKey === 'string') &&
     (state.apiKeyId === undefined || typeof state.apiKeyId === 'string') &&
+    (state.model === undefined || typeof state.model === 'string') &&
     (state.settled === undefined || typeof state.settled === 'boolean')
   )
 }
@@ -237,6 +249,7 @@ export function loadAimlapiTopupState(
     resumeSessionToken: state.resumeSessionToken,
     apiKey: state.apiKey,
     apiKeyId: state.apiKeyId,
+    model: state.model,
     settled: state.settled,
   }
 }
@@ -266,6 +279,7 @@ export function claimAimlapiTopupState(
         resumeSessionToken: existing.resumeSessionToken,
         apiKey: existing.apiKey,
         apiKeyId: existing.apiKeyId,
+        model: existing.model,
         settled: existing.settled,
       }
     }
@@ -327,4 +341,72 @@ export function clearAimlapiTopupState(
       rmSync(statePath(), { force: true })
     }
   })
+}
+
+// --- Sign-in key cache ------------------------------------------------------
+// The guided provider-manager mints an existing-account key at code sign-in,
+// before the top-up amount (and therefore the full checkout intent) is known.
+// This lightweight per-email cache retains that key so a restart before/without
+// completing the checkout reuses it instead of minting another one.
+
+type AimlapiSignInKey = { email: string; apiKey: string; apiKeyId: string }
+
+function signInKeyPath(): string {
+  return join(getClaudeConfigHomeDir(), 'aimlapi-signin-key.json')
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+export function loadAimlapiSignInKey(
+  email: string,
+): { apiKey: string; apiKeyId: string } | null {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(signInKeyPath(), 'utf8'))
+    if (
+      typeof raw === 'object' &&
+      raw !== null &&
+      typeof (raw as Record<string, unknown>).email === 'string' &&
+      (raw as AimlapiSignInKey).email === normalizeEmail(email) &&
+      typeof (raw as Record<string, unknown>).apiKey === 'string' &&
+      (raw as AimlapiSignInKey).apiKey.trim()
+    ) {
+      const record = raw as AimlapiSignInKey
+      return {
+        apiKey: record.apiKey,
+        apiKeyId: typeof record.apiKeyId === 'string' ? record.apiKeyId : '',
+      }
+    }
+  } catch {
+    // Missing/corrupt cache: mint a fresh key.
+  }
+  return null
+}
+
+export function saveAimlapiSignInKey(
+  email: string,
+  apiKey: string,
+  apiKeyId: string,
+): void {
+  if (!apiKey.trim()) return
+  const target = signInKeyPath()
+  mkdirSync(dirname(target), { recursive: true })
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
+  const record: AimlapiSignInKey = { email: normalizeEmail(email), apiKey, apiKeyId }
+  try {
+    writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600,
+    })
+    chmodSync(temporary, 0o600)
+    renameSync(temporary, target)
+  } finally {
+    rmSync(temporary, { force: true })
+  }
+}
+
+export function clearAimlapiSignInKey(): void {
+  rmSync(signInKeyPath(), { force: true })
 }

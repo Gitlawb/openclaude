@@ -253,3 +253,44 @@ test('session methods reject a malformed or empty success payload', async () => 
   expect(badStatusError).toBeInstanceOf(AimlapiApiError)
   expect(badStatusError).toHaveProperty('status', 200)
 })
+
+test('typed methods reject wrong-typed success fields without a raw TypeError', async () => {
+  const client = new AimlapiClient(endpoints)
+
+  // A 2xx payload with a numeric token/key/apiKey must not reach .trim().
+  globalThis.fetch = mock(async () => jsonResponse({ token: 1 })) as unknown as typeof fetch
+  await expect(client.verifySignInCode('user@example.com', '123456')).rejects.toThrow(
+    'did not return an auth token',
+  )
+  await expect(client.createPasswordlessAccount('user@example.com')).rejects.toThrow(
+    'did not return an auth token',
+  )
+
+  globalThis.fetch = mock(async () => jsonResponse({ key: 1 })) as unknown as typeof fetch
+  await expect(client.createKey('bearer', 'OpenClaude CLI')).rejects.toThrow(
+    'did not return an API key',
+  )
+  // Key without its required id is an incomplete receipt and must be rejected.
+  globalThis.fetch = mock(async () => jsonResponse({ key: 'k_only' })) as unknown as typeof fetch
+  await expect(client.createKey('bearer', 'OpenClaude CLI')).rejects.toThrow(
+    'did not return an API key',
+  )
+
+  globalThis.fetch = mock(async () => jsonResponse({ apiKey: 1 })) as unknown as typeof fetch
+  const exchangeError = await client.exchange('bearer', 'session').catch((e: unknown) => e)
+  expect(exchangeError).toBeInstanceOf(AimlapiApiError)
+  expect(exchangeError).toHaveProperty('status', 200)
+
+  // apiKey without its required apiKeyId is an incomplete exchange receipt.
+  globalThis.fetch = mock(async () =>
+    jsonResponse({ apiKey: 'k_only' }),
+  ) as unknown as typeof fetch
+  const partialExchange = await client.exchange('bearer', 'session').catch((e: unknown) => e)
+  expect(partialExchange).toBeInstanceOf(AimlapiApiError)
+  expect(partialExchange).toHaveProperty('status', 200)
+
+  globalThis.fetch = mock(async () => jsonResponse({ action: 1 })) as unknown as typeof fetch
+  const accountError = await client.checkAccount('user@example.com').catch((e: unknown) => e)
+  expect(accountError).toBeInstanceOf(AimlapiApiError)
+  expect(accountError).toHaveProperty('status', 200)
+})

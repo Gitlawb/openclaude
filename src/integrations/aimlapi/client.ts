@@ -116,11 +116,11 @@ function isAuthResult(value: unknown): value is AuthResult {
 }
 
 function isCreatedKey(value: unknown): value is CreatedKey {
-  return isRecord(value) && isNonEmptyString(value.key)
+  return isRecord(value) && isNonEmptyString(value.key) && isNonEmptyString(value.id)
 }
 
 function isExchangeResult(value: unknown): value is ExchangeResult {
-  return isRecord(value) && isNonEmptyString(value.apiKey)
+  return isRecord(value) && isNonEmptyString(value.apiKey) && isNonEmptyString(value.apiKeyId)
 }
 
 function isPayResult(value: unknown): value is PayResult {

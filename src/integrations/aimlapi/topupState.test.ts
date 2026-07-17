@@ -7,7 +7,10 @@ import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  clearAimlapiSignInKey,
+  loadAimlapiSignInKey,
   loadAimlapiTopupState,
+  saveAimlapiSignInKey,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
@@ -117,4 +120,22 @@ test('stale clear cannot delete a replacement checkout', () => {
 
   expect(current.paymentSessionId).not.toBe(stale.paymentSessionId)
   expect(loadAimlapiTopupState(intent)).toEqual(current)
+})
+
+test('sign-in key cache round-trips by normalized email and clears', () => {
+  useTemporaryConfig()
+
+  expect(loadAimlapiSignInKey('User@Example.com')).toBeNull()
+
+  saveAimlapiSignInKey('User@Example.com', 'k_signin', 'id_signin')
+  // Lookup is case/whitespace-insensitive on the email.
+  expect(loadAimlapiSignInKey('user@example.com')).toEqual({
+    apiKey: 'k_signin',
+    apiKeyId: 'id_signin',
+  })
+  // A different email must not read this key.
+  expect(loadAimlapiSignInKey('other@example.com')).toBeNull()
+
+  clearAimlapiSignInKey()
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
 })

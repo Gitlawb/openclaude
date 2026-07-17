@@ -52,16 +52,25 @@ export async function completeAimlapiCodeSignIn(
   code: string,
   signal?: AbortSignal,
   inferenceBaseUrl?: string,
+  existingKey?: { apiKey: string; apiKeyId: string },
 ): Promise<AimlapiCodeSignInResult> {
   const client = clientForInferenceBaseUrl(inferenceBaseUrl)
   const auth = await client.verifySignInCode(email, code, signal)
-  const created = await client.createKey(auth.token, 'OpenClaude CLI', signal)
+  let apiKey = existingKey?.apiKey?.trim() ?? ''
+  let apiKeyId = existingKey?.apiKeyId ?? ''
+  if (!apiKey) {
+    // Reuse a previously issued key when one is supplied so a restart does not
+    // mint a second key for the same account.
+    const created = await client.createKey(auth.token, 'OpenClaude CLI', signal)
+    apiKey = created.key
+    apiKeyId = created.id
+  }
   try {
-    const balance = await client.getBalance(created.key, signal)
+    const balance = await client.getBalance(apiKey, signal)
     return {
       sessionToken: auth.token,
-      apiKey: created.key,
-      apiKeyId: created.id,
+      apiKey,
+      apiKeyId,
       balanceStatus: 'confirmed',
       lowBalance: balance.lowBalance,
     }
@@ -70,8 +79,8 @@ export async function completeAimlapiCodeSignIn(
     // The key is already issued; a balance read failure must not discard it.
     return {
       sessionToken: auth.token,
-      apiKey: created.key,
-      apiKeyId: created.id,
+      apiKey,
+      apiKeyId,
       balanceStatus: 'unknown',
       balanceError: error instanceof Error ? error.message : String(error),
     }

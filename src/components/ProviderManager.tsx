@@ -61,6 +61,9 @@ import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
   saveAimlapiTopupState,
+  loadAimlapiSignInKey,
+  saveAimlapiSignInKey,
+  clearAimlapiSignInKey,
   type AimlapiTopupIntent,
   type AimlapiTopupStatus,
 } from './providerManagerAimlapi.js'
@@ -2863,6 +2866,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         deferNavigation: true,
         onSaved: () => {
           resetAimlapiCheckoutIntent()
+          clearAimlapiSignInKey()
           setAimlapiDoneKind(aimlapiTopupPaidRef.current ? 'topup' : 'ready')
           setErrorMessage(undefined)
           setScreen('aimlapi-done')
@@ -2961,6 +2965,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       deferNavigation: true,
       onSaved: () => {
         resetAimlapiCheckoutIntent()
+        clearAimlapiSignInKey()
         setAimlapiDoneKind(doneKind)
         setErrorMessage(undefined)
         setScreen('aimlapi-done')
@@ -3041,12 +3046,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     void (async () => {
       try {
+        // Reuse a key already minted for this email (e.g. after closing before
+        // amount entry or restarting a checkout) instead of creating another.
+        const retainedSignInKey = loadAimlapiSignInKey(aimlapiTopupEmail)
         const result = await completeAimlapiCodeSignIn(
           aimlapiTopupEmail,
           trimmedCode,
           controller.signal,
           aimlapiInferenceBaseUrl,
+          retainedSignInKey ?? undefined,
         )
+        // Persist immediately so an abort/restart before the checkout completes
+        // recovers this key rather than minting a second one.
+        saveAimlapiSignInKey(aimlapiTopupEmail, result.apiKey, result.apiKeyId)
         setAimlapiSessionToken(result.sessionToken)
         setAimlapiIssuedKey(result.apiKey)
         setAimlapiIssuedKeyId(result.apiKeyId)

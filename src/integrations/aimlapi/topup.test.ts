@@ -8,9 +8,13 @@ import * as realTopupDependencies from './topupDependencies.js'
 import { claimAimlapiTopupState, saveAimlapiTopupState } from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
+let lastSavedProfileEnv: Record<string, unknown> | undefined
 mock.module('./topupDependencies.js', () => ({
   openBrowser: async () => {},
-  saveProfileFile: () => 'profile.json',
+  saveProfileFile: (arg: { env: Record<string, unknown> }) => {
+    lastSavedProfileEnv = arg.env
+    return 'profile.json'
+  },
   promptText: async () => '',
 }))
 const { pollUntilPaid, provisionAimlapiKey, runAimlapiTopup, topUpAimlapiByApiKey } =
@@ -47,6 +51,7 @@ afterAll(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  lastSavedProfileEnv = undefined
   setClaudeConfigHomeDirForTesting(undefined)
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { force: true, recursive: true })
@@ -268,6 +273,66 @@ test('a failed payment retains the issued key for the next run', async () => {
     noOpen: true,
   })
   expect(keyMints).toBe(1)
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
+test('the CLI refuses guided top-up on a non-canonical inference endpoint', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  let fetched = false
+  globalThis.fetch = mock(async () => {
+    fetched = true
+    return Response.json({})
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('production endpoint')
+  // Rejected before any account lookup or key mint.
+  expect(fetched).toBe(false)
+})
+
+test('a settled interrupted run resumes the profile write without re-provisioning', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.aimlapi.com',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.aimlapi.com',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'checkout-session',
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    // Original run provisioned a non-default model.
+    model: 'anthropic/claude-opus-4-8',
+    settled: true,
+  })
+
+  let fetched = false
+  globalThis.fetch = mock(async () => {
+    fetched = true
+    return Response.json({})
+  }) as unknown as typeof fetch
+
+  // Retry without --model: the default would be gpt-4o, but the settled receipt
+  // must win.
+  await runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true })
+
+  // The retained settled key finished the write — no account check/provisioning,
+  // the persisted model is preserved, and the checkout state is cleared.
+  expect(fetched).toBe(false)
+  expect(lastSavedProfileEnv?.OPENAI_API_KEY).toBe('exchanged-key')
+  expect(lastSavedProfileEnv?.OPENAI_MODEL).toBe('anthropic/claude-opus-4-8')
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
