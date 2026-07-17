@@ -17,6 +17,16 @@ const { pollUntilPaid, provisionAimlapiKey, runAimlapiTopup, topUpAimlapiByApiKe
   await import('./topup.js')
 const { AimlapiClient } = await import('./client.js')
 
+// createSession/getSession responses are validated against the full
+// PartnerCheckoutSession contract, so mocks must carry id + partnerId too.
+function sessionJson(session: Record<string, unknown>): Response {
+  return Response.json({
+    id: 'sess_test',
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    ...session,
+  })
+}
+
 const originalFetch = globalThis.fetch
 const originalEnv = {
   AIMLAPI_AUTH_URL: process.env.AIMLAPI_AUTH_URL,
@@ -94,14 +104,14 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
       return Response.json({ key: 'key_test', id: 'key_id' })
     }
     if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
-      return Response.json({ sessionToken: 'checkout-session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
     }
     if (url.endsWith('/pay')) {
       payBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       throw new Error('ambiguous payment response')
     }
     if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
-      return Response.json({ sessionToken: 'checkout-session', status: 'paid' })
+      return sessionJson({ sessionToken: 'checkout-session', status: 'paid' })
     }
     throw new Error(`Unexpected request: ${url}`)
   }) as unknown as typeof fetch
@@ -173,7 +183,7 @@ test('CLI retains an already-exchanged checkout and blocks identical retries', a
     }
     if (url.endsWith('/sessions/exchanged-session')) {
       sessionReads += 1
-      return Response.json({
+      return sessionJson({
         sessionToken: 'exchanged-session',
         status: 'exchanged',
         issuedKeyId: 'issued-key-id',
@@ -222,7 +232,7 @@ test('a failed payment retains the issued key for the next run', async () => {
       return Response.json({ key: 'key_test', id: 'key_id' })
     }
     if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
-      return Response.json({ sessionToken: 'checkout-session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
     }
     if (url.endsWith('/pay')) {
       return Response.json({
@@ -231,7 +241,7 @@ test('a failed payment retains the issued key for the next run', async () => {
       })
     }
     if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
-      return Response.json({ sessionToken: 'checkout-session', status: sessionStatus })
+      return sessionJson({ sessionToken: 'checkout-session', status: sessionStatus })
     }
     throw new Error(`Unexpected request: ${url}`)
   }) as unknown as typeof fetch
@@ -269,7 +279,7 @@ test('topUpAimlapiByApiKey funds the key account without exchange', async () => 
     const url = String(input)
     calls.push(`${init?.method} ${url}`)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     if (url.endsWith('/v2/billing/topup')) {
       return Response.json({
@@ -278,7 +288,7 @@ test('topUpAimlapiByApiKey funds the key account without exchange', async () => 
       })
     }
     if (url.endsWith('/v3/partner-checkout/sessions/session')) {
-      return Response.json({ sessionToken: 'session', status: 'paid' })
+      return sessionJson({ sessionToken: 'session', status: 'paid' })
     }
     return new Response('', { status: 404 })
   }) as unknown as typeof fetch
@@ -308,7 +318,7 @@ test('topUpAimlapiByApiKey resumes a paid session without charging again', async
   const calls: string[] = []
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
-    return Response.json({ sessionToken: 'session', status: 'paid' })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
   }) as unknown as typeof fetch
 
   await topUpAimlapiByApiKey({
@@ -331,7 +341,7 @@ test('a pending resumed session is polled without paying again', async () => {
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
     reads += 1
-    return Response.json({
+    return sessionJson({
       sessionToken: 'session',
       status: reads === 1 ? 'pending_payment' : 'paid',
     })
@@ -359,7 +369,7 @@ test('a resumed by-key session still exchanging settles before success', async (
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
     reads += 1
-    return Response.json({
+    return sessionJson({
       sessionToken: 'session',
       status: reads === 1 ? 'exchanging' : 'exchanged',
     })
@@ -431,7 +441,7 @@ test('provisionAimlapiKey does not repeat an already completed exchange', async 
   const calls: string[] = []
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
-    return Response.json({
+    return sessionJson({
       sessionToken: 'session',
       status: 'exchanged',
       issuedKeyId: 'key_recoverable',
@@ -465,7 +475,7 @@ test('an in-progress exchange is observed without issuing a second exchange', as
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method} ${String(input)}`)
     reads += 1
-    return Response.json({
+    return sessionJson({
       sessionToken: 'session',
       status: reads === 1 ? 'exchanging' : 'exchanged',
     })
@@ -493,7 +503,7 @@ test('email-session checkout carries the stable payment id', async () => {
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     if (url.endsWith('/pay')) {
       payBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -502,7 +512,7 @@ test('email-session checkout carries the stable payment id', async () => {
         partnerCheckout: { sessionToken: 'session', status: 'pending_payment' },
       })
     }
-    return Response.json({ sessionToken: 'session', status: 'paid' })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
   }) as unknown as typeof fetch
 
   await provisionAimlapiKey({
@@ -522,7 +532,7 @@ test('checkout URL must be an absolute credential-free HTTPS URL', async () => {
   globalThis.fetch = mock(async (input: string | URL | Request) => {
     const url = String(input)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     return Response.json({
       checkout: { providerSessionId: 'provider', payUrl: 'file:///tmp/checkout' },
@@ -563,7 +573,7 @@ test('dead sessions observed while polling are cleared immediately', async () =>
   globalThis.fetch = mock(async (input: string | URL | Request) => {
     const url = String(input)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     if (url.endsWith('/v2/billing/topup')) {
       return Response.json({
@@ -571,7 +581,7 @@ test('dead sessions observed while polling are cleared immediately', async () =>
         partnerCheckout: { sessionToken: 'session', status: 'pending_payment' },
       })
     }
-    return Response.json({ sessionToken: 'session', status: 'expired' })
+    return sessionJson({ sessionToken: 'session', status: 'expired' })
   }) as unknown as typeof fetch
   const sessions: string[] = []
 
@@ -593,7 +603,7 @@ test('terminal API errors observed while polling clear retained checkout state',
   globalThis.fetch = mock(async (input: string | URL | Request) => {
     const url = String(input)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     if (url.endsWith('/v2/billing/topup')) {
       return Response.json({
@@ -623,7 +633,7 @@ test('polling retries a transient transport failure', async () => {
   globalThis.fetch = mock(async () => {
     attempts += 1
     if (attempts === 1) throw new TypeError('temporary connection reset')
-    return Response.json({ sessionToken: 'session', status: 'paid' })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
   }) as unknown as typeof fetch
   const client = new AimlapiClient({
     authBaseUrl: 'https://auth.example.test',
@@ -645,7 +655,7 @@ test('polling retains and retries the same session after a rate limit', async ()
   globalThis.fetch = mock(async () => {
     attempts += 1
     if (attempts === 1) return new Response('rate limited', { status: 429 })
-    return Response.json({ sessionToken: 'session', status: 'paid' })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
   }) as unknown as typeof fetch
   const client = new AimlapiClient({
     authBaseUrl: 'https://auth.example.test',
@@ -669,7 +679,7 @@ test('aborting during polling stops requests and preserves the retained session'
   globalThis.fetch = mock(async () => {
     getCount += 1
     controller.abort()
-    return Response.json({ sessionToken: 'session', status: 'pending_payment' })
+    return sessionJson({ sessionToken: 'session', status: 'pending_payment' })
   }) as unknown as typeof fetch
   const client = new AimlapiClient({
     authBaseUrl: 'https://auth.example.test',
@@ -696,7 +706,7 @@ test('by-key billing stays on the endpoint that validated the key', async () => 
     const url = String(input)
     calls.push(url)
     if (url.endsWith('/v3/partner-checkout/sessions')) {
-      return Response.json({ sessionToken: 'session', status: 'pending_auth' })
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
     }
     if (url.endsWith('/v2/billing/topup')) {
       return Response.json({
@@ -704,7 +714,7 @@ test('by-key billing stays on the endpoint that validated the key', async () => 
         partnerCheckout: { sessionToken: 'session', status: 'pending_payment' },
       })
     }
-    return Response.json({ sessionToken: 'session', status: 'paid' })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
   }) as unknown as typeof fetch
 
   await topUpAimlapiByApiKey({

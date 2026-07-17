@@ -99,12 +99,17 @@ const PARTNER_CHECKOUT_STATUSES: ReadonlySet<string> = new Set<PartnerCheckoutSe
   'failed',
 ])
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
 function isPartnerCheckoutSession(value: unknown): value is PartnerCheckoutSession {
   if (typeof value !== 'object' || value === null) return false
   const session = value as Record<string, unknown>
   return (
-    typeof session.sessionToken === 'string' &&
-    Boolean(session.sessionToken) &&
+    isNonEmptyString(session.id) &&
+    isNonEmptyString(session.sessionToken) &&
+    isNonEmptyString(session.partnerId) &&
     typeof session.status === 'string' &&
     PARTNER_CHECKOUT_STATUSES.has(session.status)
   )
