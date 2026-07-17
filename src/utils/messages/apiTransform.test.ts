@@ -361,6 +361,19 @@ describe('appendMessageTagToUserMessage', () => {
     const blocks = merged.message.content as any[]
     expect(blocks.filter(b => b.type === 'tool_result').length).toBe(2)
   })
+
+  test('merging tool-result siblings keeps permission attachment ownership', () => {
+    const resultA = createUserMessage({
+      content: [{ type: 'tool_result', tool_use_id: 'tu-A', content: 'a' }],
+    })
+    const resultB = createUserMessage({
+      content: [{ type: 'tool_result', tool_use_id: 'tu-B', content: 'b' }],
+      imagePermissionToolUseIds: ['tu-B'],
+    })
+
+    expect(mergeUserMessages(resultA, resultB).imagePermissionToolUseIds)
+      .toEqual(['tu-B'])
+  })
 })
 
 describe('API cleanup transforms', () => {

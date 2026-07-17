@@ -1299,6 +1299,7 @@ export async function checkPermissionsAndCallTool(
         content: messageContent,
         imagePasteIds: rejectImageIds,
         toolUseResult: `Error: ${errorMessage}`,
+        imagePermissionToolUseIds: rejectImageIds?.map(() => toolUseID),
         sourceToolAssistantUUID: assistantMessage.uuid,
       }),
     })
@@ -1637,6 +1638,7 @@ export async function checkPermissionsAndCallTool(
             toolUseContext.agentId && !toolUseContext.preserveToolUseResults
               ? undefined
               : toolUseResult,
+          imagePermissionToolUseIds: allowImageIds?.map(() => toolUseID),
           mcpMeta: toolUseContext.agentId ? undefined : mcpMeta,
           sourceToolAssistantUUID: assistantMessage.uuid,
         }),

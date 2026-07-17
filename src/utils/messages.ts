@@ -1626,10 +1626,41 @@ export function normalizeMessagesForAPI(
           // the problematic content on every subsequent API call.
           const typesToStrip = stripTargets.get(normalizedMessage.uuid)
           if (typesToStrip) {
-            normalizedMessage = stripMediaFromUserMessage(
-              normalizedMessage,
-              typesToStrip,
-            )
+            if (!normalizedMessage.isMeta) {
+              normalizedMessage = stripMediaFromUserMessage(
+                normalizedMessage,
+                typesToStrip,
+              )
+            } else {
+            const content = normalizedMessage.message.content
+            if (Array.isArray(content)) {
+              let imageIndex = 0
+              const imageOwners: Array<string | null> = []
+              const filtered = content.filter(block => {
+                const keep = !typesToStrip.has(block.type)
+                if (block.type === 'image') {
+                  const owner = normalizedMessage.imagePermissionToolUseIds?.[imageIndex++] ?? null
+                  if (keep) imageOwners.push(owner)
+                }
+                return keep
+              })
+              if (filtered.length === 0) {
+                // All content blocks were stripped; skip this message entirely
+                return
+              }
+              if (filtered.length < content.length) {
+                normalizedMessage = {
+                  ...normalizedMessage,
+                  message: {
+                    ...normalizedMessage.message,
+                    content: filtered,
+                  },
+                  imagePermissionToolUseIds:
+                    imageOwners.length > 0 ? imageOwners : undefined,
+              }
+            }
+            }
+          }
           }
 
           // Server renders tool_reference expansion as <functions>...</functions>
@@ -1896,6 +1927,7 @@ export function mergeUserMessagesAndToolResults(
   const currentContent = normalizeUserTextContent(b.message.content)
   return {
     ...a,
+    imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
     message: {
       ...a.message,
       content: hoistToolResults(
@@ -1903,6 +1935,20 @@ export function mergeUserMessagesAndToolResults(
       ),
     },
   }
+}
+
+function mergeImagePermissionToolUseIds(
+  a: UserMessage,
+  b: UserMessage,
+): Array<string | null> | undefined {
+  const getImageOwners = (message: UserMessage): Array<string | null> => {
+    if (message.imagePermissionToolUseIds) return message.imagePermissionToolUseIds
+    const content = message.message.content
+    if (!Array.isArray(content)) return []
+    return content.filter(block => block.type === 'image').map(() => null)
+  }
+  const ids = [...getImageOwners(a), ...getImageOwners(b)]
+  return ids.length > 0 ? ids : undefined
 }
 
 export function mergeAssistantMessages(
@@ -1952,6 +1998,7 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
     if (isSnipRuntimeEnabled()) {
       return {
         ...a,
+        imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
         isMeta: a.isMeta && b.isMeta ? (true as const) : undefined,
         isCollapseSummary,
         uuid: a.isMeta ? b.uuid : a.uuid,
@@ -1966,6 +2013,7 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   }
   return {
     ...a,
+    imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
     isCollapseSummary,
     // Preserve the non-meta message's uuid so snip ids (derived from uuid)
     // stay stable across API calls (meta messages like system context get fresh uuids each call)
@@ -2159,11 +2207,12 @@ export function mergeUserContentBlocks(
     return [...a, ...b]
   }
 
-  // Universal smoosh (gated): fold all non-tool_result block types (text,
-  // image, document, search_result) into tool_result.content. tool_result
-  // blocks stay as siblings (hoisted later by hoistToolResults).
-  const toSmoosh = b.filter(x => x.type !== 'tool_result')
+  // Universal smoosh (gated): fold textual/document siblings into the result,
+  // but keep images top-level. Compression must retain their provenance so an
+  // independent attachment is never mistaken for tool-result payload.
+  const toSmoosh = b.filter(x => x.type !== 'tool_result' && x.type !== 'image')
   const toolResults = b.filter(x => x.type === 'tool_result')
+  const images = b.filter(x => x.type === 'image')
   if (toSmoosh.length === 0) {
     return [...a, ...b]
   }
@@ -2174,7 +2223,7 @@ export function mergeUserContentBlocks(
     return [...a, ...b]
   }
 
-  return [...a.slice(0, -1), smooshed, ...toolResults]
+  return [...a.slice(0, -1), smooshed, ...toolResults, ...images]
 }
 
 // Sometimes the API returns empty messages (eg. "\n\n"). We need to filter these out,

@@ -44,6 +44,7 @@ type AnyMessage = {
   message?: { role?: string; content?: unknown }
   content?: unknown
   toolUseResult?: unknown
+  imagePermissionToolUseIds?: Array<string | null>
 }
 
 type ToolResultBlock = {
@@ -388,11 +389,21 @@ export function compressToolHistory<T extends AnyMessage>(
     if (firstPos === undefined || total - 1 - firstPos < tiers.recent) return msg
 
     const content = getInner(msg).content as unknown[]
-    const ownsFollowingPermissionBlocks = msg.toolUseResult !== undefined
-    let omitFollowingInlineImages = false
+    const pendingImagePermissionToolUseIds = [
+      ...(msg.imagePermissionToolUseIds ?? []),
+    ]
+    const omittedPermissionImageToolUseIds = new Set<string>()
     const newContent = content.map((block, blockIndex) => {
-      if (isInlineImagePayload(block) && omitFollowingInlineImages) {
-        return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
+      if ((block as { type?: string })?.type === 'image') {
+        const toolUseId = pendingImagePermissionToolUseIds.shift()
+        if (
+          toolUseId &&
+          omittedPermissionImageToolUseIds.has(toolUseId) &&
+          isInlineImagePayload(block)
+        ) {
+          return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
+        }
+        return block
       }
 
       const pos = positions.get(blockIndex)
@@ -401,12 +412,11 @@ export function compressToolHistory<T extends AnyMessage>(
       if (fromEnd < tiers.recent) return block
 
       const tr = block as ToolResultBlock
+      if (tr.tool_use_id) omittedPermissionImageToolUseIds.add(tr.tool_use_id)
       if (isAlreadyCleared(tr)) {
-        omitFollowingInlineImages = true
         return sanitizeClearedBlock(tr)
       }
       if (!shouldCompressBlock(tr, toolUsesById)) return block
-      omitFollowingInlineImages = ownsFollowingPermissionBlocks
       return fromEnd < tiers.recent + tiers.mid
         ? truncateBlock(tr, MID_MAX_CHARS, textBlockSeparator)
         : buildStub(tr, toolUsesById, textBlockSeparator)

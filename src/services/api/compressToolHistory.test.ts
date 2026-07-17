@@ -77,7 +77,12 @@ afterEach(() => {
 })
 
 type Block = Record<string, unknown>
-type Msg = { role: string; content: Block[] | string; toolUseResult?: unknown }
+type Msg = {
+  role: string
+  content: Block[] | string
+  toolUseResult?: unknown
+  imagePermissionToolUseIds?: Array<string | null>
+}
 
 function bigText(n: number): string {
   return 'x'.repeat(n)
@@ -538,6 +543,7 @@ test('omits a permission image that follows a compressed tool result', () => {
   messages[2] = {
     ...messages[2],
     toolUseResult: 'tool output',
+    imagePermissionToolUseIds: ['toolu_0'],
     content: [firstResult, {
       type: 'image',
       source: { type: 'base64', media_type: 'image/png', data: 'permission-image-data' },
@@ -563,6 +569,102 @@ test('cleared tool results remove embedded inline image payloads', () => {
   expect(getResultBlock(result[2]).content).toEqual([
     { type: 'text', text: '[Old tool result content cleared]' },
   ])
+})
+
+test('preserves an independent image after a cleared tool result', () => {
+  const messages = buildConversation(16, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.content = '[Old tool result content cleared]'
+  const image: Block = {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'user-image-data' },
+  }
+  messages[2] = { ...messages[2], content: [firstResult, image] }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect((result[2].content as Block[])[1]).toEqual(image)
+})
+
+test('omits a permission image after a non-compactable old tool result', () => {
+  const messages = buildConversation(16, 5_000)
+  const toolUse = (messages[1].content as Block[])[0]
+  toolUse.name = 'Task'
+  const firstResult = getResultBlock(messages[2])
+  messages[2] = {
+    ...messages[2],
+    toolUseResult: 'task output',
+    imagePermissionToolUseIds: ['toolu_0'],
+    content: [firstResult, {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'permission-image-data' },
+    }],
+  }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect(getResultText(result[2])).toHaveLength(5_000)
+  expect((result[2].content as Block[])[1]).toEqual({
+    type: 'text', text: '[Inline image omitted from tool history]',
+  })
+})
+
+test('omits a subagent permission image without retaining toolUseResult', () => {
+  const messages = buildConversation(16, 5_000)
+  const toolUse = (messages[1].content as Block[])[0]
+  toolUse.name = 'Task'
+  const firstResult = getResultBlock(messages[2])
+  messages[2] = {
+    ...messages[2],
+    imagePermissionToolUseIds: ['toolu_0'],
+    content: [firstResult, {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'subagent-permission-image' },
+    }],
+  }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect((result[2].content as Block[])[1]).toEqual({
+    type: 'text', text: '[Inline image omitted from tool history]',
+  })
+})
+
+test('omits a rejected-permission image from old tool history', () => {
+  const messages = buildConversation(16, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.is_error = true
+  messages[2] = {
+    ...messages[2],
+    imagePermissionToolUseIds: ['toolu_0'],
+    content: [firstResult, {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'rejected-permission-image' },
+    }],
+  }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect((result[2].content as Block[])[1]).toEqual({
+    type: 'text', text: '[Inline image omitted from tool history]',
+  })
+})
+
+test('keeps permission image ownership after parallel results are hoisted', () => {
+  const messages = buildConversation(16, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  const secondResult: Block = {
+    type: 'tool_result', tool_use_id: 'toolu_parallel', content: bigText(5_000),
+  }
+  messages[2] = {
+    ...messages[2],
+    imagePermissionToolUseIds: ['toolu_0'],
+    content: [firstResult, secondResult, {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'parallel-permission-image' },
+    }],
+  }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect((result[2].content as Block[])[2]).toEqual({
+    type: 'text', text: '[Inline image omitted from tool history]',
+  })
 })
 
 test('large window (1M) with 30 exchanges: all untouched (recent=25 ≥ 30 - 5)', () => {

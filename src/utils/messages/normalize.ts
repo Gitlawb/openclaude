@@ -33,6 +33,7 @@ function createNormalizedUserBlockMessage({
     uuid,
     timestamp: source.timestamp,
     toolUseResult: source.toolUseResult,
+    imagePermissionToolUseIds: source.imagePermissionToolUseIds,
     mcpMeta: source.mcpMeta,
     imagePasteIds,
     origin: source.origin,
