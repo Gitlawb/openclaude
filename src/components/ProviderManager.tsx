@@ -2586,6 +2586,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(undefined)
 
               if (draftProvider === 'aimlapi') {
+                // An already-resolved existing credential (saved profile or an
+                // ambient env key adopted earlier, e.g. after a top-up) must
+                // complete through persistExistingAimlapi so the paid-completion
+                // path (aimlapiTopupPaidRef) is honored, instead of being
+                // re-detected into the plain "ready" flow below.
+                if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
+                  persistExistingAimlapi(nextDraft.model)
+                  return
+                }
                 const envKey = resolveRouteCredentialValue({
                   routeId: 'aimlapi',
                   baseUrl: nextDraft.baseUrl,
@@ -2603,10 +2612,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                     nextDraft.model,
                     { preserveEnv: true },
                   )
-                  return
-                }
-                if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
-                  persistExistingAimlapi(nextDraft.model)
                   return
                 }
                 if (mode === 'manage' && startExistingAimlapi(nextDraft)) {

@@ -19,6 +19,7 @@ import { openBrowser, promptText, saveProfileFile } from './topupDependencies.js
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
@@ -151,6 +152,19 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   const checkoutState = claimAimlapiTopupState(intent)
   const persistSession = (resumeSessionToken: string): void => {
     if (!resumeSessionToken) {
+      // A terminal checkout invalidates the payment session, but a minted
+      // existing-account key is still valid: retain it (with a fresh payment
+      // session) so the next run reuses the credential instead of issuing
+      // another. Fall back to a full clear when there is no key to keep.
+      if (
+        checkoutState.apiKey &&
+        resetAimlapiCheckoutSession({
+          ...intent,
+          paymentSessionId: checkoutState.paymentSessionId,
+        })
+      ) {
+        return
+      }
       clearAimlapiTopupState({
         ...intent,
         paymentSessionId: checkoutState.paymentSessionId,

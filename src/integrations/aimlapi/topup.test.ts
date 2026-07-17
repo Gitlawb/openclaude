@@ -196,6 +196,65 @@ test('CLI retains an already-exchanged checkout and blocks identical retries', a
   })
 })
 
+test('a failed payment retains the issued key for the next run', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+
+  let keyMints = 0
+  let sessionStatus = 'expired'
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      return Response.json({ key: 'key_test', id: 'key_id' })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return Response.json({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/pay')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { sessionToken: 'checkout-session', status: 'pending_payment' },
+      })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
+      return Response.json({ sessionToken: 'checkout-session', status: sessionStatus })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  // First run: the payment expires. The issued key must survive the terminal reset.
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('Payment expired')
+
+  const afterFailure = JSON.parse(
+    readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8'),
+  ) as { apiKey?: string; resumeSessionToken: string }
+  expect(afterFailure.apiKey).toBe('key_test')
+  expect(afterFailure.resumeSessionToken).toBe('')
+  expect(keyMints).toBe(1)
+
+  // Second run: the payment clears and the retained key is reused (not re-minted).
+  sessionStatus = 'paid'
+  await runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  })
+  expect(keyMints).toBe(1)
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
 test('topUpAimlapiByApiKey funds the key account without exchange', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'

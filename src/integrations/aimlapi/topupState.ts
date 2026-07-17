@@ -100,17 +100,45 @@ function withStateLock<T>(operation: () => T): T {
         continue
       }
       if (stale) {
-        // Steal atomically: renaming the stale lock away can succeed for only
-        // one racer, so a replacement lock a live holder just wrote is never
-        // removed by a second stealer.
+        // Record the token we observed as stale so recovery can prove it is
+        // discarding the SAME lock and not a live replacement written between
+        // the staleness check and the steal.
+        let observedToken: string | undefined
         try {
-          renameSync(lockPath, `${lockPath}.${token}.stale`)
-          rmSync(`${lockPath}.${token}.stale`, { force: true })
-          continue
+          observedToken = readFileSync(lockPath, 'utf8')
         } catch {
-          // Another process already stole it, or a live holder keeps it open
-          // (Windows cannot rename an open file); fall through to the
-          // timeout-bounded wait.
+          // Vanished already; retry the create immediately.
+          continue
+        }
+        const stealPath = `${lockPath}.${token}.stale`
+        let stolen = false
+        try {
+          // Atomic: only one racer can rename a given inode away.
+          renameSync(lockPath, stealPath)
+          stolen = true
+        } catch {
+          // Another racer already claimed it, or a live holder keeps it open
+          // (Windows cannot rename an open file); fall through to the wait.
+        }
+        if (stolen) {
+          let stolenToken: string | undefined
+          try {
+            stolenToken = readFileSync(stealPath, 'utf8')
+          } catch {
+            // Already gone; nothing to revalidate.
+          }
+          if (stolenToken === undefined || stolenToken === observedToken) {
+            // Exactly the stale lock we observed (or already gone): drop it.
+            rmSync(stealPath, { force: true })
+            continue
+          }
+          // A live replacement slipped in and we renamed it away. Fail closed:
+          // put it back and wait rather than remove a lock we do not own.
+          try {
+            renameSync(stealPath, lockPath)
+          } catch {
+            rmSync(stealPath, { force: true })
+          }
         }
       }
       if (Date.now() >= deadline) {
@@ -237,6 +265,42 @@ export function claimAimlapiTopupState(
     }
     writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
     return claimed
+  })
+}
+
+/**
+ * A terminal checkout (cancelled/expired/failed, or a dead session) invalidates
+ * the payment session but not an already-issued existing-account key. Drop the
+ * dead session/payment identifiers and mint a fresh payment session while
+ * retaining the key, so the next run reuses the credential instead of minting
+ * another. Returns the refreshed checkout, or null when no matching keyed state
+ * exists (callers clear the state instead).
+ */
+export function resetAimlapiCheckoutSession(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): AimlapiCheckoutState | null {
+  return withStateLock(() => {
+    const current = readAimlapiTopupStateUnlocked()
+    if (
+      !current ||
+      !matchesIntent(current, expected) ||
+      current.paymentSessionId !== expected.paymentSessionId ||
+      !current.apiKey?.trim()
+    ) {
+      return null
+    }
+    const next: AimlapiPersistedTopup = {
+      ...current,
+      paymentSessionId: randomUUID(),
+      resumeSessionToken: '',
+    }
+    writeAimlapiTopupStateUnlocked(next)
+    return {
+      paymentSessionId: next.paymentSessionId,
+      resumeSessionToken: next.resumeSessionToken,
+      apiKey: next.apiKey,
+      apiKeyId: next.apiKeyId,
+    }
   })
 }
 
