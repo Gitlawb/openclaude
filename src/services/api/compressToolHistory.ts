@@ -35,14 +35,15 @@ const MID_MAX_CHARS = 2_000
 // here keeps the stub size bounded even when callers pass oversized arguments.
 const STUB_ARGS_MAX_CHARS = 200
 
-// Inline base64 image blocks can be megabytes long. Older tool history must
-// not retain that payload merely because it is structured rather than text.
+// Inline image payloads can be megabytes long. Older tool history must not
+// retain them merely because they are structured rather than text.
 const OMITTED_INLINE_IMAGE_MARKER = '[Inline image omitted from tool history]'
 
 type AnyMessage = {
   role?: string
   message?: { role?: string; content?: unknown }
   content?: unknown
+  toolUseResult?: unknown
 }
 
 type ToolResultBlock = {
@@ -101,26 +102,23 @@ function extractText(content: unknown, separator: string): string {
   return ''
 }
 
-function isInlineBase64Image(part: unknown): boolean {
+function isInlineImagePayload(part: unknown): boolean {
   if (!part || typeof part !== 'object' || (part as { type?: string }).type !== 'image') {
     return false
   }
 
   const source = (part as { source?: { type?: string; url?: string } }).source
   return source?.type === 'base64' ||
-    (
-      source?.type === 'url' &&
-      typeof source.url === 'string' &&
-      /^data:image\/[^,]*;base64,/i.test(source.url)
-    )
+    (source?.type === 'url' && typeof source.url === 'string' &&
+      /^data:image\//i.test(source.url))
 }
 
-function omitInlineBase64Images(block: ToolResultBlock): ToolResultBlock {
+function omitInlineImagePayloads(block: ToolResultBlock): ToolResultBlock {
   if (!Array.isArray(block.content)) return block
 
   let omittedImage = false
   const content = block.content.map(part => {
-    if (isInlineBase64Image(part)) {
+    if (isInlineImagePayload(part)) {
       omittedImage = true
       return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
     }
@@ -130,11 +128,17 @@ function omitInlineBase64Images(block: ToolResultBlock): ToolResultBlock {
   return omittedImage ? { ...block, content } : block
 }
 
+function sanitizeClearedBlock(block: ToolResultBlock): ToolResultBlock {
+  if (!Array.isArray(block.content)) return block
+  const content = block.content.filter(part => !isInlineImagePayload(part))
+  return content.length === block.content.length ? block : { ...block, content }
+}
+
 function replaceTextContent(
   block: ToolResultBlock,
   replacementText: string,
 ): ToolResultBlock {
-  block = omitInlineBase64Images(block)
+  block = omitInlineImagePayloads(block)
   if (!Array.isArray(block.content)) {
     return {
       ...block,
@@ -260,7 +264,7 @@ function truncateBlock(
   maxChars: number,
   separator: string,
 ): ToolResultBlock {
-  block = omitInlineBase64Images(block)
+  block = omitInlineImagePayloads(block)
   const text = extractText(block.content, separator)
   if (text.length <= maxChars) return block
   return truncateTextContent(block, maxChars, text.length, separator)
@@ -384,27 +388,25 @@ export function compressToolHistory<T extends AnyMessage>(
     if (firstPos === undefined || total - 1 - firstPos < tiers.recent) return msg
 
     const content = getInner(msg).content as unknown[]
-    // Tool execution appends permission-decision content blocks after the
-    // owning tool result. Keep an independent user image that precedes a
-    // result, but bound inline images attached to an old/mid result.
+    const ownsFollowingPermissionBlocks = msg.toolUseResult !== undefined
     let omitFollowingInlineImages = false
     const newContent = content.map((block, blockIndex) => {
-      if (isInlineBase64Image(block) && omitFollowingInlineImages) {
+      if (isInlineImagePayload(block) && omitFollowingInlineImages) {
         return { type: 'text', text: OMITTED_INLINE_IMAGE_MARKER }
       }
 
       const pos = positions.get(blockIndex)
       if (pos === undefined) return block
-      // A new result starts a new ownership span. This matters for a large
-      // parallel batch that crosses a tier boundary: an image following a
-      // recent result must not inherit omission from an older sibling.
-      omitFollowingInlineImages = false
       const fromEnd = total - 1 - pos
       if (fromEnd < tiers.recent) return block
 
       const tr = block as ToolResultBlock
+      if (isAlreadyCleared(tr)) {
+        omitFollowingInlineImages = true
+        return sanitizeClearedBlock(tr)
+      }
       if (!shouldCompressBlock(tr, toolUsesById)) return block
-      omitFollowingInlineImages = true
+      omitFollowingInlineImages = ownsFollowingPermissionBlocks
       return fromEnd < tiers.recent + tiers.mid
         ? truncateBlock(tr, MID_MAX_CHARS, textBlockSeparator)
         : buildStub(tr, toolUsesById, textBlockSeparator)

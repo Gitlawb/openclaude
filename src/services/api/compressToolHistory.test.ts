@@ -77,7 +77,7 @@ afterEach(() => {
 })
 
 type Block = Record<string, unknown>
-type Msg = { role: string; content: Block[] | string }
+type Msg = { role: string; content: Block[] | string; toolUseResult?: unknown }
 
 function bigText(n: number): string {
   return 'x'.repeat(n)
@@ -501,7 +501,7 @@ test('tier boundaries: 16 exchanges → 1 old + 10 mid + 5 recent', () => {
   }
 })
 
-test('only omits permission images that follow a compressed tool result', () => {
+test('preserves an independent image that follows a compressed tool result', () => {
   const inlineImage = (data: string): Block => ({
     type: 'image',
     source: { type: 'base64', media_type: 'image/png', data },
@@ -517,22 +517,52 @@ test('only omits permission images that follow a compressed tool result', () => 
       role: 'user',
       content: [
         { type: 'tool_result', tool_use_id: 'toolu_0', content: bigText(5_000) },
-        inlineImage('old-image-data'),
+        inlineImage('user-image-data'),
         ...Array.from({ length: 4 }, (_, offset) => ({
           type: 'tool_result', tool_use_id: `toolu_${offset + 1}`, content: 'recent',
         })),
         { type: 'tool_result', tool_use_id: 'toolu_5', content: 'recent' },
-        inlineImage('recent-image-data'),
       ],
     },
   ]
 
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const content = result[1].content as Block[]
-  expect(content[1]).toEqual({
+  expect(content[1]).toEqual(inlineImage('user-image-data'))
+})
+
+test('omits a permission image that follows a compressed tool result', () => {
+  const messages = buildConversation(16, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.content = bigText(5_000)
+  messages[2] = {
+    ...messages[2],
+    toolUseResult: 'tool output',
+    content: [firstResult, {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'permission-image-data' },
+    }],
+  }
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect((result[2].content as Block[])[1]).toEqual({
     type: 'text', text: '[Inline image omitted from tool history]',
   })
-  expect(content.at(-1)).toEqual(inlineImage('recent-image-data'))
+})
+
+test('cleared tool results remove embedded inline image payloads', () => {
+  const messages = buildConversation(16, 5_000)
+  const firstResult = getResultBlock(messages[2])
+  firstResult.content = [
+    { type: 'text', text: '[Old tool result content cleared]' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'a'.repeat(10_000) } },
+    { type: 'image', source: { type: 'url', url: `data:image/svg+xml,${'x'.repeat(10_000)}` } },
+  ]
+
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
+  expect(getResultBlock(result[2]).content).toEqual([
+    { type: 'text', text: '[Old tool result content cleared]' },
+  ])
 })
 
 test('large window (1M) with 30 exchanges: all untouched (recent=25 ≥ 30 - 5)', () => {

@@ -572,25 +572,6 @@ test('Chat compression omits old and mid-tier inline image payloads', async () =
       },
     ],
   }
-  messages[4] = {
-    role: 'user',
-    content: [
-      {
-        type: 'tool_result',
-        tool_use_id: 'toolu_1',
-        content: bigText(5_000),
-      },
-      {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: 'image/png',
-          data: imageData,
-        },
-      },
-    ],
-  }
-
   const body = await captureRequestBody(messages, MID_TIER_MODEL)
   const toolOutputs = getToolMessages(body).map(message => message.content)
 
@@ -703,8 +684,8 @@ test('Responses compression preserves structured history and materially reduces 
     item => item.content ?? [],
   )
   expect(inputParts).toContainEqual({
-    type: 'input_text',
-    text: '[Inline image omitted from tool history]',
+    type: 'input_image',
+    image_url: 'data:image/png;base64,aGVsbG8=',
   })
   expect(inputParts).toContainEqual({
     type: 'input_text',
