@@ -136,7 +136,7 @@ import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_ST
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
-import { buildConcurrentRequeuedPrompt, handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
+import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { applyInterruptionCorrectionAutoRestore, applyInterruptionCorrectionAwareMessageUpdate, buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
@@ -2337,10 +2337,8 @@ export function REPL({
     interruptionCorrectionTracker.handleCancellation({
       isUserInitiated,
       isRemoteMode: activeRemote.isRemoteMode,
-      hasQueuedNormalPrompt: getCommandQueue().some(command =>
-        command.mode === 'prompt' &&
-        command.preExpansionValue !== undefined &&
-        command.allowInterruptionCorrection !== false,
+      hasQueuedNormalPrompt: getCommandQueue().some(
+        isNormalLocalUserPrompt,
       ),
     });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
