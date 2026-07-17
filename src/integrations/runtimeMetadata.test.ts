@@ -399,7 +399,7 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
       contextWindow: 1_048_576,
       label: 'Kimi K3 (1M)',
     })
-    expect(k3.catalogEntry?.reasoning?.levels).toEqual(['low', 'high', 'max'])
+    expect(k3.catalogEntry?.reasoning?.levels).toEqual(['max'])
     expect(resolveModelRuntimeLimits({
       model: 'k3-256k',
       baseUrl: 'https://api.kimi.com/coding/v1',

@@ -130,9 +130,9 @@ accepted levels, and disable behavior have been verified. See
 
 The direct Moonshot API exposes Kimi K3 as `kimi-k3`, with a 1,048,576-token
 context window, 32,768 maximum output tokens, and `reasoning_effort: "max"` as
-its only supported reasoning control. The Kimi Code subscription endpoint uses
-the `k3` API model for two catalog selections: `k3` provides the 1M Allegretto+
-window, while `k3-256k` keeps Moderato+ sessions within their 256K limit.
+its only supported reasoning control. Kimi Code K3 uses the same `max` control
+for two catalog selections: `k3` provides the 1M Allegretto+ window, while
+`k3-256k` keeps Moderato+ sessions within their 256K limit.
 
 Kimi Code also lists `kimi-for-coding-highspeed` for eligible Allegretto+
 subscriptions. It uses six times the speed and three times the quota; retain

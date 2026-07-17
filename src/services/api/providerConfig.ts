@@ -149,9 +149,9 @@ type ThinkingType = 'enabled' | 'disabled'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 const KIMI_CODE_K3_REASONING_ALIASES: Record<ReasoningEffort, ReasoningEffort> = {
-  low: 'low',
-  medium: 'high',
-  high: 'high',
+  low: 'max',
+  medium: 'max',
+  high: 'max',
   xhigh: 'max',
   max: 'max',
 }

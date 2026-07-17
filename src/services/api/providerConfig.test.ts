@@ -87,8 +87,8 @@ test('resolveProviderRequest preserves K3 max reasoning from its model query', (
   expect(request.reasoning).toEqual({ effort: 'max' })
 })
 
-test('resolveProviderRequest preserves K3 documented reasoning levels from its model query', () => {
-  for (const effort of ['low', 'high', 'max'] as const) {
+test('resolveProviderRequest canonicalizes K3 model-query reasoning to max', () => {
+  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
     const request = resolveProviderRequest({
       model: `k3-256k?reasoning=${effort}`,
       baseUrl: 'https://api.kimi.com/coding/v1',
@@ -96,19 +96,7 @@ test('resolveProviderRequest preserves K3 documented reasoning levels from its m
     })
 
     expect(request.resolvedModel).toBe('k3')
-    expect(request.reasoning).toEqual({ effort })
-  }
-})
-
-test('resolveProviderRequest canonicalizes Kimi Code K3 reasoning aliases', () => {
-  for (const [effort, expected] of [['medium', 'high'], ['xhigh', 'max']] as const) {
-    const request = resolveProviderRequest({
-      model: `k3?reasoning=${effort}`,
-      baseUrl: 'https://api.kimi.com/coding/v1',
-      processEnv: {},
-    })
-
-    expect(request.reasoning).toEqual({ effort: expected })
+    expect(request.reasoning).toEqual({ effort: 'max' })
   }
 })
 
