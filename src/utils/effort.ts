@@ -969,7 +969,9 @@ export function resolveAppliedEffort(
     resolved === 'xhigh' &&
     control.source === 'metadata' &&
     control.wireFormat === 'reasoning_effort' &&
-    control.levels.length === 1 &&
+    control.levels.length === 3 &&
+    control.levels.includes('low') &&
+    control.levels.includes('high') &&
     control.levels.includes('max')
   ) {
     return 'max'

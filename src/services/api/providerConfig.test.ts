@@ -87,8 +87,8 @@ test('resolveProviderRequest preserves K3 max reasoning from its model query', (
   expect(request.reasoning).toEqual({ effort: 'max' })
 })
 
-test('resolveProviderRequest canonicalizes K3 model-query reasoning to max', () => {
-  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+test('resolveProviderRequest canonicalizes K3 model-query reasoning aliases', () => {
+  for (const [effort, expected] of [['low', 'low'], ['medium', 'high'], ['high', 'high'], ['xhigh', 'max'], ['max', 'max']] as const) {
     const request = resolveProviderRequest({
       model: `k3-256k?reasoning=${effort}`,
       baseUrl: 'https://api.kimi.com/coding/v1',
@@ -96,19 +96,19 @@ test('resolveProviderRequest canonicalizes K3 model-query reasoning to max', () 
     })
 
     expect(request.resolvedModel).toBe('k3')
-    expect(request.reasoning).toEqual({ effort: 'max' })
+    expect(request.reasoning).toEqual({ effort: expected })
   }
 })
 
-test('resolveProviderRequest maps direct Moonshot K3 reasoning to max', () => {
-  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+test('resolveProviderRequest maps direct Moonshot K3 reasoning aliases', () => {
+  for (const [effort, expected] of [['low', 'low'], ['medium', 'high'], ['high', 'high'], ['xhigh', 'max'], ['max', 'max']] as const) {
     const request = resolveProviderRequest({
       model: `kimi-k3?reasoning=${effort}`,
       baseUrl: 'https://api.moonshot.ai/v1',
       processEnv: {},
     })
     expect(request.resolvedModel).toBe('kimi-k3')
-    expect(request.reasoning).toEqual({ effort: 'max' })
+    expect(request.reasoning).toEqual({ effort: expected })
   }
 })
 

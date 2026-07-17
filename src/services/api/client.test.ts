@@ -2145,7 +2145,7 @@ test('providerOverride K3 maps xhigh effort to max', async () => {
   }
 })
 
-test('providerOverride K3 sends its max default without an explicit effort', async () => {
+test('providerOverride K3 leaves its default reasoning to the provider', async () => {
   let requestBody: Record<string, unknown> | undefined
   const originalFetch = globalThis.fetch
 
@@ -2177,7 +2177,7 @@ test('providerOverride K3 sends its max default without an explicit effort', asy
       stream: false,
     })
 
-    expect(requestBody?.reasoning_effort).toBe('max')
+    expect(requestBody?.reasoning_effort).toBeUndefined()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2222,7 +2222,7 @@ test('providerOverride Hicap keeps multi-level max as xhigh on the wire', async 
   }
 })
 
-test('providerOverride K3 canonicalizes model-query reasoning to max', async () => {
+test('providerOverride K3 preserves supported model-query reasoning', async () => {
   let requestBody: Record<string, unknown> | undefined
   let requestUrl: string | undefined
 
@@ -2255,7 +2255,7 @@ test('providerOverride K3 canonicalizes model-query reasoning to max', async () 
       stream: false,
     })
 
-    expect(requestBody?.reasoning_effort).toBe('max')
+    expect(requestBody?.reasoning_effort).toBe('low')
     expect(requestBody?.model).toBe('k3')
     expect(requestUrl).toStartWith('https://api.kimi.com/coding/v1/')
   } finally {
@@ -2263,7 +2263,7 @@ test('providerOverride K3 canonicalizes model-query reasoning to max', async () 
   }
 })
 
-test('providerOverride direct Moonshot K3 canonicalizes model-query reasoning to max', async () => {
+test('providerOverride direct Moonshot K3 preserves supported model-query reasoning', async () => {
   let requestBody: Record<string, unknown> | undefined
   let requestUrl: string | undefined
 
@@ -2296,7 +2296,7 @@ test('providerOverride direct Moonshot K3 canonicalizes model-query reasoning to
       stream: false,
     })
 
-    expect(requestBody?.reasoning_effort).toBe('max')
+    expect(requestBody?.reasoning_effort).toBe('low')
     expect(requestBody?.model).toBe('kimi-k3')
     expect(requestUrl).toStartWith('https://api.moonshot.ai/v1/')
   } finally {

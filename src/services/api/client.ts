@@ -438,13 +438,14 @@ export async function getAnthropicClient({
   const reasoningControl = effortModel
     ? resolveModelReasoningControl(effortModel, effortContext)
     : undefined
-  const maxOnlyReasoningControl =
+  const k3ReasoningControl =
     reasoningControl?.source === 'metadata' &&
     reasoningControl.wireFormat === 'reasoning_effort' &&
-    reasoningControl.levels.length === 1 &&
+    reasoningControl.levels.length === 3 &&
+    reasoningControl.levels.includes('low') &&
+    reasoningControl.levels.includes('high') &&
     reasoningControl.levels.includes('max')
-  const appliedEffort = effortModel &&
-    (effortValue !== undefined || maxOnlyReasoningControl)
+  const appliedEffort = effortModel && effortValue !== undefined
     ? resolveAppliedEffort(
       effortModel,
       effortValue,
@@ -459,7 +460,7 @@ export async function getAnthropicClient({
       ? (reasoningControl?.source === 'metadata' &&
           reasoningControl.wireFormat === 'reasoning_effort' &&
           appliedEffortLevel === 'max' &&
-          maxOnlyReasoningControl
+          k3ReasoningControl
             ? 'max'
           : standardEffortToOpenAI(appliedEffortLevel))
       : undefined

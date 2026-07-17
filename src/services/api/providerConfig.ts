@@ -149,9 +149,9 @@ type ThinkingType = 'enabled' | 'disabled'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 const KIMI_K3_REASONING_ALIASES: Record<ReasoningEffort, ReasoningEffort> = {
-  low: 'max',
-  medium: 'max',
-  high: 'max',
+  low: 'low',
+  medium: 'high',
+  high: 'high',
   xhigh: 'max',
   max: 'max',
 }
@@ -1151,10 +1151,10 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrlRuntimeContext.catalogEntry.reasoning?.wireFormat === 'reasoning_effort'
       ? explicitBaseUrlRuntimeContext.catalogEntry.reasoning.levels
       : undefined
-  const isMaxOnlyK3 =
-    catalogReasoningLevels?.length === 1 && catalogReasoningLevels.includes('max')
+  const isK3 = catalogReasoningLevels?.includes('max') &&
+    explicitBaseUrlRuntimeContext?.catalogEntry?.modelDescriptorId === 'k3'
   const normalizedReasoning =
-    isMaxOnlyK3 && requestedReasoning?.effort !== undefined
+    isK3 && requestedReasoning?.effort !== undefined
       ? { effort: KIMI_K3_REASONING_ALIASES[requestedReasoning.effort] }
       : requestedReasoning
   const supportsMaxReasoning =
