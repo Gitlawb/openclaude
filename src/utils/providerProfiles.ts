@@ -71,6 +71,7 @@ export type ProviderProfileInput = {
   model: string
   apiKey?: string
   apiFormat?: ProviderProfile['apiFormat']
+  azureStyle?: ProviderProfile['azureStyle']
   authHeader?: ProviderProfile['authHeader']
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
@@ -296,6 +297,7 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
   const apiFormat = parseOpenAICompatibleApiFormat(profile.apiFormat)
+  const azureStyle = profile.azureStyle === true
   const authHeader = sanitizeAuthHeader(profile.authHeader)
   const authScheme = sanitizeAuthScheme(profile.authScheme)
   const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
@@ -328,6 +330,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
+  }
+  if (azureStyle) {
+    sanitized.azureStyle = true
   }
   if (supportsAuthHeaders && authHeader) {
     sanitized.authHeader = authHeader
@@ -377,6 +382,7 @@ function toProfile(
     model: input.model,
     apiKey: input.apiKey,
     apiFormat: input.apiFormat,
+    azureStyle: input.azureStyle,
     authHeader: input.authHeader,
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
@@ -726,6 +732,10 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
     sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_AZURE_STYLE,
+      profile.azureStyle ? '1' : undefined,
+    ) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
@@ -923,6 +933,9 @@ export function applyProviderProfileToProcessEnv(
       resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
     if (supportsApiFormat && profile.apiFormat) {
       openAIProfileEnv.OPENAI_API_FORMAT = profile.apiFormat
+    }
+    if (profile.azureStyle) {
+      openAIProfileEnv.OPENAI_AZURE_STYLE = '1'
     }
     if (supportsAuthHeaders && profile.authHeader) {
       openAIProfileEnv.OPENAI_AUTH_HEADER = profile.authHeader
@@ -1293,6 +1306,7 @@ function buildOpenAICompatibleStartupEnv(
       baseUrl: activeProfile.baseUrl,
       apiKey: activeProfile.apiKey,
       apiFormat: activeProfile.apiFormat,
+      azureStyle: activeProfile.azureStyle ? '1' : undefined,
       authHeader: activeProfile.authHeader,
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,
@@ -1337,6 +1351,7 @@ function buildOpenAICompatibleStartupEnv(
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
     ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
+    ...(activeProfile.azureStyle ? { OPENAI_AZURE_STYLE: '1' } : {}),
     ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
     ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
     ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),

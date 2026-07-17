@@ -3567,7 +3567,6 @@ class OpenAIShimMessages {
       const requestProcessEnv = self.providerOverride
         ? {
           ...process.env,
-          OPENAI_API_FORMAT: undefined,
           OPENAI_AZURE_STYLE: undefined,
         }
         : process.env
@@ -3907,7 +3906,7 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLikelyOllamaEndpoint(request.baseUrl)) {
+    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
       body.stream_options = { include_usage: true }
     }
 

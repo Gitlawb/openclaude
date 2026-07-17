@@ -3039,6 +3039,27 @@ test('uses max_tokens instead of max_completion_tokens for local providers', asy
   })
 })
 
+test('does not send stream_options to local OpenAI-compatible servers', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body))
+    expect(body.stream).toBe(true)
+    expect(body.stream_options).toBeUndefined()
+    return new Response('', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'local-vllm-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  })
+})
+
 test('keeps max_completion_tokens for non-local non-github providers', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
 

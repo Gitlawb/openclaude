@@ -678,7 +678,7 @@ test('buildStartupEnvFromProfile preserves env-only NEAR AI setup without a save
   assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
-test('openai launch preserves shell responses format and custom auth overrides', async () => {
+test('openai launch does not apply persisted Azure mode to a shell-selected base', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
     persisted: profile('openai', {
@@ -706,7 +706,7 @@ test('openai launch preserves shell responses format and custom auth overrides',
   assert.equal(env.OPENAI_BASE_URL, 'https://shell.example/v1')
   assert.equal(env.OPENAI_MODEL, 'shell-model')
   assert.equal(env.OPENAI_API_FORMAT, 'responses')
-  assert.equal(env.OPENAI_AZURE_STYLE, '1')
+  assert.equal(env.OPENAI_AZURE_STYLE, undefined)
   assert.equal(env.OPENAI_AUTH_HEADER, 'api-key')
   assert.equal(env.OPENAI_AUTH_SCHEME, 'raw')
   assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'shell-secret')

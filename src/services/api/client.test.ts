@@ -1800,6 +1800,34 @@ test('providerOverride does not inherit Azure-style routing from its parent', as
   expect(requestBody?.reasoning_effort).toBeUndefined()
 })
 
+test('providerOverride preserves an explicit responses format from its parent', async () => {
+  let requestUrl = ''
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  globalThis.fetch = (async (input, _init) => {
+    requestUrl = String(input)
+    return new Response(JSON.stringify({
+      id: 'resp-provider-override-gateway',
+      model: 'response-only-model',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+      usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    providerOverride: {
+      model: 'response-only-model',
+      baseURL: 'https://gateway.example/v1',
+      apiKey: 'provider-test-key',
+    },
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({ model: 'unused', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  expect(requestUrl).toBe('https://gateway.example/v1/responses')
+})
+
 test('providerOverride custom OpenAI-compatible gpt effort uses legacy support', async () => {
   let requestBody: Record<string, unknown> | undefined
 

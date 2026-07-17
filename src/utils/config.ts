@@ -227,6 +227,7 @@ export type ProviderProfile = {
   model: string
   apiKey?: string
   apiFormat?: OpenAICompatibleApiFormat
+  azureStyle?: boolean
   authHeader?: string
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string

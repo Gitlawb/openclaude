@@ -290,6 +290,22 @@ function buildCloudflareProfile(overrides: Partial<ProviderProfile> = {}): Provi
 }
 
 describe('applyProviderProfileToProcessEnv', () => {
+  test('applies Azure-style routing from a saved OpenAI-compatible profile', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        baseUrl: 'https://apim.contoso.example/azure-openai',
+        model: 'gpt-5.6-sol',
+        apiKey: 'azure-key',
+        azureStyle: true,
+      }),
+    )
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
+  })
+
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

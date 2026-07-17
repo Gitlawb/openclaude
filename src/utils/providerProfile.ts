@@ -1889,9 +1889,13 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_API_FORMAT
   }
+  const usePersistedAzureStyle =
+    processEnv.OPENAI_AZURE_STYLE === undefined &&
+    usePersistedOpenAIConfig &&
+    env.OPENAI_BASE_URL === persistedOpenAIBaseUrl
   if (
     isEnvTruthy(processEnv.OPENAI_AZURE_STYLE) ||
-    (usePersistedOpenAIConfig && isEnvTruthy(persistedOpenAIAzureStyle))
+    (usePersistedAzureStyle && isEnvTruthy(persistedOpenAIAzureStyle))
   ) {
     env.OPENAI_AZURE_STYLE = '1'
   } else {
