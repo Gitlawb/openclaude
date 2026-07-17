@@ -29,7 +29,18 @@ export type AimlapiTopupIntent = {
 export type AimlapiPersistedTopup = AimlapiTopupIntent & {
   paymentSessionId: string
   resumeSessionToken: string
+  /**
+   * Existing-account key issued for this intent, retained so an interrupted
+   * checkout resumes on the same credential instead of minting another key.
+   */
+  apiKey?: string
+  apiKeyId?: string
 }
+
+type AimlapiCheckoutState = Pick<
+  AimlapiPersistedTopup,
+  'paymentSessionId' | 'resumeSessionToken' | 'apiKey' | 'apiKeyId'
+>
 
 function statePath(): string {
   return join(getClaudeConfigHomeDir(), 'aimlapi-topup.json')
@@ -59,25 +70,48 @@ function withStateLock<T>(operation: () => T): T {
   const lockPath = `${target}.lock`
   mkdirSync(dirname(target), { recursive: true })
   const deadline = Date.now() + LOCK_TIMEOUT_MS
-  let descriptor: number | undefined
+  // Ownership token written into the lock so recovery can tell this holder's
+  // lock apart from a replacement another process wrote after stealing a stale
+  // lock.
+  const token = `${process.pid}.${randomUUID()}`
+  let held = false
 
-  while (descriptor === undefined) {
+  while (!held) {
     try {
-      descriptor = openSync(lockPath, 'wx', 0o600)
+      const descriptor = openSync(lockPath, 'wx', 0o600)
+      try {
+        writeFileSync(descriptor, token, { encoding: 'utf8' })
+      } finally {
+        closeSync(descriptor)
+      }
+      held = true
     } catch (error) {
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? String(error.code)
           : undefined
       if (code !== 'EEXIST') throw error
+      let stale = false
       try {
         const lock = statSync(lockPath)
-        if (Date.now() - lock.mtimeMs > LOCK_STALE_MS) {
-          rmSync(lockPath, { force: true })
-          continue
-        }
+        stale = Date.now() - lock.mtimeMs > LOCK_STALE_MS
       } catch {
+        // Lock vanished between open and stat; retry the create immediately.
         continue
+      }
+      if (stale) {
+        // Steal atomically: renaming the stale lock away can succeed for only
+        // one racer, so a replacement lock a live holder just wrote is never
+        // removed by a second stealer.
+        try {
+          renameSync(lockPath, `${lockPath}.${token}.stale`)
+          rmSync(`${lockPath}.${token}.stale`, { force: true })
+          continue
+        } catch {
+          // Another process already stole it, or a live holder keeps it open
+          // (Windows cannot rename an open file); fall through to the
+          // timeout-bounded wait.
+        }
       }
       if (Date.now() >= deadline) {
         throw new Error('Timed out waiting for the AI/ML API checkout state lock.')
@@ -89,8 +123,16 @@ function withStateLock<T>(operation: () => T): T {
   try {
     return operation()
   } finally {
-    closeSync(descriptor)
-    rmSync(lockPath, { force: true })
+    // Only remove a lock this holder still owns. A stale-lock steal may have
+    // replaced ours with another process's lock; deleting that would admit a
+    // third process while the second still mutates the checkout state.
+    try {
+      if (readFileSync(lockPath, 'utf8') === token) {
+        rmSync(lockPath, { force: true })
+      }
+    } catch {
+      // Lock already released or replaced by another owner.
+    }
   }
 }
 
@@ -117,7 +159,9 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     typeof state.verificationBaseUrl === 'string' &&
     typeof state.paymentSessionId === 'string' &&
     Boolean(state.paymentSessionId.trim()) &&
-    typeof state.resumeSessionToken === 'string'
+    typeof state.resumeSessionToken === 'string' &&
+    (state.apiKey === undefined || typeof state.apiKey === 'string') &&
+    (state.apiKeyId === undefined || typeof state.apiKeyId === 'string')
   )
 }
 
@@ -149,12 +193,14 @@ function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
 
 export function loadAimlapiTopupState(
   intent: AimlapiTopupIntent,
-): Pick<AimlapiPersistedTopup, 'paymentSessionId' | 'resumeSessionToken'> | null {
+): AimlapiCheckoutState | null {
   const state = readAimlapiTopupStateUnlocked()
   if (!state || !matchesIntent(state, intent)) return null
   return {
     paymentSessionId: state.paymentSessionId,
     resumeSessionToken: state.resumeSessionToken,
+    apiKey: state.apiKey,
+    apiKeyId: state.apiKeyId,
   }
 }
 
@@ -174,16 +220,18 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
 
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
-): Pick<AimlapiPersistedTopup, 'paymentSessionId' | 'resumeSessionToken'> {
+): AimlapiCheckoutState {
   return withStateLock(() => {
     const existing = readAimlapiTopupStateUnlocked()
     if (existing && matchesIntent(existing, intent)) {
       return {
         paymentSessionId: existing.paymentSessionId,
         resumeSessionToken: existing.resumeSessionToken,
+        apiKey: existing.apiKey,
+        apiKeyId: existing.apiKeyId,
       }
     }
-    const claimed = {
+    const claimed: AimlapiCheckoutState = {
       paymentSessionId: randomUUID(),
       resumeSessionToken: '',
     }

@@ -1010,7 +1010,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   }, 20_000)
 
-  test('keyless custom AIMLAPI profile preserves route identity with ambient OpenAI key', async () => {
+  test('keyless custom AIMLAPI profile preserves route identity without forwarding the ambient key', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
     process.env.OPENAI_API_KEY = 'ambient-openai-key'
@@ -1026,8 +1026,10 @@ describe('applyProviderProfileToProcessEnv', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
-    expect(process.env.OPENAI_API_KEY).toBe('ambient-openai-key')
-    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-openai-key')
+    // The base URL is a user-controlled proxy, not the canonical inference
+    // host, so the canonical AIMLAPI credential must not be forwarded to it.
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.AIMLAPI_API_KEY).toBeUndefined()
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
   }, 20_000)
 

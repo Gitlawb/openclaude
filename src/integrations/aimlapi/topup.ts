@@ -129,27 +129,11 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
 
   console.log(chalk.bold('\n  AI/ML API top-up') + chalk.dim(`  -  ${endpoints.appBaseUrl}\n`))
   const account = await client.checkAccount(email, options.signal)
-  let sessionToken: string
-  let apiKey = ''
-  let apiKeyId = ''
-  let exchange = account.action !== 'sign-in'
 
-  if (account.action === 'sign-in') {
-    await client.sendSignInCode(email, options.signal)
-    const code =
-      options.code?.trim() ||
-      process.env.AIMLAPI_CODE?.trim() ||
-      (await promptText('6-digit code', { mask: true }))
-    if (!code) throw new Error('Sign-in code is required.')
-    sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
-    const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
-    apiKey = created.key
-    apiKeyId = created.id
-    exchange = false
-  } else {
-    sessionToken = (await client.createPasswordlessAccount(email, options.signal)).token
-  }
-
+  // Validate the amount and claim (or reuse) the retained checkout before
+  // minting any credential: an invalid amount must not strand an unused key,
+  // and an interrupted checkout must resume on the same key rather than mint a
+  // fresh one on every retry.
   const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
   const partnerId = resolvePartnerId(options.partnerId)
   const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
@@ -175,6 +159,44 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     }
     checkoutState.resumeSessionToken = resumeSessionToken
     saveAimlapiTopupState({ ...intent, ...checkoutState })
+  }
+
+  let sessionToken: string
+  let apiKey = checkoutState.apiKey?.trim() ?? ''
+  let apiKeyId = checkoutState.apiKeyId?.trim() ?? ''
+  let exchange: boolean
+
+  switch (account.action) {
+    case 'sign-in': {
+      await client.sendSignInCode(email, options.signal)
+      const code =
+        options.code?.trim() ||
+        process.env.AIMLAPI_CODE?.trim() ||
+        (await promptText('6-digit code', { mask: true }))
+      if (!code) throw new Error('Sign-in code is required.')
+      sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
+      if (!apiKey) {
+        const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
+        apiKey = created.key
+        apiKeyId = created.id
+        // Retain the issued key with the intent so a retry after an interrupted
+        // checkout reuses it instead of minting another.
+        checkoutState.apiKey = apiKey
+        checkoutState.apiKeyId = apiKeyId
+        saveAimlapiTopupState({ ...intent, ...checkoutState })
+      }
+      exchange = false
+      break
+    }
+    case 'sign-up': {
+      sessionToken = (await client.createPasswordlessAccount(email, options.signal)).token
+      exchange = true
+      break
+    }
+    default:
+      // Fail closed: only the two account actions the flow understands may
+      // proceed (mirrors the guided onboarding path).
+      throw new Error('AI/ML API returned an unsupported account action.')
   }
 
   const provisioned = await provisionAimlapiKey({
@@ -355,7 +377,16 @@ export async function topUpAimlapiByApiKey(
   }
   if (phase === 'pay' || phase === 'poll') {
     options.onStatus?.('waiting-payment')
-    await pollUntilPaid(client, sessionToken, options.signal, options.onSession)
+    const paid = await pollUntilPaid(client, sessionToken, options.signal, options.onSession)
+    if (paid.status === 'exchanging') {
+      await pollUntilByKeyToppedUp(client, sessionToken, options.signal, options.onSession)
+    }
+  } else if (phase === 'wait-exchange') {
+    // A resumed session was still settling the top-up; wait for it to reach a
+    // terminal state before reporting success, otherwise the caller marks the
+    // balance credited while the billing operation is still in flight.
+    options.onStatus?.('waiting-payment')
+    await pollUntilByKeyToppedUp(client, sessionToken, options.signal, options.onSession)
   }
 
   return {
@@ -431,10 +462,9 @@ async function resolveTopupSession(
     case 'paid':
       return { sessionToken: resume, phase: 'exchange' }
     case 'exchanging':
-      return {
-        sessionToken: resume,
-        phase: options.byKey ? 'exchange' : 'wait-exchange',
-      }
+      // Not settled yet for either flow: the account flow must wait then
+      // exchange, the by-key flow must wait for the top-up to finish crediting.
+      return { sessionToken: resume, phase: 'wait-exchange' }
     case 'exchanged':
       if (options.byKey) return { sessionToken: resume, phase: 'exchange' }
       throw alreadyExchangedError(session)
@@ -487,6 +517,43 @@ async function pollUntilExchangeSettled(
   throw new Error(
     'Timed out waiting for key provisioning. Retry to check the same session.',
   )
+}
+
+async function pollUntilByKeyToppedUp(
+  client: AimlapiClient,
+  sessionToken: string,
+  signal?: AbortSignal,
+  onSession?: (sessionToken: string) => void,
+): Promise<void> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw abortError(signal)
+    try {
+      const session = await client.getSession(sessionToken, signal)
+      switch (session.status) {
+        case 'paid':
+        case 'exchanged':
+          return
+        case 'cancelled':
+        case 'expired':
+        case 'failed':
+          onSession?.('')
+          throw new Error(`Top-up ${session.status}. Re-run the top-up to try again.`)
+        default:
+          // pending_* / exchanging -> keep waiting for the balance to settle.
+          await sleep(POLL_INTERVAL_MS, signal)
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortError(signal)
+      if (isRetryableSessionApiError(error)) {
+        await sleep(POLL_INTERVAL_MS, signal)
+        continue
+      }
+      if (isTerminalSessionApiError(error)) onSession?.('')
+      throw error
+    }
+  }
+  throw new Error('Timed out waiting for the top-up to settle. Re-run once it clears.')
 }
 
 export async function pollUntilPaid(

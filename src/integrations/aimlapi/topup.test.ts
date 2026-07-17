@@ -287,6 +287,81 @@ test('a pending resumed session is polled without paying again', async () => {
   ])
 })
 
+test('a resumed by-key session still exchanging settles before success', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const calls: string[] = []
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    reads += 1
+    return Response.json({
+      sessionToken: 'session',
+      status: reads === 1 ? 'exchanging' : 'exchanged',
+    })
+  }) as unknown as typeof fetch
+
+  const result = await topUpAimlapiByApiKey({
+    apiKey: 'key_test',
+    paymentSessionId: 'payment-id',
+    resumeSessionToken: 'session',
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  expect(result.apiKey).toBe('key_test')
+  // The first GET resolves the resumed session (exchanging); the settle poll
+  // then waits for it to reach exchanged instead of reporting success early.
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+})
+
+test('an invalid amount is rejected before any key is minted', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({
+      email: 'user@example.com',
+      code: '123456',
+      amountUsd: '5',
+      noOpen: true,
+    }),
+  ).rejects.toThrow('Minimum top-up is $20')
+  expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
+  expect(calls.some(call => call.endsWith('/sign-in/code'))).toBe(false)
+})
+
+test('an unsupported account action is rejected without provisioning', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'reset' })
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('unsupported account action')
+  expect(calls.some(call => call.endsWith('/passwordless'))).toBe(false)
+  expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
+})
+
 test('provisionAimlapiKey does not repeat an already completed exchange', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
   const calls: string[] = []
