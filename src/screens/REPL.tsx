@@ -3198,7 +3198,7 @@ export function REPL({
           isInterruptionCorrectionEligible,
           queryId: queryContext.queryId,
           run: async () => {
-          await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
+            await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
           },
         });
       }
