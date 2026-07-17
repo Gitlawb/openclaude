@@ -3065,7 +3065,15 @@ export function REPL({
     resetTurnToolDuration();
     resetTurnClassifierDuration();
     let expectedAutoCompactTracking = queryAutoCompactTracking;
-    for await (const event of query({
+    if (interruptionCorrectionQueryId) {
+      interruptionCorrectionTracker.bindModelTurn({
+        shouldQuery,
+        isInterruptionCorrectionEligible: true,
+        queryId: interruptionCorrectionQueryId,
+      });
+    }
+    try {
+      for await (const event of query({
       messages: messagesIncludingNewMessages,
       requestOnlyMessages,
       systemPrompt,
@@ -3082,14 +3090,15 @@ export function REPL({
           expectedAutoCompactTracking = tracking;
         }
       }
-    })) {
-      queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
-      onQueryEvent(event);
-    }
-    // The provider stream is complete. Post-turn callbacks may await external
-    // work, but Esc during that work must not be treated as interrupting it.
-    if (interruptionCorrectionQueryId) {
-      interruptionCorrectionTracker.finishModelTurn(interruptionCorrectionQueryId);
+      })) {
+        queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
+        onQueryEvent(event);
+      }
+    } finally {
+      // Only the provider request itself is interruption-eligible.
+      if (interruptionCorrectionQueryId) {
+        interruptionCorrectionTracker.finishModelTurn(interruptionCorrectionQueryId);
+      }
     }
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {
@@ -3199,14 +3208,7 @@ export function REPL({
       }
       if (!preflightVetoed) {
         modelTurnStarted = true;
-        await interruptionCorrectionTracker.runModelTurn({
-          shouldQuery,
-          isInterruptionCorrectionEligible,
-          queryId: queryContext.queryId,
-          run: async () => {
-            await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, queryContext.queryId);
-          },
-        });
+        await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined);
       }
       if (preflightVetoed) {
         return false;
