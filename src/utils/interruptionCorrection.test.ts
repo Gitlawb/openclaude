@@ -35,6 +35,26 @@ test('only marks a local user cancellation of the active model query', () => {
   }
 })
 
+test('does not arm after the model turn has completed', async () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(queryGuard, () => 'session-a')
+  const turn = queryGuard.tryStart({
+    queryId: 'completed-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+
+  await tracker.runModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+    run: async () => {},
+  })
+  tracker.handleCancellation({ isUserInitiated: true, isRemoteMode: false })
+
+  expect(tracker.takeReminder()).toBeNull()
+})
+
 test('clears a pending reminder when the interrupted context is rewritten', () => {
   const queryGuard = new QueryGuard()
   const tracker = new InterruptionCorrectionTracker(
@@ -136,7 +156,7 @@ test('preserves the earlier reminder when an interrupted correction is auto-rest
       restoredMessages = messages
     },
     tracker,
-    correctionTurn.requestOnlyMessages,
+    true,
   )
   expect(rewindIndex).toBe(1)
   expect(restoredMessages).toEqual([attemptMessage])
@@ -150,6 +170,48 @@ test('preserves the earlier reminder when an interrupted correction is auto-rest
     reminderForResubmission,
   ])
   expect(tracker.takeReminder()).toBeNull()
+})
+
+test('preserves the reminder when auto-restore rewinds the first prompt to empty history', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const firstPrompt = createUserMessage({ content: 'do A' })
+  const turn = queryGuard.tryStart({
+    queryId: 'first-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  const messagesRef: { current: Message[] } = { current: [firstPrompt] }
+  applyInterruptionCorrectionAutoRestore(
+    messagesRef.current,
+    firstPrompt,
+    messages => {
+      applyInterruptionCorrectionAwareMessageUpdate(
+        messagesRef,
+        messages,
+        tracker,
+      )
+    },
+    tracker,
+    true,
+  )
+
+  expect(messagesRef.current).toEqual([])
+  expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
 })
 
 test('leaves history and correction state unchanged when an auto-restore target is absent', () => {
@@ -183,12 +245,45 @@ test('leaves history and correction state unchanged when an auto-restore target 
       setMessagesCalled = true
     },
     tracker,
-    [],
   )
 
   expect(rewindIndex).toBeNull()
   expect(setMessagesCalled).toBe(false)
   expect(tracker.takeReminder()).toMatchObject({ type: 'user', isMeta: true })
+})
+
+test('clears a pending reminder when a manual rewind changes conversation history', () => {
+  const queryGuard = new QueryGuard()
+  const tracker = new InterruptionCorrectionTracker(
+    queryGuard,
+    () => 'session-a',
+  )
+  const earlierPrompt = createUserMessage({ content: 'do A' })
+  const interruptedPrompt = createUserMessage({ content: 'do B' })
+  const turn = queryGuard.tryStart({
+    queryId: 'interrupted-turn',
+    querySource: 'repl_main_thread',
+    startedAt: 1,
+  })!
+  tracker.bindModelTurn({
+    shouldQuery: true,
+    isInterruptionCorrectionEligible: true,
+    queryId: turn.context.queryId,
+  })
+  tracker.handleCancellation({
+    isUserInitiated: true,
+    isRemoteMode: false,
+  })
+  queryGuard.forceEnd('user-abort', 'user-cancel')
+
+  applyInterruptionCorrectionAutoRestore(
+    [earlierPrompt, interruptedPrompt],
+    interruptedPrompt,
+    () => {},
+    tracker,
+  )
+
+  expect(tracker.takeReminder()).toBeNull()
 })
 
 test('clears a pending reminder when a full compact boundary is applied', () => {
@@ -397,7 +492,6 @@ test('does not restore a consumed reminder after programmatic auto-restore cance
     correction,
     () => {},
     tracker,
-    correctionTurn.requestOnlyMessages,
   )
 
   expect(tracker.takeReminder()).toBeNull()

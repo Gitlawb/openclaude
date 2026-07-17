@@ -483,6 +483,8 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // which transitions running→idle; cancelReservation() below is a no-op in
   // that case (only acts on dispatching state).
   let queryProfileOwnedByOnQuery = false
+  let interruptionCorrectionReminder: Message | null | undefined
+  let interruptionCorrectionReminderInjected = false
   try {
     // Reserve the guard BEFORE processUserInput — processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
@@ -507,10 +509,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     const commands = queuedCommands ?? []
     const isInterruptionCorrectionEligible =
       commands.length > 0 && commands.every(isNormalLocalUserPrompt)
-    const interruptionCorrectionReminder = isInterruptionCorrectionEligible
+    interruptionCorrectionReminder = isInterruptionCorrectionEligible
       ? takeInterruptionCorrectionReminder?.()
       : undefined
-    let interruptionCorrectionReminderInjected = false
 
     // Compute the workload tag for this turn. queueProcessor can batch a
     // cron prompt with a same-tick human prompt; only tag when EVERY
@@ -676,6 +677,15 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
     }) // end runWithWorkload — ALS context naturally scoped, no finally needed
   } finally {
+    // Processing can be vetoed by a UserPromptSubmit hook or throw before a
+    // model-bound query owns the reminder. Keep it for the next eligible
+    // correction instead of silently losing the interruption context.
+    if (
+      interruptionCorrectionReminder &&
+      !interruptionCorrectionReminderInjected
+    ) {
+      restoreInterruptionCorrectionReminder?.()
+    }
     // Safety net: release the guard reservation if processUserInput threw
     // or onQuery was skipped. No-op if onQuery already ran (guard is idle
     // via end(), or running — cancelReservation only acts on dispatching).

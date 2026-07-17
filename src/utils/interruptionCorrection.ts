@@ -78,17 +78,21 @@ export function applyInterruptionCorrectionAutoRestore(
   setMessages: (messages: Message[]) => void,
   tracker: {
     handleConversationRewrite(options?: { preserveReminder?: boolean }): void
+    prepareForAutoRestore(): void
   },
-  requestOnlyMessages: readonly Message[],
+  preserveReminder = false,
 ): number | null {
   const messageIndex = previousMessages.lastIndexOf(rewindMessage)
   if (messageIndex === -1) return null
 
+  if (preserveReminder) {
+    tracker.prepareForAutoRestore()
+  }
   setMessages(previousMessages.slice(0, messageIndex))
   tracker.handleConversationRewrite({
-    preserveReminder: requestOnlyMessages.some(
-      isInterruptionCorrectionReminder,
-    ),
+    // This finalizes the one-rewrite preservation window. It does not create
+    // a reminder when none was pending.
+    preserveReminder,
   })
   return messageIndex
 }
@@ -129,6 +133,7 @@ export function applyInterruptionCorrectionAwareMessageUpdate(
 export class InterruptionCorrectionTracker {
   private pendingSessionId: string | null = null
   private modelBoundQueryId: string | null = null
+  private preservePendingReminderForRewrite = false
 
   constructor(
     private readonly queryGuard: {
@@ -219,9 +224,15 @@ export class InterruptionCorrectionTracker {
   }: {
     preserveReminder?: boolean
   } = {}): void {
-    if (!preserveReminder) {
+    if (!preserveReminder && !this.preservePendingReminderForRewrite) {
       this.pendingSessionId = null
     }
+    this.preservePendingReminderForRewrite = false
+  }
+
+  prepareForAutoRestore(): void {
+    this.preservePendingReminderForRewrite =
+      this.pendingSessionId === this.getSessionId()
   }
 
   restoreReminder(): void {

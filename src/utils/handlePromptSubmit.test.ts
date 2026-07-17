@@ -91,7 +91,7 @@ describe('handlePromptSubmit', () => {
     expect(queriedMessages).toEqual([[reminderMessage, correctionMessage]])
   })
 
-  it('consumes but does not append a reminder when a normal prompt is blocked', async () => {
+  it('restores a reminder when a normal prompt is blocked before query dispatch', async () => {
     const correctionMessage = createUserMessage({ content: 'do Y instead' })
     const reminderMessage = createUserMessage({
       content: '<system-reminder>interrupted</system-reminder>',
@@ -106,6 +106,7 @@ describe('handlePromptSubmit', () => {
     const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
 
     let reminderTakeCount = 0
+    let restoreCount = 0
     const queriedMessages: unknown[][] = []
     await handlePromptSubmit({
       input: 'do Y instead',
@@ -121,6 +122,9 @@ describe('handlePromptSubmit', () => {
       takeInterruptionCorrectionReminder: () => {
         reminderTakeCount++
         return reminderMessage
+      },
+      restoreInterruptionCorrectionReminder: () => {
+        restoreCount++
       },
       queryGuard: {
         isActive: false,
@@ -144,6 +148,7 @@ describe('handlePromptSubmit', () => {
     })
 
     expect(reminderTakeCount).toBe(1)
+    expect(restoreCount).toBe(1)
     expect(queriedMessages).toEqual([[correctionMessage]])
   })
 
@@ -199,7 +204,7 @@ describe('handlePromptSubmit', () => {
     expect(restoreCount).toBe(1)
   })
 
-  it('consumes a reminder when processing the normal prompt throws', async () => {
+  it('restores a reminder when processing the normal prompt throws', async () => {
     const reminderMessage = createUserMessage({
       content: '<system-reminder>interrupted</system-reminder>',
       isMeta: true,
@@ -252,7 +257,7 @@ describe('handlePromptSubmit', () => {
 
     await expect(submission).rejects.toThrow('hook failed')
     expect(reminderTakeCount).toBe(1)
-    expect(restoreCount).toBe(0)
+    expect(restoreCount).toBe(1)
   })
 
   it('preserves a reminder across a queued slash command and injects it once', async () => {

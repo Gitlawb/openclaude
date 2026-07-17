@@ -976,7 +976,7 @@ export function REPL({
   // Ref for the synchronous restore callback — set after restoreMessageSync is
   // defined, read in the onQuery finally block for auto-restore on interrupt.
   const restoreMessageSyncRef = useRef<(m: UserMessage, options?: {
-    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+    preserveInterruptionCorrectionReminder?: boolean;
   }) => void>(() => { });
 
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
@@ -2929,7 +2929,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = []) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -3087,6 +3087,11 @@ export function REPL({
       queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
       onQueryEvent(event);
     }
+    // The provider stream is complete. Post-turn callbacks may await external
+    // work, but Esc during that work must not be treated as interrupting it.
+    if (interruptionCorrectionQueryId) {
+      interruptionCorrectionTracker.finishModelTurn(interruptionCorrectionQueryId);
+    }
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {
         ...prev,
@@ -3102,7 +3107,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
@@ -3145,8 +3150,9 @@ export function REPL({
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);
     let didThrow = false;
-    let interruptionCorrectionRequestOnlyMessages: readonly MessageType[] = [];
     let preflightVetoed = false;
+    let modelTurnStarted = false;
+    let hasInterruptionCorrectionRequestOnlyMessage = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3163,7 +3169,7 @@ export function REPL({
         persistentNewMessages,
         requestOnlyMessages
       } = buildInterruptionCorrectionMessageViews(messagesRef.current, newMessages);
-      interruptionCorrectionRequestOnlyMessages = requestOnlyMessages;
+      hasInterruptionCorrectionRequestOnlyMessage = requestOnlyMessages.length > 0;
       setMessages(persistentMessages);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
@@ -3193,12 +3199,13 @@ export function REPL({
         }
       }
       if (!preflightVetoed) {
+        modelTurnStarted = true;
         await interruptionCorrectionTracker.runModelTurn({
           shouldQuery,
           isInterruptionCorrectionEligible,
           queryId: queryContext.queryId,
           run: async () => {
-            await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages);
+            await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, queryContext.queryId);
           },
         });
       }
@@ -3207,6 +3214,11 @@ export function REPL({
       }
     } catch (error) {
       didThrow = true;
+      // A preflight failure happens before any provider request owns this
+      // request-only reminder, so keep it for the next eligible correction.
+      if (!modelTurnStarted && hasInterruptionCorrectionRequestOnlyMessage) {
+        interruptionCorrectionTracker.restoreReminder();
+      }
       throw error;
     } finally {
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
@@ -3357,7 +3369,7 @@ export function REPL({
             // otherwise Up-arrow shows the restored text twice.
             removeLastFromHistory();
             restoreMessageSyncRef.current(lastUserMsg, {
-              interruptionCorrectionRequestOnlyMessages
+              preserveInterruptionCorrectionReminder: true
             });
           }
         }
@@ -3997,12 +4009,12 @@ export function REPL({
   // fresh via the setMessages wrapper) so callers don't need to worry about
   // stale closures.
   const rewindConversationTo = useCallback((message: UserMessage, {
-    interruptionCorrectionRequestOnlyMessages = []
+    preserveInterruptionCorrectionReminder = false
   }: {
-    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+    preserveInterruptionCorrectionReminder?: boolean;
   } = {}) => {
     const prev = messagesRef.current;
-    const messageIndex = applyInterruptionCorrectionAutoRestore(prev, message, setMessages, interruptionCorrectionTracker, interruptionCorrectionRequestOnlyMessages);
+    const messageIndex = applyInterruptionCorrectionAutoRestore(prev, message, setMessages, interruptionCorrectionTracker, preserveInterruptionCorrectionReminder);
     if (messageIndex === null) return;
     logEvent('tengu_conversation_rewind', {
       preRewindMessageCount: prev.length,
@@ -4054,7 +4066,7 @@ export function REPL({
   // interrupt (so React batches with the abort's setMessages → single render,
   // no flicker). MessageSelector wraps this in setImmediate via handleRestoreMessage.
   const restoreMessageSync = useCallback((message: UserMessage, options?: {
-    interruptionCorrectionRequestOnlyMessages?: readonly MessageType[];
+    preserveInterruptionCorrectionReminder?: boolean;
   }) => {
     rewindConversationTo(message, options);
     const r = textForResubmit(message);
