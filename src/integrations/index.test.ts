@@ -99,6 +99,7 @@ describe('loaded registry validation', () => {
         const defaultModel = gateway.defaultModel?.trim()
         return !(gateway.catalog?.models ?? []).some(
           entry =>
+            entry.id === defaultModel ||
             entry.apiName === defaultModel ||
             entry.modelDescriptorId === defaultModel,
         )
