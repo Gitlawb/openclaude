@@ -363,7 +363,10 @@ export async function getAnthropicClient({
     ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
     : process.env
   const effortModel = providerOverride?.model ?? model
-  const effortBaseUrl = providerOverride?.baseURL ?? process.env.OPENAI_BASE_URL
+  const effortBaseUrl =
+    providerOverride?.baseURL ??
+    process.env.OPENAI_BASE_URL ??
+    process.env.OPENAI_API_BASE
   const effortRuntimeContext = effortModel
     ? resolveOpenAIShimRuntimeContext({
       processEnv: effortProcessEnv,
