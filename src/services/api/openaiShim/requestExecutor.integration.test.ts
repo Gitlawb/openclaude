@@ -3021,6 +3021,27 @@ test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_comple
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('does not send stream_options to local OpenAI-compatible servers', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body))
+    expect(body.stream).toBe(true)
+    expect(body.stream_options).toBeUndefined()
+    return new Response('', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'local-vllm-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  })
+})
+
 test('Mistral: strips unsupported store on chat_completions (#739)', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.mistral.ai/v1'
   process.env.OPENAI_API_KEY = 'mistral-test'
