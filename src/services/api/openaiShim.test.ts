@@ -11000,6 +11000,19 @@ test('JSON fallback: recovers raw-text tool call into tool_use block', async () 
 
 })
 
+test('JSON fallback façade terminates converted messages', async () => {
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-boundary',
+    model: 'boundary-model',
+    choices: [{
+      message: { role: 'assistant', content: 'ok' },
+      finish_reason: 'stop',
+    }],
+  })
+
+  expect(events.at(-1)?.type).toBe('message_stop')
+})
+
 test('JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks', async () => {
   const events = await collectFallbackEvents({
     id: 'chatcmpl-json-hy3',
