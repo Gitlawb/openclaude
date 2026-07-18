@@ -1678,9 +1678,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1748,7 +1745,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1815,6 +1812,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1961,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
