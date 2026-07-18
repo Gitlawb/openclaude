@@ -117,6 +117,16 @@ import {
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
 import {
+  findXmlToolCallOpener as findXmlToolCallOpenerModule,
+  isHy3Model as isHy3ModelModule,
+  parseXmlToolCalls as parseXmlToolCallsModule,
+  trailingXmlOpenerPrefixLen as trailingXmlOpenerPrefixLenModule,
+} from './openaiShim/xmlToolCallParsing.js'
+import {
+  convertNonStreamingResponseToAnthropicMessage as convertResponseToAnthropicMessage,
+  type NonStreamingOpenAIResponse,
+} from './openaiShim/responseConversion.js'
+import {
   CredentialPool,
   type CredentialLease,
   hasInvalidCredentialPlaceholder,
@@ -1822,244 +1832,27 @@ function nextTextToolCallSequence(): number {
 }
 
 // ---------------------------------------------------------------------------
-// XML tool call parser (GLM / Qwen / DeepSeek family)
-//
-// Several models routed through OpenAI-compatible gateways emit tool calls as
-// XML text inside the assistant message rather than as structured `tool_calls`.
-// Without recovery these leak into visible prose and never execute — the turn
-// then ends with no tool_use block, so the agent appears to "forget" and stop
-// mid-task. We support the four dialects seen in the wild:
-//   A. <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
-//   B. <tool_call>NAME<arg_key>KEY</arg_key><arg_value>VALUE</arg_value>…</tool_call>  (GLM native)
-//   C. <tool_call>{"name":"NAME","arguments":{…}}</tool_call>                          (Hermes JSON)
-//   D. <tool_calls:ID><tool_call:ID>NAME<parameter name="KEY">VALUE</parameter>…           (Tencent HY3)
+// XML tool parsing façade. Dialect handling lives in xmlToolCallParsing.ts.
 // ---------------------------------------------------------------------------
 
-// The streaming finalize path buffers from this opener onward so the raw XML
-// is never surfaced as text before extraction.
-const XML_TOOL_CALL_OPEN = '<tool_call>'
-const HY3_TOOL_CALLS_OPEN = '<tool_calls:'
-const HY3_TOOL_CALL_OPEN = '<tool_call:'
-const XML_TOOL_CALL_OPENERS = [
-  XML_TOOL_CALL_OPEN,
-  HY3_TOOL_CALLS_OPEN,
-  HY3_TOOL_CALL_OPEN,
-]
-// Non-greedy block matcher; the `$` alternative tolerates a truncated final
-// block (stream cut off before the closing tag).
-const XML_TOOL_CALL_BLOCK_RE = /<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g
-const HY3_TOOL_CALLS_BLOCK_RE = /<tool_calls:[^>\s]+>([\s\S]*?)(?:<\/tool_calls(?::[^>\s]+)?>|$)/g
-const HY3_TOOL_CALL_BLOCK_RE = /<tool_call:[^>\s]+>([\s\S]*?)(?:<\/tool_call(?::[^>\s]+)?>|$)/g
-const XML_FUNCTION_NAME_RE = /<function=([^>\s]+)\s*>/
-const XML_PARAMETER_RE = /<parameter=([^>\s]+)\s*>([\s\S]*?)<\/parameter>/g
-const XML_ARG_PAIR_RE = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g
-const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
-const HY3_NAMED_ARGUMENT_LINE_RE = /^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/gm
-const HY3_ARG_PAIR_RE = /<arg_key(?::[^>\s]+)?>([\s\S]*?)<\/arg_key(?::[^>\s]+)?>\s*<arg_value(?::[^>\s]+)?>([\s\S]*?)<\/arg_value(?::[^>\s]+)?>/g
-
-// Parameter/arg values arrive as untyped text. Try JSON first so numbers,
-// booleans, and nested objects round-trip; fall back to the raw string.
-function coerceXmlToolValue(raw: string): unknown {
-  const trimmed = raw.trim()
-  if (trimmed === '') return ''
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    return raw
-  }
-}
-
-function parseHy3ToolCallInner(inner: string): {
-  name?: string
-  args: Record<string, unknown>
-} {
-  const args: Record<string, unknown> = {}
-  const trimmed = inner.trim()
-  const name = trimmed
-    .split(/[\n<]/, 1)[0]
-    ?.trim()
-    .replace(/[\s`*_]+$/, '')
-  let hasStructuredArguments = false
-
-  for (const parameter of inner.matchAll(HY3_PARAMETER_RE)) {
-    const key = parameter[1]
-    if (key) {
-      hasStructuredArguments = true
-      args[key] = coerceXmlToolValue(parameter[2] ?? '')
-    }
-  }
-  for (const line of inner.matchAll(HY3_NAMED_ARGUMENT_LINE_RE)) {
-    const key = line[1]
-    if (key) {
-      hasStructuredArguments = true
-      args[key] = coerceXmlToolValue(line[2] ?? '')
-    }
-  }
-  for (const pair of inner.matchAll(HY3_ARG_PAIR_RE)) {
-    const key = pair[1]?.trim()
-    if (key) {
-      hasStructuredArguments = true
-      args[key] = coerceXmlToolValue(pair[2] ?? '')
-    }
-  }
-
-  // The provider's textual wrapper is not self-authenticating. Requiring a
-  // normal tool identifier avoids executing or hiding documentation snippets
-  // that merely demonstrate `<tool_call:...>`, while still allowing every
-  // valid zero-input tool instead of maintaining a stale name allowlist.
-  return {
-    name: name && /^[A-Za-z_][\w.-]*$/.test(name) &&
-      (hasStructuredArguments || trimmed === name)
-      ? name
-      : undefined,
-    args,
-  }
+function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
+  return findXmlToolCallOpenerModule(text, allowHy3)
 }
 
 function isHy3Model(model: string): boolean {
-  return model.split('?', 1)[0]?.toLowerCase() === 'tencent/hy3'
+  return isHy3ModelModule(model)
 }
 
-/**
- * Returns the length of the longest suffix of `s` that is a (proper) prefix of
- * the `<tool_call>` opener. Used by the stream to hold back a trailing partial
- * opener split across SSE deltas so it is never emitted as visible text.
- */
-function trailingXmlOpenerPrefixLen(s: string, allowHy3: boolean): number {
-  let longest = 0
-  const openers = allowHy3 ? XML_TOOL_CALL_OPENERS : [XML_TOOL_CALL_OPEN]
-  for (const opener of openers) {
-    const max = Math.min(s.length, opener.length - 1)
-    for (let len = max; len > 0; len--) {
-      if (opener.startsWith(s.slice(s.length - len))) {
-        longest = Math.max(longest, len)
-        break
-      }
-    }
-  }
-  return longest
+function parseXmlToolCalls(text: string, allowHy3 = false) {
+  return parseXmlToolCallsModule(text, allowHy3)
 }
 
-function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
-  const openers = allowHy3 ? XML_TOOL_CALL_OPENERS : [XML_TOOL_CALL_OPEN]
-  return openers.reduce((first, opener) => {
-    const index = text.indexOf(opener)
-    return index === -1 ? first : first === -1 ? index : Math.min(first, index)
-  }, -1)
+function trailingXmlOpenerPrefixLen(text: string, allowHy3: boolean): number {
+  return trailingXmlOpenerPrefixLenModule(text, allowHy3)
 }
 
-/** Exported for unit testing only. */
-export function parseXmlToolCalls(text: string, allowHy3 = false): {
-  calls: ParsedTextToolCall[]
-  toolCallRanges: Array<[number, number]>
-} {
-  const results: ParsedTextToolCall[] = []
-  const seen = new Set<string>()
-  const ranges: Array<[number, number]> = []
-
-  const addCall = (name: string, args: Record<string, unknown>) => {
-    const dedupKey = `${name}:${JSON.stringify(args)}`
-    if (seen.has(dedupKey)) return
-    seen.add(dedupKey)
-    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
-  }
-
-  const hy3Blocks = allowHy3
-    ? [...text.matchAll(HY3_TOOL_CALL_BLOCK_RE)].map(block => ({
-      range: [block.index!, block.index! + block[0].length] as [number, number],
-      parsed: parseHy3ToolCallInner(block[1] ?? ''),
-    }))
-    : []
-  const hy3WrapperRanges = allowHy3
-    ? [...text.matchAll(HY3_TOOL_CALLS_BLOCK_RE)]
-      .filter(wrapper => {
-        const range: [number, number] = [
-          wrapper.index!,
-          wrapper.index! + wrapper[0].length,
-        ]
-        return hy3Blocks.some(
-          block => block.parsed.name && range[0] <= block.range[0] && block.range[1] <= range[1],
-        )
-      })
-      .map(wrapper => [
-        wrapper.index!,
-        wrapper.index! + wrapper[0].length,
-      ] as [number, number])
-    : []
-
-  for (const block of hy3Blocks) {
-    const { name, args } = block.parsed
-    if (!name) continue
-    const range = block.range
-    if (!hy3WrapperRanges.some(wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1])) {
-      ranges.push(range)
-    }
-    addCall(name, args)
-  }
-
-  ranges.push(...hy3WrapperRanges)
-
-  for (const block of text.matchAll(XML_TOOL_CALL_BLOCK_RE)) {
-    const inner = block[1] ?? ''
-    const range: [number, number] = [
-      block.index!,
-      block.index! + block[0].length,
-    ]
-    let name: string | undefined
-    const args: Record<string, unknown> = {}
-
-    const fnMatch = inner.match(XML_FUNCTION_NAME_RE)
-    if (fnMatch) {
-      // Dialect A: <function=NAME><parameter=KEY>VALUE</parameter>…
-      name = fnMatch[1]
-      for (const p of inner.matchAll(XML_PARAMETER_RE)) {
-        const key = p[1]
-        if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
-      }
-    } else {
-      const trimmedInner = inner.trim()
-      const argPairs = [...inner.matchAll(XML_ARG_PAIR_RE)]
-      if (argPairs.length > 0 && !trimmedInner.startsWith('{')) {
-        // Dialect B: leading token is the function name, then arg_key/arg_value.
-        const nameTok = trimmedInner.split(/[\n<]/, 1)[0]?.trim()
-        if (nameTok) name = nameTok
-        for (const p of argPairs) {
-          const key = (p[1] ?? '').trim()
-          if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
-        }
-      } else {
-        // Dialect C: a JSON tool-call object inside the tags.
-        const jsonStart = trimmedInner.indexOf('{')
-        if (jsonStart !== -1) {
-          const jsonRaw = extractBalancedJson(trimmedInner, jsonStart)
-          if (jsonRaw) {
-            try {
-              const obj = JSON.parse(jsonRaw) as Record<string, unknown>
-              if (typeof obj['name'] === 'string') {
-                name = obj['name'] as string
-                const rawArgs = obj['arguments']
-                if (typeof rawArgs === 'string') {
-                  try {
-                    Object.assign(args, JSON.parse(rawArgs))
-                  } catch {}
-                } else if (rawArgs && typeof rawArgs === 'object') {
-                  Object.assign(args, rawArgs as Record<string, unknown>)
-                }
-              }
-            } catch {}
-          }
-        }
-      }
-    }
-
-    if (!name) continue
-    ranges.push(range)
-    addCall(name, args)
-  }
-
-  return { calls: results, toolCallRanges: ranges }
-}
-
+// The streaming finalize path buffers from this opener onward so the raw XML
+// is never surfaced as text before extraction.
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -2352,171 +2145,22 @@ async function* geminiSseToAnthropic(
 
 // Extraction seam: Gemini streaming | completed response conversion.
 
-type NonStreamingOpenAIResponse = {
-  id?: string
-  model?: string
-  choices?: Array<{
-    message?: {
-      role?: string
-      content?: string | null | Array<{ type?: string; text?: string }>
-      reasoning_content?: string | null
-      extra_content?: Record<string, unknown>
-      tool_calls?: Array<{
-        id: string
-        function: { name: string; arguments: string }
-        extra_content?: Record<string, unknown>
-      }>
-    }
-    finish_reason?: string
-  }>
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    prompt_tokens_details?: {
-      cached_tokens?: number
-    }
-  }
-}
-
-/**
- * Convert an OpenAI-compatible non-streaming chat completion into an
- * Anthropic-shaped message. Shared by the `OpenAIShimMessages` non-stream path
- * and the `application/json` fallback inside `openaiStreamToAnthropic` so both
- * apply the same tool-call extraction, stop-reason mapping, array-content
- * normalization, <think>-tag stripping, and raw text tool-call recovery.
- */
 function convertNonStreamingResponseToAnthropicMessage(
   data: NonStreamingOpenAIResponse,
   model: string,
 ) {
-  const choice = data.choices?.[0]
-  const content: Array<Record<string, unknown>> = []
-  // An empty tool_calls array is still truthy; treat it as "no structured tool
-  // calls" so raw "Tool calls requested" text recovery is not skipped.
-  const hasStructuredToolCalls =
-    (choice?.message?.tool_calls?.length ?? 0) > 0
-
-  // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
-  // reasoning_content while content stays null. Preserve it as a thinking
-  // block, but do not surface it as visible assistant text.
-  const reasoningText = choice?.message?.reasoning_content
-  if (typeof reasoningText === 'string' && reasoningText) {
-    content.push({ type: 'thinking', thinking: reasoningText })
-  }
-  const rawContent =
-    choice?.message?.content !== '' && choice?.message?.content != null
-      ? choice?.message?.content
-      : null
-  const appendTextOrRecoveredToolCalls = (rawText: string) => {
-    const strippedContent = stripThinkTags(rawText)
-    if (!hasStructuredToolCalls) {
-      const { calls: xmlToolCalls, toolCallRanges } = parseXmlToolCalls(
-        strippedContent,
-        isHy3Model(model),
-      )
-      if (xmlToolCalls.length > 0) {
-        const visibleText = stripRanges(strippedContent, toolCallRanges).trim()
-        if (visibleText) content.push({ type: 'text', text: visibleText })
-        for (const toolCall of xmlToolCalls) {
-          content.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.arguments,
-          })
-        }
-        return
-      }
-    }
-
-    const rawToolCalls = hasStructuredToolCalls
-      ? null
-      : parseRawToolCallsRequestedText(strippedContent)
-    if (rawToolCalls) {
-      for (const toolCall of rawToolCalls) {
-        content.push({
-          type: 'tool_use',
-          id: toolCall.id,
-          name: toolCall.name,
-          input: JSON.parse(toolCall.argumentsJson),
-        })
-      }
-    } else {
-      content.push({ type: 'text', text: strippedContent })
-    }
-  }
-  if (typeof rawContent === 'string' && rawContent) {
-    appendTextOrRecoveredToolCalls(rawContent)
-  } else if (Array.isArray(rawContent) && rawContent.length > 0) {
-    const parts: string[] = []
-    for (const part of rawContent) {
-      if (
-        part &&
-        typeof part === 'object' &&
-        part.type === 'text' &&
-        typeof part.text === 'string'
-      ) {
-        parts.push(part.text)
-      }
-    }
-    const joined = parts.join('\n')
-    if (joined) {
-      appendTextOrRecoveredToolCalls(joined)
-    }
-  }
-
-  if (hasStructuredToolCalls && choice?.message?.tool_calls) {
-    for (const tc of choice.message.tool_calls) {
-      const input = normalizeToolArguments(
-        tc.function.name,
-        tc.function.arguments,
-      )
-      const toolExtraContent = tc.extra_content ?? choice.message.extra_content
-      const toolSignature =
-        geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
-        geminiThoughtSignatureFromExtraContent(choice.message.extra_content)
-      const mergedToolExtraContent = mergeGeminiThoughtSignature(
-        toolExtraContent,
-        toolSignature,
-      )
-      content.push({
-        type: 'tool_use',
-        id: tc.id,
-        name: tc.function.name,
-        input,
-        ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
-        ...(toolSignature ? { signature: toolSignature } : {}),
-      })
-    }
-  }
-
-  const stopReason =
-    choice?.finish_reason === 'tool_calls' ||
-    content.some(block => block.type === 'tool_use')
-      ? 'tool_use'
-      : choice?.finish_reason === 'length'
-        ? 'max_tokens'
-        : 'end_turn'
-
-  if (choice?.finish_reason === 'content_filter' || choice?.finish_reason === 'safety') {
-    content.push({
-      type: 'text',
-      text: '\n\n[Content blocked by provider safety filter]',
-    })
-  }
-
-  return {
-    id: data.id ?? makeMessageId(),
-    type: 'message',
-    role: 'assistant',
-    content,
-    model: data.model ?? model,
-    stop_reason: stopReason,
-    stop_sequence: null,
-    usage: buildAnthropicUsageFromRawUsage(
-      data.usage as unknown as Record<string, unknown> | undefined,
-    ),
-  }
+  return convertResponseToAnthropicMessage(data, model, {
+    makeMessageId,
+    buildUsage: usage => buildAnthropicUsageFromRawUsage(usage),
+    stripThinkTags,
+    parseXmlToolCalls,
+    isHy3Model,
+    stripRanges,
+    parseRawToolCalls: parseRawToolCallsRequestedText,
+    normalizeToolArguments,
+    getGeminiThoughtSignature: geminiThoughtSignatureFromExtraContent,
+    mergeGeminiThoughtSignature,
+  })
 }
 
 function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {

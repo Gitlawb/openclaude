@@ -15,7 +15,8 @@
  *   D. <tool_calls:ID><tool_call:ID>NAME<parameter name="KEY">VALUE</parameter>…</tool_calls:ID>
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { createOpenAIShimClient, parseXmlToolCalls } from './openaiShim.js'
+import { createOpenAIShimClient } from '../openaiShim.js'
+import { parseXmlToolCalls } from './xmlToolCallParsing.js'
 
 type FetchType = typeof globalThis.fetch
 
@@ -54,7 +55,6 @@ const glmChunk = (content: string, finishReason?: string) => ({
   model: 'glm-5.2',
   choices: [{ index: 0, delta: { content }, finish_reason: finishReason ?? null }],
 })
-
 const glmToolChunk = (toolCalls: unknown[], finishReason?: string) => ({
   id: 'chatcmpl-glm',
   object: 'chat.completion.chunk',

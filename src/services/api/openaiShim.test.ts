@@ -5634,62 +5634,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
 // Extraction seam: streaming conversion | non-streaming response conversion.
 
 // openaiShim test extraction seam 092 start: converts Gemini raw tool-call text into non-streaming tool_use blocks
-test('converts Gemini raw tool-call text into non-streaming tool_use blocks', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-raw-tool',
-        model: 'google/gemini-3.1-flash-lite',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content:
-                'Tool calls requested:\n- Agent({"description":"Verify the todo list application functionality.","prompt":"Check files.","subagent_type":"verification"}) [id: call9a8b7c6d5e4f3a2b1c0d9e8f]',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite',
-    messages: [{ role: 'user', content: 'Verify' }],
-    max_tokens: 64,
-    stream: false,
-  }) as {
-    stop_reason?: string
-    content?: Array<Record<string, unknown>>
-  }
-
-  expect(message.stop_reason).toBe('tool_use')
-  expect(message.content).toEqual([
-    {
-      type: 'tool_use',
-      id: 'call9a8b7c6d5e4f3a2b1c0d9e8f',
-      name: 'Agent',
-      input: {
-        description: 'Verify the todo list application functionality.',
-        prompt: 'Check files.',
-        subagent_type: 'verification',
-      },
-    },
-  ])
-})
 // openaiShim test extraction seam 092 end
 
 
@@ -7112,147 +7057,17 @@ test('the OpenAI shim façade creates independent client instances', () => {
 
 
 // openaiShim test extraction seam 113 start: non-streaming: reasoning_content emitted as thinking block only when content is null
-test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'glm-5',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              reasoning_content: 'Let me think about this step by step.',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 20,
-          total_tokens: 30,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const result = (await client.beta.messages.create({
-    model: 'glm-5',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })) as { content: Array<Record<string, unknown>> }
-
-  expect(result.content).toEqual([
-    { type: 'thinking', thinking: 'Let me think about this step by step.' },
-  ])
-})
 // openaiShim test extraction seam 113 end
 
 
 // openaiShim test extraction seam 114 start: non-streaming: empty string content does not fall through to reasoning_content as text
-test('non-streaming: empty string content does not fall through to reasoning_content as text', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'glm-5',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: '',
-              reasoning_content: 'Chain of thought here.',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 20,
-          total_tokens: 30,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const result = (await client.beta.messages.create({
-    model: 'glm-5',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })) as { content: Array<Record<string, unknown>> }
-
-  expect(result.content).toEqual([
-    { type: 'thinking', thinking: 'Chain of thought here.' },
-  ])
-})
 // openaiShim test extraction seam 114 end
 
 
 // openaiShim test extraction seam 115 start: non-streaming: real content takes precedence over reasoning_content
-test('non-streaming: real content takes precedence over reasoning_content', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'glm-5',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'The answer is 42.',
-              reasoning_content: 'I need to calculate this.',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 20,
-          total_tokens: 30,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const result = (await client.beta.messages.create({
-    model: 'glm-5',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })) as { content: Array<Record<string, unknown>> }
-
-  expect(result.content).toEqual([
-    { type: 'thinking', thinking: 'I need to calculate this.' },
-    { type: 'text', text: 'The answer is 42.' },
-  ])
-})
 // openaiShim test extraction seam 115 end
 
 
@@ -7379,45 +7194,7 @@ test('non-streaming: preserves response.url routing metadata after body read', a
 
 
 // openaiShim test extraction seam 118 start: non-streaming: strips <think> tag block from assistant content
-test('non-streaming: strips <think> tag block from assistant content', async () => {
-  globalThis.fetch = asMockFetch(mock(async () => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'gpt-5-mini',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content:
-                '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 20,
-          total_tokens: 30,
-        },
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }))
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  const result = (await client.beta.messages.create({
-    model: 'gpt-5-mini',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hey' }],
-    max_tokens: 64,
-    stream: false,
-  })) as { content: Array<Record<string, unknown>> }
-
-  expect(result.content).toEqual([
-    { type: 'text', text: 'Hey! How can I help you today?' },
-  ])
-})
 // openaiShim test extraction seam 118 end
 
 
@@ -11667,48 +11444,7 @@ test('JSON fallback façade terminates converted messages', async () => {
 
 
 // openaiShim test extraction seam 201 start: JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks
-test('JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks', async () => {
-  const events = await collectFallbackEvents({
-    id: 'chatcmpl-json-hy3',
-    model: 'tencent/hy3',
-    choices: [
-      {
-        message: {
-          role: 'assistant',
-          content:
-            '<tool_call:call_hy3>TaskCreate\n subject: Verify HY3\n description: Run the live test\n</tool_call:call_hy3>',
-        },
-        finish_reason: 'stop',
-      },
-    ],
-  }, 'tencent/hy3')
-  const toolStart = events.find(
-    event =>
-      event.type === 'content_block_start' &&
-      typeof event.content_block === 'object' &&
-      event.content_block !== null &&
-      (event.content_block as Record<string, unknown>).type === 'tool_use',
-  ) as { content_block?: Record<string, unknown> } | undefined
-  expect(toolStart?.content_block).toMatchObject({
-    type: 'tool_use',
-    name: 'TaskCreate',
-  })
-  const jsonDelta = events.find(
-    event =>
-      event.type === 'content_block_delta' &&
-      typeof event.delta === 'object' &&
-      event.delta !== null &&
-      (event.delta as Record<string, unknown>).type === 'input_json_delta',
-  ) as { delta?: { partial_json?: string } } | undefined
-  expect(JSON.parse(jsonDelta?.delta?.partial_json ?? '')).toEqual({
-    subject: 'Verify HY3',
-    description: 'Run the live test',
-  })
-  const stopEvent = events.find(e => e.type === 'message_delta') as
-    | { delta?: { stop_reason?: string } }
-    | undefined
-  expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
-})
+
 // openaiShim test extraction seam 201 end
 
 
