@@ -82,6 +82,9 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_SELF_HOSTED_TOOLS',
   'OPENAI_PARSE_TEXT_TOOL_CALLS',
+  // Provenance: flag was applied from a persisted startup profile, not shell.
+  'OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS',
+  'OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
@@ -173,6 +176,10 @@ export type ProfileEnv = {
   OPENAI_SELF_HOSTED_TOOLS?: string
   /** Historical alias still cleared/applied with profile env swaps. */
   OPENAI_PARSE_TEXT_TOOL_CALLS?: string
+  /** Set when OPENAI_SELF_HOSTED_TOOLS came from a persisted startup profile. */
+  OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS?: string
+  /** Set when OPENAI_PARSE_TEXT_TOOL_CALLS came from a persisted startup profile. */
+  OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS?: string
   GITHUB_COPILOT_KEY?: string
   GITHUB_ENTERPRISE_URL?: string
   CODEX_API_KEY?: string
@@ -2131,21 +2138,31 @@ export async function buildLaunchEnv(options: {
   // Shell wins over persisted, same as API format / context windows. Without
   // this, applyProfileEnvToProcessEnv clears PROFILE_ENV_KEYS on relaunch and
   // drops OPENAI_SELF_HOSTED_TOOLS even when the legacy profile file had it.
+  // When the value comes only from the persisted startup profile, mark
+  // provenance so later profile activation does not treat it as a shell export.
+  const shellSelfHostedToolsFlag = processEnv.OPENAI_SELF_HOSTED_TOOLS
+  const persistedSelfHostedToolsFlag = usePersistedOpenAIConfig
+    ? persistedEnv.OPENAI_SELF_HOSTED_TOOLS
+    : undefined
   const selfHostedToolsFlag =
-    processEnv.OPENAI_SELF_HOSTED_TOOLS ||
-    (usePersistedOpenAIConfig
-      ? persistedEnv.OPENAI_SELF_HOSTED_TOOLS
-      : undefined)
+    shellSelfHostedToolsFlag || persistedSelfHostedToolsFlag
   if (selfHostedToolsFlag) {
     env.OPENAI_SELF_HOSTED_TOOLS = selfHostedToolsFlag
+    if (!shellSelfHostedToolsFlag && persistedSelfHostedToolsFlag) {
+      env.OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS = '1'
+    }
   }
+  const shellParseTextToolCallsFlag = processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS
+  const persistedParseTextToolCallsFlag = usePersistedOpenAIConfig
+    ? persistedEnv.OPENAI_PARSE_TEXT_TOOL_CALLS
+    : undefined
   const parseTextToolCallsFlag =
-    processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS ||
-    (usePersistedOpenAIConfig
-      ? persistedEnv.OPENAI_PARSE_TEXT_TOOL_CALLS
-      : undefined)
+    shellParseTextToolCallsFlag || persistedParseTextToolCallsFlag
   if (parseTextToolCallsFlag) {
     env.OPENAI_PARSE_TEXT_TOOL_CALLS = parseTextToolCallsFlag
+    if (!shellParseTextToolCallsFlag && persistedParseTextToolCallsFlag) {
+      env.OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS = '1'
+    }
   }
 
   return buildCompatibilityProcessEnv({

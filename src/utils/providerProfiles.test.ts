@@ -379,6 +379,44 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://llama.example.com:8443/v1')
   })
 
+  test('isProcessEnvAlignedWithProfile detects OPENAI_SELF_HOSTED_TOOLS drift', async () => {
+    const {
+      applyProviderProfileToProcessEnv,
+      applyActiveProviderProfileFromConfig,
+      _resetShellSelfHostedOverridesForTests,
+    } = await importFreshProviderProfileModules()
+    _resetShellSelfHostedOverridesForTests()
+
+    const profile = buildProfile({
+      id: 'provider_self_hosted_align',
+      selfHostedTools: true,
+      baseUrl: 'https://llama.example.com:8443/v1',
+      model: 'qwen3.6:35b',
+    })
+
+    mockConfigState = {
+      ...mockConfigState,
+      providerProfiles: [profile],
+      activeProviderProfileId: profile.id,
+    }
+
+    applyProviderProfileToProcessEnv(profile)
+    expect(String(process.env.OPENAI_SELF_HOSTED_TOOLS)).toBe('1')
+
+    // Simulate external clear of the flag while profile is still marked applied.
+    delete process.env.OPENAI_SELF_HOSTED_TOOLS
+
+    // Alignment must fail → re-apply restores the profile flag.
+    const restored = applyActiveProviderProfileFromConfig(
+      {
+        ...mockConfigState,
+      } as any,
+      { processEnv: process.env, force: false },
+    )
+    expect(restored?.id).toBe(profile.id)
+    expect(String(process.env.OPENAI_SELF_HOSTED_TOOLS)).toBe('1')
+  })
+
   test('selfHostedTools true→false activation clears flag (prior profile not shell)', async () => {
     const {
       applyProviderProfileToProcessEnv,

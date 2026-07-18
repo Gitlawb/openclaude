@@ -91,8 +91,15 @@ function captureShellSelfHostedOverridesIfNeeded(): void {
     shellSelfHostedOverridesCaptured = true
     return
   }
-  shellSelfHostedToolsOverride = process.env.OPENAI_SELF_HOSTED_TOOLS
-  shellParseTextToolCallsOverride = process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  // Startup may have applied OPENAI_SELF_HOSTED_TOOLS from the persisted
+  // profile file without PROFILE_ENV_APPLIED. Those values are marked with
+  // OPENCLAUDE_STARTUP_* and must not be captured as shell overrides.
+  if (process.env.OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS !== '1') {
+    shellSelfHostedToolsOverride = process.env.OPENAI_SELF_HOSTED_TOOLS
+  }
+  if (process.env.OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS !== '1') {
+    shellParseTextToolCallsOverride = process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  }
   shellSelfHostedOverridesCaptured = true
 }
 
@@ -830,6 +837,10 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(
       processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
       expectedContextWindows,
+    ) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_SELF_HOSTED_TOOLS,
+      profile.selfHostedTools ? '1' : undefined,
     ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&

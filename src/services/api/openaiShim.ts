@@ -2499,11 +2499,20 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
   const seen = new Set<string>()
   const ranges: Array<[number, number]> = []
 
-  const addCall = (name: string, args: Record<string, unknown>) => {
+  const addCall = (
+    name: string,
+    args: Record<string, unknown>,
+    range?: [number, number],
+  ): boolean => {
     const dedupKey = `${name}:${JSON.stringify(args)}`
-    if (seen.has(dedupKey)) return
+    if (seen.has(dedupKey)) return false
     seen.add(dedupKey)
     results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    // Keep toolCallRanges 1:1 with calls (skip range for deduped blocks).
+    if (range) {
+      ranges.push(range)
+    }
+    return true
   }
 
   const hy3Blocks = allowHy3
@@ -2533,13 +2542,12 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const { name, args } = block.parsed
     if (!name) continue
     const range = block.range
-    if (!hy3WrapperRanges.some(wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1])) {
-      ranges.push(range)
-    }
-    addCall(name, args)
+    // Prefer outer wrapper range for strip when present; keep 1:1 with calls.
+    const outer = hy3WrapperRanges.find(
+      wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1],
+    )
+    addCall(name, args, outer ?? range)
   }
-
-  ranges.push(...hy3WrapperRanges)
 
   for (const block of text.matchAll(XML_TOOL_CALL_BLOCK_RE)) {
     const inner = block[1] ?? ''
@@ -2595,8 +2603,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     }
 
     if (!name) continue
-    ranges.push(range)
-    addCall(name, args)
+    addCall(name, args, range)
   }
 
   return { calls: results, toolCallRanges: ranges }
@@ -3754,6 +3761,9 @@ async function* openaiStreamToAnthropic(
             }
             if (recoveredCalls.length > 0) {
               ollamaClosedContentBlock = true
+              // Buffer is consumed via accumulatedText recovery — clear so EOF
+              // flush does not re-emit raw JSON/XML as visible text.
+              ollamaTextBuffer = ''
               // Compute visible prose (tool-call payload stripped, think-tags removed).
               // Use accumulatedText (raw) as source because ranges are relative to it.
               const stripped = stripRanges(accumulatedText, recoveredRanges).trim()
@@ -3829,6 +3839,7 @@ async function* openaiStreamToAnthropic(
                 index: contentBlockIndex,
                 delta: { type: 'text_delta', text: ollamaTextBuffer },
               }
+              ollamaTextBuffer = ''
             }
           }
 
@@ -4071,6 +4082,39 @@ async function* openaiStreamToAnthropic(
     )
   }
 
+  // Truncated streams may end after text deltas without finish_reason.
+  // Flush any self-hosted buffer so assistant text is not lost at message_stop.
+  if (isOllamaStream && ollamaTextBuffer) {
+    throwIfStreamAborted(signal)
+    if (!hasEmittedContentStart) {
+      yield {
+        type: 'content_block_start',
+        index: contentBlockIndex,
+        content_block: { type: 'text', text: '' },
+      }
+      hasEmittedContentStart = true
+    }
+    throwIfStreamAborted(signal)
+    yield {
+      type: 'content_block_delta',
+      index: contentBlockIndex,
+      delta: { type: 'text_delta', text: ollamaTextBuffer },
+    }
+    ollamaTextBuffer = ''
+    if (!hasProcessedFinishReason) {
+      throwIfStreamAborted(signal)
+      yield { type: 'content_block_stop', index: contentBlockIndex }
+      contentBlockIndex++
+      hasEmittedContentStart = false
+      lastStopReason = lastStopReason ?? 'end_turn'
+      throwIfStreamAborted(signal)
+      yield {
+        type: 'message_delta',
+        delta: { stop_reason: lastStopReason, stop_sequence: null },
+      }
+    }
+  }
+
   throwIfStreamAborted(signal)
   yield { type: 'message_stop' }
 }
@@ -4213,11 +4257,12 @@ class OpenAIShimMessages {
         reasoningEffortOverride: self.reasoningEffort,
         processEnv: requestProcessEnv,
       })
-      // Shared stream + non-stream gate for JSON-in-text tool recovery.
-      // Ollama always; other self-hosted only when tools are advertised.
+      // JSON/XML-in-text tool recovery: only when tools are advertised and the
+      // endpoint is Ollama or other self-hosted compat. Never when tools are
+      // absent — otherwise benign {"name":...} prose becomes phantom tool_use.
       const enableTextToolCallFallback =
-        isLikelyOllamaEndpoint(request.baseUrl) ||
-        (Boolean(params.tools?.length) &&
+        Boolean(params.tools?.length) &&
+        (isLikelyOllamaEndpoint(request.baseUrl) ||
           shouldUseSelfHostedToolCompat(request.baseUrl))
       const allowedToolNames = toolNamesFromShimParams(params.tools)
       const response = await self._doRequest(request, params, options, requestProcessEnv)

@@ -137,6 +137,15 @@ test('semantic tool-result boundary is Mistral-only', () => {
     }),
   ).toBe(true)
 
+  // Codestral is Mistral-class even behind a non-mistral.ai proxy hostname.
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://llm-proxy.example.com/v1',
+      model: 'codestral-latest',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
   expect(
     shouldInjectToolResultSemanticBoundary({
       baseUrl: 'http://localhost:8080/v1',

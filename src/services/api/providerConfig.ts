@@ -733,7 +733,7 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
     processEnv.OPENAI_MODEL ??
     ''
   ).toLowerCase()
-  return /\b(devstral|mistral|ministral)\b/.test(model)
+  return /\b(devstral|mistral|ministral|codestral)\b/.test(model)
 }
 
 /**
