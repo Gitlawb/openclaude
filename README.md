@@ -166,6 +166,12 @@ by default. It does not read `~/.claude`, project `.claude/` directories, or
 `CLAUDE_CONFIG_DIR`; new users can start with an empty OpenClaude config and do
 not need Claude Code installed.
 
+This boundary includes IDE integration: OpenClaude discovers and cleans up only
+`.openclaude/ide` lockfiles (including supported WSL Windows-profile paths),
+never Claude Code's `.claude/ide` lockfiles. It does not use Claude Code
+credentials as an implicit IDE connection channel. Use OpenClaude's supported
+IDE setup instead of pointing it at a Claude Code configuration directory.
+
 If you previously used OpenClaude with `.claude` paths, migrate intentionally:
 copy only the settings, commands, agents, skills, scheduled tasks, or other files
 you personally created for OpenClaude into the matching `.openclaude` location.
