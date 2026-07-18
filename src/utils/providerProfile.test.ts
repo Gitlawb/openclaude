@@ -486,6 +486,39 @@ test('openai launch keeps the proxy aimlapi guard across equivalent base URL spe
   }
 })
 
+test('openai launch withholds ambient credentials from look-alike aimlapi endpoints', async () => {
+  // Endpoint spellings that are NOT the canonical endpoint must never receive
+  // the ambient canonical credential. The launch URL is judged by the strict
+  // canonical predicate, so a look-alike path on the real host and a
+  // query-decorated proxy both land on the withholding path — independent of
+  // how the saved route identity was resolved.
+  for (const [persistedBaseUrl, shellBaseUrl] of [
+    // Look-alike path case on the canonical host.
+    ['https://api.aimlapi.com/v1', 'https://api.aimlapi.com/V1'],
+    // Query parameters bolted onto a proxy endpoint.
+    ['https://proxy.example.com/v1', 'https://proxy.example.com/v1?tenant=other'],
+  ]) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: persistedBaseUrl,
+        OPENAI_MODEL: 'gpt-4o',
+      }),
+      goal: 'coding',
+      processEnv: {
+        OPENAI_BASE_URL: shellBaseUrl,
+        OPENAI_API_KEY: 'ambient-openai-key',
+        AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+      },
+    })
+
+    assert.equal(env.OPENAI_BASE_URL, shellBaseUrl)
+    assert.equal(env.OPENAI_API_KEY, undefined)
+    assert.equal(env.AIMLAPI_API_KEY, undefined)
+  }
+})
+
 test('openai launch withholds ambient custom auth from a keyless proxy aimlapi profile', async () => {
   // Custom authentication is a second credential channel: the shim sends
   // OPENAI_AUTH_HEADER_VALUE as the request credential whenever

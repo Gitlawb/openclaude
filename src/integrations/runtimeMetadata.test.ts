@@ -202,14 +202,6 @@ describe('AIMLAPI runtime attribution', () => {
     // stays `aimlapi`, so the `/models` request must be filtered on the same
     // canonical predicate the inference shim uses — otherwise the proxy still
     // receives the partner identity.
-    const canonical = getRouteDiscoveryHeaders('aimlapi', {
-      baseUrl: 'https://api.aimlapi.com/v1',
-    })
-    expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
-      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
-    )
-    expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
-
     const proxy = getRouteDiscoveryHeaders('aimlapi', {
       baseUrl: 'https://proxy.example.test/v1',
     })
@@ -223,10 +215,27 @@ describe('AIMLAPI runtime attribution', () => {
       expect(proxy?.[name]).toBeUndefined()
     }
 
-    // A missing base URL falls back to the route default, which is canonical.
-    expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
-      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
-    )
+    // The canonical assertions below compare against the built-in partner id,
+    // so an ambient AIMLAPI_PARTNER_ID in the invoking shell would fail them.
+    const previous = process.env.AIMLAPI_PARTNER_ID
+    delete process.env.AIMLAPI_PARTNER_ID
+    try {
+      const canonical = getRouteDiscoveryHeaders('aimlapi', {
+        baseUrl: 'https://api.aimlapi.com/v1',
+      })
+      expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      )
+      expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
+
+      // A missing base URL falls back to the route default, which is canonical.
+      expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      )
+    } finally {
+      if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
+      else process.env.AIMLAPI_PARTNER_ID = previous
+    }
   })
 })
 
