@@ -62,8 +62,8 @@ describe('Gemini store field fix', () => {
 // Fix 2: Session timeout — stream idle timeout
 // ---------------------------------------------------------------------------
 describe('Session timeout fix', () => {
-  test('openaiShim has idle timeout for SSE streams', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('openaiShim stream control has idle timeout for SSE streams', async () => {
+    const content = await file('services/api/openaiShim/streamControl.ts').text()
 
     expect(content).toContain('STREAM_IDLE_TIMEOUT_MS')
   })
@@ -77,7 +77,7 @@ describe('Session timeout fix', () => {
   })
 
   test('idle timeout is set to a reasonable value (>= 60s)', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+    const content = await file('services/api/openaiShim/streamControl.ts').text()
 
     // Extract the timeout value (supports numeric separators like 120_000)
     const match = content.match(/STREAM_IDLE_TIMEOUT_MS\s*=\s*([\d_]+)/)
