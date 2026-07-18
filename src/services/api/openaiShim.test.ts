@@ -7060,6 +7060,7 @@ test('raw-text and XML fallback tool calls use one unique sequence', () => {
   expect(text.calls[0]?.id?.replace(/^\D+/, '')).not.toBe(xml.calls[0]?.id?.replace(/^\D+/, ''))
 })
 
+// ---------------------------------------------------------------------------
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
