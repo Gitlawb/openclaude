@@ -6935,6 +6935,11 @@ test('optional tool properties are not added to required[] — fixes Groq/Azure 
 //
 // ---------------------------------------------------------------------------
 
+test('the OpenAI shim façade exposes the messages.create contract', () => {
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  expect(typeof client.beta.messages.create).toBe('function')
+})
+
 function makeNonStreamResponse(content = 'ok'): Response {
   return new Response(
     JSON.stringify({
@@ -7015,6 +7020,11 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
 // It also gives independent extraction branches stable merge context.
 //
 // ---------------------------------------------------------------------------
+
+test('the OpenAI shim façade creates independent client instances', () => {
+  expect(createOpenAIShimClient({})).not.toBe(createOpenAIShimClient({}))
+})
+
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
