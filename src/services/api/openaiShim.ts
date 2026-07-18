@@ -75,6 +75,10 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import {
+  createRequestBodyPlanner,
+  hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv,
+} from './openaiShim/requestPlanner.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
@@ -1055,49 +1059,10 @@ function isGeminiMode(): boolean {
 function hydrateOpenAIShimCompatibilityEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
-  // Provider selection, base URL defaults, and model defaults now flow
-  // through resolveProviderRequest(). The shim still needs a few legacy
-  // credential aliases because downstream auth/header paths read OPENAI_*.
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
-    const geminiApiKey =
-      processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY
-    if (geminiApiKey && !processEnv.OPENAI_API_KEY) {
-      processEnv.OPENAI_API_KEY = geminiApiKey
-    }
-    return
-  }
-
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
-    if (processEnv.MISTRAL_API_KEY && !processEnv.OPENAI_API_KEY) {
-      processEnv.OPENAI_API_KEY = processEnv.MISTRAL_API_KEY
-    }
-    return
-  }
-
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    processEnv.OPENAI_API_KEY =
-      processEnv.GITHUB_COPILOT_KEY ??
-      processEnv.OPENAI_API_KEY ??
-      processEnv.GITHUB_TOKEN ??
-      processEnv.GH_TOKEN ??
-      ''
-    return
-  }
-
-  if (processEnv.BANKR_BASE_URL && !processEnv.OPENAI_BASE_URL) {
-    processEnv.OPENAI_BASE_URL = processEnv.BANKR_BASE_URL
-  }
-  if (processEnv.BANKR_MODEL && !processEnv.OPENAI_MODEL) {
-    processEnv.OPENAI_MODEL = processEnv.BANKR_MODEL
-  }
-
-  const routeCredential = resolveRouteCredentialValue({
-    processEnv,
-    baseUrl: processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE,
+  hydrateRequestPlanningEnv(processEnv, {
+    isEnvTruthy,
+    resolveRouteCredentialValue,
   })
-  if (routeCredential && !processEnv.OPENAI_API_KEY) {
-    processEnv.OPENAI_API_KEY = routeCredential
-  }
 }
 
 function convertMessages(
@@ -1678,9 +1643,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1748,7 +1710,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1815,6 +1777,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1926,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2346,6 +2315,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2520,6 +2491,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3438,6 +3411,8 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
@@ -4014,255 +3989,32 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
-    const buildResponsesBody = (): Record<string, unknown> => {
-      const responsesBody: Record<string, unknown> = {
-        model: request.resolvedModel,
-        input: convertAnthropicMessagesToResponsesInput(
-          params.messages as Array<{
-            role?: string
-            message?: { role?: string; content?: unknown }
-            content?: unknown
-          }>,
-          effectiveTransport === 'responses_compat',
-        ),
-        stream: params.stream ?? false,
-        store: false,
-      }
-
-      if (shouldStripResponsesStore) {
-        delete responsesBody.store
-      }
-
-      if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
-        responsesBody.input = [
-          {
-            type: 'message',
-            role: 'user',
-            content: [{ type: effectiveTransport === 'responses_compat' ? 'text' : 'input_text', text: '' }],
-          },
-        ]
-      }
-
-      const systemText = convertSystemPrompt(params.system)
-      if (systemText) {
-        responsesBody.instructions = systemText
-      }
-
-      if (body.max_tokens !== undefined) {
-        responsesBody.max_output_tokens = body.max_tokens
-      } else if (body.max_completion_tokens !== undefined) {
-        responsesBody.max_output_tokens = body.max_completion_tokens
-      }
-
-      if (params.temperature !== undefined) responsesBody.temperature = params.temperature
-      if (params.top_p !== undefined) responsesBody.top_p = params.top_p
-      if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
-        responsesBody.reasoning = {
-          effort: reasoningRequestPlan.reasoningEffort,
-          summary: 'auto',
-        }
-        responsesBody.include = ['reasoning.encrypted_content']
-      }
-
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
-        const convertedTools = convertToolsToResponsesTools(
-          params.tools as Array<{
-            name?: string
-            description?: string
-            input_schema?: Record<string, unknown>
-          }>,
-        )
-        if (convertedTools.length > 0) {
-          responsesBody.tools = convertedTools
-        }
-      }
-
-      for (const field of shimConfig.removeBodyFields ?? []) {
-        delete responsesBody[field]
-      }
-
-      return responsesBody
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
     }
+    // The request planner owns `num_ctx: getOllamaNumCtx()` and
+    // `normalizeOllamaNativeMessages(body.messages)` for native Ollama bodies.
+    const planner = createRequestBodyPlanner({
+      request, params, effectiveTransport, shouldStripResponsesStore, body,
+      reasoningRequestPlan, shimConfig, convertAnthropicMessagesToResponsesInput,
+      convertSystemPrompt, convertToolsToResponsesTools, maxTokensValue,
+      maxCompletionTokensValue, getOllamaNumCtx, normalizeOllamaNativeMessages,
+      useNativeOllamaChat, fastPath, stableStringifyJson,
+      omitTools,
+    })
+    const { buildResponsesBody } = planner
+    const {
+      buildAnthropicMessagesBody,
+      buildGeminiBody,
+      buildOllamaChatBody,
+      serializeBody,
+    } = planner
 
-    // Anthropic Messages API body — used when endpointPath is /messages.
-    // params.messages, params.tools, etc. are already in Anthropic format
-    // (they originate from the Anthropic SDK). We pass them through directly,
-    // only adding the top-level system (as string or content-block array)
-    // and max_tokens.
-    let omitAnthropicTools = false
-    const buildAnthropicMessagesBody = (): Record<string, unknown> => {
-      const anthropicBody: Record<string, unknown> = {
-        model: request.resolvedModel,
-        messages: params.messages,
-        max_tokens: params.max_tokens,
-        stream: params.stream ?? false,
-      }
-
-      // Pass system through in native format. The Anthropic Messages API
-      // accepts either a string or an array of content blocks (with optional
-      // cache_control markers). Only filter the billing header block.
-      if (Array.isArray(params.system)) {
-        const filtered = (params.system as Array<{ type?: string; text?: string }>)
-          .filter(block => !(block.type === 'text' && (block.text ?? '').startsWith('x-anthropic-billing-header')))
-        if (filtered.length > 0) anthropicBody.system = filtered
-      } else if (params.system) {
-        const text = typeof params.system === 'string' ? params.system : String(params.system)
-        if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
-      }
-
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
-        anthropicBody.tools = params.tools
-      }
-      if (params.tool_choice) {
-        anthropicBody.tool_choice = params.tool_choice
-      }
-
-      if (request.reasoning?.effort) {
-        // Shim receives OpenAI effort levels (xhigh) from client.ts, but
-        // Anthropic API expects 'max' not 'xhigh'. Convert for the effort field.
-        const effort = request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
-        const modelLower = request.resolvedModel.toLowerCase()
-        const isAdaptive = modelLower.includes('opus-4-7') || modelLower.includes('opus-4-6') ||
-          modelLower.includes('opus-4-8') ||
-          modelLower.includes('opus-4.6') || modelLower.includes('opus-4.7') ||
-          modelLower.includes('opus-4.8') ||
-          modelLower.includes('sonnet-4-6') || modelLower.includes('sonnet-4.6')
-        const isOpus45 = modelLower.includes('opus-4-5') || modelLower.includes('opus-4.5')
-
-        if (isAdaptive) {
-          anthropicBody.thinking = { type: 'adaptive' }
-          anthropicBody.effort = effort
-        } else if (isOpus45) {
-          anthropicBody.effort = effort
-        } else if (effort === 'high' || effort === 'max') {
-          anthropicBody.thinking = {
-            type: 'enabled',
-            budgetTokens: effort === 'max' ? 31_999 : 16_000,
-          }
-        }
-      }
-
-      return anthropicBody
-    }
-
-    // Google AI SDK body — used when endpointPath is /models/gemini-*.
-    // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
-    const buildGeminiBody = (): Record<string, unknown> => {
-      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
-
-      // Build a lookup from tool_use_id → function name so tool_result
-      // blocks can emit the correct functionResponse.name (Gemini requires
-      // the function name, not the Anthropic tool_use_id).
-      const toolUseIdToName = new Map<string, string>()
-      const messages = params.messages as Array<{
-        role?: string
-        content?: unknown
-      }>
-      for (const msg of messages) {
-        if (!Array.isArray(msg.content)) continue
-        for (const block of msg.content as Array<{ type?: string; id?: string; name?: string }>) {
-          if (block.type === 'tool_use' && block.id && block.name) {
-            toolUseIdToName.set(block.id, block.name)
-          }
-        }
-      }
-
-      for (const msg of messages) {
-        const role = msg.role === 'assistant' ? 'model' : 'user'
-        const parts: Array<Record<string, unknown>> = []
-
-        if (typeof msg.content === 'string') {
-          parts.push({ text: msg.content })
-        } else if (Array.isArray(msg.content)) {
-          for (const block of msg.content as Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
-            if (block.type === 'text' && block.text) {
-              parts.push({ text: block.text })
-            } else if (block.type === 'tool_use' && block.id && block.name) {
-              parts.push({
-                functionCall: {
-                  name: block.name,
-                  args: block.input ?? {},
-                },
-              })
-            } else if (block.type === 'tool_result' && block.tool_use_id) {
-              const funcName = toolUseIdToName.get(block.tool_use_id) ?? block.tool_use_id
-              let resultContent = typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? (block.content as Array<{ type?: string; text?: string }>)
-                    .filter(b => b.type === 'text')
-                    .map(b => b.text ?? '')
-                    .join('\n')
-                  : ''
-              if (block.is_error) {
-                resultContent = `Error: ${resultContent}`
-              }
-              parts.push({
-                functionResponse: {
-                  name: funcName,
-                  response: {
-                    name: funcName,
-                    content: resultContent,
-                  },
-                },
-              })
-            }
-          }
-        }
-
-        if (parts.length > 0) {
-          contents.push({ role, parts })
-        }
-      }
-
-      const geminiBody: Record<string, unknown> = { contents }
-
-      // System instruction
-      const systemText = convertSystemPrompt(params.system)
-      if (systemText) {
-        geminiBody.systemInstruction = { parts: [{ text: systemText }] }
-      }
-
-      // Generation config
-      const genConfig: Record<string, unknown> = {}
-      if (params.max_tokens !== undefined) {
-        genConfig.maxOutputTokens = params.max_tokens
-      } else if (maxTokensValue !== undefined) {
-        genConfig.maxOutputTokens = maxTokensValue
-      } else if (maxCompletionTokensValue !== undefined) {
-        genConfig.maxOutputTokens = maxCompletionTokensValue
-      }
-      if (params.temperature !== undefined) genConfig.temperature = params.temperature
-      if (params.top_p !== undefined) genConfig.topP = params.top_p
-      if (request.reasoning?.effort) {
-        const level = request.reasoning.effort === 'xhigh' ? 'high' : request.reasoning.effort
-        genConfig.thinkingConfig = { includeThoughts: true, thinkingLevel: level }
-      }
-      if (Object.keys(genConfig).length > 0) {
-        geminiBody.generationConfig = genConfig
-      }
-
-      // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
-        const functionDeclarations = (params.tools as Array<{
-          name?: string
-          description?: string
-          input_schema?: Record<string, unknown>
-        }>).map(tool => ({
-          name: tool.name ?? '',
-          description: tool.description ?? '',
-          ...(tool.input_schema ? { parameters: tool.input_schema } : {}),
-        }))
-        if (functionDeclarations.length > 0) {
-          geminiBody.tools = [{ functionDeclarations }]
-        }
-      }
-
-      return geminiBody
-    }
-
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -4577,47 +4329,12 @@ class OpenAIShimMessages {
       })
     }
 
-    // WHY: byte-identity required for implicit prefix caching in
-    // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
-    // depth so spurious insertion-order differences across rebuilds of
-    // `body` (spread-merge, conditional assignments above) don't bust
-    // the provider's prefix hash.
-    //
-    // Local backends do not implement prefix caching, so the deep key-sort
-    // is pure CPU overhead per request (issue #1016). Drop to the native
-    // `JSON.stringify` fast path when the fast-path config opts out.
-    const buildOllamaChatBody = (): Record<string, unknown> => {
-      const options: Record<string, unknown> = {
-        num_ctx: getOllamaNumCtx(),
-      }
-      if (body.max_tokens !== undefined) {
-        options.num_predict = body.max_tokens
-      } else if (body.max_completion_tokens !== undefined) {
-        options.num_predict = body.max_completion_tokens
-      }
-      if (params.temperature !== undefined) options.temperature = params.temperature
-      if (params.top_p !== undefined) options.top_p = params.top_p
-
-      return {
-        model: request.resolvedModel,
-        messages: normalizeOllamaNativeMessages(body.messages),
-        stream: params.stream ?? false,
-        options,
-        ...(body.tools ? { tools: body.tools } : {}),
-      }
-    }
-
-    const serializeBody = (): string => {
-      const payload =
-        useNativeOllamaChat ? buildOllamaChatBody()
-          : effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' ? buildResponsesBody()
-          : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
-          : effectiveTransport === 'gemini' ? buildGeminiBody()
-          : body
-      return fastPath.skipStableStringify
-        ? JSON.stringify(payload)
-        : stableStringifyJson(payload)
-    }
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
@@ -4977,9 +4694,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -5036,6 +4753,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(
