@@ -159,6 +159,10 @@ import {
   getOllamaNumCtx,
   normalizeOllamaNativeMessages,
 } from './openaiShim/ollamaAdapter.js'
+import {
+  convertMessages as convertAnthropicMessages,
+  convertSystemPrompt as convertSystemPromptImpl,
+} from './openaiShim/messageConversion.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -617,47 +621,12 @@ interface OpenAITool {
   }
 }
 
-function convertSystemPrompt(
-  system: unknown,
-): string {
-  if (!system) return ''
-  if (typeof system === 'string') return system
-  if (Array.isArray(system)) {
-    return system
-      .map((block: { type?: string; text?: string }) =>
-        block.type === 'text' ? block.text ?? '' : '',
-      )
-      // Drop the Anthropic billing/attribution block — it's only meaningful to
-      // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
-      // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
-      // providers like local Ollama / llama.cpp / Codex pass-throughs.
-      .filter(text => !text.startsWith('x-anthropic-billing-header'))
-      .join('\n\n')
-  }
-  return String(system)
-}
-
-function ensureTextPartForImageContent(
-  parts: OpenAIContentPart[],
-): OpenAIContentPart[] {
-  const hasImage = parts.some(part => part.type === 'image_url')
-  if (!hasImage) {
-    return parts
-  }
-
-  const hasText = parts.some(
-    part => part.type === 'text' && (part.text ?? '').trim().length > 0,
-  )
-  if (hasText) {
-    return parts
-  }
-
-  return [{ type: 'text', text: 'Image attached.' }, ...parts]
+function convertSystemPrompt(system: unknown): string {
+  return convertSystemPromptImpl(system)
 }
 
 function contentBlocksContainImages(content: unknown): boolean {
   if (!Array.isArray(content)) return false
-
   return content.some(block => {
     if (!block || typeof block !== 'object') return false
     const record = block as Record<string, unknown>
@@ -665,9 +634,7 @@ function contentBlocksContainImages(content: unknown): boolean {
       record.type === 'image' ||
       record.type === 'image_url' ||
       record.type === 'input_image'
-    ) {
-      return true
-    }
+    ) return true
     return record.type === 'tool_result' && contentBlocksContainImages(record.content)
   })
 }
@@ -676,34 +643,18 @@ function requestBodyContainsImages(
   payload: Record<string, unknown> | undefined,
 ): boolean {
   if (!payload) return false
-
   const messages = payload.messages
-  if (
-    Array.isArray(messages) &&
-    messages.some(message => {
-      if (!message || typeof message !== 'object') return false
-      const record = message as Record<string, unknown>
-      return (
-        contentBlocksContainImages(record.content) ||
-        (Array.isArray(record.images) && record.images.length > 0)
-      )
-    })
-  ) {
-    return true
-  }
-
+  if (Array.isArray(messages) && messages.some(message => {
+    if (!message || typeof message !== 'object') return false
+    const record = message as Record<string, unknown>
+    return contentBlocksContainImages(record.content) ||
+      (Array.isArray(record.images) && record.images.length > 0)
+  })) return true
   const input = payload.input
-  if (
-    Array.isArray(input) &&
-    input.some(item =>
-      item &&
-      typeof item === 'object' &&
-      contentBlocksContainImages((item as Record<string, unknown>).content),
-    )
-  ) {
-    return true
-  }
-
+  if (Array.isArray(input) && input.some(item =>
+    item && typeof item === 'object' &&
+    contentBlocksContainImages((item as Record<string, unknown>).content),
+  )) return true
   const contents = payload.contents
   return Array.isArray(contents) && contents.some(item => {
     if (!item || typeof item !== 'object') return false
@@ -720,160 +671,6 @@ function requestBodyContainsImages(
       })
     })
   })
-}
-
-function joinTextContentParts(parts: OpenAIContentPart[]): string {
-  return parts.map(part => part.type === 'text' ? part.text : '').join('')
-}
-
-function convertToolResultContent(
-  content: unknown,
-  isError?: boolean,
-  options?: { supportsImageInputs?: boolean },
-): string | OpenAIContentPart[] {
-  if (typeof content === 'string') {
-    return isError ? `Error: ${content}` : content
-  }
-  if (!Array.isArray(content)) {
-    const text = JSON.stringify(content ?? '')
-    return isError ? `Error: ${text}` : text
-  }
-
-  const parts: OpenAIContentPart[] = []
-  for (const block of content) {
-    if (block?.type === 'text' && typeof block.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
-      continue
-    }
-
-    // ToolSearch results are tool_reference blocks with no text payload —
-    // render them so the model learns which deferred tools were loaded
-    // (their schemas arrive in the next request's tools array).
-    if (block?.type === 'tool_reference' && typeof block.tool_name === 'string') {
-      parts.push({
-        type: 'text',
-        text: `Tool "${block.tool_name}" is now loaded and available to call.`,
-      })
-      continue
-    }
-
-    if (block?.type === 'image') {
-      if (options?.supportsImageInputs === false) {
-        throw new Error(
-          'The active provider accepts text-only messages and does not support image inputs.',
-        )
-      }
-      const source = block.source
-      if (source?.type === 'url' && source.url) {
-        parts.push({ type: 'image_url', image_url: { url: source.url } })
-      } else if (source?.type === 'base64' && source.media_type && source.data) {
-        parts.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:${source.media_type};base64,${source.data}`,
-          },
-        })
-      }
-      continue
-    }
-
-    if (typeof block?.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
-    }
-  }
-
-  if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') {
-    const text = parts[0].text ?? ''
-    return isError ? `Error: ${text}` : text
-  }
-
-  // Collapse arrays of only text blocks into a single string for DeepSeek
-  // compatibility (issue #774). DeepSeek rejects arrays in role: "tool" messages.
-  const allText = parts.every(p => p.type === 'text')
-  if (allText) {
-    const text = parts.map(p => p.text ?? '').join('\n\n')
-    return isError ? `Error: ${text}` : text
-  }
-
-  if (isError && parts[0]?.type === 'text') {
-    parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
-  } else if (isError) {
-    parts.unshift({ type: 'text', text: 'Error:' })
-  }
-
-  // Defense in depth (issue #1421): some OpenAI-compatible providers (e.g.
-  // Xiaomi Mimo) reject `role: "tool"` messages whose `content` is image-only
-  // with a 400 "text is not set". Prepend a placeholder text part so the
-  // payload always carries a text component alongside any images, mirroring
-  // the existing behavior for user-role messages.
-  return ensureTextPartForImageContent(parts)
-}
-
-function convertContentBlocks(
-  content: unknown,
-  options?: { supportsImageInputs?: boolean },
-): string | OpenAIContentPart[] {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return String(content ?? '')
-
-  const parts: OpenAIContentPart[] = []
-  for (const block of content) {
-    switch (block.type) {
-      case 'text':
-        parts.push({ type: 'text', text: block.text ?? '' })
-        break
-      case 'image': {
-        if (options?.supportsImageInputs === false) {
-          throw new Error(
-            'The active provider accepts text-only messages and does not support image inputs.',
-          )
-        }
-        const src = block.source
-        if (src?.type === 'base64') {
-          parts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${src.media_type};base64,${src.data}`,
-            },
-          })
-        } else if (src?.type === 'url') {
-          parts.push({ type: 'image_url', image_url: { url: src.url } })
-        }
-        break
-      }
-      case 'tool_use':
-        // handled separately
-        break
-      case 'tool_result':
-        // handled separately
-        break
-      case 'thinking':
-      case 'redacted_thinking':
-        // Strip thinking blocks for OpenAI-compatible providers.
-        // These are Anthropic-specific content types that 3P providers
-        // don't understand. Serializing them as <thinking> text corrupts
-        // multi-turn context: the model sees the tags as part of its
-        // previous reply and may mimic or misattribute them.
-        break
-      default:
-        if (block.text) {
-          parts.push({ type: 'text', text: block.text })
-        }
-    }
-  }
-
-  if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text ?? ''
-
-  // Collapse arrays of only text blocks into a single string for DeepSeek
-  // compatibility (issue #774).
-  const allText = parts.every(p => p.type === 'text')
-  if (allText) {
-    return parts.map(p => p.text ?? '').join('\n\n')
-  }
-
-  return ensureTextPartForImageContent(parts)
 }
 
 function isGeminiMode(): boolean {
@@ -932,11 +729,7 @@ function hydrateOpenAIShimCompatibilityEnv(
 }
 
 function convertMessages(
-  messages: Array<{
-    role: string
-    message?: { role?: string; content?: unknown }
-    content?: unknown
-  }>,
+  messages: Array<{ role: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
   system: unknown,
   options?: {
     preserveReasoningContent?: boolean
@@ -945,319 +738,13 @@ function convertMessages(
     supportsImageInputs?: boolean
   },
 ): OpenAIMessage[] {
-  const preserveReasoningContent = options?.preserveReasoningContent === true
-  const reasoningContentFallback = options?.reasoningContentFallback
-  const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
-  const supportsImageInputs = options?.supportsImageInputs
-  const result: OpenAIMessage[] = []
-  const knownToolCallIds = new Set<string>()
-
-  // Pre-scan for all tool results in the history to identify valid tool calls
-  const toolResultIds = new Set<string>()
-  for (const msg of messages) {
-    const inner = msg.message ?? msg
-    const content = (inner as { content?: unknown }).content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (
-          (block as { type?: string }).type === 'tool_result' &&
-          (block as { tool_use_id?: string }).tool_use_id
-        ) {
-          toolResultIds.add((block as { tool_use_id: string }).tool_use_id)
-        }
-      }
-    }
-  }
-
-  // System message first
-  const sysText = convertSystemPrompt(system)
-  if (sysText) {
-    result.push({ role: 'system', content: sysText })
-  }
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i]
-    const isLastInHistory = i === messages.length - 1
-
-    // Claude Code wraps messages in { role, message: { role, content } }
-    const inner = msg.message ?? msg
-    const role = (inner as { role?: string }).role ?? msg.role
-    const content = (inner as { content?: unknown }).content
-
-    if (role === 'user') {
-      // Check for tool_result blocks in user messages
-      if (Array.isArray(content)) {
-        let otherContent: unknown[] | undefined
-
-        // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
-        // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
-        // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
-        // emitting it here would cause a "role must alternate" or "unexpected role" error.
-        for (const block of content) {
-          const blockType = (block as { type?: string }).type
-          if (blockType === 'tool_result') {
-            const tr = block as {
-              tool_use_id?: string
-              content?: unknown
-              is_error?: boolean
-            }
-            const id = tr.tool_use_id ?? 'unknown'
-            if (knownToolCallIds.has(id)) {
-              result.push({
-                role: 'tool',
-                tool_call_id: id,
-                content: convertToolResultContent(tr.content, tr.is_error, { supportsImageInputs }),
-              })
-            } else {
-              logForDebugging(
-                `Dropping orphan tool_result for ID: ${id} to prevent API error`,
-              )
-            }
-          } else {
-            otherContent ??= []
-            otherContent.push(block)
-          }
-        }
-
-        // Emit remaining user content
-        if (otherContent && otherContent.length > 0) {
-          result.push({
-            role: 'user',
-            content: convertContentBlocks(otherContent, { supportsImageInputs }),
-          })
-        }
-      } else {
-        result.push({
-          role: 'user',
-          content: convertContentBlocks(content, { supportsImageInputs }),
-        })
-      }
-    } else if (role === 'assistant') {
-      // Check for tool_use blocks
-      if (Array.isArray(content)) {
-        let toolUses: Array<{
-          id?: string
-          name?: string
-          input?: unknown
-          extra_content?: Record<string, unknown>
-          signature?: string
-        }> | undefined
-        let thinkingBlock:
-          | { type?: string; thinking?: string; data?: string; signature?: string }
-          | undefined
-        let textContent: unknown[] | undefined
-
-        for (const block of content) {
-          const blockType = (block as { type?: string }).type
-          if (blockType === 'tool_use') {
-            toolUses ??= []
-            toolUses.push(
-              block as {
-                id?: string
-                name?: string
-                input?: unknown
-                extra_content?: Record<string, unknown>
-                signature?: string
-              },
-            )
-          } else if (
-            blockType === 'thinking' ||
-            blockType === 'redacted_thinking'
-          ) {
-            thinkingBlock ??= block as {
-              type?: string
-              thinking?: string
-              data?: string
-              signature?: string
-            }
-          } else {
-            textContent ??= []
-            textContent.push(block)
-          }
-        }
-
-        const assistantMsg: OpenAIMessage = {
-          role: 'assistant',
-          content: (() => {
-            const c = convertContentBlocks(textContent ?? [], { supportsImageInputs })
-            return typeof c === 'string'
-              ? c
-              : Array.isArray(c)
-                ? joinTextContentParts(c)
-                : ''
-          })(),
-        }
-
-        // Providers that validate reasoning continuity (Moonshot/Kimi Code: "thinking
-        // is enabled but reasoning_content is missing in assistant tool call
-        // message at index N" 400) need the original chain-of-thought echoed
-        // back on each assistant message that carries a tool_call. We kept
-        // the thinking block on the Anthropic side; re-attach it here as the
-        // `reasoning_content` field on the outgoing OpenAI-shaped message.
-        // Gated per-provider because other endpoints either ignore the field
-        // (harmless) or strict-reject unknown fields (harmful).
-        if (preserveReasoningContent) {
-          // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
-          // blocks carry it in `.data` (see token estimation and message-size
-          // accounting). Read the right field per type so a real redacted block
-          // with non-empty content is not silently dropped to "".
-          const thinkingText =
-            thinkingBlock?.type === 'redacted_thinking'
-              ? thinkingBlock?.data
-              : thinkingBlock?.thinking
-          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
-            assistantMsg.reasoning_content = thinkingText
-          } else if (
-            (toolUses?.length ?? 0) > 0 &&
-            reasoningContentFallback === ''
-          ) {
-            assistantMsg.reasoning_content = ''
-          }
-        }
-
-        if (toolUses && toolUses.length > 0) {
-          const mappedToolCalls: NonNullable<OpenAIMessage['tool_calls']> = []
-          for (const tu of toolUses) {
-            const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
-
-            // Only keep tool calls that have a corresponding result in the history,
-            // or if it's the last message (prefill scenario).
-            // Orphaned tool calls (e.g. from user interruption) cause 400 errors.
-            if (!toolResultIds.has(id) && !isLastInHistory) {
-              continue
-            }
-
-            knownToolCallIds.add(id)
-            const toolCall: NonNullable<
-              OpenAIMessage['tool_calls']
-            >[number] = {
-              id,
-              type: 'function' as const,
-              function: {
-                name: tu.name ?? 'unknown',
-                arguments:
-                  typeof tu.input === 'string'
-                    ? tu.input
-                    : JSON.stringify(tu.input ?? {}),
-              },
-            }
-
-            // Preserve existing extra_content if present
-            if (tu.extra_content) {
-              toolCall.extra_content = { ...tu.extra_content }
-            }
-
-            // Gemini OpenAI-compatible endpoints require Google's
-            // thought_signature to be replayed with prior function-call
-            // parts. Preserve only real signatures received from the
-            // provider; synthetic placeholders are rejected by GMI.
-            if (preserveGeminiThoughtSignature) {
-              const signature =
-                tu.signature ??
-                geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
-                thinkingBlock?.signature
-
-              toolCall.extra_content = mergeGeminiThoughtSignature(
-                toolCall.extra_content,
-                signature,
-              )
-            }
-
-            mappedToolCalls.push(toolCall)
-          }
-
-          if (mappedToolCalls.length > 0) {
-            assistantMsg.tool_calls = mappedToolCalls
-          }
-        }
-
-        // Only push assistant message if it has content or tool calls.
-        // Stripped thinking-only blocks from user interruptions are empty and cause 400s.
-        if (assistantMsg.content || assistantMsg.tool_calls?.length) {
-          result.push(assistantMsg)
-        }
-      } else {
-        const assistantMsg: OpenAIMessage = {
-          role: 'assistant',
-          content: (() => {
-            const c = convertContentBlocks(content, { supportsImageInputs })
-            return typeof c === 'string'
-              ? c
-              : Array.isArray(c)
-                ? joinTextContentParts(c)
-                : ''
-          })(),
-        }
-
-        if (assistantMsg.content) {
-          result.push(assistantMsg)
-        }
-      }
-    }
-  }
-
-  // Coalescing pass: merge consecutive messages of the same role.
-  // OpenAI/vLLM/Ollama require strict user↔assistant alternation.
-  // Multiple consecutive tool messages are allowed (assistant → tool* → user).
-  // Consecutive user or assistant messages must be merged to avoid Jinja
-  // template errors like "roles must alternate" (Devstral, Mistral models).
-  const coalesced: OpenAIMessage[] = []
-  for (const msg of result) {
-    const prev = coalesced[coalesced.length - 1]
-
-    // Mistral/Devstral: 'tool' message must be followed by an 'assistant' message.
-    // If a 'tool' result is followed by a 'user' message, inject a neutral
-    // assistant boundary to satisfy the strict role sequence without implying
-    // that the user interrupted or cancelled anything:
-    // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
-    if (prev && prev.role === 'tool' && msg.role === 'user') {
-      coalesced.push({
-        role: 'assistant',
-        content: '[Tool results received]',
-      })
-    }
-
-    const lastAfterPossibleInjection = coalesced[coalesced.length - 1]
-    if (
-      lastAfterPossibleInjection &&
-      lastAfterPossibleInjection.role === msg.role &&
-      msg.role !== 'tool' &&
-      msg.role !== 'system'
-    ) {
-      const prevContent = lastAfterPossibleInjection.content
-      const curContent = msg.content
-
-      if (typeof prevContent === 'string' && typeof curContent === 'string') {
-        lastAfterPossibleInjection.content =
-          prevContent + (prevContent && curContent ? '\n' : '') + curContent
-      } else {
-        const toArray = (
-          c: string | OpenAIContentPart[] | undefined,
-        ): OpenAIContentPart[] => {
-          if (!c) return []
-          if (typeof c === 'string') return c ? [{ type: 'text', text: c }] : []
-          return c
-        }
-        lastAfterPossibleInjection.content = [
-          ...toArray(prevContent),
-          ...toArray(curContent),
-        ]
-      }
-
-      if (msg.tool_calls?.length) {
-        lastAfterPossibleInjection.tool_calls = [
-          ...(lastAfterPossibleInjection.tool_calls ?? []),
-          ...msg.tool_calls,
-        ]
-      }
-    } else {
-      coalesced.push(msg)
-    }
-  }
-
-  return coalesced
+  return convertAnthropicMessages(messages, system, {
+    ...options,
+    getGeminiThoughtSignature: geminiThoughtSignatureFromExtraContent,
+    mergeGeminiThoughtSignature,
+    log: message => logForDebugging(message),
+  })
 }
-
 function getChatMessagesForTransport<T>(
   transport: string,
   convert: () => T,
