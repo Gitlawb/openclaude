@@ -6928,6 +6928,11 @@ test('optional tool properties are not added to required[] — fixes Groq/Azure 
 
 // ---------------------------------------------------------------------------
 // Extraction boundary: tool conversion | message conversion (Issue #202)
+//
+// Focused suites own the behavior on either side of this boundary.
+// This pointer intentionally remains in the façade suite after extraction.
+// It also gives independent extraction branches stable merge context.
+//
 // ---------------------------------------------------------------------------
 
 function makeNonStreamResponse(content = 'ok'): Response {
@@ -7004,6 +7009,11 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
 
 // ---------------------------------------------------------------------------
 // Extraction boundary: message conversion | non-streaming response conversion
+//
+// Focused suites own the behavior on either side of this boundary.
+// This pointer intentionally remains in the façade suite after extraction.
+// It also gives independent extraction branches stable merge context.
+//
 // ---------------------------------------------------------------------------
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
