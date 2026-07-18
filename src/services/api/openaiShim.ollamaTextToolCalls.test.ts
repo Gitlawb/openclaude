@@ -138,6 +138,13 @@ describe('parseTextToolCalls', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('rejects arguments string "null" (not empty object)', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":"null"}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
   test('rejects name not in allowedToolNames allowlist', () => {
     const text = '{"name":"Bash","arguments":{"command":"ls"}}'
     const { calls } = parseTextToolCalls(text, {

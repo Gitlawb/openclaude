@@ -2219,12 +2219,21 @@ function parseAndAdd(
   seen: Set<string>,
   allowedToolNames?: ReadonlySet<string>,
 ): boolean {
-  let obj: Record<string, unknown>
+  let parsed: unknown
   try {
-    obj = JSON.parse(raw)
+    parsed = JSON.parse(raw)
   } catch {
     return false
   }
+  // Reject null / primitives / arrays — only plain objects are tool envelopes.
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed)
+  ) {
+    return false
+  }
+  const obj = parsed as Record<string, unknown>
 
   let name: string | undefined
   let args: Record<string, unknown> | null = null
@@ -3735,9 +3744,8 @@ async function* openaiStreamToAnthropic(
                   continue
                 }
                 filteredCalls.push(call)
-                if (range) {
-                  filteredRanges.push(range)
-                }
+                // toolCallRanges is populated 1:1 with calls by parseXmlToolCalls.
+                filteredRanges.push(range!)
               }
               if (filteredCalls.length > 0) {
                 recoveredCalls = filteredCalls

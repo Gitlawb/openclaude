@@ -1151,10 +1151,12 @@ export function applyProviderProfileToProcessEnv(
   clearProviderProfileEnvFromProcessEnv()
   Object.assign(process.env, nextEnv)
   // Re-apply shell-origin overrides only (not prior profile-managed values).
-  if (shellSelfHostedToolsOverride) {
+  // Use !== undefined so an explicit empty shell value still clears/overwrites
+  // a profile-managed flag (truthiness would skip '').
+  if (shellSelfHostedToolsOverride !== undefined) {
     process.env.OPENAI_SELF_HOSTED_TOOLS = shellSelfHostedToolsOverride
   }
-  if (shellParseTextToolCallsOverride) {
+  if (shellParseTextToolCallsOverride !== undefined) {
     process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = shellParseTextToolCallsOverride
   }
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
