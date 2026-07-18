@@ -25,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
@@ -1348,7 +1349,8 @@ function hasConcreteProviderSelection(
   // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
   )
 }
 
@@ -2061,6 +2063,12 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
+      continue
+    }
+    if (
+      dedicatedKey === 'LONGCAT_API_KEY' &&
+      (effectiveOpenAIRouteId !== 'longcat' || !isLongcatBaseUrl(env.OPENAI_BASE_URL))
+    ) {
       continue
     }
     // On a non-canonical (proxy) aimlapi base URL, never source AIMLAPI_API_KEY

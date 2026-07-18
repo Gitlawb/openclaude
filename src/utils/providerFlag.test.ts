@@ -771,7 +771,7 @@ describe('applyProviderFlag - longcat', () => {
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.longcat.chat/openai')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.longcat.chat/openai/v1')
     expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
     expect(process.env.OPENAI_API_KEY).toBe('longcat-secret-key')
   })
@@ -780,6 +780,17 @@ describe('applyProviderFlag - longcat', () => {
     applyProviderFlag('longcat', ['--model', 'LongCat-2.0'])
 
     expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
+  })
+
+  test('does not mirror LONGCAT_API_KEY to a preserved custom base URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://untrusted.example/v1'
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://untrusted.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   test('clears LONGCAT_API_KEY copied into OPENAI_API_KEY when switching routes', () => {

@@ -309,6 +309,34 @@ test('openai launch carries AIMLAPI_API_KEY only when the route resolves to aiml
   assert.equal(onRoute.AIMLAPI_API_KEY, 'aimlapi-key')
 })
 
+test('openai launch carries LONGCAT_API_KEY only when the route resolves to LongCat', async () => {
+  const offRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-openai',
+      LONGCAT_API_KEY: 'longcat-persisted',
+    }),
+    goal: 'coding',
+    processEnv: { LONGCAT_API_KEY: 'longcat-ambient' },
+  })
+
+  assert.equal(offRoute.LONGCAT_API_KEY, undefined)
+
+  const onRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.longcat.chat/openai/v1',
+      OPENAI_API_KEY: 'longcat-key',
+      LONGCAT_API_KEY: 'longcat-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(onRoute.LONGCAT_API_KEY, 'longcat-key')
+})
+
 test('openai launch mirrors rotated OPENAI_API_KEY into AIMLAPI_API_KEY on aimlapi route', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
@@ -1046,6 +1074,23 @@ test('buildStartupEnvFromProfile preserves env-only NEAR AI setup without a save
   })
 
   assert.equal(env.NEARAI_API_KEY, 'nearai-key')
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    undefined,
+    'should not inject Gitlawb Opengateway base URL',
+  )
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
+test('buildStartupEnvFromProfile preserves env-only LongCat setup without a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      LONGCAT_API_KEY: 'longcat-key',
+    },
+  })
+
+  assert.equal(env.LONGCAT_API_KEY, 'longcat-key')
   assert.equal(
     env.OPENAI_BASE_URL,
     undefined,

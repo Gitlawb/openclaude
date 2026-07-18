@@ -55,6 +55,7 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
@@ -516,6 +517,7 @@ beforeEach(async () => {
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
+  delete process.env.LONGCAT_API_KEY
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.OPENCODE_API_KEY
@@ -561,6 +563,7 @@ afterEach(() => {
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
+    restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
@@ -4666,6 +4669,35 @@ test('gitlawb opengateway provider flag prefers OPENGATEWAY_API_KEY over generic
 
   expect(captured.url).toBe('http://localhost:8181/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS pool', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.OPENAI_API_KEYS = 'fake-openai-pool-a,fake-openai-pool-b'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('longcat', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://api.longcat.chat/openai/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-longcat-key')
+})
+
+test('longcat provider flag never falls back to an OPENAI_API_KEYS pool', async () => {
+  process.env.OPENAI_API_KEYS = 'other-provider-secret'
+  delete process.env.LONGCAT_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('longcat', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.authorization).not.toBe('Bearer other-provider-secret')
 })
 
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {

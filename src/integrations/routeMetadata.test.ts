@@ -7,6 +7,7 @@ import {
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
   isCloudflareBaseUrl,
+  isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
@@ -65,6 +66,16 @@ test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway'
       'http://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
     ),
   ).toBe(false)
+})
+
+test('isLongcatBaseUrl requires the documented HTTPS OpenAI API path', () => {
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai')).toBe(false)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/')).toBe(false)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1')).toBe(true)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1/chat/completions')).toBe(true)
+  expect(isLongcatBaseUrl('http://api.longcat.chat/openai/v1')).toBe(false)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/v1')).toBe(false)
+  expect(isLongcatBaseUrl('https://api.longcat.chat.evil.test/openai/v1')).toBe(false)
 })
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {

@@ -4,7 +4,7 @@ export default defineVendor({
   id: 'longcat',
   label: 'LongCat',
   classification: 'openai-compatible',
-  defaultBaseUrl: 'https://api.longcat.chat/openai',
+  defaultBaseUrl: 'https://api.longcat.chat/openai/v1',
   defaultModel: 'LongCat-2.0',
   requiredEnvVars: ['LONGCAT_API_KEY'],
   setup: {
@@ -23,7 +23,7 @@ export default defineVendor({
       thinkingRequestFormat: 'zai-compatible',
       maxTokensField: 'max_tokens',
       // LongCat documents thinking:{type} but not reasoning_effort.
-      removeBodyFields: ['store', 'reasoning_effort'],
+      removeBodyFields: ['store', 'reasoning_effort', 'stream_options', 'tools'],
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },
@@ -55,15 +55,8 @@ export default defineVendor({
         modelDescriptorId: 'LongCat-2.0',
         capabilities: {
           supportsStreaming: true,
-          supportsFunctionCalling: true,
+          supportsFunctionCalling: false,
           supportsReasoning: true,
-        },
-        reasoning: {
-          mode: 'levels',
-          levels: ['high', 'xhigh'],
-          defaultLevel: 'high',
-          wireFormat: 'zai_compatible',
-          disableFormat: 'thinking_type_disabled',
         },
         contextWindow: 1_048_576,
         maxOutputTokens: 131_072,

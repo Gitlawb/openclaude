@@ -19,7 +19,7 @@ describe('longcat vendor', () => {
 
     const vendor = getVendor('longcat')
     expect(vendor).toBeDefined()
-    expect(vendor?.defaultBaseUrl).toBe('https://api.longcat.chat/openai')
+    expect(vendor?.defaultBaseUrl).toBe('https://api.longcat.chat/openai/v1')
     expect(vendor?.defaultModel).toBe('LongCat-2.0')
     expect(vendor?.setup.credentialEnvVars).toEqual(['LONGCAT_API_KEY'])
     expect(vendor?.transportConfig.openaiShim?.thinkingRequestFormat).toBe(
@@ -28,14 +28,15 @@ describe('longcat vendor', () => {
     expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
       'reasoning_effort',
     )
+    expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
+      'stream_options',
+    )
 
     expect(getRouteDefaultBaseUrl('longcat')).toBe(
-      'https://api.longcat.chat/openai',
+      'https://api.longcat.chat/openai/v1',
     )
     expect(getRouteDefaultModel('longcat')).toBe('LongCat-2.0')
-    expect(resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai')).toBe(
-      'longcat',
-    )
+    expect(resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai')).toBeNull()
     expect(
       resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai/v1'),
     ).toBe('longcat')
@@ -57,29 +58,29 @@ describe('longcat vendor', () => {
       vendorId: 'longcat',
       contextWindow: 1_048_576,
       maxOutputTokens: 131_072,
+      capabilities: expect.objectContaining({ supportsFunctionCalling: false }),
     })
 
     const preset = getProviderPresetUiMetadata('longcat')
     expect(preset.routeId).toBe('longcat')
     expect(preset.credentialEnvVars).toContain('LONGCAT_API_KEY')
-    expect(preset.baseUrl).toBe('https://api.longcat.chat/openai')
+    expect(preset.baseUrl).toBe('https://api.longcat.chat/openai/v1')
     expect(preset.model).toBe('LongCat-2.0')
 
     const validation = validateIntegrationRegistry()
     expect(validation.valid).toBe(true)
   })
 
-  test('exposes zai-compatible thinking controls for LongCat-2.0', () => {
+  test('preserves LongCat reasoning content without exposing unsupported effort levels', () => {
     ensureIntegrationsLoaded()
 
     expect(
       resolveModelReasoningControl('LongCat-2.0', { routeId: 'longcat' }),
     ).toMatchObject({
       supportsReasoning: true,
-      controllable: true,
-      source: 'metadata',
-      wireFormat: 'zai_compatible',
-      levels: ['high', 'xhigh'],
+      controllable: false,
+      source: 'capability',
+      levels: [],
     })
   })
 })

@@ -375,7 +375,12 @@ export function isLongcatBaseUrl(value: string | undefined): boolean {
   }
 
   try {
-    return new URL(trimmed).hostname.toLowerCase() === 'api.longcat.chat'
+    const url = new URL(trimmed)
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'api.longcat.chat' &&
+      (url.pathname === '/openai/v1' || url.pathname.startsWith('/openai/v1/'))
+    )
   } catch {
     return false
   }
@@ -993,7 +998,10 @@ export function resolveRouteIdFromBaseUrl(
         // bare hostname match isn't enough for the Workers AI route — require
         // the Workers AI path (/client/v4/accounts/<id>/ai/v1). Otherwise an
         // unrelated Cloudflare API URL would inherit Workers-AI routing.
-        if (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) {
+        if (
+          (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
+          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl))
+        ) {
           continue
         }
         return route.id
@@ -1025,6 +1033,9 @@ function profileRouteHonorsBaseUrlBoundary(
 ): boolean {
   if (routeId === 'cloudflare') {
     return isCloudflareBaseUrl(baseUrl)
+  }
+  if (routeId === 'longcat') {
+    return isLongcatBaseUrl(baseUrl)
   }
   return true
 }

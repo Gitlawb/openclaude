@@ -22,6 +22,7 @@ import {
   getGateway,
   getVendor,
   isCloudflareBaseUrl,
+  isLongcatBaseUrl,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
@@ -597,11 +598,17 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(
         provider,
-        defaultBaseUrl ?? 'https://api.longcat.chat/openai',
+        defaultBaseUrl ?? 'https://api.longcat.chat/openai/v1',
       )
       process.env.OPENAI_MODEL ??= defaultModel ?? 'LongCat-2.0'
       if (model) process.env.OPENAI_MODEL = model
-      if (process.env.LONGCAT_API_KEY) {
+      // Do not copy a dedicated LongCat credential to a stale custom URL.
+      // applyOpenAIBaseUrlDefault preserves an existing base URL, so only
+      // expose this key when that URL is the documented HTTPS LongCat API.
+      if (
+        process.env.LONGCAT_API_KEY &&
+        isLongcatBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
         process.env.OPENAI_API_KEY = process.env.LONGCAT_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY

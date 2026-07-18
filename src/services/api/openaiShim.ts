@@ -56,6 +56,7 @@ import {
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
+  getRouteDescriptor,
   isXaiBaseUrl,
   resolveRouteCredentialValue,
 } from '../../integrations/routeMetadata.js'
@@ -4476,7 +4477,11 @@ class OpenAIShimMessages {
       delete body[field]
     }
 
-    if (params.tools && params.tools.length > 0) {
+    if (
+      !(shimConfig.removeBodyFields ?? []).includes('tools') &&
+      params.tools &&
+      params.tools.length > 0
+    ) {
       const converted = convertTools(
         params.tools as Array<{
           name: string
@@ -4793,7 +4798,11 @@ class OpenAIShimMessages {
     // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
     const isXaiRoute =
       runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+    const routeAcceptsGenericOpenAICredentials =
+      !getRouteDescriptor(runtimeShimContext.routeId ?? 'custom')?.setup
+        .dedicatedCredentialsOnly
     const openAIApiKeysPoolRaw =
+      routeAcceptsGenericOpenAICredentials &&
       parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
         ? process.env.OPENAI_API_KEYS
         : undefined
@@ -4824,6 +4833,7 @@ class OpenAIShimMessages {
           process.env.ATLAS_CLOUD_API_KEY,
           process.env.NEARAI_API_KEY,
           process.env.FIREWORKS_API_KEY,
+          process.env.LONGCAT_API_KEY,
         ].some(value => value?.trim() === openAIApiKeyRawUsable),
       )
     const routeCredentialIsCopiedProviderKey =
@@ -4853,7 +4863,9 @@ class OpenAIShimMessages {
       (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
       openAIApiKeysPoolRaw ??
       routeCredential ??
-      (openAIApiKeyRawUsable || xaiOAuthToken || '')
+      (routeAcceptsGenericOpenAICredentials
+        ? openAIApiKeyRawUsable || xaiOAuthToken || ''
+        : '')
     // A catalog-level auth header is part of the selected model's transport
     // contract. Ignore global custom auth left behind by another route so it
     // cannot replace that model-specific header or credential.
