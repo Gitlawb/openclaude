@@ -2070,6 +2070,8 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent?.usage?.output_tokens).toBe(45)
 })
 
+// Extraction seam: stream conversion usage | shared stream control.
+
 test('readWithIdleTimeout rejects quickly and cancels a stalled reader', async () => {
   const testApi = await getStreamIdleTestApi('stream-idle-helper')
   const cancelReasons: unknown[] = []
@@ -2196,6 +2198,8 @@ test('Anthropic-compatible passthrough stream rejects with idle timeout when it 
   expect((caught as Error).name).toBe('StreamIdleTimeoutError')
   expect((stalled.cancelReasons[0] as Error).name).toBe('StreamIdleTimeoutError')
 })
+
+// Extraction seam: shared stream control | Gemini stream conversion.
 
 test('Gemini SSE stream rejects with idle timeout when it stalls', async () => {
   process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'
@@ -2903,6 +2907,8 @@ test('controller abort stops buffered Gemini SSE events', async () => {
     stalled.close()
   }
 })
+
+// Extraction seam: Gemini stream conversion | native Ollama stream adaptation.
 
 test('controller abort reaches native Ollama converted stream', async () => {
   const previousBaseUrl = process.env.OPENAI_BASE_URL
@@ -5352,6 +5358,8 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
   expect(stop?.delta?.stop_reason).toBe('tool_use')
 })
 
+// Extraction seam: streaming conversion | non-streaming response conversion.
+
 test('converts Gemini raw tool-call text into non-streaming tool_use blocks', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
@@ -7050,6 +7058,8 @@ test('non-streaming: strips <think> tag block from assistant content', async () 
     { type: 'text', text: 'Hey! How can I help you today?' },
   ])
 })
+
+// Extraction seam: non-streaming response conversion | streaming event conversion.
 
 test('streaming: thinking block closed before tool call', async () => {
   globalThis.fetch = (async (_input, _init) => {
