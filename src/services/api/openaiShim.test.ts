@@ -5251,6 +5251,8 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
   })
 })
 
+// Extraction seam: provider signature metadata | raw streaming tool fallback.
+
 test('converts Gemini raw tool-call text into streaming tool_use blocks', async () => {
   globalThis.fetch = (async (_input, _init) => {
     const chunks = makeStreamChunks([
@@ -5665,6 +5667,8 @@ test('keeps terminal empty Bash tool arguments invalid in non-streaming response
     },
   ])
 })
+
+// Extraction seam: completed tool parsing | streamed tool normalization.
 
 test('normalizes plain string Bash tool arguments in streaming responses', async () => {
   globalThis.fetch = (async (_input, _init) => {
@@ -6415,6 +6419,8 @@ test('repairs truncated JSON objects even without command field', async () => {
 
   expect(streamedInput).toBe('{"cwd":"/tmp"}')
 })
+
+// Extraction seam: streamed tool normalization | schema and tool conversion.
 
 test('preserves raw input for unknown plain string tool arguments', async () => {
   globalThis.fetch = (async (_input, _init) => {
