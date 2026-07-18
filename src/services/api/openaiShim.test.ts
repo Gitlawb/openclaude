@@ -6542,6 +6542,8 @@ test('preserves parsed string input for unknown JSON string tool arguments', asy
   ])
 })
 
+// Extraction seam: argument parsing | schema sanitation.
+
 test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -6673,6 +6675,8 @@ test('optional tool properties are not added to required[] — fixes Groq/Azure 
   expect(required).not.toContain('pages')
   expect(parameters?.additionalProperties).toBe(false)
 })
+
+// Extraction seam: schema sanitation | message conversion façade.
 
 // ---------------------------------------------------------------------------
 // Extraction boundary: tool conversion | message conversion (Issue #202)
