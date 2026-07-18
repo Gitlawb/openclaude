@@ -11387,9 +11387,6 @@ test('GitHub Copilot responses fallback does not retry non-retryable HTTP failur
   expect(fetchCalls).toBe(2)
 })
 
-// Extraction boundary: history pruning | executor Copilot refresh behavior.
-// The contiguous Copilot authentication retry block below moves with execution.
-// Keep this marker stable for independent adjacent test migrations.
 test('GitHub Copilot 401 chat_completions retries with refreshed token', async () => {
   const realModule = realGithubModelsCredentials
   try {
