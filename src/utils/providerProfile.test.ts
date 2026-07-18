@@ -486,6 +486,39 @@ test('openai launch keeps the proxy aimlapi guard across equivalent base URL spe
   }
 })
 
+test('openai launch does not let a distinct proxy target inherit the saved aimlapi identity', async () => {
+  // Path case and query parameters name a distinct target on the same host. The
+  // saved identity must NOT carry over to it, because that identity is what
+  // mirrors the profile's dedicated AIMLAPI_API_KEY — a key configured for the
+  // original tenant, not this one.
+  for (const [persistedBaseUrl, shellBaseUrl] of [
+    ['https://proxy.example.com/tenantA/v1', 'https://proxy.example.com/tenanta/v1'],
+    ['https://proxy.example.com/v1', 'https://proxy.example.com/v1?tenant=other'],
+  ]) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: persistedBaseUrl,
+        OPENAI_MODEL: 'gpt-4o',
+        AIMLAPI_API_KEY: 'profile-own-tenant-key',
+      }),
+      goal: 'coding',
+      processEnv: {
+        OPENAI_BASE_URL: shellBaseUrl,
+        AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+        OPENAI_API_KEY: 'ambient-openai-key',
+      },
+    })
+
+    assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
+    assert.equal(env.AIMLAPI_API_KEY, undefined)
+    // Losing the identity must not reopen the ambient leak: an aimlapi profile
+    // launched at an unrecognized endpoint still withholds ambient credentials.
+    assert.equal(env.OPENAI_API_KEY, undefined)
+  }
+})
+
 test('openai launch withholds ambient credentials from look-alike aimlapi endpoints', async () => {
   // Endpoint spellings that are NOT the canonical endpoint must never receive
   // the ambient canonical credential. The launch URL is judged by the strict

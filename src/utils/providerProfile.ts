@@ -25,7 +25,6 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
-  normalizeComparableBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
@@ -1383,6 +1382,37 @@ export function selectAutoProfile(
   return recommendedOllamaModel ? 'ollama' : 'openai'
 }
 
+/**
+ * Endpoint equivalence for deciding whether a launch may inherit a saved
+ * profile's route identity — and with it that profile's dedicated credential.
+ *
+ * Scheme and host case, plus a single trailing slash, are pure spelling of the
+ * same endpoint. Path case and query parameters are NOT: `/tenantA` and
+ * `/tenanta`, or `?tenant=a` and `?tenant=b`, are distinct targets on the same
+ * host, and letting one inherit the other's identity would hand it a credential
+ * configured for somewhere else. Deliberately stricter than
+ * `normalizeComparableBaseUrl`, which lowercases paths and drops queries for
+ * route *lookup*, where a false match is harmless.
+ */
+function isSameConfiguredEndpoint(
+  left: string | undefined,
+  right: string | undefined,
+): boolean {
+  const normalize = (value: string | undefined): string | null => {
+    if (!value?.trim()) return null
+    try {
+      // `origin` lowercases scheme and host; pathname and search keep their case.
+      const url = new URL(value.trim())
+      return `${url.origin}${url.pathname.replace(/\/$/, '')}${url.search}`
+    } catch {
+      return null
+    }
+  }
+
+  const normalizedLeft = normalize(left)
+  return normalizedLeft !== null && normalizedLeft === normalize(right)
+}
+
 export async function buildLaunchEnv(options: {
   profile: ProviderProfile
   persisted: ProfileFile | null
@@ -1926,17 +1956,18 @@ export async function buildLaunchEnv(options: {
   // unauthenticated.
   const resolvedOpenAIRouteId = resolveRouteIdFromBaseUrl(env.OPENAI_BASE_URL)
   const persistedOpenAIRouteId = persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
-  // Compare on the normalized spelling, not the raw string: a shell
+  // Compare on endpoint equivalence, not the raw string: a shell
   // `OPENAI_BASE_URL` that differs from the saved one only by a trailing slash
-  // (or host casing) still names the same endpoint. A literal comparison would
-  // drop the saved route identity there, and with it the aimlapi proxy guard
-  // below — silently forwarding the ambient canonical credential to the proxy.
+  // (or scheme/host casing) still names the same endpoint. A literal comparison
+  // would drop the saved route identity there, and with it the aimlapi proxy
+  // guard below. Path case and query parameters are NOT spelling, though — a
+  // different tenant path or query is a distinct target and must not inherit
+  // the profile's identity, which is what carries its dedicated credential.
   const shouldUsePersistedOpenAIRouteId =
     !resolvedOpenAIRouteId &&
     !!persistedOpenAIRouteId &&
     !!persistedOpenAIBaseUrl &&
-    normalizeComparableBaseUrl(env.OPENAI_BASE_URL) ===
-      normalizeComparableBaseUrl(persistedOpenAIBaseUrl)
+    isSameConfiguredEndpoint(env.OPENAI_BASE_URL, persistedOpenAIBaseUrl)
   const effectiveOpenAIRouteId =
     resolvedOpenAIRouteId ||
     (shouldUsePersistedOpenAIRouteId ? persistedOpenAIRouteId : undefined)
@@ -1952,8 +1983,17 @@ export async function buildLaunchEnv(options: {
   // /OPENAI_API_KEYS alias either (the generic selection above prefers the live
   // shell value). Re-source the generic credential from the profile's OWN
   // persisted env and drop a purely ambient one.
+  // Withholding must NOT depend on identity retention. When the launch URL is
+  // an unrecognized endpoint, a profile saved as `aimlapi` is still an aimlapi
+  // profile even if the URL no longer matches the saved one exactly — so a
+  // retargeted proxy (different tenant path, added query) is covered too. A URL
+  // that resolves to some other known route is excluded: that is a deliberate
+  // switch away from aimlapi, and its own route rules apply.
+  const isAimlapiProxyLaunch =
+    effectiveOpenAIRouteId === 'aimlapi' ||
+    (!resolvedOpenAIRouteId && persistedOpenAIRouteId === 'aimlapi')
   if (
-    effectiveOpenAIRouteId === 'aimlapi' &&
+    isAimlapiProxyLaunch &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
   ) {
