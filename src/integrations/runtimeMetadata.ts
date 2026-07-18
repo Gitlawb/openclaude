@@ -44,9 +44,9 @@ const AIMLAPI_CATALOG_HEADER_NAMES = new Set([
 function resolveRouteOpenAIShimConfig(
   routeId: string | null,
   baseUrl: string | undefined,
-  config: OpenAIShimTransportConfig | undefined,
-): OpenAIShimTransportConfig | undefined {
-  if (routeId !== 'aimlapi' || !config?.headers) return config
+  config: OpenAIShimTransportConfig,
+): OpenAIShimTransportConfig {
+  if (routeId !== 'aimlapi' || !config.headers) return config
 
   if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
     return { ...config, headers: withResolvedPartnerHeader(config.headers) }
@@ -332,14 +332,17 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     routeId,
     descriptor,
     catalogEntry,
-    openaiShimConfig: mergeOpenAIShimConfig(
-      resolveRouteOpenAIShimConfig(
-        routeId,
-        effectiveBaseUrl,
+    // Sanitize AIMLAPI attribution headers AFTER merging every layer: a
+    // catalog- or model-level `openaiShim.headers` override could otherwise
+    // reintroduce the partner/attribution headers on a proxy endpoint.
+    openaiShimConfig: resolveRouteOpenAIShimConfig(
+      routeId,
+      effectiveBaseUrl,
+      mergeOpenAIShimConfig(
         descriptor?.transportConfig.openaiShim,
+        catalogEntry?.transportOverrides?.openaiShim,
+        inferredConfig,
       ),
-      catalogEntry?.transportOverrides?.openaiShim,
-      inferredConfig,
     ),
   }
 }

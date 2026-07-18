@@ -181,9 +181,13 @@ describe('AIMLAPI runtime attribution', () => {
         baseUrl: 'https://proxy.example.test/v1',
         model: 'gpt-4o',
       })
+      // Every catalog attribution header must be stripped on a proxy endpoint,
+      // not just the partner id.
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Repo']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Version']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['HTTP-Referer']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-Title']).toBeUndefined()
     } finally {
       if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
       else process.env.AIMLAPI_PARTNER_ID = previous

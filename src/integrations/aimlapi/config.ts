@@ -90,13 +90,35 @@ export function withResolvedPartnerHeader(
   return resolved
 }
 
-function normalizeBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, '').toLowerCase()
+function parseCanonicalUrl(
+  value: string,
+): { origin: string; pathname: string } | null {
+  try {
+    const url = new URL(value.trim())
+    // `origin` already lowercases protocol and host. Collapse only a single
+    // trailing slash so `/v1` and `/v1/` match, while `/v1//`, `/V1`, or
+    // `/v1/anything` stay distinct from the canonical `/v1` path.
+    return { origin: url.origin, pathname: url.pathname.replace(/\/$/, '') }
+  } catch {
+    return null
+  }
 }
 
-/** Catalog attribution and existing-key preflight are production-only. */
+/**
+ * Catalog attribution and existing-key preflight are production-only. This
+ * predicate gates ambient-credential forwarding, so it compares parsed origins
+ * (host/protocol case-insensitive) and a case-sensitive path: a look-alike like
+ * `/V1` or `/v1////` must NOT be treated as the canonical endpoint.
+ */
 export function isCanonicalAimlapiInferenceBaseUrl(value: string): boolean {
-  return normalizeBaseUrl(value) === normalizeBaseUrl(DEFAULT_ENDPOINTS.inferenceBaseUrl)
+  const canonical = parseCanonicalUrl(DEFAULT_ENDPOINTS.inferenceBaseUrl)
+  const candidate = parseCanonicalUrl(value)
+  return (
+    canonical !== null &&
+    candidate !== null &&
+    candidate.origin === canonical.origin &&
+    candidate.pathname === canonical.pathname
+  )
 }
 
 /**

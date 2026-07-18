@@ -3154,7 +3154,7 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
-  test('keyless custom (proxy) AI/ML API profiles preserve AIMLAPI route identity', async () => {
+  test('keyless custom (proxy) AI/ML API profiles keep route identity but withhold the ambient key', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
@@ -3200,7 +3200,9 @@ describe('setActiveProviderProfile', () => {
         },
       })
 
-      expect(startupEnv.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+      // Route identity is preserved, but the ambient canonical AIMLAPI key must
+      // NOT be forwarded to a user-controlled proxy host.
+      expect(startupEnv.AIMLAPI_API_KEY).toBeUndefined()
       expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
     } finally {
       process.chdir(originalCwd)

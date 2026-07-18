@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
   buildPartnerCheckoutReturnUrls,
@@ -19,6 +19,13 @@ const envNames = [
   'AIMLAPI_PARTNER_ID',
 ] as const
 const originalEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]))
+
+// Clear ambient AIMLAPI overrides before every test so default/fallback
+// assertions never depend on the invoking environment; the runner's original
+// values are restored in teardown.
+beforeEach(() => {
+  for (const name of envNames) delete process.env[name]
+})
 
 afterEach(() => {
   for (const name of envNames) {
@@ -118,7 +125,20 @@ test('partner id override is shared with the inference header', () => {
   })
 })
 
-test('canonical endpoint check excludes proxies', () => {
+test('canonical endpoint check excludes proxies and look-alike paths', () => {
+  // Exactly the production endpoint, with at most one trailing slash.
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1')).toBe(true)
   expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1/')).toBe(true)
+  // Host/protocol compare case-insensitively via the parsed origin.
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://API.AIMLAPI.COM/v1')).toBe(true)
+
+  // Distinct paths must NOT receive the ambient credential.
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/V1')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1////')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1/models')).toBe(false)
+  // A different protocol/host is never canonical.
+  expect(isCanonicalAimlapiInferenceBaseUrl('http://api.aimlapi.com/v1')).toBe(false)
   expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
+  // Garbage input fails closed.
+  expect(isCanonicalAimlapiInferenceBaseUrl('not-a-url')).toBe(false)
 })

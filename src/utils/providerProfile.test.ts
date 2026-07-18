@@ -353,6 +353,46 @@ test('openai launch lets live base URL override persisted AIMLAPI route marker',
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
 })
 
+test('openai launch withholds the ambient AIMLAPI key from a keyless proxy profile on restart', async () => {
+  // A keyless saved aimlapi profile that points at a user-controlled proxy keeps
+  // its route id after relaunch, but the canonical AIMLAPI credential must never
+  // be copied into that proxy session.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+    },
+  })
+
+  // Still recognized as the aimlapi route...
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'aimlapi')
+  // ...but the ambient canonical credential is withheld from the proxy host.
+  assert.equal(env.AIMLAPI_API_KEY, undefined)
+
+  // The same profile on the canonical host DOES receive the ambient key.
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+    },
+  })
+  assert.equal(canonical.AIMLAPI_API_KEY, 'ambient-aimlapi-key')
+})
+
 test('xai launch uses descriptor defaults and persisted xAI key', async () => {
   const env = await buildLaunchEnv({
     profile: 'xai',

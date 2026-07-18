@@ -10,6 +10,7 @@ import {
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
 import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
+import { isCanonicalAimlapiInferenceBaseUrl } from '../integrations/aimlapi/config.js'
 import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getGoalDefaultOpenAIModel,
@@ -1958,12 +1959,22 @@ export async function buildLaunchEnv(options: {
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
       continue
     }
-    const dedicatedValue =
-      (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
-        ? sanitizeApiKey(openAICredential.value)
-        : undefined) ||
-      sanitizeApiKey(processEnv[dedicatedKey]) ||
-      sanitizeApiKey(persistedEnv[dedicatedKey])
+    // On a non-canonical (proxy) aimlapi base URL, never source AIMLAPI_API_KEY
+    // from ambient/session credentials — that would leak the canonical AIMLAPI
+    // key to a user-controlled proxy on restart. The profile's OWN persisted key
+    // is still applied, since the user configured that key for that proxy.
+    const aimlapiBaseUrl = env.OPENAI_BASE_URL?.trim()
+    const withholdAmbientAimlapiKey =
+      dedicatedKey === 'AIMLAPI_API_KEY' &&
+      !!aimlapiBaseUrl &&
+      !isCanonicalAimlapiInferenceBaseUrl(aimlapiBaseUrl)
+    const dedicatedValue = withholdAmbientAimlapiKey
+      ? sanitizeApiKey(persistedEnv[dedicatedKey])
+      : (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
+          ? sanitizeApiKey(openAICredential.value)
+          : undefined) ||
+        sanitizeApiKey(processEnv[dedicatedKey]) ||
+        sanitizeApiKey(persistedEnv[dedicatedKey])
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }

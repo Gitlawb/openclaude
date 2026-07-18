@@ -123,8 +123,8 @@ async function waitForCondition(
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
   'Gitlawb Opengateway',
+  'aimlapi.com',
   'Anthropic',
-  'AI/ML API',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
   'Atlas Cloud',
@@ -945,7 +945,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'AI/ML API')
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
     mounted.stdin.write('\r')
     const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') &&
@@ -1032,7 +1032,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'AI/ML API')
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Step 1 of 2: Default model'),
