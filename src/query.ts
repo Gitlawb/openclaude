@@ -1950,7 +1950,7 @@ async function* queryLoop(
         )
         const nextTracking: AutoCompactTrackingState = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
-          forceReason: 'memory-pressure',
+          forceReason: 'context-overflow',
         }
         const next: State = {
           messages: messagesForQuery,

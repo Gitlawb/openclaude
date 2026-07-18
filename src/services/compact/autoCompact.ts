@@ -75,7 +75,7 @@ export type AutoCompactTrackingState = {
   // When set, bypasses shouldAutoCompact() token threshold and user-disable checks.
   // Used by memory pressure and message count guards to force compaction
   // even when token usage is below the normal autocompact threshold.
-  forceReason?: 'memory-pressure' | 'message-count'
+  forceReason?: 'memory-pressure' | 'message-count' | 'context-overflow'
 }
 
 // Threshold buffer: auto-compact fires when token usage reaches this far below
@@ -316,11 +316,11 @@ export async function shouldAutoCompact(
     }
   }
 
-  // Memory pressure is a process-resource signal, not evidence that this
-  // conversation has exhausted its context. Keep cache pruning available, but
-  // honor the user's disabled auto-compact choice rather than unexpectedly
-  // summarizing a short conversation (#1985). Message-count safety limits
-  // remain an explicit forced-compaction path.
+  // Process memory pressure is not evidence that this conversation exhausted
+  // its context. Keep cache pruning available, but honor the user's disabled
+  // auto-compact choice rather than unexpectedly summarizing a short
+  // conversation (#1985). Explicit message-count and provider-overflow
+  // recovery remain forced compaction paths.
   if (
     !isAutoCompactEnabled() &&
     (!forceReason || forceReason === 'memory-pressure')

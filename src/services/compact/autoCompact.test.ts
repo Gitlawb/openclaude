@@ -707,6 +707,34 @@ describe('autoCompactIfNeeded circuit breaker', () => {
     expect(result.wasCompacted).toBe(false)
   })
 
+  test('provider context-overflow recovery bypasses disabled auto-compact', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    process.env.DISABLE_AUTO_COMPACT = '1'
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = underThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        forceReason: 'context-overflow',
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
+  })
+
   test('expired cooldown allows a half-open compaction attempt', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
