@@ -16,6 +16,7 @@ import {
   getRouteDescriptor,
   getRouteDefaultModel,
   isCloudflareBaseUrl,
+  isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -277,8 +278,10 @@ function getRuntimeValidationTarget(
     // auth instead of falling back to generic OpenAI validation. Mirror the
     // runtime route resolver's boundary here.
     if (
-      target.descriptor.id === 'cloudflare' &&
-      !isCloudflareBaseUrl(request.baseUrl)
+      ((target.descriptor.id === 'cloudflare' &&
+        !isCloudflareBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'longcat' &&
+          !isLongcatBaseUrl(request.baseUrl)))
     ) {
       return false
     }

@@ -4686,7 +4686,7 @@ test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
-test('longcat provider flag serializes tool definitions', async () => {
+test('longcat provider flag strips unsupported tool definitions', async () => {
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -4716,12 +4716,31 @@ test('longcat provider flag serializes tool definitions', async () => {
     stream: false,
   })
 
-  expect(requestBody?.tools).toEqual([
-    expect.objectContaining({
-      type: 'function',
-      function: expect.objectContaining({ name: 'Bash' }),
-    }),
-  ])
+  expect(requestBody?.tools).toBeUndefined()
+})
+
+test('longcat accepts the documented bare OpenAI SDK base URL', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai'
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://api.longcat.chat/openai/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-longcat-key')
+})
+
+test('longcat prefers its dedicated credential over a copied key from another provider', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.MIMO_API_KEY = 'fake-mimo-key'
+  process.env.OPENAI_API_KEY = 'fake-mimo-key'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai/v1'
+
+  const captured = await captureChatCompletionRequest('LongCat-2.0')
+
+  expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
 test('longcat provider flag never falls back to an OPENAI_API_KEYS pool', async () => {

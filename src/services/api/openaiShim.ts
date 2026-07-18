@@ -57,6 +57,7 @@ import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
   getRouteDescriptor,
+  isLongcatBaseUrl,
   isXaiBaseUrl,
   resolveRouteCredentialValue,
 } from '../../integrations/routeMetadata.js'
@@ -4857,9 +4858,14 @@ class OpenAIShimMessages {
         openAIApiKeyRawUsable &&
         routeCredential === openAIApiKeyRawUsable,
       )
+    const copiedProviderCredential =
+      openAIApiKeyIsCopiedProviderKey &&
+      (routeAcceptsGenericOpenAICredentials || routeCredentialIsCopiedProviderKey)
+        ? openAIApiKeyRawUsable
+        : undefined
     const apiKeyRaw =
       this.providerOverride?.apiKey ??
-      (openAIApiKeyIsCopiedProviderKey ? openAIApiKeyRawUsable : undefined) ??
+      copiedProviderCredential ??
       (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
       openAIApiKeysPoolRaw ??
       routeCredential ??
@@ -5005,7 +5011,17 @@ class OpenAIShimMessages {
         return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
       }
 
-      return `${baseUrl}/chat/completions`
+      const normalizedBase = baseUrl.replace(/\/+$/, '')
+      // LongCat documents the SDK base as `/openai`, but its actual chat
+      // endpoint is `/openai/v1/chat/completions`.
+      if (
+        runtimeShimContext.routeId === 'longcat' &&
+        isLongcatBaseUrl(normalizedBase) &&
+        new URL(normalizedBase).pathname === '/openai'
+      ) {
+        return `${normalizedBase}/v1/chat/completions`
+      }
+      return `${normalizedBase}/chat/completions`
     }
 
     // Azure serves the Responses API only on the v1 surface

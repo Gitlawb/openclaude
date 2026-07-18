@@ -142,6 +142,7 @@ const PRESET_ORDER = [
   'LM Studio',
   'Atomic Chat',
   'Ollama',
+  'LongCat',
   'MiniMax',
   'Mistral AI',
   'Moonshot AI - API',

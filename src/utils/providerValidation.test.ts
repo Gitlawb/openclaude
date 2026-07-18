@@ -177,6 +177,14 @@ test('non-Workers Cloudflare path falls back to generic OpenAI validation', asyn
   )
 })
 
+test('non-OpenAI LongCat path falls back to generic OpenAI validation', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/anthropic/v1'
+  process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
   const providerSecret = 'ogw-provider-secret'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
