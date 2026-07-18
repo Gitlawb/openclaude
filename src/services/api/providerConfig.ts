@@ -1092,8 +1092,7 @@ export function resolveProviderRequest(options?: {
       ? ('responses' as const)
       : undefined
   const requestedApiFormat =
-    requiredApiFormat &&
-    (explicitApiFormat === undefined || explicitApiFormat === 'chat_completions')
+    requiredApiFormat === 'chat_completions'
       ? requiredApiFormat
       : explicitApiFormat ??
         autoResponsesApiFormat ??

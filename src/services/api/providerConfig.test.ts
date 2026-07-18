@@ -25,6 +25,20 @@ test('resolveProviderRequest exposes model-query thinking defaults', () => {
   expect(request.thinking).toEqual({ type: 'disabled' })
 })
 
+test('resolveProviderRequest forces LongCat onto chat completions', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      LONGCAT_API_KEY: 'longcat-key',
+      OPENAI_BASE_URL: 'https://api.longcat.chat/openai/v1',
+      OPENAI_MODEL: 'LongCat-2.0',
+      OPENAI_API_FORMAT: 'responses',
+    },
+  })
+
+  expect(request.transport).toBe('chat_completions')
+})
+
 test('resolveProviderRequest maps explicit route catalog aliases to API model ids', () => {
   const request = resolveProviderRequest({
     model: 'glm-5.2?reasoning=high',

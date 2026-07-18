@@ -31,9 +31,6 @@ describe('longcat vendor', () => {
     expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
       'stream_options',
     )
-    expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
-      'tools',
-    )
 
     expect(getRouteDefaultBaseUrl('longcat')).toBe(
       'https://api.longcat.chat/openai/v1',
@@ -63,7 +60,7 @@ describe('longcat vendor', () => {
       vendorId: 'longcat',
       contextWindow: 1_048_576,
       maxOutputTokens: 131_072,
-      capabilities: expect.objectContaining({ supportsFunctionCalling: false }),
+      capabilities: expect.objectContaining({ supportsFunctionCalling: true }),
     })
 
     const preset = getProviderPresetUiMetadata('longcat')
@@ -76,7 +73,7 @@ describe('longcat vendor', () => {
     expect(validation.valid).toBe(true)
   })
 
-  test('preserves LongCat reasoning content without exposing unsupported effort levels', () => {
+  test('exposes LongCat reasoning without unsupported effort levels', () => {
     ensureIntegrationsLoaded()
 
     expect(

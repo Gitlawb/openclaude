@@ -1422,6 +1422,7 @@ function convertToolResultContent(
 
 function convertContentBlocks(
   content: unknown,
+  options?: { supportsImageInputs?: boolean },
 ): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
@@ -1433,6 +1434,11 @@ function convertContentBlocks(
         parts.push({ type: 'text', text: block.text ?? '' })
         break
       case 'image': {
+        if (options?.supportsImageInputs === false) {
+          throw new Error(
+            'The active provider accepts text-only messages and does not support image inputs.',
+          )
+        }
         const src = block.source
         if (src?.type === 'base64') {
           parts.push({
@@ -1546,11 +1552,13 @@ function convertMessages(
     preserveReasoningContent?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
+    supportsImageInputs?: boolean
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const supportsImageInputs = options?.supportsImageInputs
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -1625,13 +1633,13 @@ function convertMessages(
         if (otherContent && otherContent.length > 0) {
           result.push({
             role: 'user',
-            content: convertContentBlocks(otherContent),
+            content: convertContentBlocks(otherContent, { supportsImageInputs }),
           })
         }
       } else {
         result.push({
           role: 'user',
-          content: convertContentBlocks(content),
+          content: convertContentBlocks(content, { supportsImageInputs }),
         })
       }
     } else if (role === 'assistant') {
@@ -1681,7 +1689,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(textContent ?? [])
+            const c = convertContentBlocks(textContent ?? [], { supportsImageInputs })
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -1782,7 +1790,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(content)
+            const c = convertContentBlocks(content, { supportsImageInputs })
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -4347,6 +4355,7 @@ class OpenAIShimMessages {
           request.resolvedModel,
           request.baseUrl,
         ),
+        supportsImageInputs: shimConfig.supportsImageInputs,
       }),
     )
 
@@ -5012,8 +5021,8 @@ class OpenAIShimMessages {
       }
 
       const normalizedBase = baseUrl.replace(/\/+$/, '')
-      // LongCat documents the SDK base as `/openai`, but its actual chat
-      // endpoint is `/openai/v1/chat/completions`.
+      // LongCat documents both `/openai/v1/chat/completions` and the
+      // CodeBuddy-specific `/openai/chat/completions` endpoint forms.
       if (
         runtimeShimContext.routeId === 'longcat' &&
         isLongcatBaseUrl(normalizedBase) &&
@@ -5024,7 +5033,9 @@ class OpenAIShimMessages {
       if (
         runtimeShimContext.routeId === 'longcat' &&
         isLongcatBaseUrl(normalizedBase) &&
-        new URL(normalizedBase).pathname === '/openai/v1/chat/completions'
+        /^\/openai(?:\/v1)?\/chat\/completions$/.test(
+          new URL(normalizedBase).pathname,
+        )
       ) {
         return normalizedBase
       }

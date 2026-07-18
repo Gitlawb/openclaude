@@ -381,7 +381,7 @@ export function isLongcatBaseUrl(value: string | undefined): boolean {
       url.hostname.toLowerCase() === 'api.longcat.chat' &&
       !url.search &&
       !url.hash &&
-      /^\/openai(?:\/v1(?:\/chat\/completions)?)?\/?$/.test(url.pathname)
+      /^\/openai(?:\/v1)?(?:\/chat\/completions)?\/?$/.test(url.pathname)
     )
   } catch {
     return false

@@ -73,6 +73,7 @@ test('isLongcatBaseUrl requires the documented HTTPS OpenAI API path', () => {
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/')).toBe(true)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1')).toBe(true)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1/chat/completions')).toBe(true)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/chat/completions')).toBe(true)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/other')).toBe(false)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1?query=value')).toBe(false)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1#fragment')).toBe(false)

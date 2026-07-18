@@ -3274,6 +3274,7 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
       {
         role: 'assistant',
         content: [
+          { type: 'thinking', thinking: 'I should inspect the working tree first.' },
           {
             type: 'tool_use',
             id: 'call_1',
@@ -4686,7 +4687,7 @@ test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
-test('longcat provider flag strips unsupported tool definitions', async () => {
+test('longcat provider flag preserves tool definitions and tool-call history', async () => {
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -4702,7 +4703,26 @@ test('longcat provider flag strips unsupported tool definitions', async () => {
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   await client.beta.messages.create({
     model: 'LongCat-2.0',
-    messages: [{ role: 'user', content: 'List files' }],
+    messages: [
+      { role: 'user', content: 'List files' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_list_files',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_list_files', content: 'src' },
+        ],
+      },
+    ],
     tools: [{
       name: 'Bash',
       description: 'Run a shell command',
@@ -4716,7 +4736,55 @@ test('longcat provider flag strips unsupported tool definitions', async () => {
     stream: false,
   })
 
-  expect(requestBody?.tools).toBeUndefined()
+  expect(requestBody?.tools).toBeDefined()
+  const outgoingMessages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(outgoingMessages).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        tool_calls: [
+          expect.objectContaining({
+            id: 'call_list_files',
+            function: expect.objectContaining({
+              name: 'Bash',
+              arguments: JSON.stringify({ command: 'ls' }),
+            }),
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call_list_files',
+        content: 'src',
+      }),
+    ]),
+  )
+  const assistantWithToolCall = outgoingMessages.find(
+    message => message.role === 'assistant' && Array.isArray(message.tool_calls),
+  )
+  expect(assistantWithToolCall).not.toHaveProperty('reasoning_content')
+})
+
+test('longcat rejects image input before dispatch', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(client.beta.messages.create({
+    model: 'LongCat-2.0',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Describe this image.' },
+        { type: 'image', source: { type: 'url', url: 'https://example.com/image.png' } },
+      ],
+    }],
+    max_tokens: 32,
+    stream: false,
+  })).rejects.toThrow('does not support image inputs')
 })
 
 test('longcat accepts the documented bare OpenAI SDK base URL', async () => {
@@ -4756,6 +4824,26 @@ test('longcat does not append chat completions to a configured endpoint URL', as
 
   expect(captured.url).toBe('https://api.longcat.chat/openai/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
+})
+
+test('longcat normalizes a configured endpoint URL with a trailing slash', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai/v1/chat/completions/'
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+  const captured = await captureChatCompletionRequest()
+  expect(captured.url).toBe('https://api.longcat.chat/openai/v1/chat/completions')
+})
+
+test('longcat accepts the documented CodeBuddy endpoint URL', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai/chat/completions'
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+  const captured = await captureChatCompletionRequest()
+  expect(captured.url).toBe('https://api.longcat.chat/openai/chat/completions')
 })
 
 test('longcat prefers its dedicated credential over a copied key from another provider', async () => {
