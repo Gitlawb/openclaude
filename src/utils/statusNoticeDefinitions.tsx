@@ -4,7 +4,6 @@ import * as React from 'react';
 import { getLargeMemoryFiles, MAX_MEMORY_CHARACTER_COUNT, type MemoryFileInfo } from './claudemd.js';
 import figures from 'figures';
 import { getCwd } from './cwd.js';
-import { hasDangerousSkipFlag } from './dangerousSkipFlags.js';
 import { relative } from 'path';
 import { formatNumber } from './format.js';
 import type { getGlobalConfig } from './config.js';
@@ -291,20 +290,15 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // check entirely (setup.ts), so the flag is effectively "run any command with
 // no review". Warn loudly. Detection reads from process.argv so the notice
 // fires from the first frame, before any AppState mode change propagates.
-// See issue #244 finding 2.
-function hasDangerouslySkipPermissionsArg(): boolean {
-  // --yolo is a registered alias of --dangerously-skip-permissions; this reads
-  // raw argv (before commander), so it must match either spelling. Presence-only
-  // detection mirrors the canonical flag's long-standing behavior (see
-  // dangerousSkipFlags.ts on why it does not model commander's option arity).
-  return hasDangerousSkipFlag(process.argv);
-}
+// See issue #244 finding 2. Commander-authoritative: bypass (from either
+// --dangerously-skip-permissions or its --yolo alias) is resolved by commander
+// into the permission mode during startup, before this notice renders, so we
+// read the resolved mode instead of re-scanning raw argv (which cannot model
+// commander's option arity / `--` semantics).
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',
   type: 'warning',
-  isActive: ctx =>
-    hasDangerouslySkipPermissionsArg() ||
-    ctx.permissionMode === 'bypassPermissions',
+  isActive: ctx => ctx.permissionMode === 'bypassPermissions',
   render: () => <WarningNoticeRow>
       <Text color="warning">
         <Text bold>--dangerously-skip-permissions</Text> (alias{' '}

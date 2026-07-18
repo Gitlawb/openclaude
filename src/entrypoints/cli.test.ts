@@ -693,19 +693,20 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
     expect(text).toContain('--yolo, --dangerously-skip-permissions')
   })
 
-  it('registers --yolo via .option() on the main command and handles it on the ssh path', async () => {
+  it('registers --yolo via .option() on the main command, ssh, and open subcommands', async () => {
     const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-    // Structured, not a bare string count: both occurrences must be real
-    // .option() registration calls (the main command + the ssh subcommand),
-    // so a stray string or comment cannot satisfy the guard.
+    // Structured, not a bare string count: each occurrence must be a real
+    // .option() registration call, so a stray string or comment cannot satisfy
+    // the guard. Registered on the main command, the `ssh` subcommand, and the
+    // internal `open` subcommand (the cc:// headless route) — the three commands
+    // that consume the flag.
     const optionCalls = [
       ...src.matchAll(/\.option\(\s*'--yolo, --dangerously-skip-permissions'/g),
     ]
-    expect(optionCalls).toHaveLength(2)
-    // `ssh --yolo` is consumed by the pre-scan before commander (ssh --help
-    // renders the root help), so the ssh subcommand's --yolo is handled there
-    // via parseSshFlags rather than by the commander option. That helper's
-    // arity/strip behavior has its own runtime tests in utils/sshPreParse.test.ts.
+    expect(optionCalls).toHaveLength(3)
+    // `ssh --yolo` is consumed by the ssh pre-scan (host/flag routing) before
+    // commander; its arity/`--` handling has runtime tests in
+    // utils/sshPreParse.test.ts.
     expect(src).toContain('parseSshFlags(rawCliArgs)')
   })
 })

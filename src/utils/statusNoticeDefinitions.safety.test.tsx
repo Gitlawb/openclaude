@@ -140,31 +140,23 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
 })
 
 describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
-  test('fires when --dangerously-skip-permissions is in argv', () => {
-    process.argv = [...process.argv, '--dangerously-skip-permissions']
-    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
-  })
-
-  test('fires when the --yolo alias is in argv', () => {
-    process.argv = [...process.argv, '--yolo']
-    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
-  })
-
-  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
-    process.argv = [...process.argv, '--yolo']
-    const notice = await renderNoticePlainText(
-      'dangerously-skip-permissions-no-sandbox',
-      buildContext(),
-    )
-    // The notice fires for either spelling, so its text must not name only one.
-    expect(notice).toContain('--yolo')
-    expect(notice).toContain('--dangerously-skip-permissions')
-  })
-
-  test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
+  // The notice is Commander-authoritative: both --dangerously-skip-permissions
+  // and its --yolo alias are resolved into permissionMode === 'bypassPermissions'
+  // during startup, so the notice keys off the resolved mode, not raw argv.
+  test('fires when permission mode is bypassPermissions (either spelling, or settings defaultMode)', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',
     )
+  })
+
+  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'bypassPermissions' }),
+    )
+    // Fires for either spelling, so its text must name both.
+    expect(notice).toContain('--yolo')
+    expect(notice).toContain('--dangerously-skip-permissions')
   })
 
   test('does not fire in default mode without the flag', () => {

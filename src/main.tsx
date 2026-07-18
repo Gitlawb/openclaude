@@ -27,7 +27,6 @@ import pickBy from 'lodash-es/pickBy.js';
 import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { getOauthConfig } from './constants/oauth.js';
-import { hasDangerousSkipFlag, stripDangerousSkipFlags } from './utils/dangerousSkipFlags.js';
 import { parseSshFlags } from './utils/sshPreParse.js';
 import { getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
@@ -514,12 +513,10 @@ function initializeEntrypoint(isNonInteractive: boolean): void {
 type PendingConnect = {
   url: string | undefined;
   authToken: string | undefined;
-  dangerouslySkipPermissions: boolean;
 };
 const _pendingConnect: PendingConnect | undefined = feature('DIRECT_CONNECT') ? {
   url: undefined,
-  authToken: undefined,
-  dangerouslySkipPermissions: false
+  authToken: undefined
 } : undefined;
 
 // Set by early argv processing when `claude assistant [sessionId]` is detected
@@ -590,29 +587,21 @@ export async function main() {
         parseConnectUrl
       } = await import('./server/parseConnectUrl.js');
       const parsed = parseConnectUrl(ccUrl);
-      // NOTE: unlike the ssh pre-parser, this does NOT split on `--`. The
-      // connect path rewrites to the main command, which registers variadic
-      // options (e.g. --add-dir) that commander lets consume a `--` as a value,
-      // so a naive "stop at the first --" split would misclassify tokens. This
-      // presence check therefore mirrors the canonical --dangerously-skip-
-      // permissions behavior exactly (both spellings, no arity modeling); a
-      // `cc://… -- --yolo` false-positive is a pre-existing limitation shared
-      // with the canonical flag, not introduced by the alias.
-      _pendingConnect.dangerouslySkipPermissions = hasDangerousSkipFlag(rawCliArgs);
+      // Only the cc:// URL is stripped here. The --dangerously-skip-permissions
+      // / --yolo flag is deliberately NOT detected or stripped: it flows to the
+      // main command (interactive) or the `open` subcommand (headless), both of
+      // which register it, so commander is the single authority — respecting
+      // option arity and the `--` end-of-options marker. The action then reads
+      // the parsed opts().dangerouslySkipPermissions (see below).
+      const withoutCcUrl = rawCliArgs.filter((_, i) => i !== ccIdx);
       if (rawCliArgs.includes('-p') || rawCliArgs.includes('--print')) {
         // Headless: rewrite to internal `open` subcommand
-        const stripped = stripDangerousSkipFlags(
-          rawCliArgs.filter((_, i) => i !== ccIdx),
-        );
-        process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...stripped];
+        process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...withoutCcUrl];
       } else {
-        // Interactive: strip cc:// URL and flags, run main command
+        // Interactive: strip cc:// URL, run main command
         _pendingConnect.url = parsed.serverUrl;
         _pendingConnect.authToken = parsed.authToken;
-        const stripped = stripDangerousSkipFlags(
-          rawCliArgs.filter((_, i) => i !== ccIdx),
-        );
-        process.argv = [process.argv[0]!, process.argv[1]!, ...stripped];
+        process.argv = [process.argv[0]!, process.argv[1]!, ...withoutCcUrl];
       }
     }
   }
@@ -3081,7 +3070,8 @@ async function run(): Promise<CommanderCommand> {
           serverUrl: _pendingConnect.url,
           authToken: _pendingConnect.authToken,
           cwd: getOriginalCwd(),
-          dangerouslySkipPermissions: _pendingConnect.dangerouslySkipPermissions
+          // Commander-authoritative: the flag flowed to the main command parse.
+          dangerouslySkipPermissions
         });
         if (session.workDir) {
           setOriginalCwd(session.workDir);
@@ -3874,9 +3864,10 @@ async function run(): Promise<CommanderCommand> {
   // Interactive mode (without -p) is handled by early argv rewriting in main()
   // which redirects to the main command with full TUI support.
   if (feature('DIRECT_CONNECT')) {
-    program.command('open <cc-url>').description('Connect to an OpenClaude server (internal — use cc:// URLs)').option('-p, --print [prompt]', 'Print mode (headless)').option('--output-format <format>', 'Output format: text, json, stream-json', 'text').action(async (ccUrl: string, opts: {
+    program.command('open <cc-url>').description('Connect to an OpenClaude server (internal — use cc:// URLs)').option('-p, --print [prompt]', 'Print mode (headless)').option('--output-format <format>', 'Output format: text, json, stream-json', 'text').option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks (alias: --yolo)', () => true).action(async (ccUrl: string, opts: {
       print?: string | boolean;
       outputFormat: string;
+      dangerouslySkipPermissions?: boolean;
     }) => {
       const {
         parseConnectUrl
@@ -3891,7 +3882,7 @@ async function run(): Promise<CommanderCommand> {
           serverUrl,
           authToken,
           cwd: getOriginalCwd(),
-          dangerouslySkipPermissions: _pendingConnect?.dangerouslySkipPermissions
+          dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? false
         });
         if (session.workDir) {
           setOriginalCwd(session.workDir);
