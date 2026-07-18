@@ -56,6 +56,7 @@ import {
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
+  getRouteDescriptor,
   isLongcatBaseUrl,
   isXaiBaseUrl,
   resolveRouteCredentialValue,
@@ -4814,7 +4815,9 @@ class OpenAIShimMessages {
     const isXaiRoute =
       runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
     const routeAcceptsGenericOpenAICredentials =
-      runtimeShimContext.routeId !== 'longcat'
+      runtimeShimContext.routeId === null ||
+      getRouteDescriptor(runtimeShimContext.routeId)?.setup
+        .dedicatedCredentialsOnly !== true
     const openAIApiKeysPoolRaw =
       routeAcceptsGenericOpenAICredentials &&
       parseCredentialList(process.env.OPENAI_API_KEYS).length > 0

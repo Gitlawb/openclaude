@@ -56,6 +56,7 @@ const originalEnv = {
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
+  CLINE_API_KEY: process.env.CLINE_API_KEY,
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
@@ -518,6 +519,7 @@ beforeEach(async () => {
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.LONGCAT_API_KEY
+  delete process.env.CLINE_API_KEY
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.OPENCODE_API_KEY
@@ -564,6 +566,7 @@ afterEach(() => {
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
+    restoreEnv('CLINE_API_KEY', originalEnv.CLINE_API_KEY)
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
@@ -4889,6 +4892,21 @@ test('longcat provider flag never falls back to an OPENAI_API_KEYS pool', async 
   const captured = await captureChatCompletionRequest()
 
   expect(captured.authorization).not.toBe('Bearer other-provider-secret')
+})
+
+test('dedicated-only ClinePass route never falls back to generic OpenAI credentials', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.cline.bot/api/v1'
+  process.env.OPENAI_MODEL = 'cline-pass/deepseek-v4-flash'
+  process.env.OPENAI_API_KEY = 'generic-openai-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-pool-a,generic-openai-pool-b'
+  delete process.env.CLINE_API_KEY
+
+  const captured = await captureChatCompletionRequest(
+    'cline-pass/deepseek-v4-flash',
+  )
+
+  expect(captured.authorization).toBeNull()
 })
 
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {
