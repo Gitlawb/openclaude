@@ -6730,7 +6730,6 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
 })
 // openaiShim test extraction seam 111 end
 
-
 // ---------------------------------------------------------------------------
 // Extraction boundary: message conversion | non-streaming response conversion
 //
