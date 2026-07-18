@@ -40,7 +40,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeId": "aimlapi",
     "vendorId": "openai",
     "gatewayId": "aimlapi",
-    "description": "1,000+ models, one-click setup",
+    "description": "1,000+ models OpenAI compatible endpoint",
     "apiKeyEnvVars": [
       "AIMLAPI_API_KEY"
     ],

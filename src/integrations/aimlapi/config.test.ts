@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
-  buildPartnerCheckoutReturnUrls,
-  buildPartnerReturnUrl,
   isCanonicalAimlapiInferenceBaseUrl,
   resolvePartnerId,
   resolveEndpoints,
@@ -13,9 +11,6 @@ const envNames = [
   'AIMLAPI_AUTH_URL',
   'AIMLAPI_APP_URL',
   'AIMLAPI_INFERENCE_URL',
-  'AIMLAPI_PAY_URL',
-  'AIMLAPI_VERIFICATION_BASE_URL',
-  'AIMLAPI_RETURN_URL',
   'AIMLAPI_PARTNER_ID',
 ] as const
 const originalEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]))
@@ -35,80 +30,12 @@ afterEach(() => {
   }
 })
 
-test('resolveEndpoints returns the production passwordless and checkout endpoints', () => {
-  for (const name of envNames) delete process.env[name]
+test('resolveEndpoints returns the production endpoints', () => {
   expect(resolveEndpoints()).toEqual({
     authBaseUrl: 'https://auth.aimlapi.com',
     appBaseUrl: 'https://app.aimlapi.com',
     inferenceBaseUrl: 'https://api.aimlapi.com/v1',
-    payBaseUrl: 'https://pay.aimlapi.com',
-    verificationBaseUrl: 'https://aimlapi.com/app',
   })
-})
-
-test('checkout and browser return URLs stay in the selected environment', () => {
-  expect(buildPartnerCheckoutReturnUrls('https://pay.example.test/', 'a/b')).toEqual({
-    successUrl:
-      'https://pay.example.test/checkout?checkout=success&partnerCheckout=1&sessionToken=a%2Fb',
-    cancelUrl:
-      'https://pay.example.test/checkout?checkout=cancel&partnerCheckout=1&sessionToken=a%2Fb',
-  })
-  expect(buildPartnerCheckoutReturnUrls('', 'token')).toEqual({})
-  expect(buildPartnerReturnUrl('https://front.example.test/')).toBe(
-    'https://front.example.test',
-  )
-})
-
-test('AIMLAPI_RETURN_URL overrides the browser landing page', () => {
-  process.env.AIMLAPI_RETURN_URL = 'https://return.example.test/done'
-  expect(buildPartnerReturnUrl('https://front.example.test')).toBe(
-    'https://return.example.test/done',
-  )
-})
-
-test('unsafe checkout and return URL overrides are rejected', () => {
-  expect(buildPartnerCheckoutReturnUrls('file:///tmp/pay', 'token')).toEqual({})
-  expect(
-    buildPartnerCheckoutReturnUrls('https://user:secret@pay.example.test', 'token'),
-  ).toEqual({})
-  expect(buildPartnerCheckoutReturnUrls('not a URL', 'token')).toEqual({})
-  expect(buildPartnerCheckoutReturnUrls('http://pay.example.test', 'token')).toEqual(
-    {},
-  )
-  expect(
-    buildPartnerCheckoutReturnUrls('http://127.0.0.1.evil.example', 'token'),
-  ).toEqual({})
-  expect(
-    buildPartnerCheckoutReturnUrls('https://pay.example.test?environment=test', 'token'),
-  ).toEqual({})
-  expect(
-    buildPartnerCheckoutReturnUrls('https://pay.example.test/#checkout', 'token'),
-  ).toEqual({})
-  expect(buildPartnerCheckoutReturnUrls('http://127.0.0.1:3000/', 'token')).toEqual({
-    successUrl:
-      'http://127.0.0.1:3000/checkout?checkout=success&partnerCheckout=1&sessionToken=token',
-    cancelUrl:
-      'http://127.0.0.1:3000/checkout?checkout=cancel&partnerCheckout=1&sessionToken=token',
-  })
-  expect(buildPartnerReturnUrl('http://127.1:3000/')).toBe(
-    'http://127.0.0.1:3000',
-  )
-
-  for (const override of [
-    'file:///tmp/return',
-    'https://user:secret@return.example.test',
-    'http://return.example.test',
-    'https://return.example.test/done?source=test',
-    'https://return.example.test/done#checkout',
-    'not a URL',
-  ]) {
-    process.env.AIMLAPI_RETURN_URL = override
-    expect(buildPartnerReturnUrl('https://front.example.test/')).toBe(
-      'https://front.example.test',
-    )
-  }
-  process.env.AIMLAPI_RETURN_URL = 'javascript:alert(1)'
-  expect(buildPartnerReturnUrl('also invalid')).toBe('https://aimlapi.com/app')
 })
 
 test('partner id override is shared with the inference header', () => {
