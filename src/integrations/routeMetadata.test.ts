@@ -69,8 +69,8 @@ test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway'
 })
 
 test('isLongcatBaseUrl requires the documented HTTPS OpenAI API path', () => {
-  expect(isLongcatBaseUrl('https://api.longcat.chat/openai')).toBe(false)
-  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/')).toBe(false)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai')).toBe(true)
+  expect(isLongcatBaseUrl('https://api.longcat.chat/openai/')).toBe(true)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1')).toBe(true)
   expect(isLongcatBaseUrl('https://api.longcat.chat/openai/v1/chat/completions')).toBe(true)
   expect(isLongcatBaseUrl('http://api.longcat.chat/openai/v1')).toBe(false)

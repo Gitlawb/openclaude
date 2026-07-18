@@ -4686,6 +4686,44 @@ test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
+test('longcat provider flag serializes tool definitions', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return makeChatCompletionResponse('LongCat-2.0')
+  }) as unknown as FetchType
+
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'LongCat-2.0',
+    messages: [{ role: 'user', content: 'List files' }],
+    tools: [{
+      name: 'Bash',
+      description: 'Run a shell command',
+      input_schema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command'],
+      },
+    }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestBody?.tools).toEqual([
+    expect.objectContaining({
+      type: 'function',
+      function: expect.objectContaining({ name: 'Bash' }),
+    }),
+  ])
+})
+
 test('longcat provider flag never falls back to an OPENAI_API_KEYS pool', async () => {
   process.env.OPENAI_API_KEYS = 'other-provider-secret'
   delete process.env.LONGCAT_API_KEY

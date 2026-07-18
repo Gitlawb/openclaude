@@ -36,7 +36,9 @@ describe('longcat vendor', () => {
       'https://api.longcat.chat/openai/v1',
     )
     expect(getRouteDefaultModel('longcat')).toBe('LongCat-2.0')
-    expect(resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai')).toBeNull()
+    expect(resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai')).toBe(
+      'longcat',
+    )
     expect(
       resolveRouteIdFromBaseUrl('https://api.longcat.chat/openai/v1'),
     ).toBe('longcat')
@@ -58,7 +60,7 @@ describe('longcat vendor', () => {
       vendorId: 'longcat',
       contextWindow: 1_048_576,
       maxOutputTokens: 131_072,
-      capabilities: expect.objectContaining({ supportsFunctionCalling: false }),
+      capabilities: expect.objectContaining({ supportsFunctionCalling: true }),
     })
 
     const preset = getProviderPresetUiMetadata('longcat')
