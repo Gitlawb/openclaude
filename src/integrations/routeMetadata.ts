@@ -379,7 +379,7 @@ export function isLongcatBaseUrl(value: string | undefined): boolean {
     return (
       url.protocol === 'https:' &&
       url.hostname.toLowerCase() === 'api.longcat.chat' &&
-      (url.pathname === '/openai' || url.pathname.startsWith('/openai/'))
+      /^\/openai(?:\/v1(?:\/chat\/completions)?)?\/?$/.test(url.pathname)
     )
   } catch {
     return false

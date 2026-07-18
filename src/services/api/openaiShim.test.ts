@@ -4745,6 +4745,19 @@ test('longcat accepts the documented bare OpenAI SDK base URL with a trailing sl
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
+test('longcat does not append chat completions to a configured endpoint URL', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai/v1/chat/completions'
+  delete process.env.OPENAI_API_KEY
+
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://api.longcat.chat/openai/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-longcat-key')
+})
+
 test('longcat prefers its dedicated credential over a copied key from another provider', async () => {
   process.env.LONGCAT_API_KEY = 'fake-longcat-key'
   process.env.MIMO_API_KEY = 'fake-mimo-key'

@@ -5021,6 +5021,13 @@ class OpenAIShimMessages {
       ) {
         return `${normalizedBase}/v1/chat/completions`
       }
+      if (
+        runtimeShimContext.routeId === 'longcat' &&
+        isLongcatBaseUrl(normalizedBase) &&
+        new URL(normalizedBase).pathname === '/openai/v1/chat/completions'
+      ) {
+        return normalizedBase
+      }
       return `${normalizedBase}/chat/completions`
     }
 
