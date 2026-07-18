@@ -56,7 +56,6 @@ import {
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
-  getRouteDescriptor,
   isLongcatBaseUrl,
   isXaiBaseUrl,
   resolveRouteCredentialValue,
@@ -1345,6 +1344,7 @@ function joinTextContentParts(parts: OpenAIContentPart[]): string {
 function convertToolResultContent(
   content: unknown,
   isError?: boolean,
+  options?: { supportsImageInputs?: boolean },
 ): string | OpenAIContentPart[] {
   if (typeof content === 'string') {
     return isError ? `Error: ${content}` : content
@@ -1373,6 +1373,11 @@ function convertToolResultContent(
     }
 
     if (block?.type === 'image') {
+      if (options?.supportsImageInputs === false) {
+        throw new Error(
+          'The active provider accepts text-only messages and does not support image inputs.',
+        )
+      }
       const source = block.source
       if (source?.type === 'url' && source.url) {
         parts.push({ type: 'image_url', image_url: { url: source.url } })
@@ -1616,7 +1621,7 @@ function convertMessages(
               result.push({
                 role: 'tool',
                 tool_call_id: id,
-                content: convertToolResultContent(tr.content, tr.is_error),
+                content: convertToolResultContent(tr.content, tr.is_error, { supportsImageInputs }),
               })
             } else {
               logForDebugging(
@@ -4809,8 +4814,7 @@ class OpenAIShimMessages {
     const isXaiRoute =
       runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
     const routeAcceptsGenericOpenAICredentials =
-      !getRouteDescriptor(runtimeShimContext.routeId ?? 'custom')?.setup
-        .dedicatedCredentialsOnly
+      runtimeShimContext.routeId !== 'longcat'
     const openAIApiKeysPoolRaw =
       routeAcceptsGenericOpenAICredentials &&
       parseCredentialList(process.env.OPENAI_API_KEYS).length > 0

@@ -4787,6 +4787,26 @@ test('longcat rejects image input before dispatch', async () => {
   })).rejects.toThrow('does not support image inputs')
 })
 
+test('longcat rejects image tool results before dispatch', async () => {
+  process.env.LONGCAT_API_KEY = 'fake-longcat-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  expect(applyProviderFlag('longcat', []).error).toBeUndefined()
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(client.beta.messages.create({
+    model: 'LongCat-2.0',
+    messages: [
+      { role: 'user', content: 'Inspect the screenshot' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_screenshot', name: 'Screenshot', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_screenshot', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }] },
+    ],
+    tools: [{ name: 'Screenshot', description: 'Capture a screenshot', input_schema: { type: 'object', properties: {} } }],
+    max_tokens: 32,
+    stream: false,
+  })).rejects.toThrow('does not support image inputs')
+})
+
 test('longcat accepts the documented bare OpenAI SDK base URL', async () => {
   process.env.LONGCAT_API_KEY = 'fake-longcat-key'
   process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/openai'
