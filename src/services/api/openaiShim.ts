@@ -77,7 +77,10 @@ import {
 } from './codexShim.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
-import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
+import {
+  fetchWithProxyRetry,
+  type ProxyRetryFetcher,
+} from './fetchWithProxyRetry.js'
 import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
@@ -367,7 +370,7 @@ async function fetchWithHeadersDeadline(
   },
 ): Promise<Response> {
   const redactedUrl = redactUrlForDiagnostics(url)
-  const fetchWithAttemptDeadline: typeof fetch = async (input, attemptInit) => {
+  const fetchWithAttemptDeadline: ProxyRetryFetcher = async (input, attemptInit) => {
     const deadlineController = new AbortController()
     const timeoutReason = new ResponseHeadersTimeoutError(
       options.timeoutMs,
