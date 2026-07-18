@@ -398,7 +398,8 @@ describe('applyProviderProfileToProcessEnv', () => {
         model: 'qwen3.6:35b',
       }),
     )
-    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBe('1')
+    // String() avoids TS control-flow narrowing after delete above.
+    expect(String(process.env.OPENAI_SELF_HOSTED_TOOLS)).toBe('1')
 
     // Second activation with selfHostedTools=false must clear — must not treat
     // the previous profile's '1' as a shell override.
