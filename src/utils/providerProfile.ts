@@ -1988,11 +1988,11 @@ export async function buildLaunchEnv(options: {
   // handled by the route-agnostic precedence above rather than here: forcing the
   // profile's own credential in would both hand a key to an endpoint it was not
   // configured for and discard a credential the user supplied for that endpoint.
-  if (
+  const isNoncanonicalAimlapiLaunch =
     effectiveOpenAIRouteId === 'aimlapi' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
-  ) {
+  if (isNoncanonicalAimlapiLaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
     const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
@@ -2067,9 +2067,20 @@ export async function buildLaunchEnv(options: {
       env.NVIDIA_NIM = nvidiaNimFlag
     }
   }
-  const customHeaders = shellCustomHeaders || persistedCustomHeaders
+  // ANTHROPIC_CUSTOM_HEADERS is a third credential channel: client.ts parses it
+  // and merges the result into the defaultHeaders it hands to the OpenAI shim
+  // client, and its own filter only drops `authorization`, `x-api-key` and
+  // `api-key` — a custom-named header such as `X-Proxy-Auth: <secret>` survives
+  // and is sent on every request. So an ambient value must be withheld from a
+  // non-canonical aimlapi launch exactly like the API key and the custom-auth
+  // trio; only headers the profile itself persisted are restored.
+  const customHeaders = isNoncanonicalAimlapiLaunch
+    ? persistedCustomHeaders
+    : shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {
     env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+  } else {
+    delete env.ANTHROPIC_CUSTOM_HEADERS
   }
   const contextWindows =
     processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS ||

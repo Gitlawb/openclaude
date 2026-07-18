@@ -527,6 +527,65 @@ test('openai launch does not let a distinct proxy target inherit the saved aimla
   }
 })
 
+test('openai launch withholds ambient custom headers from a keyless proxy aimlapi profile', async () => {
+  // ANTHROPIC_CUSTOM_HEADERS reaches the proxy: client.ts merges it into the
+  // defaultHeaders passed to the OpenAI shim client, and its filter only drops
+  // the three standard auth header names — a custom-named secret rides through.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Proxy-Auth: ambient-canonical-secret',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'aimlapi')
+  assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, undefined)
+
+  // Headers the profile itself persisted are the user's own configuration for
+  // that proxy, so they survive — and an ambient value cannot override them.
+  const owned = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Proxy-Auth: profile-own-proxy-secret',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Proxy-Auth: ambient-canonical-secret',
+    },
+  })
+  assert.equal(
+    owned.ANTHROPIC_CUSTOM_HEADERS,
+    'X-Proxy-Auth: profile-own-proxy-secret',
+  )
+
+  // On the canonical endpoint the ambient value keeps its existing behaviour.
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Trace: ambient-value',
+    },
+  })
+  assert.equal(canonical.ANTHROPIC_CUSTOM_HEADERS, 'X-Trace: ambient-value')
+})
+
 test('openai launch withholds ambient credentials from a look-alike canonical path', async () => {
   // `/V1` resolves to the aimlapi route by host, so the launch carries the
   // identity — but the strict canonical predicate rejects the path, so it is
