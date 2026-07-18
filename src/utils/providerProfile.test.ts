@@ -393,6 +393,69 @@ test('openai launch withholds the ambient AIMLAPI key from a keyless proxy profi
   assert.equal(canonical.AIMLAPI_API_KEY, 'ambient-aimlapi-key')
 })
 
+test('openai launch withholds the ambient generic OpenAI credential from a keyless proxy aimlapi profile', async () => {
+  // The generic OPENAI_API_KEY / OPENAI_API_KEYS alias is the same exfiltration
+  // path: a keyless retained aimlapi profile on a proxy must not receive the
+  // ambient canonical credential in either form.
+  for (const ambient of [
+    { OPENAI_API_KEY: 'ambient-openai-key' },
+    { OPENAI_API_KEYS: 'ambient-key-a,ambient-key-b' },
+  ]) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+      }),
+      goal: 'coding',
+      processEnv: {
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        ...ambient,
+      },
+    })
+    assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'aimlapi')
+    assert.equal(env.OPENAI_API_KEY, undefined)
+    assert.equal(env.OPENAI_API_KEYS, undefined)
+  }
+
+  // The same ambient credential IS applied on the canonical host.
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      OPENAI_API_KEY: 'ambient-openai-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-openai-key')
+})
+
+test('openai launch keeps a keyed proxy aimlapi profile own OpenAI credential', async () => {
+  // A proxy profile that carries its own key still authenticates with it; only
+  // the ambient credential is dropped, not the user-configured one.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'profile-own-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-openai-key',
+    },
+  })
+  assert.equal(env.OPENAI_API_KEY, 'profile-own-key')
+})
+
 test('xai launch uses descriptor defaults and persisted xAI key', async () => {
   const env = await buildLaunchEnv({
     profile: 'xai',

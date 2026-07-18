@@ -267,7 +267,7 @@ function mockProviderProfilesModule(options?: {
       if (preset === 'aimlapi') {
         return {
           provider: 'aimlapi',
-          name: 'AI/ML API',
+          name: 'aimlapi.com',
           baseUrl: 'https://api.aimlapi.com/v1',
           model: 'gpt-4o',
           apiKey: '',
@@ -463,7 +463,7 @@ function mockProviderManagerDependencies(
     provisionAimlapiKey:
       options?.provisionAimlapiKey ??
       (async () => {
-        throw new Error('Unexpected AI/ML API top-up in test')
+        throw new Error('Unexpected aimlapi.com top-up in test')
       }),
   }))
 
@@ -921,7 +921,7 @@ test('ProviderManager saves OpenAI preset GPT-5 models with Responses API', asyn
   }
 })
 
-test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', async () => {
+test('ProviderManager saves aimlapi.com preset with OpenAI-compatible defaults', async () => {
   const addProviderProfile = mock((payload: any) => ({
     id: 'aimlapi_profile',
     ...payload,
@@ -952,7 +952,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
       frame.includes('Step 1 of 2: Default model'),
     )
 
-    expect(modelOutput).toContain('AI/ML API')
+    expect(modelOutput).toContain('aimlapi.com')
     expect(modelOutput).toContain('gpt-4o')
     expect(modelOutput).not.toContain('Provider name')
     expect(modelOutput).not.toContain('Base URL')
@@ -968,7 +968,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
     await Bun.sleep(25)
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter the API key for AI/ML API'),
+      frame.includes('Enter the API key for aimlapi.com'),
     )
 
     mounted.stdin.write('aimlapi-test-key')
@@ -979,7 +979,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'aimlapi',
-        name: 'AI/ML API',
+        name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
         model: 'gpt-4o',
         apiKey: 'aimlapi-test-key',
@@ -992,7 +992,7 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
   }
 })
 
-test('ProviderManager can top up AI/ML API and save the issued key', async () => {
+test('ProviderManager can top up aimlapi.com and save the issued key', async () => {
   delete process.env.AIMLAPI_EMAIL
   delete process.env.AIMLAPI_PASSWORD
 
@@ -1045,14 +1045,14 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter your AI/ML API account email'),
+      frame.includes('Enter your aimlapi.com account email'),
     )
     mounted.stdin.write('user@example.com')
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Enter your AI/ML API password'),
+      frame.includes('Enter your aimlapi.com password'),
     )
     mounted.stdin.write('secret-password')
     await Bun.sleep(25)
@@ -1087,7 +1087,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     expect(addProviderProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'aimlapi',
-        name: 'AI/ML API',
+        name: 'aimlapi.com',
         baseUrl: 'https://api.aimlapi.com/v1',
         model: 'gpt-4o',
         apiKey: 'aimlapi-issued-key',

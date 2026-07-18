@@ -1940,6 +1940,23 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   }
+  // A keyless retained aimlapi profile on a non-canonical (proxy) base URL must
+  // not receive the ambient canonical credential via the generic OPENAI_API_KEY
+  // /OPENAI_API_KEYS alias either (the generic selection above prefers the live
+  // shell value). Re-source the generic credential from the profile's OWN
+  // persisted env and drop a purely ambient one.
+  if (
+    effectiveOpenAIRouteId === 'aimlapi' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
+  ) {
+    delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_KEYS
+    const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
+    if (persistedCredential) {
+      env[persistedCredential.envVar] = persistedCredential.value
+    }
+  }
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
     'NEARAI_API_KEY',
