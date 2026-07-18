@@ -31,7 +31,7 @@ describe('longcat vendor', () => {
     expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
       'stream_options',
     )
-    expect(vendor?.transportConfig.openaiShim?.removeBodyFields).toContain(
+    expect(vendor?.transportConfig.openaiShim?.removeBodyFields).not.toContain(
       'tools',
     )
 
@@ -63,7 +63,7 @@ describe('longcat vendor', () => {
       vendorId: 'longcat',
       contextWindow: 1_048_576,
       maxOutputTokens: 131_072,
-      capabilities: expect.objectContaining({ supportsFunctionCalling: false }),
+      capabilities: expect.objectContaining({ supportsFunctionCalling: true }),
     })
 
     const preset = getProviderPresetUiMetadata('longcat')

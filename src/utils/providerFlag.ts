@@ -596,6 +596,13 @@ export function applyProviderFlag(
 
     case 'longcat':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // LongCat only implements its documented chat-completions endpoint and
+      // Bearer authentication. Do not let stale OpenAI-compatible settings
+      // from a previously selected provider change that wire contract.
+      delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AUTH_HEADER
+      delete process.env.OPENAI_AUTH_SCHEME
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
       applyOpenAIBaseUrlDefault(
         provider,
         defaultBaseUrl ?? 'https://api.longcat.chat/openai/v1',

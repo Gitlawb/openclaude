@@ -782,6 +782,22 @@ describe('applyProviderFlag - longcat', () => {
     expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
   })
 
+  test('clears incompatible OpenAI transport and auth overrides', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'token'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-secret'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+  })
+
   test('does not mirror LONGCAT_API_KEY to a preserved custom base URL', () => {
     process.env.OPENAI_BASE_URL = 'https://untrusted.example/v1'
     process.env.LONGCAT_API_KEY = 'longcat-secret-key'

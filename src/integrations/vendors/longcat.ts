@@ -23,8 +23,7 @@ export default defineVendor({
       thinkingRequestFormat: 'zai-compatible',
       maxTokensField: 'max_tokens',
       // LongCat documents thinking:{type} but not reasoning_effort.
-      // The documented OpenAI-compatible endpoint accepts text-only messages.
-      removeBodyFields: ['store', 'reasoning_effort', 'stream_options', 'tools'],
+      removeBodyFields: ['store', 'reasoning_effort', 'stream_options'],
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },
@@ -56,7 +55,7 @@ export default defineVendor({
         modelDescriptorId: 'LongCat-2.0',
         capabilities: {
           supportsStreaming: true,
-          supportsFunctionCalling: false,
+          supportsFunctionCalling: true,
           supportsReasoning: true,
         },
         contextWindow: 1_048_576,
