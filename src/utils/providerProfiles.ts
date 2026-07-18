@@ -68,6 +68,41 @@ import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
+
+/**
+ * Shell-origin overrides for self-hosted tool flags. Captured once from the
+ * pre-managed environment (before PROFILE_ENV_APPLIED) so a prior profile's
+ * OPENAI_SELF_HOSTED_TOOLS=1 is never mistaken for a shell export on the next
+ * activation. Direct selfHostedTools true→false must apply false.
+ */
+let shellSelfHostedToolsOverride: string | undefined
+let shellParseTextToolCallsOverride: string | undefined
+let shellSelfHostedOverridesCaptured = false
+
+function captureShellSelfHostedOverridesIfNeeded(): void {
+  // Only sample process.env when no managed profile has been applied yet.
+  if (shellSelfHostedOverridesCaptured) {
+    return
+  }
+  if (process.env[PROFILE_ENV_APPLIED_FLAG] === '1') {
+    // Session already managed — do not treat current values as shell.
+    shellSelfHostedOverridesCaptured = true
+    return
+  }
+  shellSelfHostedToolsOverride = process.env.OPENAI_SELF_HOSTED_TOOLS
+  shellParseTextToolCallsOverride = process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  shellSelfHostedOverridesCaptured = true
+}
+
+/** Test helper: reset shell-override provenance between tests. */
+export function _resetShellSelfHostedOverridesForTests(): void {
+  shellSelfHostedToolsOverride = undefined
+  shellParseTextToolCallsOverride = undefined
+  shellSelfHostedOverridesCaptured = false
+}
+
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
   name: string
@@ -107,9 +142,6 @@ export function applySelfHostedToolsProfileEnv(
   }
   return { ...env, OPENAI_SELF_HOSTED_TOOLS: '1' }
 }
-
-const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
-const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
 
 type ProfileCompatibilityMode =
   | 'anthropic'
@@ -911,10 +943,9 @@ export function applyProviderProfileToProcessEnv(
   profile: ProviderProfile,
   options?: { primaryModel?: string },
 ): void {
-  // Capture documented shell overrides before PROFILE_ENV_KEYS are cleared.
-  // Shell wins over profile.selfHostedTools=false for reverse-proxied hosts.
-  const shellSelfHostedTools = process.env.OPENAI_SELF_HOSTED_TOOLS
-  const shellParseTextToolCalls = process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  // Capture real shell overrides once (pre-managed only). Do not treat values
+  // left by a previous profile as shell overrides.
+  captureShellSelfHostedOverridesIfNeeded()
 
   const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
   const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
@@ -1119,12 +1150,12 @@ export function applyProviderProfileToProcessEnv(
 
   clearProviderProfileEnvFromProcessEnv()
   Object.assign(process.env, nextEnv)
-  // Re-apply explicit shell overrides after managed clear (shell wins).
-  if (shellSelfHostedTools) {
-    process.env.OPENAI_SELF_HOSTED_TOOLS = shellSelfHostedTools
+  // Re-apply shell-origin overrides only (not prior profile-managed values).
+  if (shellSelfHostedToolsOverride) {
+    process.env.OPENAI_SELF_HOSTED_TOOLS = shellSelfHostedToolsOverride
   }
-  if (shellParseTextToolCalls) {
-    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = shellParseTextToolCalls
+  if (shellParseTextToolCallsOverride) {
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = shellParseTextToolCallsOverride
   }
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id

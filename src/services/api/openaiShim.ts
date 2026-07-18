@@ -2185,6 +2185,34 @@ function extractBalancedJson(text: string, start: number): string | null {
   return null
 }
 
+/**
+ * Decode a tool-call `arguments` value to a plain object.
+ * Rejects arrays, primitives, and malformed JSON strings (no silent `{}`).
+ * `null` / `undefined` → empty object (explicit empty args).
+ */
+function decodeToolCallArguments(
+  rawArgs: unknown,
+): Record<string, unknown> | null {
+  if (rawArgs === undefined || rawArgs === null) {
+    return {}
+  }
+  if (typeof rawArgs === 'string') {
+    try {
+      rawArgs = JSON.parse(rawArgs)
+    } catch {
+      return null
+    }
+  }
+  if (
+    rawArgs &&
+    typeof rawArgs === 'object' &&
+    !Array.isArray(rawArgs)
+  ) {
+    return rawArgs as Record<string, unknown>
+  }
+  return null
+}
+
 function parseAndAdd(
   raw: string,
   results: ParsedTextToolCall[],
@@ -2199,7 +2227,7 @@ function parseAndAdd(
   }
 
   let name: string | undefined
-  let args: Record<string, unknown> = {}
+  let args: Record<string, unknown> | null = null
 
   if (typeof obj['name'] === 'string') {
     // Require a real tool-call shape: {"name":"X","arguments":...}.
@@ -2208,20 +2236,7 @@ function parseAndAdd(
       return false
     }
     name = obj['name'] as string
-    const rawArgs = obj['arguments']
-    if (typeof rawArgs === 'string') {
-      try {
-        args = JSON.parse(rawArgs) as Record<string, unknown>
-      } catch {
-        args = {}
-      }
-    } else if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
-      args = rawArgs as Record<string, unknown>
-    } else if (rawArgs === undefined || rawArgs === null) {
-      args = {}
-    } else {
-      return false
-    }
+    args = decodeToolCallArguments(obj['arguments'])
   } else if (
     obj['type'] === 'function' &&
     typeof (obj['function'] as { name?: unknown } | undefined)?.name === 'string'
@@ -2232,22 +2247,10 @@ function parseAndAdd(
       return false
     }
     name = fn.name
-    const rawArgs = fn.arguments
-    args =
-      typeof rawArgs === 'string'
-        ? (() => {
-            try {
-              return JSON.parse(rawArgs)
-            } catch {
-              return {}
-            }
-          })()
-        : rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
-          ? (rawArgs as Record<string, unknown>)
-          : {}
+    args = decodeToolCallArguments(fn.arguments)
   }
 
-  if (!name) return false
+  if (!name || args === null) return false
   if (allowedToolNames && allowedToolNames.size > 0 && !allowedToolNames.has(name)) {
     return false
   }
@@ -3712,9 +3715,33 @@ async function* openaiStreamToAnthropic(
                 accumulatedText,
                 allowHy3ToolCalls,
               )
-              if (xmlParsed.calls.length > 0) {
-                recoveredCalls = xmlParsed.calls
-                recoveredRanges = xmlParsed.toolCallRanges
+              // Pair each call with its range; drop names not in the allowlist.
+              const allow =
+                allowedToolNames instanceof Set
+                  ? allowedToolNames
+                  : allowedToolNames
+                    ? new Set(allowedToolNames)
+                    : undefined
+              const filteredCalls: typeof recoveredCalls = []
+              const filteredRanges: Array<[number, number]> = []
+              for (let i = 0; i < xmlParsed.calls.length; i++) {
+                const call = xmlParsed.calls[i]!
+                const range = xmlParsed.toolCallRanges[i]
+                if (
+                  allow &&
+                  allow.size > 0 &&
+                  !allow.has(call.name)
+                ) {
+                  continue
+                }
+                filteredCalls.push(call)
+                if (range) {
+                  filteredRanges.push(range)
+                }
+              }
+              if (filteredCalls.length > 0) {
+                recoveredCalls = filteredCalls
+                recoveredRanges = filteredRanges
               }
             }
             if (recoveredCalls.length > 0) {

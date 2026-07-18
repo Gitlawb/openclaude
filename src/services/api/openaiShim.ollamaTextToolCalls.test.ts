@@ -124,6 +124,20 @@ describe('parseTextToolCalls', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('rejects malformed JSON string arguments (no silent {})', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":"{not-json"}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  test('rejects array arguments value', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":["ls","-la"]}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
   test('rejects name not in allowedToolNames allowlist', () => {
     const text = '{"name":"Bash","arguments":{"command":"ls"}}'
     const { calls } = parseTextToolCalls(text, {

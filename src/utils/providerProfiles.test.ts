@@ -357,8 +357,11 @@ describe('applyProviderProfileToProcessEnv', () => {
   })
 
   test('shell OPENAI_SELF_HOSTED_TOOLS survives profile activation without UI flag', async () => {
-    const { applyProviderProfileToProcessEnv } =
-      await importFreshProviderProfileModules()
+    const {
+      applyProviderProfileToProcessEnv,
+      _resetShellSelfHostedOverridesForTests,
+    } = await importFreshProviderProfileModules()
+    _resetShellSelfHostedOverridesForTests()
 
     process.env.OPENAI_SELF_HOSTED_TOOLS = '1'
     process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
@@ -374,6 +377,40 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBe('1')
     expect(process.env.OPENAI_PARSE_TEXT_TOOL_CALLS).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://llama.example.com:8443/v1')
+  })
+
+  test('selfHostedTools true→false activation clears flag (prior profile not shell)', async () => {
+    const {
+      applyProviderProfileToProcessEnv,
+      _resetShellSelfHostedOverridesForTests,
+    } = await importFreshProviderProfileModules()
+    _resetShellSelfHostedOverridesForTests()
+
+    // No shell export — first activation enables via profile.
+    delete process.env.OPENAI_SELF_HOSTED_TOOLS
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'provider_self_hosted_on',
+        selfHostedTools: true,
+        baseUrl: 'https://llama.example.com:8443/v1',
+        model: 'qwen3.6:35b',
+      }),
+    )
+    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBe('1')
+
+    // Second activation with selfHostedTools=false must clear — must not treat
+    // the previous profile's '1' as a shell override.
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'provider_self_hosted_off',
+        selfHostedTools: false,
+        baseUrl: 'https://llama.example.com:8443/v1',
+        model: 'qwen3.6:35b',
+      }),
+    )
+    expect(process.env.OPENAI_SELF_HOSTED_TOOLS).toBeUndefined()
   })
 
   test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {

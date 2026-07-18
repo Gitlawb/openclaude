@@ -512,15 +512,27 @@ describe('GLM streaming — XML tool calls', () => {
 // XML tool calls are flushed as plain text with end_turn.
 describe('Self-hosted streaming — XML tool calls with tools advertised', () => {
   let originalFetch: FetchType
+  let originalOpenAIApiKey: string | undefined
+  let originalOpenAIBaseUrl: string | undefined
   beforeEach(() => {
     originalFetch = globalThis.fetch
+    originalOpenAIApiKey = process.env.OPENAI_API_KEY
+    originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
     process.env.OPENAI_API_KEY = 'none'
     process.env.OPENAI_BASE_URL = 'http://192.168.1.10:8080/v1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_BASE_URL
+    if (originalOpenAIApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAIApiKey
+    }
+    if (originalOpenAIBaseUrl === undefined) {
+      delete process.env.OPENAI_BASE_URL
+    } else {
+      process.env.OPENAI_BASE_URL = originalOpenAIBaseUrl
+    }
   })
 
   test('recovers Qwen/GLM XML tool_use from buffered self-hosted stream', async () => {
