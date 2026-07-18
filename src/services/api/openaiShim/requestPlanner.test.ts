@@ -73,12 +73,20 @@ describe('compatibility environment hydration', () => {
       BANKR_BASE_URL: 'https://bankr.test/v1',
       BANKR_MODEL: 'bankr-model',
     }
-    hydrateOpenAIShimCompatibilityEnv(bankr, envDependencies('route-key'))
+    let resolvedBaseUrl: string | undefined
+    hydrateOpenAIShimCompatibilityEnv(bankr, {
+      isEnvTruthy: (value) => value === '1',
+      resolveRouteCredentialValue: ({ baseUrl }) => {
+        resolvedBaseUrl = baseUrl
+        return 'route-key'
+      },
+    })
     expect(bankr).toMatchObject({
       OPENAI_BASE_URL: 'https://bankr.test/v1',
       OPENAI_MODEL: 'bankr-model',
       OPENAI_API_KEY: 'route-key',
     })
+    expect(resolvedBaseUrl).toBe('https://bankr.test/v1')
   })
 })
 
