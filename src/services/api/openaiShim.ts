@@ -79,6 +79,11 @@ import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
+  executeOpenAIRequest,
+  formatRetryAfterHint,
+  sleepMs,
+} from './openaiShim/requestExecutor.js'
+import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
@@ -408,11 +413,6 @@ function maybeSetNvidiaNimChatTemplateThinking(
   setNvidiaNimChatTemplateThinking(body)
 }
 
-function formatRetryAfterHint(response: Response): string {
-  const ra = response.headers.get('retry-after')
-  return ra ? ` (Retry-After: ${ra})` : ''
-}
-
 function redactUrlForDiagnostics(url: string): string {
   const redacted = redactUrlForDisplay(url)
   return (
@@ -423,10 +423,6 @@ function redactUrlForDiagnostics(url: string): string {
 
 function redactUrlsInMessage(message: string): string {
   return message.replace(/https?:\/\/\S+/g, match => redactUrlForDiagnostics(match))
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 // ---------------------------------------------------------------------------
@@ -1678,9 +1674,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1748,7 +1741,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1815,6 +1808,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1957,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2346,6 +2346,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2520,6 +2522,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3438,6 +3442,8 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
@@ -4014,7 +4020,11 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4065,7 +4075,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4090,7 +4100,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4111,7 +4120,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4148,7 +4157,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4245,7 +4253,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -4263,320 +4271,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
-    const baseHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...filterAnthropicHeaders(shimConfig.headers),
-      ...this.defaultHeaders,
-      ...filterAnthropicHeaders(options?.headers),
-    }
-
-    const isGemini = isGeminiMode()
-    const routeCredential = resolveRouteCredentialValue({
-      routeId: runtimeShimContext.routeId,
-      baseUrl: request.baseUrl,
-      processEnv: process.env,
-    })
-    // xAI OAuth: when the active route is xAI and no API key is set, fall
-    // back to a stored OAuth access token (auto-refreshed). The token is
-    // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
-    const isXaiRoute =
-      runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
-    const openAIApiKeysPoolRaw =
-      parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
-        ? process.env.OPENAI_API_KEYS
-        : undefined
-    const openAIApiKeyRaw = process.env.OPENAI_API_KEY?.trim()
-    const openAIApiKeyValues = parseCredentialList(openAIApiKeyRaw)
-    const openAIApiKey = openAIApiKeyValues[0]
-    const openAIApiKeyRawUsable =
-      openAIApiKeyValues.length > 0 ? openAIApiKeyRaw : undefined
-    const xaiOAuthToken =
-      isXaiRoute &&
-      !this.providerOverride?.apiKey &&
-      !routeCredential &&
-      !openAIApiKeysPoolRaw &&
-      !openAIApiKey
-        ? await resolveXaiAccessToken()
-        : undefined
-    const openAIApiKeyIsCopiedProviderKey =
-      Boolean(
-        openAIApiKeyRawUsable &&
-        [
-          process.env.OPENGATEWAY_API_KEY,
-          process.env.NVIDIA_API_KEY,
-          process.env.BNKR_API_KEY,
-          process.env.XAI_API_KEY,
-          process.env.MIMO_API_KEY,
-          process.env.VENICE_API_KEY,
-          process.env.MINIMAX_API_KEY,
-          process.env.ATLAS_CLOUD_API_KEY,
-          process.env.NEARAI_API_KEY,
-          process.env.FIREWORKS_API_KEY,
-        ].some(value => value?.trim() === openAIApiKeyRawUsable),
-      )
-    const routeCredentialIsCopiedProviderKey =
-      Boolean(
-        routeCredential &&
-        openAIApiKeyRawUsable &&
-        routeCredential === openAIApiKeyRawUsable &&
-        openAIApiKeyIsCopiedProviderKey,
-      )
-    const routeCredentialIsProviderSpecific =
-      Boolean(
-        routeCredential &&
-        (!openAIApiKeyRawUsable ||
-          routeCredential !== openAIApiKeyRawUsable ||
-          routeCredentialIsCopiedProviderKey),
-      )
-    const routeCredentialIsGenericOpenAIFallback =
-      Boolean(
-        !routeCredentialIsProviderSpecific &&
-        routeCredential &&
-        openAIApiKeyRawUsable &&
-        routeCredential === openAIApiKeyRawUsable,
-      )
-    const apiKeyRaw =
-      this.providerOverride?.apiKey ??
-      (openAIApiKeyIsCopiedProviderKey ? openAIApiKeyRawUsable : undefined) ??
-      (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
-      openAIApiKeysPoolRaw ??
-      routeCredential ??
-      (openAIApiKeyRawUsable || xaiOAuthToken || '')
-    // A catalog-level auth header is part of the selected model's transport
-    // contract. Ignore global custom auth left behind by another route so it
-    // cannot replace that model-specific header or credential.
-    const catalogAuthHeader =
-      runtimeShimContext.catalogEntry?.transportOverrides?.openaiShim
-        ?.defaultAuthHeader
-    const configuredAuthHeaderValue = catalogAuthHeader
-      ? undefined
-      : process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
-    if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
-      throw new Error('OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters')
-    }
-    const customAuthHeader = catalogAuthHeader
-      ? undefined
-      : process.env.OPENAI_AUTH_HEADER?.trim()
-    const hasCustomAuthHeader = Boolean(
-      customAuthHeader &&
-      /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
-    )
-    const explicitCustomAuthHeaderValue = hasCustomAuthHeader
-      ? configuredAuthHeaderValue
-      : ''
-    if (!explicitCustomAuthHeaderValue && hasInvalidCredentialPlaceholder(apiKeyRaw)) {
-      throw APIError.generate(
-        401,
-        undefined,
-        buildOpenAICompatibilityErrorMessage(
-          'OpenAI API error 401: invalid credential pool placeholder SUA_CHAVE detected',
-          {
-            category: 'auth_invalid',
-            requestUrl: request.baseUrl,
-          },
-        ),
-        new Headers(),
-      )
-    }
-    // Reads live process.env by design; must agree with the responses
-    // auto-route gate's processEnv (both default to process.env today).
-    const isAzure = isAzureStyleBaseUrl(request.baseUrl, requestProcessEnv)
-
-    let isBankr = false
-    try {
-      isBankr =
-        runtimeShimContext.routeId === 'bankr' ||
-        request.baseUrl.toLowerCase().includes('bankr')
-    } catch { /* malformed URL — not Bankr */ }
-
-    const credentialPool = explicitCustomAuthHeaderValue
-      ? null
-      : this.getCredentialPool(apiKeyRaw)
-    const singleAuthValue =
-      explicitCustomAuthHeaderValue || parseCredentialList(apiKeyRaw)[0] || apiKeyRaw
-
-    const buildHeadersForAttempt = async (
-      credentialLease: CredentialLease | null,
-    ): Promise<Record<string, string>> => {
-      const headers: Record<string, string> = { ...baseHeaders }
-      const authValue =
-        explicitCustomAuthHeaderValue ||
-        refreshedCopilotToken ||
-        credentialLease?.value ||
-        (credentialPool ? '' : singleAuthValue)
-
-      if (authValue) {
-        if (hasCustomAuthHeader && customAuthHeader) {
-          const defaultCustomAuthScheme =
-            customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-          const customAuthScheme =
-            process.env.OPENAI_AUTH_SCHEME === 'raw' ||
-            process.env.OPENAI_AUTH_SCHEME === 'bearer'
-              ? process.env.OPENAI_AUTH_SCHEME
-              : defaultCustomAuthScheme
-          headers[customAuthHeader] =
-            customAuthScheme === 'bearer'
-              ? `Bearer ${authValue}`
-              : authValue
-        } else if (isAzure) {
-          // Azure uses api-key header instead of Bearer token
-          headers['api-key'] = authValue
-        } else if (isBankr) {
-          // Bankr uses X-API-Key header instead of Bearer token
-          headers['X-API-Key'] = authValue
-        } else if (shimConfig.defaultAuthHeader?.name) {
-          headers[shimConfig.defaultAuthHeader.name] =
-            shimConfig.defaultAuthHeader.scheme === 'bearer'
-              ? `Bearer ${authValue}`
-              : authValue
-        } else {
-          headers.Authorization = `Bearer ${authValue}`
-        }
-      } else if (isGemini) {
-        const geminiCredential = await resolveGeminiCredential(process.env)
-        if (geminiCredential.kind !== 'none') {
-          headers.Authorization = `Bearer ${geminiCredential.credential}`
-          if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
-            headers['x-goog-user-project'] = geminiCredential.projectId
-          }
-        }
-      }
-
-      if (isGithubCopilot) {
-        Object.assign(headers, COPILOT_HEADERS)
-      } else if (isGithubModels) {
-        headers['Accept'] = 'application/vnd.github+json'
-        headers['X-GitHub-Api-Version'] = '2022-11-28'
-      }
-
-      // xAI / Grok prompt caching. Pinning the session id via x-grok-conv-id
-      // routes follow-up requests to the same backend so xAI can reuse the
-      // cached system prompt and conversation history. Mirrors the Hermes
-      // implementation (RELEASE_v0.8.0 PR #5604).
-      if (isXaiRoute) {
-        headers['x-grok-conv-id'] ??= getSessionId()
-      }
-
-      return headers
-    }
-
-    const buildChatCompletionsUrl = (baseUrl: string): string => {
-      // Azure Cognitive Services / Azure OpenAI require a deployment-specific
-      // path and an api-version query parameter.
-      if (isAzure) {
-        const normalizedBaseUrl = (baseUrl.split(/[?#]/, 1)[0] ?? baseUrl).replace(/\/+$/, '')
-        const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-        const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
-
-        // If base URL already contains /deployments/, use it as-is with api-version.
-        if (/\/deployments\//i.test(normalizedBaseUrl)) {
-          return `${normalizedBaseUrl}/chat/completions?api-version=${apiVersion}`
-        }
-
-        // Strip trailing /v1 or /openai/v1 if present, then build Azure path.
-        const normalizedBase = normalizedBaseUrl
-          .replace(/\/(openai\/)?v1\/?$/, '')
-          .replace(/\/+$/, '')
-
-        return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
-      }
-
-      return `${baseUrl}/chat/completions`
-    }
-
-    // Azure serves the Responses API only on the v1 surface
-    // ({resource}/openai/v1/responses — model in the request body, no
-    // api-version, no deployment-scoped form), so any Azure-style base is
-    // normalized to it: trailing /openai/v1, /v1, and
-    // /openai/deployments/<dep> segments are stripped until stable (bases
-    // can carry several, e.g. /openai/deployments/<dep>/openai/v1), then
-    // /openai/v1/responses is appended.
-    // https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
-    const buildResponsesUrl = (baseUrl: string): string => {
-      const trimmedBase = baseUrl.replace(/\/+$/, '')
-      if (!isAzure) {
-        return `${trimmedBase}/responses`
-      }
-      let normalizedBase = (trimmedBase.split(/[?#]/, 1)[0] ?? trimmedBase).replace(/\/+$/, '')
-      for (;;) {
-        const stripped = normalizedBase
-          .replace(/\/(openai\/)?v1$/i, '')
-          .replace(/\/openai\/deployments\/[^/]+$/i, '')
-          .replace(/\/+$/, '')
-        if (stripped === normalizedBase) break
-        normalizedBase = stripped
-      }
-      return `${normalizedBase}/openai/v1/responses`
-    }
-
-    const localRetryBaseUrls = isLocal
-      ? getLocalProviderRetryBaseUrls(request.baseUrl)
-      : []
-
-    const buildRequestUrl = (baseUrl: string): string => {
-      if (shimConfig.endpointPath) {
-        return `${baseUrl}${shimConfig.endpointPath}`
-      }
-      if (useNativeOllamaChat) {
-        return buildOllamaChatUrl(baseUrl)
-      }
-      return request.transport === 'responses' || request.transport === 'responses_compat'
-        ? buildResponsesUrl(baseUrl)
-        : buildChatCompletionsUrl(baseUrl)
-    }
-
-    let activeBaseUrl = request.baseUrl
-    let requestUrl = buildRequestUrl(activeBaseUrl)
-    const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
-    let didRetryWithoutTools = false
-    let didRetryWithoutToolStream = false
-    let retryCredentialLease: CredentialLease | null = null
-    let didRefreshCopilotToken = false
-    let refreshedCopilotToken: string | undefined
-
-    const promoteNextLocalBaseUrl = (
-      reason: 'endpoint_not_found' | 'localhost_resolution_failed',
-    ): boolean => {
-      for (const candidateBaseUrl of localRetryBaseUrls) {
-        if (attemptedLocalBaseUrls.has(candidateBaseUrl)) {
-          continue
-        }
-
-        const previousUrl = requestUrl
-        attemptedLocalBaseUrls.add(candidateBaseUrl)
-        activeBaseUrl = candidateBaseUrl
-        requestUrl = buildRequestUrl(activeBaseUrl)
-
-        logForDebugging(
-          `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
-          { level: 'warn' },
-        )
-
-        return true
-      }
-
-      return false
-    }
-
-    const bodyContainsImages = (): boolean => {
-      if (request.transport === 'responses') {
-        const responsesBody = buildResponsesBody()
-        const input = responsesBody.input as Array<Record<string, unknown>> | undefined
-        if (!Array.isArray(input)) return false
-        return input.some(item => {
-          const content = item.content as Array<Record<string, unknown>> | undefined
-          return Array.isArray(content) && content.some(part => part.type === 'input_image')
-        })
-      }
-      const messages = body.messages as Array<Record<string, unknown>> | undefined
-      if (!Array.isArray(messages)) return false
-      return messages.some(msg => {
-        const content = msg.content
-        if (!Array.isArray(content)) return false
-        return content.some((part: Record<string, unknown>) => part.type === 'image_url')
-      })
-    }
-
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4618,424 +4315,23 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
-    let serializedBody = serializeBody()
-
-    const refreshSerializedBody = (): void => {
-      serializedBody = serializeBody()
-    }
-
-    const buildFetchInit = (headers: Record<string, string>) => ({
-      method: 'POST' as const,
-      headers,
-      body: serializedBody,
-      signal: options?.signal,
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
+    return executeOpenAIRequest({
+      defaultHeaders: this.defaultHeaders,
+      providerOverride: this.providerOverride,
+      getCredentialPool: value => this.getCredentialPool(value),
+      filterAnthropicHeaders, isGeminiMode, resolveRouteCredentialValue, isXaiBaseUrl, parseCredentialList, resolveXaiAccessToken, hasInvalidCredentialPlaceholder, buildOpenAICompatibilityErrorMessage, isAzureStyleBaseUrl, resolveGeminiCredential, COPILOT_HEADERS, getSessionId, getLocalProviderRetryBaseUrls, buildOllamaChatUrl, logForDebugging, redactUrlForDiagnostics, redactSecretValueForDisplay, headersWithRequestUrl, classifyOpenAINetworkFailure, classifyOpenAIHttpFailure, fetchWithProxyRetry, formatRetryAfterHint, redactUrlsInMessage, sleepMs, shouldAttemptLocalToollessRetry, refreshCopilotTokenOn401, isCopilotTokenExpiredError, convertOllamaStreamingResponse, convertOllamaNonStreamingResponse, logApiCallStart, logApiCallEnd, stableStringifyJson, APIError, GITHUB_429_MAX_RETRIES, GITHUB_429_BASE_DELAY_SEC, GITHUB_429_MAX_DELAY_SEC, request, params, options, requestProcessEnv, fastPath, shimConfig, runtimeShimContext, body, effectiveTransport, useNativeOllamaChat, buildResponsesBody, serializeBody, isLocal, isGithub, isGithubCopilot, isGithubModels,
+      omitTools,
     })
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
 
-    const maxSelfHealAttempts = isLocal
-      ? localRetryBaseUrls.length + 1
-      : 0
-    const credentialPoolAttempts = credentialPool?.size ?? 1
-    let maxAttempts =
-      Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
-      maxSelfHealAttempts
-
-    const throwClassifiedTransportError = (
-      error: unknown,
-      requestUrl: string,
-      preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
-    ): never => {
-      if (options?.signal?.aborted) {
-        throw error
-      }
-
-      const failure =
-        preclassifiedFailure ??
-        classifyOpenAINetworkFailure(error, {
-          url: requestUrl,
-        })
-      const redactedUrl = redactUrlForDiagnostics(requestUrl)
-      const safeMessage =
-        redactSecretValueForDisplay(
-          redactUrlsInMessage(failure.message),
-          process.env as SecretValueSource,
-        ) || 'Request failed'
-
-      logForDebugging(
-        `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${safeMessage}`,
-        { level: 'warn' },
-      )
-
-      throw APIError.generate(
-        0,
-        undefined,
-        buildOpenAICompatibilityErrorMessage(
-          `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
-          failure,
-        ),
-        new Headers(),
-      )
-    }
-
-    const throwClassifiedHttpError = (
-      status: number,
-      errorBody: string,
-      parsedBody: object | undefined,
-      responseHeaders: Headers,
-      requestUrl: string,
-      rateHint = '',
-      preclassifiedFailure?: ReturnType<typeof classifyOpenAIHttpFailure>,
-    ): never => {
-      const failure =
-        preclassifiedFailure ??
-        classifyOpenAIHttpFailure({
-          status,
-          body: errorBody,
-          url: requestUrl,
-          hasImages: bodyContainsImages(),
-        })
-      const failureWithUrl = { ...failure, requestUrl: failure.requestUrl ?? requestUrl }
-      const redactedUrl = redactUrlForDiagnostics(requestUrl)
-
-      logForDebugging(
-        `[OpenAIShim] request failed category=${failure.category} retryable=${failure.retryable} status=${status} method=POST url=${redactedUrl} model=${request.resolvedModel}`,
-        { level: 'warn' },
-      )
-
-      throw APIError.generate(
-        status,
-        parsedBody,
-        buildOpenAICompatibilityErrorMessage(
-          `OpenAI API error ${status}: ${errorBody}${rateHint}`,
-          failureWithUrl,
-        ),
-        headersWithRequestUrl(responseHeaders, requestUrl),
-      )
-    }
-
-    let response: Response | undefined
-    const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
-      : request.baseUrl.includes('minimax') ? 'minimax'
-      : request.baseUrl.includes('xiaomimimo') || request.baseUrl.includes('mimo-v2') ? 'xiaomi-mimo'
-      : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
-      : request.baseUrl.includes('anthropic') ? 'anthropic'
-      : 'openai'
-    const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const credentialLease = retryCredentialLease ?? credentialPool?.next() ?? null
-      retryCredentialLease = null
-      if (credentialPool && !credentialLease) {
-        throw APIError.generate(
-          401,
-          undefined,
-          buildOpenAICompatibilityErrorMessage(
-            'OpenAI API error 401: credential pool exhausted after authentication failures',
-            {
-              category: 'auth_invalid',
-              requestUrl,
-            },
-          ),
-          new Headers(),
-        )
-      }
-      const headers = await buildHeadersForAttempt(credentialLease)
-      try {
-        response = await fetchWithProxyRetry(
-          requestUrl,
-          buildFetchInit(headers),
-        )
-      } catch (error) {
-        const isAbortError =
-          options?.signal?.aborted === true ||
-          (typeof DOMException !== 'undefined' &&
-            error instanceof DOMException &&
-            error.name === 'AbortError') ||
-          (typeof error === 'object' &&
-            error !== null &&
-            'name' in error &&
-            error.name === 'AbortError')
-
-        if (isAbortError) {
-          throw error
-        }
-
-        const failure = classifyOpenAINetworkFailure(error, {
-          url: requestUrl,
-        })
-
-        if (
-          isLocal &&
-          failure.category === 'localhost_resolution_failed' &&
-          promoteNextLocalBaseUrl('localhost_resolution_failed')
-        ) {
-          continue
-        }
-
-        throwClassifiedTransportError(error, requestUrl, failure)
-      }
-
-      // After the try/catch, response is guaranteed to be defined — the catch
-      // block always throws (throwClassifiedTransportError returns never).
-      if (!response) continue
-
-      if (response.ok) {
-        credentialPool?.reportSuccess(credentialLease)
-        if (useNativeOllamaChat) {
-          response = params.stream
-            ? convertOllamaStreamingResponse(response, request.resolvedModel)
-            : await convertOllamaNonStreamingResponse(response, request.resolvedModel)
-        }
-        let tokensIn = 0
-        let tokensOut = 0
-        // Skip clone() for streaming responses - it blocks until full body is received,
-        // defeating the purpose of streaming. Usage data is already sent via
-        // stream_options: { include_usage: true } and can be extracted from the stream.
-        if (!params.stream) {
-          try {
-            const bodyText = await response.text()
-            // Preserve routing metadata that `new Response()` drops to "".
-            // create() reads `response.url` to route between /responses,
-            // /messages, and Gemini conversion paths; losing it makes
-            // descriptor routes (OpenCode /messages, Gemini /models/gemini-*)
-            // fall through to the generic OpenAI converter and return the
-            // wrong message shape. `url` is a read-only getter on the
-            // prototype, so shadow it with an own property.
-            const originalUrl = response.url
-            const originalType = response.type
-            // Recreate the response immediately after reading the body, before
-            // JSON.parse — if parsing fails, downstream code can still read the
-            // body from the fresh Response instead of hitting "Body already used".
-            response = new Response(bodyText, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-            })
-            if (originalUrl) {
-              try {
-                Object.defineProperty(response, 'url', {
-                  value: originalUrl,
-                  configurable: true,
-                })
-              } catch {
-                /* some runtimes lock the property; routing falls back to transport */
-              }
-            }
-            if (originalType && originalType !== 'basic') {
-              try {
-                Object.defineProperty(response, 'type', {
-                  value: originalType,
-                  configurable: true,
-                })
-              } catch {
-                /* non-fatal: type is not used for response routing */
-              }
-            }
-            const data = JSON.parse(bodyText)
-            tokensIn = data.usage?.prompt_tokens ?? 0
-            tokensOut = data.usage?.completion_tokens ?? 0
-          } catch { /* ignore — response is already recreated with the body intact */ }
-        }
-        logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
-        return response
-      }
-
-      if (
-        isGithub &&
-        response.status === 429 &&
-        attempt < maxAttempts - 1
-      ) {
-        await response.text().catch(() => {})
-        const delaySec = Math.min(
-          GITHUB_429_BASE_DELAY_SEC * 2 ** attempt,
-          GITHUB_429_MAX_DELAY_SEC,
-        )
-        await sleepMs(delaySec * 1000)
-        continue
-      }
-      // Read body exactly once here — Response body is a stream that can only
-      // be consumed a single time.
-      const errorBody = await response.text().catch(() => 'unknown error')
-      const rateHint =
-        isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
-
-      // If GitHub Copilot returns error about /chat/completions,
-      // try the /responses endpoint (needed for GPT-5+ models)
-      if (isGithub && response.status === 400) {
-        if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
-          const responsesUrl = `${request.baseUrl}/responses`
-          const responsesBody = buildResponsesBody()
-
-          let responsesResponse!: Response
-          try {
-            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
-              method: 'POST',
-              headers,
-              body: stableStringifyJson(responsesBody),
-              signal: options?.signal,
-            })
-          } catch (error) {
-            throwClassifiedTransportError(error, responsesUrl)
-          }
-
-          if (responsesResponse.ok) {
-            return responsesResponse
-          }
-          const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
-          const responsesFailure = classifyOpenAIHttpFailure({
-            status: responsesResponse.status,
-            body: responsesErrorBody,
-            hasImages: bodyContainsImages(),
-          })
-          let responsesErrorResponse: object | undefined
-          try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
-          throwClassifiedHttpError(
-            responsesResponse.status,
-            responsesErrorBody,
-            responsesErrorResponse,
-            responsesResponse.headers,
-            responsesUrl,
-            '',
-            responsesFailure,
-          )
-        }
-      }
-
-      const failure = classifyOpenAIHttpFailure({
-        status: response.status,
-        body: errorBody,
-        hasImages: bodyContainsImages(),
-      })
-
-      // GitHub Copilot 401 with expired token: force-refresh and retry once.
-      // Only applies to the Copilot endpoint, not GitHub Models API or custom
-      // routes, and only when the failing credential is the stored Copilot
-      // token (not a provider override, route credential, or custom auth).
-      // The refreshed token is stored in refreshedCopilotToken so the next
-      // iteration's buildHeadersForAttempt picks it up instead of the stale
-      // singleAuthValue captured before the loop.
-      if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
-        if (isCopilotTokenExpiredError(errorBody)) {
-          const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
-          if (oldToken && oldToken === (process.env.OPENAI_API_KEY ?? '')) {
-            didRefreshCopilotToken = true
-            const refreshed = await refreshCopilotTokenOn401()
-            if (refreshed) {
-              const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
-              if (newApiKey && newApiKey !== oldToken) {
-                refreshedCopilotToken = newApiKey
-              }
-              if (attempt < maxAttempts - 1) {
-                continue
-              }
-            }
-          }
-        }
-      }
-
-      const credentialFailureKind =
-        failure.category === 'auth_invalid' && !failure.retryable
-          ? 'auth'
-          : response.status === 402 || response.status === 429
-            ? 'cooldown'
-            : null
-      if (credentialPool && credentialPool.size > 1 && credentialFailureKind) {
-        credentialPool.reportFailure(
-          credentialLease,
-          credentialFailureKind,
-          CREDENTIAL_POOL_COOLDOWN_MS,
-        )
-        if (attempt < maxAttempts - 1) {
-          logForDebugging(
-            `[OpenAIShim] credential pool retry status=${response.status} method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
-            { level: 'warn' },
-          )
-          continue
-        }
-      }
-
-      if (
-        isLocal &&
-        failure.category === 'endpoint_not_found' &&
-        promoteNextLocalBaseUrl('endpoint_not_found')
-      ) {
-        continue
-      }
-
-      const hasToolsPayload =
-        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' || effectiveTransport === 'anthropic_messages' || effectiveTransport === 'gemini'
-          ? Array.isArray(params.tools) && params.tools.length > 0
-          : Array.isArray(body.tools) && body.tools.length > 0
-
-      if (
-        !didRetryWithoutTools &&
-        failure.category === 'tool_call_incompatible' &&
-        shouldAttemptLocalToollessRetry({
-          baseUrl: activeBaseUrl,
-          hasTools: hasToolsPayload,
-        })
-      ) {
-        didRetryWithoutTools = true
-        delete body.tools
-        delete body.tool_choice
-        delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
-        refreshSerializedBody()
-
-        logForDebugging(
-          `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
-          { level: 'warn' },
-        )
-        continue
-      }
-
-      // `tool_stream` self-heal (#1950): some OpenAI-compatible gateways (e.g.
-      // NVIDIA NIM) reject the Z.AI-proprietary `tool_stream` parameter with a
-      // 400. Drop only that parameter and retry with tools intact — streaming
-      // tool calls simply aren't streamed on such gateways. This guards against
-      // regressions where the parameter slips through the catalog/runtime
-      // gating that normally suppresses it.
-      if (
-        !didRetryWithoutToolStream &&
-        failure.category === 'tool_stream_unsupported' &&
-        body.tool_stream === true
-      ) {
-        didRetryWithoutToolStream = true
-        // Reserve one additional request only after this specific recovery is
-        // needed. Increasing the shared initial budget changes unrelated
-        // GitHub and credential-pool retry behavior.
-        maxAttempts += 1
-        delete body.tool_stream
-        refreshSerializedBody()
-        // This retry only changes request formatting. Reuse the credential that
-        // received the rejection so a pool with unequal model access cannot
-        // turn a recoverable 400 into an unrelated authorization failure.
-        retryCredentialLease = credentialLease
-
-        logForDebugging(
-          `[OpenAIShim] self-heal retry reason=tool_stream_unsupported method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
-          { level: 'warn' },
-        )
-        continue
-      }
-
-      let errorResponse: object | undefined
-      try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
-      throwClassifiedHttpError(
-        response.status,
-        errorBody,
-        errorResponse,
-        response.headers as unknown as Headers,
-        requestUrl,
-        rateHint,
-        failure,
-      )
-    }
-
-    throw APIError.generate(
-      500, undefined, 'OpenAI shim: request loop exited unexpectedly',
-      new Headers(),
-    )
   }
 
   private _convertNonStreamingResponse(

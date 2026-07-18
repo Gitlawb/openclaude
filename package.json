@@ -66,7 +66,7 @@
     "check": "bun run smoke && bun run deadcode && bun run test:full",
     "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
     "build:verified": "bun run build && bun run verify:privacy",
-    "test:provider": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1 src/services/api/*.test.ts src/utils/context.test.ts",
+    "test:provider": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1 src/services/api/*.test.ts src/services/api/openaiShim/*.test.ts src/utils/context.test.ts",
     "doctor:runtime": "bun run scripts/system-check.ts",
     "doctor:runtime:json": "bun run scripts/system-check.ts --json",
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
