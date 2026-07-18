@@ -112,6 +112,44 @@ export function isCanonicalAimlapiInferenceBaseUrl(value: string): boolean {
 }
 
 /**
+ * Attribution headers AI/ML API records for canonical `api.aimlapi.com`
+ * traffic. They identify the partner and the referring integration, so they
+ * belong to the canonical endpoint only — see `resolveAimlapiAttributionHeaders`.
+ */
+const CATALOG_ATTRIBUTION_HEADER_NAMES = new Set([
+  PARTNER_HEADER_NAME.toLowerCase(),
+  'x-aimlapi-integration-repo',
+  'x-aimlapi-integration-version',
+  'http-referer',
+  'x-title',
+])
+
+/**
+ * Resolve the aimlapi catalog headers for an outbound request. On the canonical
+ * inference endpoint the partner id is resolved and attribution is sent; on any
+ * other base URL (a user-controlled proxy) every attribution header is stripped,
+ * so a third-party host never receives OpenClaude's partner identity.
+ *
+ * Both the inference (openai shim) and the model-discovery request paths route
+ * through here, so the two cannot drift apart. A missing base URL means the
+ * caller falls back to the route default, which is canonical.
+ */
+export function resolveAimlapiAttributionHeaders(
+  headers: Readonly<Record<string, string>>,
+  baseUrl: string | undefined,
+): Record<string, string> {
+  if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
+    return withResolvedPartnerHeader(headers)
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) => !CATALOG_ATTRIBUTION_HEADER_NAMES.has(name.trim().toLowerCase()),
+    ),
+  )
+}
+
+/**
  * Build the co-branded checkout return URLs the hosted payment page redirects
  * to after the user pays or cancels. Carrying `sessionToken` + `partnerCheckout=1`
  * makes the AI/ML API `/checkout` page resolve the partner (name + logo + amount)

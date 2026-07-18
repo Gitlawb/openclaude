@@ -27,19 +27,7 @@ import {
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
-import {
-  isCanonicalAimlapiInferenceBaseUrl,
-  PARTNER_HEADER_NAME,
-  withResolvedPartnerHeader,
-} from './aimlapi/config.js'
-
-const AIMLAPI_CATALOG_HEADER_NAMES = new Set([
-  PARTNER_HEADER_NAME.toLowerCase(),
-  'x-aimlapi-integration-repo',
-  'x-aimlapi-integration-version',
-  'http-referer',
-  'x-title',
-])
+import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
 function resolveRouteOpenAIShimConfig(
   routeId: string | null,
@@ -48,17 +36,9 @@ function resolveRouteOpenAIShimConfig(
 ): OpenAIShimTransportConfig {
   if (routeId !== 'aimlapi' || !config.headers) return config
 
-  if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
-    return { ...config, headers: withResolvedPartnerHeader(config.headers) }
-  }
-
   return {
     ...config,
-    headers: Object.fromEntries(
-      Object.entries(config.headers).filter(
-        ([name]) => !AIMLAPI_CATALOG_HEADER_NAMES.has(name.trim().toLowerCase()),
-      ),
-    ),
+    headers: resolveAimlapiAttributionHeaders(config.headers, baseUrl),
   }
 }
 

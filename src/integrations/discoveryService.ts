@@ -31,6 +31,7 @@ import {
 } from '../utils/providerDiscovery.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
+import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
 export type RouteDiscoveryResult = {
@@ -176,14 +177,27 @@ function getRouteDiscoveryApiKey(
 
 export function getRouteDiscoveryHeaders(
   routeId: string,
-  options?: { headers?: Record<string, string> },
+  options?: { baseUrl?: string; headers?: Record<string, string> },
 ): Record<string, string> | undefined {
   const transportConfig = getRouteDescriptor(routeId)?.transportConfig
   const acceptsCallerHeaders =
     getRouteCatalog(routeId)?.discovery?.requiresAuth !== false
-  const headers = {
+  // Descriptor headers are attribution, not transport plumbing: an `aimlapi`
+  // profile keeps its route id while pointing at a user-controlled proxy, so the
+  // `/models` request must be filtered on the same canonical predicate the
+  // inference shim uses (`resolveAimlapiAttributionHeaders`). Without this the
+  // discovery path would hand the partner identity to an arbitrary host.
+  const descriptorHeaders = {
     ...(transportConfig?.headers ?? {}),
     ...(transportConfig?.openaiShim?.headers ?? {}),
+  }
+  const headers = {
+    ...(routeId === 'aimlapi'
+      ? resolveAimlapiAttributionHeaders(
+          descriptorHeaders,
+          getRouteBaseUrl(routeId, options),
+        )
+      : descriptorHeaders),
     ...(acceptsCallerHeaders ? (options?.headers ?? {}) : {}),
   }
 

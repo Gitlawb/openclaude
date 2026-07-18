@@ -12,7 +12,10 @@ import {
   resolveOpenAIShimRuntimeContext,
 } from '../integrations/runtimeMetadata'
 import { setCachedModels } from './discoveryCache'
-import { getDiscoveryCacheKey } from './discoveryService'
+import {
+  getDiscoveryCacheKey,
+  getRouteDiscoveryHeaders,
+} from './discoveryService'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
@@ -192,6 +195,38 @@ describe('AIMLAPI runtime attribution', () => {
       if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
       else process.env.AIMLAPI_PARTNER_ID = previous
     }
+  })
+
+  it('strips attribution from model discovery on a proxy endpoint', () => {
+    // Startup discovery runs with the profile's own base URL while the route id
+    // stays `aimlapi`, so the `/models` request must be filtered on the same
+    // canonical predicate the inference shim uses — otherwise the proxy still
+    // receives the partner identity.
+    const canonical = getRouteDiscoveryHeaders('aimlapi', {
+      baseUrl: 'https://api.aimlapi.com/v1',
+    })
+    expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
+      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    )
+    expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
+
+    const proxy = getRouteDiscoveryHeaders('aimlapi', {
+      baseUrl: 'https://proxy.example.test/v1',
+    })
+    for (const name of [
+      'X-AIMLAPI-Partner-ID',
+      'X-AIMLAPI-Integration-Repo',
+      'X-AIMLAPI-Integration-Version',
+      'HTTP-Referer',
+      'X-Title',
+    ]) {
+      expect(proxy?.[name]).toBeUndefined()
+    }
+
+    // A missing base URL falls back to the route default, which is canonical.
+    expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
+      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    )
   })
 })
 

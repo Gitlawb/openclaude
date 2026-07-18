@@ -25,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  normalizeComparableBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
@@ -1925,11 +1926,17 @@ export async function buildLaunchEnv(options: {
   // unauthenticated.
   const resolvedOpenAIRouteId = resolveRouteIdFromBaseUrl(env.OPENAI_BASE_URL)
   const persistedOpenAIRouteId = persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+  // Compare on the normalized spelling, not the raw string: a shell
+  // `OPENAI_BASE_URL` that differs from the saved one only by a trailing slash
+  // (or host casing) still names the same endpoint. A literal comparison would
+  // drop the saved route identity there, and with it the aimlapi proxy guard
+  // below — silently forwarding the ambient canonical credential to the proxy.
   const shouldUsePersistedOpenAIRouteId =
     !resolvedOpenAIRouteId &&
     !!persistedOpenAIRouteId &&
     !!persistedOpenAIBaseUrl &&
-    env.OPENAI_BASE_URL === persistedOpenAIBaseUrl
+    normalizeComparableBaseUrl(env.OPENAI_BASE_URL) ===
+      normalizeComparableBaseUrl(persistedOpenAIBaseUrl)
   const effectiveOpenAIRouteId =
     resolvedOpenAIRouteId ||
     (shouldUsePersistedOpenAIRouteId ? persistedOpenAIRouteId : undefined)
@@ -1955,6 +1962,28 @@ export async function buildLaunchEnv(options: {
     const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
     if (persistedCredential) {
       env[persistedCredential.envVar] = persistedCredential.value
+    }
+    // Custom authentication is a second credential channel, not just transport
+    // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
+    // credential whenever OPENAI_AUTH_HEADER names a header. The selections
+    // above prefer the live shell value, so without this an ambient canonical
+    // secret would still reach the proxy through custom auth. Re-source the
+    // whole trio from the profile's OWN persisted env and drop ambient values;
+    // the three are applied as a unit so a shell header name can never activate
+    // a value the profile did not configure.
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
+    if (usePersistedOpenAIConfig) {
+      if (persistedOpenAIAuthHeader) {
+        env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
+      }
+      if (persistedOpenAIAuthScheme) {
+        env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
+      }
+      if (persistedOpenAIAuthHeaderValue) {
+        env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+      }
     }
   }
   for (const dedicatedKey of [

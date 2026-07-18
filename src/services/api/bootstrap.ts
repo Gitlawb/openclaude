@@ -273,7 +273,7 @@ export async function fetchLocalOpenAIModelOptions(
     ? parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS)
     : undefined
   const fallbackHeaders = routeId
-    ? getRouteDiscoveryHeaders(routeId, { headers: discoveryHeaders })
+    ? getRouteDiscoveryHeaders(routeId, { baseUrl, headers: discoveryHeaders })
     : discoveryHeaders
 
   const discoverModels = deps.discoverModelsForRoute ?? discoverModelsForRoute

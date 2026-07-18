@@ -63,7 +63,7 @@ export function matchHostnameAgainstRouteHosts(
   })
 }
 
-function normalizeComparableBaseUrl(
+export function normalizeComparableBaseUrl(
   baseUrl?: string,
 ): string | null {
   if (!baseUrl?.trim()) {
