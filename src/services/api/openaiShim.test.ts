@@ -5278,8 +5278,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
 
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
-  
-  // Actually, the semantic message IS injected here because the user block with orphan 
+  // Actually, the semantic message IS injected here because the user block with orphan
   // tool result is converted to:
   // 1. Tool result (valid_call_1) -> role 'tool'
   // 2. User content ("What happened?") -> role 'user'
@@ -5391,15 +5390,15 @@ test('injects semantic assistant message when tool result is followed by user me
   await client.beta.messages.create({
     model: 'mistral-large-latest',
     messages: [
-      { 
-        role: 'assistant', 
-        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }] 
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }]
       },
-      { 
-        role: 'user', 
+      {
+        role: 'user',
         content: [
           { type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }
-        ] 
+        ]
       },
       { role: 'user', content: 'Next user query' },
     ],
@@ -5411,7 +5410,7 @@ test('injects semantic assistant message when tool result is followed by user me
   // Roles should be: assistant (tool_calls) -> tool -> assistant (semantic) -> user
   const roles = messages.map(m => m.role)
   expect(roles).toEqual(['assistant', 'tool', 'assistant', 'user'])
-  
+
   const semanticMsg = messages[2]
   expect(semanticMsg.role).toBe('assistant')
   expect(semanticMsg.content).toBe('[Tool results received]')
