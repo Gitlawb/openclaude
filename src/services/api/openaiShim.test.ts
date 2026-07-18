@@ -3821,6 +3821,11 @@ test('does not infer Gemini mode from OPENAI_BASE_URL path substrings', async ()
   expect(capturedAuthorization).toBeNull()
 })
 
+test('the OpenAI shim façade exposes the beta.messages namespace', () => {
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  expect(client.beta.messages).toBeDefined()
+})
+
 test('preserves image tool results as placeholders in follow-up requests', async () => {
   let requestBody: Record<string, unknown> | undefined
 
