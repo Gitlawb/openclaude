@@ -7640,6 +7640,9 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
   )
 })
 
+// Extraction boundary: response conversion | executor network behavior.
+// The executor suite owns the contiguous network-classification block below.
+// Keep this marker stable for independent adjacent test migrations.
 test('strips credentials and query params from URL in fetch network error message', async () => {
   process.env.OPENAI_BASE_URL =
     'https://user:password@internal.example.test/v1?token=abc123'
@@ -8423,6 +8426,9 @@ test('self-heals localhost resolution failures by retrying local loopback base U
   expect(requestUrls).toContain('http://127.0.0.1:11434/api/chat')
 })
 
+// Extraction boundary: executor network behavior | native Ollama routing.
+// Native Ollama endpoint selection remains an adapter/facade integration concern.
+// Keep this marker stable for independent adjacent test migrations.
 test('uses native Ollama chat endpoint when local base URL omits /v1', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434'
 
@@ -8526,6 +8532,9 @@ test('keeps HTTPS localhost Ollama-port proxies on chat completions', async () =
   ])
 })
 
+// Extraction boundary: native Ollama routing | executor tool self-healing.
+// The single retry test below moves with request execution.
+// Keep this marker stable for independent adjacent test migrations.
 test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
@@ -8824,6 +8833,9 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(semanticMsg.content).not.toContain('user')
 })
 
+// Extraction boundary: executor tool self-healing | message/provider shaping.
+// Provider request shaping below is not owned by the executor.
+// Keep this marker stable for independent adjacent test migrations.
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.OPENAI_API_KEY = 'sk-moonshot-test'
@@ -10310,6 +10322,9 @@ test('NVIDIA NIM Z.AI GLM streaming request with tools does not send tool_stream
   expect(requestBody?.tool_stream).toBeUndefined()
 })
 
+// Extraction boundary: provider tool-stream shaping | executor tool-stream retry.
+// The three retry-state tests below move together with request execution.
+// Keep this marker stable for independent adjacent test migrations.
 // Regression test for #1950: even if a gateway rejects `tool_stream` with a
 // 400 (e.g. NVIDIA NIM: `Unsupported parameter(s): tool_stream`), the shim
 // self-heals by dropping only that parameter and retrying with tools intact.
@@ -10461,6 +10476,9 @@ test('Shim retries a tool_stream rejection with the same pooled credential (#195
   expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-a'])
 })
 
+// Extraction boundary: executor tool-stream retry | provider tool-stream shaping.
+// Provider emission rules below remain with compatibility/request planning.
+// Keep this marker stable for independent adjacent test migrations.
 test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'
@@ -11347,6 +11365,9 @@ test('GitHub Copilot responses fallback does not retry non-retryable HTTP failur
   expect(fetchCalls).toBe(2)
 })
 
+// Extraction boundary: history pruning | executor Copilot refresh behavior.
+// The contiguous Copilot authentication retry block below moves with execution.
+// Keep this marker stable for independent adjacent test migrations.
 test('GitHub Copilot 401 chat_completions retries with refreshed token', async () => {
   const realModule = realGithubModelsCredentials
   try {
@@ -11818,6 +11839,9 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
   }
 })
 
+// Extraction boundary: executor Copilot refresh behavior | JSON fallback conversion.
+// JSON fallback response conversion below is not owned by request execution.
+// Keep this marker stable for independent adjacent test migrations.
 // --- JSON fallback regression tests (#1749) -------------------------------
 // Some OpenAI-compatible providers ignore `stream: true` and return a full
 // `application/json` chat completion. The fallback inside
