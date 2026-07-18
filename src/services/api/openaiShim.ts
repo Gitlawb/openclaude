@@ -98,7 +98,6 @@ import {
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
 } from './openaiErrorClassification.js'
-import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
 import {
   redactUrlForDisplay,
@@ -1431,99 +1430,28 @@ function convertMessages(
  * which causes 400 errors on OpenAI/Codex endpoints. This normalizes the
  * schema by ensuring `required` is a superset of `properties` keys.
  */
+import {
+  convertTools as convertToolsModule,
+  normalizeSchemaForOpenAI as normalizeSchemaForOpenAIModule,
+} from './openaiShim/toolConversion.js'
+
 function normalizeSchemaForOpenAI(
   schema: Record<string, unknown>,
   strict = true,
 ): Record<string, unknown> {
-  const record = sanitizeSchemaForOpenAICompat(schema)
-
-  if (record.type === 'object' && record.properties) {
-    const properties = record.properties as Record<string, Record<string, unknown>>
-    const existingRequired = Array.isArray(record.required) ? record.required as string[] : []
-
-    // Recurse into each property
-    const normalizedProps: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(properties)) {
-      normalizedProps[key] = normalizeSchemaForOpenAI(
-        value as Record<string, unknown>,
-        strict,
-      )
-    }
-    record.properties = normalizedProps
-
-    if (strict) {
-      // Keep only the properties that were originally marked required in the schema.
-      // Adding every property to required[] (the previous behaviour) caused strict
-      // OpenAI-compatible providers (Groq, Azure, etc.) to reject tool calls because
-      // the model correctly omits optional arguments — but the provider treats them
-      // as missing required fields and returns a 400 / tool_use_failed error.
-      record.required = existingRequired.filter(k => k in normalizedProps)
-      // additionalProperties: false is still required by strict-mode providers.
-      record.additionalProperties = false
-    } else {
-      // For Gemini: keep only existing required keys that are present in properties
-      record.required = existingRequired.filter(k => k in normalizedProps)
-    }
-  }
-
-  // Recurse into array items
-  if ('items' in record) {
-    if (Array.isArray(record.items)) {
-      record.items = (record.items as unknown[]).map(
-        item => normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
-      )
-    } else {
-      record.items = normalizeSchemaForOpenAI(record.items as Record<string, unknown>, strict)
-    }
-  }
-
-  // Recurse into combinators
-  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
-    if (key in record && Array.isArray(record[key])) {
-      record[key] = (record[key] as unknown[]).map(
-        item => normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
-      )
-    }
-  }
-
-  return record
+  return normalizeSchemaForOpenAIModule(schema, strict)
 }
 
 function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
   options: { skipStrict?: boolean } = {},
 ): OpenAITool[] {
-  const isGemini = isGeminiMode()
-  const strict =
-    !isGemini &&
-    !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS) &&
-    !options.skipStrict
-
-  return tools
-    .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
-    .map(t => {
-      const schema = { ...(t.input_schema ?? { type: 'object', properties: {} }) } as Record<string, unknown>
-
-      // For Codex/OpenAI: promote known Agent sub-fields into required[] only if
-      // they actually exist in properties (Gemini rejects required keys absent from properties).
-      if (t.name === 'Agent' && schema.properties) {
-        const props = schema.properties as Record<string, unknown>
-        if (!Array.isArray(schema.required)) schema.required = []
-        const req = schema.required as string[]
-        for (const key of ['message', 'subagent_type']) {
-          if (key in props && !req.includes(key)) req.push(key)
-        }
-      }
-
-      return {
-        type: 'function' as const,
-        function: {
-          name: t.name,
-          description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, strict),
-        },
-      }
-    })
+  return convertToolsModule(tools, {
+    isGemini: isGeminiMode(),
+    disableStrictTools: isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS),
+    skipStrict: options.skipStrict,
+    normalizeSchema: normalizeSchemaForOpenAI,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -1577,244 +1505,29 @@ function convertChunkUsage(
   )
 }
 
-const JSON_REPAIR_SUFFIXES = [
-  '}', '"}', ']}', '"]}', '}}', '"}}', ']}}', '"]}}', '"]}]}', '}]}'
-]
-
-const RAW_TOOL_CALLS_REQUESTED_PREFIX = 'Tool calls requested:'
-
-type ParsedRawToolCall = {
-  id: string
-  name: string
-  argumentsJson: string
-}
-
-function couldBeRawToolCallsRequestedPrefix(text: string): boolean {
-  const trimmedStart = text.trimStart()
-  return (
-    RAW_TOOL_CALLS_REQUESTED_PREFIX.startsWith(trimmedStart) ||
-    trimmedStart.startsWith(RAW_TOOL_CALLS_REQUESTED_PREFIX)
-  )
-}
-
-function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | null {
-  const trimmed = text.trim()
-  if (!trimmed.startsWith(RAW_TOOL_CALLS_REQUESTED_PREFIX)) {
-    return null
-  }
-
-  const lines = trimmed
-    .slice(RAW_TOOL_CALLS_REQUESTED_PREFIX.length)
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-
-  if (lines.length === 0) return null
-
-  const toolCalls: ParsedRawToolCall[] = []
-  for (const line of lines) {
-    const match = line.match(
-      /^-\s*([A-Za-z_][A-Za-z0-9_.-]*)\(([\s\S]*)\)\s*\[id:\s*([^\]\s]+)\]\s*$/,
-    )
-    if (!match) return null
-
-    const [, name, rawArguments, id] = match
-    if (!name || !id || rawArguments === undefined) return null
-
-    const normalizedArguments = normalizeToolArguments(name, rawArguments)
-    toolCalls.push({
-      id,
-      name,
-      argumentsJson: JSON.stringify(normalizedArguments ?? {}),
-    })
-  }
-
-  return toolCalls.length > 0 ? toolCalls : null
-}
-
-function repairPossiblyTruncatedObjectJson(raw: string): string | null {
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? raw
-      : null
-  } catch {
-    for (const combo of JSON_REPAIR_SUFFIXES) {
-      try {
-        const repaired = raw + combo
-        const parsed = JSON.parse(repaired)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return repaired
-        }
-      } catch {}
-    }
-    return null
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Ollama text-based tool call parser (fix for #1053)
-//
-// When Ollama models cannot emit structured tool_calls via the OpenAI-compat
-// API, they fall back to printing the call as a JSON block in the response
-// text. This parser extracts those calls so the agent loop can execute them.
-//
-// Supported formats emitted by qwen2.5-coder, llama3.x, phi-4, gemma:
-//   ```json\n{"name":"X","arguments":{...}}\n```
-//   {"name":"X","arguments":{...}}
-//   {"type":"function","function":{"name":"X","arguments":{...}}}
-// ---------------------------------------------------------------------------
-
-// Fenced code block arm: non-greedy is safe because ``` acts as terminator.
-const FENCED_TOOL_CALL_RE = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g
-// Bare JSON arm: marks candidate start positions only; balanced extraction follows.
-// Allow optional whitespace (including newlines) before the property key so
-// pretty-printed objects like "{\n  \"name\":" are detected.
-const BARE_TOOL_CALL_START_RE = /\{\s*"(?:name|type)"\s*:/g
-
-interface ParsedTextToolCall {
-  id: string
-  name: string
-  arguments: Record<string, unknown>
-}
-
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
-// Walks forward from `start` (which must be `{`) tracking string/escape/brace
-// state and returns the substring up to and including the matching `}`, or
-// null if the braces are never balanced (truncated input).
-function extractBalancedJson(text: string, start: number): string | null {
-  let depth = 0
-  let inString = false
-  let escape = false
-  for (let i = start; i < text.length; i++) {
-    const c = text[i]!
-    if (escape) { escape = false; continue }
-    if (c === '\\' && inString) { escape = true; continue }
-    if (c === '"') { inString = !inString; continue }
-    if (inString) continue
-    if (c === '{') depth++
-    else if (c === '}') {
-      depth--
-      if (depth === 0) return text.slice(start, i + 1)
-    }
-  }
-  return null
-}
-
-function parseAndAdd(
-  raw: string,
-  results: ParsedTextToolCall[],
-  seen: Set<string>,
-): boolean {
-  let obj: Record<string, unknown>
-  try {
-    obj = JSON.parse(raw)
-  } catch {
-    return false
-  }
-
-  let name: string | undefined
-  let args: Record<string, unknown> = {}
-
-  if (typeof obj['name'] === 'string') {
-    // {"name": "X", "arguments": {...}}
-    name = obj['name'] as string
-    args = (obj['arguments'] as Record<string, unknown>) ?? {}
-  } else if (
-    obj['type'] === 'function' &&
-    typeof (obj['function'] as any)?.name === 'string'
-  ) {
-    // {"type":"function","function":{"name":"X","arguments":{...}}}
-    const fn = obj['function'] as { name: string; arguments?: unknown }
-    name = fn.name
-    const rawArgs = fn.arguments
-    args =
-      typeof rawArgs === 'string'
-        ? (() => {
-            try {
-              return JSON.parse(rawArgs)
-            } catch {
-              return {}
-            }
-          })()
-        : (rawArgs as Record<string, unknown>) ?? {}
-  }
-
-  if (!name) return false
-
-  const dedupKey = `${name}:${JSON.stringify(args)}`
-  if (seen.has(dedupKey)) return false
-  seen.add(dedupKey)
-
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
-  return true
-}
-
-/** Removes character ranges from `text`, returning the remaining content. */
-function stripRanges(text: string, ranges: Array<[number, number]>): string {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
-  let result = ''
-  let pos = 0
-  for (const [s, e] of sorted) {
-    result += text.slice(pos, s)
-    pos = e
-  }
-  return result + text.slice(pos)
-}
-
-/** Exported for unit testing only. */
+import {
+  JSON_REPAIR_SUFFIXES,
+  couldBeRawToolCallsRequestedPrefix,
+  extractBalancedJson,
+  parseRawToolCallsRequestedText,
+  parseTextToolCalls as parseTextToolCallsModule,
+  repairPossiblyTruncatedObjectJson,
+  stripRanges,
+  type ParsedRawToolCall,
+  type ParsedTextToolCall,
+} from './openaiShim/rawToolCallParsing.js'
 export function parseTextToolCalls(text: string): {
   calls: ParsedTextToolCall[]
   toolCallRanges: Array<[number, number]>
 } {
-  const results: ParsedTextToolCall[] = []
-  const seen = new Set<string>()
-  const fencedRanges: Array<[number, number]> = []
-  // acceptedRanges tracks only ranges where parseAndAdd confirmed a valid tool
-  // call was emitted — these are what callers strip from text.  fencedRanges
-  // (all fenced blocks regardless of acceptance) is kept separately so Pass 2
-  // can skip over them and avoid double-processing.
-  const acceptedRanges: Array<[number, number]> = []
+  return parseTextToolCallsModule(text, nextTextToolCallSequence)
+}
 
-  // Pass 1: fenced code blocks — regex is safe, ``` bounds the non-greedy match.
-  // Context guard: same heuristic as Pass 2 — if non-whitespace, non-`{` text
-  // immediately follows the closing fence, the model is explaining a format rather
-  // than calling a tool; skip to avoid false positives on fenced examples.
-  for (const match of text.matchAll(FENCED_TOOL_CALL_RE)) {
-    const raw = (match[1] ?? '').trim()
-    const after = text.slice(match.index! + match[0].length).trimStart()
-    if (after.length > 0 && !after.startsWith('{')) continue
-    const range: [number, number] = [match.index!, match.index! + match[0].length]
-    fencedRanges.push(range)
-    if (raw && parseAndAdd(raw, results, seen)) {
-      acceptedRanges.push(range)
-    }
-  }
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
 
-  // Pass 2: bare JSON — use the brace scanner so nested objects are captured fully.
-  // processedRanges grows as we extract; inner objects nested inside an outer
-  // tool call are skipped because their start falls inside an already-extracted range.
-  const processedRanges: Array<[number, number]> = [...fencedRanges]
-  for (const match of text.matchAll(BARE_TOOL_CALL_START_RE)) {
-    const start = match.index!
-    if (processedRanges.some(([s, e]) => start >= s && start < e)) continue
-    const raw = extractBalancedJson(text, start)
-    if (raw) {
-      // Context guard: if non-whitespace, non-`{` text immediately follows the JSON
-      // the model is likely explaining, not calling — skip to avoid false positives.
-      const after = text.slice(start + raw.length).trimStart()
-      if (after.length > 0 && !after.startsWith('{')) continue
-      const range: [number, number] = [start, start + raw.length]
-      processedRanges.push(range)
-      if (parseAndAdd(raw, results, seen)) {
-        acceptedRanges.push(range)
-      }
-    }
-  }
-
-  return { calls: results, toolCallRanges: acceptedRanges }
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1670,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2346,6 +2059,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2520,6 +2235,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3438,6 +3155,8 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
@@ -4014,7 +3733,11 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4065,7 +3788,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4090,7 +3813,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4111,7 +3833,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4148,7 +3870,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4245,7 +3966,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -4263,6 +3984,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -4577,6 +4301,9 @@ class OpenAIShimMessages {
       })
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4618,6 +4345,9 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
@@ -4977,9 +4707,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -5036,6 +4766,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(
