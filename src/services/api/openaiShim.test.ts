@@ -11746,7 +11746,6 @@ test('JSON fallback façade terminates converted messages', async () => {
 })
 // openaiShim test extraction seam 200 end
 
-
 // openaiShim test extraction seam 201 start: JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks
 test('JSON fallback: recovers Tencent HY3 text tool calls into tool_use blocks', async () => {
   const events = await collectFallbackEvents({
