@@ -1678,9 +1678,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1748,7 +1745,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1815,6 +1812,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1961,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2346,6 +2350,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2513,13 +2519,13 @@ function convertNonStreamingResponseToAnthropicMessage(
   }
 }
 
+import { headersWithRequestUrl as buildHeadersWithRequestUrl } from './openaiShim/clientDispatch.js'
+
 function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
-  const next = new Headers(headers)
-  if (requestUrl) {
-    next.set('x-opencode-request-url', requestUrl)
-  }
-  return next
+  return buildHeadersWithRequestUrl(headers, requestUrl)
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3438,91 +3444,13 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
 
-class OpenAIShimStream {
-  private makeGenerator: (signal: AbortSignal) => AsyncGenerator<AnthropicStreamEvent>
-  private parentSignal?: AbortSignal
-  private generator?: AsyncGenerator<AnthropicStreamEvent>
-  private cleanupCombinedSignal?: () => void
-  private cleanupPreIterationAbort?: () => void
-  // The controller property is checked by claude.ts to distinguish streams from error messages
-  controller = new AbortController()
-
-  constructor(
-    makeGenerator: (signal: AbortSignal) => AsyncGenerator<AnthropicStreamEvent>,
-    parentSignal?: AbortSignal,
-    cancelBeforeIteration?: () => void,
-  ) {
-    this.makeGenerator = makeGenerator
-    this.parentSignal = parentSignal
-
-    if (cancelBeforeIteration) {
-      let cleaned = false
-      let cancelled = false
-      let onAbort: () => void = () => {}
-      const cleanup = () => {
-        if (cleaned) return
-        cleaned = true
-        this.controller.signal.removeEventListener('abort', onAbort)
-        parentSignal?.removeEventListener('abort', onAbort)
-      }
-      onAbort = () => {
-        if (!this.generator && !cancelled) {
-          cancelled = true
-          cancelBeforeIteration()
-        }
-        cleanup()
-      }
-
-      this.controller.signal.addEventListener('abort', onAbort, { once: true })
-      parentSignal?.addEventListener('abort', onAbort, { once: true })
-      this.cleanupPreIterationAbort = cleanup
-
-      if (this.controller.signal.aborted || parentSignal?.aborted) {
-        onAbort()
-      }
-    }
-  }
-
-  private getGenerator(): AsyncGenerator<AnthropicStreamEvent> {
-    if (this.generator) {
-      return this.generator
-    }
-
-    this.cleanupPreIterationAbort?.()
-    this.cleanupPreIterationAbort = undefined
-
-    const combined = createCombinedAbortSignal(this.parentSignal, {
-      signalB: this.controller.signal,
-    })
-    this.cleanupCombinedSignal = combined.cleanup
-    this.generator = this.makeGenerator(combined.signal)
-    return this.generator
-  }
-
-  async *[Symbol.asyncIterator]() {
-    const generator = this.getGenerator()
-    let completed = false
-    try {
-      yield* generator
-      completed = true
-    } finally {
-      if (!completed && !this.controller.signal.aborted) {
-        this.controller.abort()
-      }
-      this.cleanupCombinedSignal?.()
-      this.cleanupCombinedSignal = undefined
-      this.cleanupPreIterationAbort?.()
-      this.cleanupPreIterationAbort = undefined
-      if (!completed) {
-        void generator.return?.(undefined).catch(() => {})
-      }
-    }
-  }
-}
+import { createShimRequest } from './openaiShim/clientDispatch.js'
 
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
@@ -3557,133 +3485,24 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ) {
-    const self = this
-
-    let httpResponse: Response | undefined
-
-    const promise = (async () => {
-      // A provider override is a complete route, so it must not inherit an
-      // Azure-style escape hatch intended for the parent route.
-      const requestProcessEnv = self.providerOverride
-        ? {
-          ...process.env,
-          OPENAI_AZURE_STYLE: undefined,
-        }
-        : process.env
-      const request = resolveProviderRequest({
-        model: self.providerOverride?.model ?? params.model,
-        baseUrl: self.providerOverride?.baseURL,
-        reasoningEffortOverride: self.reasoningEffort,
-        processEnv: requestProcessEnv,
-      })
-      const response = await self._doRequest(request, params, options, requestProcessEnv)
-      httpResponse = response
-
-      if (params.stream) {
-        const isResponsesStream = response.url?.includes('/responses')
-        const isMessagesStream = response.url?.includes('/messages')
-        const isGeminiStream = response.url?.includes('/models/gemini-')
-        const cancelBeforeIteration = () => {
-          void response.body?.cancel(createStreamAbortError()).catch(() => {})
-        }
-        return new OpenAIShimStream(
-          streamSignal =>
-            (
-              request.transport === 'codex_responses' ||
-              request.transport === 'responses' ||
-              isResponsesStream
-            )
-              ? codexStreamToAnthropic(response, request.resolvedModel, streamSignal)
-              : isMessagesStream
-                ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
-                : isGeminiStream
-                  ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
-                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl), response.url || undefined),
-          options?.signal,
-          cancelBeforeIteration,
-        )
-      }
-
-      if (request.transport === 'codex_responses') {
-        const data = await collectCodexCompletedResponse(response, options?.signal)
-        return convertCodexResponseToAnthropicMessage(
-          data,
-          request.resolvedModel,
-        )
-      }
-
-      const isResponsesNonStream = response.url?.includes('/responses')
-      const isMessagesNonStream = response.url?.includes('/messages')
-      const isGeminiNonStream = response.url?.includes('/models/gemini-')
-      if (
-        request.transport === 'responses' ||
-        isResponsesNonStream ||
-        (request.transport === 'chat_completions' && isGithubModelsMode())
-      ) {
-        const contentType = response.headers.get('content-type') ?? ''
-        if (contentType.includes('application/json')) {
-          const parsed = await response.json() as Record<string, unknown>
-          if (
-            parsed &&
-            typeof parsed === 'object' &&
-            ('output' in parsed || 'incomplete_details' in parsed)
-          ) {
-            return convertCodexResponseToAnthropicMessage(
-              parsed,
-              request.resolvedModel,
-            )
-          }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
-        }
-      }
-
-      // Anthropic Messages API response — already in Anthropic format,
-      // pass through directly without conversion.
-      if (isMessagesNonStream) {
-        const contentType = response.headers.get('content-type') ?? ''
-        if (contentType.includes('application/json')) {
-          return await response.json() as Record<string, unknown>
-        }
-      }
-
-      // Google AI SDK response — convert to Anthropic format
-      if (isGeminiNonStream) {
-        const contentType = response.headers.get('content-type') ?? ''
-        if (contentType.includes('application/json')) {
-          const parsed = await response.json() as Record<string, unknown>
-          return self._convertGeminiToAnthropicResponse(parsed, request.resolvedModel)
-        }
-      }
-
-      const contentType = response.headers.get('content-type') ?? ''
-      if (contentType.includes('application/json')) {
-        const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
-      }
-
-      const textBody = await response.text().catch(() => '')
-      throw APIError.generate(
-        response.status,
-        undefined,
-        `OpenAI API error ${response.status}: unexpected response content-type: ${response.headers.get('content-type') ?? 'unknown'}`,
-        response.headers as unknown as Headers,
-      )
-    })()
-
-      ; (promise as unknown as Record<string, unknown>).withResponse =
-        async () => {
-          const data = await promise
-          return {
-            data,
-            response: httpResponse ?? new Response(),
-            request_id:
-              httpResponse?.headers.get('x-request-id') ?? makeMessageId(),
-          }
-        }
-
-    return promise
+    const requestProcessEnv = this.providerOverride
+      ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+      : process.env
+    return createShimRequest(params, options, {
+      providerOverride: this.providerOverride,
+      reasoningEffort: this.reasoningEffort,
+      processEnv: requestProcessEnv,
+      doRequest: this._doRequest.bind(this),
+      convertNonStreamingResponse: this._convertNonStreamingResponse.bind(this),
+      convertGeminiResponse: this._convertGeminiToAnthropicResponse.bind(this),
+      createStreamAbortError,
+      anthropicSsePassthrough,
+      geminiSseToAnthropic,
+      openaiStreamToAnthropic,
+      isGithubModelsMode,
+      makeMessageId,
+    })
   }
-
   private async _doRequest(
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
@@ -4014,7 +3833,11 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4065,7 +3888,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4090,7 +3913,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4111,7 +3933,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4148,7 +3970,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4245,7 +4066,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -4263,6 +4084,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -4577,6 +4401,9 @@ class OpenAIShimMessages {
       })
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4618,6 +4445,9 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
@@ -4977,9 +4807,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -5036,6 +4866,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(
