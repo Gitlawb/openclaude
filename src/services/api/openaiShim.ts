@@ -4562,7 +4562,6 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
     let responsesInput: ReturnType<
       typeof convertAnthropicMessagesToResponsesInput
     > | undefined
@@ -4583,6 +4582,12 @@ class OpenAIShimMessages {
         effectiveTransport === 'responses_compat',
       )
       return responsesInput
+    }
+
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
     }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
@@ -4627,7 +4632,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4652,7 +4657,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4673,7 +4677,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4710,7 +4714,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4807,7 +4810,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -5626,9 +5629,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
