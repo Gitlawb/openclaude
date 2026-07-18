@@ -7770,6 +7770,9 @@ test('self-heals tool-call incompatibility by retrying local Ollama requests wit
   expect(requestBodies[1]?.tool_stream).toBeUndefined()
 })
 
+// Extraction boundary: executor tool self-healing | message conversion.
+// Message-history normalization below belongs to the message converter.
+// Keep this marker stable for independent adjacent test migrations.
 test('preserves valid tool_result and drops orphan tool_result', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -9424,6 +9427,9 @@ test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs when thinking is d
   expect(requestBody?.chat_template_kwargs).toBeUndefined()
 })
 
+// Extraction boundary: provider reasoning compatibility | tool-stream routing.
+// The gateway emission regression below remains provider/request-shaping coverage.
+// Keep this marker stable for independent adjacent test migrations.
 // Regression test for #1950: GLM-5.2 served through NVIDIA NIM
 // (`integrate.api.nvidia.com`) must never receive the Z.AI-proprietary
 // `tool_stream` parameter. Streaming tool calls are simply not streamed on

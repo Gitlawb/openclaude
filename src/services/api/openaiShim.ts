@@ -4590,6 +4590,9 @@ class OpenAIShimMessages {
       })
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4631,6 +4634,9 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
