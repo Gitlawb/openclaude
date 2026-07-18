@@ -10332,14 +10332,14 @@ test('preserves valid tool pairs after history pruning while dropping orphaned t
   expect(toolMessages[0]?.tool_call_id).toBe('call_retained')
 })
 
+// Extraction boundary: history pruning | executor Copilot refresh behavior.
+// The contiguous Copilot authentication retry block below moves with execution.
+// Keep this marker stable for independent adjacent test migrations.
 function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   const data = JSON.stringify(responseData)
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
-// Extraction boundary: history pruning | executor Copilot refresh behavior.
-// The contiguous Copilot authentication retry block below moves with execution.
-// Keep this marker stable for independent adjacent test migrations.
 test('GitHub Copilot 401 chat_completions retries with refreshed token', async () => {
   const realModule = realGithubModelsCredentials
   try {
