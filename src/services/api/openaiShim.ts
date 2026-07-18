@@ -1565,16 +1565,10 @@ function makeMessageId(): string {
   return `msg_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
-function convertChunkUsage(
-  usage: OpenAIStreamChunk['usage'] | undefined,
-): Partial<AnthropicUsage> | undefined {
-  if (!usage) return undefined
-  // Delegates to the shared helper so this path, codexShim.makeUsage,
-  // the non-streaming response below, and the integration tests all
-  // produce byte-identical output for the same raw input.
-  return buildAnthropicUsageFromRawUsage(
-    usage as unknown as Record<string, unknown>,
-  )
+import { convertOpenAIStreamUsage } from './openaiShim/streamConversion.js'
+
+function convertChunkUsage(usage: OpenAIStreamChunk['usage'] | undefined): Partial<AnthropicUsage> | undefined {
+  return convertOpenAIStreamUsage(usage as Record<string, unknown> | undefined)
 }
 
 const JSON_REPAIR_SUFFIXES = [
@@ -1678,9 +1672,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1748,7 +1739,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1815,6 +1806,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,7 +1955,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2144,207 +2142,23 @@ async function* anthropicSsePassthrough(
  * Transforms Google AI SDK SSE stream into Anthropic-format stream events.
  * Google AI SDK yields frames with { candidates: [{ content: { role, parts } }] }.
  */
+import { geminiSseToAnthropic as convertGeminiStream } from './openaiShim/geminiStreamConversion.js'
+
 async function* geminiSseToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader()
-  if (!reader) throw new Error('Response body is not readable')
-  const readerCanceller = createReaderCanceller(reader, signal)
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const messageId = makeMessageId()
-  let contentBlockIndex = 0
-  let hasEmittedStart = false
-  let hasEmittedTextStart = false
-  let hasEmittedCurrentTool = false
-  let usage: Partial<AnthropicUsage> | undefined
-  let finishReason: string | undefined
-  const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
-  let streamComplete = false
-
-  function mapFinishReason(reason: string | undefined, hasToolUse: boolean): string {
-    if (hasToolUse) return 'tool_use'
-    if (reason === 'MAX_TOKENS') return 'max_tokens'
-    return 'end_turn'
-  }
-
-  try {
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
-        signal,
-        cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-          logForDebugging(
-            `Gemini SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
-            { level: 'error' },
-          )
-        },
-      })
-      if (done) {
-        streamComplete = true
-        break
-      }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-
-      for (const chunk of chunks) {
-        throwIfStreamAborted(signal)
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
-        const dataLines = lines.filter(l => l.startsWith('data: '))
-        if (dataLines.length === 0) continue
-
-        const rawData = dataLines.map(l => l.slice(6)).join('\n')
-        if (rawData === '[DONE]') {
-          if (hasEmittedTextStart || hasEmittedCurrentTool) {
-            throwIfStreamAborted(signal)
-            yield { type: 'content_block_stop', index: contentBlockIndex }
-          }
-          throwIfStreamAborted(signal)
-          yield {
-            type: 'message_delta',
-            delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
-            usage: usage ?? {},
-          }
-          throwIfStreamAborted(signal)
-          yield { type: 'message_stop' }
-          streamComplete = true
-          return
-        }
-
-        let parsed: Record<string, unknown>
-        try {
-          parsed = JSON.parse(rawData) as Record<string, unknown>
-        } catch {
-          continue
-        }
-
-        if (!hasEmittedStart) {
-          throwIfStreamAborted(signal)
-          yield {
-            type: 'message_start',
-            message: {
-              id: messageId,
-              type: 'message',
-              role: 'assistant',
-              content: [],
-              model,
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
-            },
-          }
-          hasEmittedStart = true
-        }
-
-        if (parsed.usageMetadata && typeof parsed.usageMetadata === 'object') {
-          const um = parsed.usageMetadata as Record<string, number>
-          usage = buildAnthropicUsageFromRawUsage({
-            input_tokens: um.promptTokenCount ?? 0,
-            output_tokens: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0),
-          })
-        }
-
-        const candidates = parsed.candidates as Array<Record<string, unknown>> | undefined
-        if (!candidates || candidates.length === 0) continue
-        const candidate = candidates[0]
-
-        if (typeof candidate.finishReason === 'string') {
-          finishReason = candidate.finishReason
-        }
-
-        const content = candidate.content as { role?: string; parts?: Array<Record<string, unknown>> } | undefined
-        if (!content || !content.parts) continue
-
-        for (const part of content.parts) {
-          throwIfStreamAborted(signal)
-          const text = part.text as string | undefined
-          const fc = part.functionCall as { name?: string; args?: unknown } | undefined
-
-          if (text) {
-            if (hasEmittedCurrentTool) {
-              throwIfStreamAborted(signal)
-              yield { type: 'content_block_stop', index: contentBlockIndex }
-              contentBlockIndex++
-              hasEmittedCurrentTool = false
-            }
-            if (!hasEmittedTextStart) {
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_start',
-                index: contentBlockIndex,
-                content_block: { type: 'text', text: '' },
-              }
-              hasEmittedTextStart = true
-            }
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: { type: 'text_delta', text },
-            }
-          } else if (fc?.name) {
-            if (hasEmittedTextStart) {
-              throwIfStreamAborted(signal)
-              yield { type: 'content_block_stop', index: contentBlockIndex }
-              contentBlockIndex++
-              hasEmittedTextStart = false
-            }
-            const toolId = `toolu_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_start',
-              index: contentBlockIndex,
-              content_block: {
-                type: 'tool_use',
-                id: toolId,
-                name: fc.name,
-                input: {},
-              },
-            }
-            hasEmittedCurrentTool = true
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: {
-                type: 'input_json_delta',
-                partial_json: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
-              },
-            }
-          }
-        }
-      }
-    }
-
-    if (hasEmittedTextStart || hasEmittedCurrentTool) {
-      throwIfStreamAborted(signal)
-      yield { type: 'content_block_stop', index: contentBlockIndex }
-    }
-    throwIfStreamAborted(signal)
-    yield {
-      type: 'message_delta',
-      delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
-      usage: usage ?? {},
-    }
-    throwIfStreamAborted(signal)
-    yield { type: 'message_stop' }
-    streamComplete = true
-  } finally {
-    if (!streamComplete || signal?.aborted) {
-      readerCanceller.cancel(createStreamAbortError())
-    }
-    readerCanceller.cleanup()
-    reader.releaseLock()
-  }
+  yield* convertGeminiStream(response, model, signal, {
+    createReaderCanceller,
+    createStreamAbortError,
+    getStreamIdleTimeoutMs,
+    makeMessageId,
+    readWithIdleTimeout,
+    throwIfStreamAborted,
+  })
 }
+// Extraction seam: Gemini streaming | completed response conversion.
 
 type NonStreamingOpenAIResponse = {
   id?: string
@@ -2521,6 +2335,10 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   return next
 }
 
+// Extraction seam: response metadata | generic stream conversion.
+
+import { openaiStreamToAnthropic as convertOpenAIStream } from './openaiShim/streamConversion.js'
+
 async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
@@ -2528,915 +2346,35 @@ async function* openaiStreamToAnthropic(
   isOllama = false,
   requestUrl?: string,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const messageId = makeMessageId()
-  const allowHy3ToolCalls = isHy3Model(model)
-  let contentBlockIndex = 0
-  const activeToolCalls = new Map<
-    number,
-    {
-      id: string
-      name: string
-      index: number
-      jsonBuffer: string
-      normalizeAtStop: boolean
-    }
-  >()
-  let hasEmittedContentStart = false
-  let hasEmittedThinkingStart = false
-  let hasClosedThinking = false
-  const thinkFilter = createThinkTagFilter()
-  let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
-  let hasEmittedFinalUsage = false
-  let hasProcessedFinishReason = false
-  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
-  let accumulatedText = ''
-  // Use the resolved value threaded from the call site (resolveProviderRequest)
-  // rather than re-reading env vars inside the generator.
-  const isOllamaStream = isOllama
-  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
-  // before extraction at finish_reason=stop (P2 fix for #1053).
-  let ollamaTextBuffer = ''
-  const streamState = createStreamState()
-  let bufferedRawToolCallsText: string | null = null
-  // XML tool-call fallback (GLM/Qwen-style `<tool_call><function=…>` emitted as
-  // text). Once the opener is seen we stop emitting text and buffer the
-  // remainder in xmlToolCallText, converting it to tool_use blocks at finalize.
-  // xmlHoldback retains a trailing partial opener split across deltas.
-  let xmlToolCallText: string | null = null
-  let xmlHoldback = ''
-
-  const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.includes('application/json')) {
-    const text = await response.text().catch(() => '')
-    let parsed: any
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      throw APIError.generate(
-        response.status,
-        undefined,
-        `Unexpected JSON response from provider: ${text}`,
-        response.headers as unknown as Headers,
-      )
-    }
-
-    if (parsed && typeof parsed === 'object' && parsed.error) {
-      const errorMsg =
-        parsed.error && typeof parsed.error === 'object' && 'type' in parsed.error
-          ? JSON.stringify(parsed.error)
-          : parsed.error.message || JSON.stringify(parsed.error)
-      const failure = classifyOpenAIHttpFailure({
-        status: response.status,
-        body: text,
-        url: requestUrl ?? response.url,
-      })
-      throw APIError.generate(
-        response.status,
-        parsed,
-        buildOpenAICompatibilityErrorMessage(
-          `OpenAI API error ${response.status}: ${errorMsg}`,
-          { ...failure, requestUrl: requestUrl ?? response.url },
-        ),
-        headersWithRequestUrl(response.headers, requestUrl ?? response.url),
-      )
-    }
-
-    // Some providers ignore `stream: true` and return a normal JSON chat
-    // completion. Route it through the shared non-streaming converter so this
-    // fallback preserves tool_calls, Anthropic stop-reason mapping, array
-    // content normalization, <think>-tag stripping, and raw text tool-call
-    // recovery — then re-emit the resulting message as stream events.
-    const message = convertNonStreamingResponseToAnthropicMessage(parsed, model)
-
-    yield {
-      type: 'message_start',
-      message: {
-        id: messageId,
-        type: 'message',
-        role: 'assistant',
-        content: [],
-        model,
-        stop_reason: null,
-        stop_sequence: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-    }
-
-    for (const block of message.content) {
-      if (block.type === 'thinking') {
-        yield {
-          type: 'content_block_start',
-          index: contentBlockIndex,
-          content_block: { type: 'thinking', thinking: '' },
-        }
-        yield {
-          type: 'content_block_delta',
-          index: contentBlockIndex,
-          delta: { type: 'thinking_delta', thinking: block.thinking as string },
-        }
-        yield { type: 'content_block_stop', index: contentBlockIndex }
-        contentBlockIndex++
-      } else if (block.type === 'tool_use') {
-        const { type: _t, input, ...rest } = block
-        yield {
-          type: 'content_block_start',
-          index: contentBlockIndex,
-          content_block: { type: 'tool_use', input: {}, ...rest },
-        }
-        yield {
-          type: 'content_block_delta',
-          index: contentBlockIndex,
-          delta: { type: 'input_json_delta', partial_json: JSON.stringify(input ?? {}) },
-        }
-        yield { type: 'content_block_stop', index: contentBlockIndex }
-        contentBlockIndex++
-      } else {
-        yield {
-          type: 'content_block_start',
-          index: contentBlockIndex,
-          content_block: { type: 'text', text: '' },
-        }
-        yield {
-          type: 'content_block_delta',
-          index: contentBlockIndex,
-          delta: { type: 'text_delta', text: block.text as string },
-        }
-        yield { type: 'content_block_stop', index: contentBlockIndex }
-        contentBlockIndex++
-      }
-    }
-
-    yield {
-      type: 'message_delta',
-      delta: {
-        stop_reason: message.stop_reason,
-        stop_sequence: null,
-      },
-      usage: message.usage,
-    }
-    yield { type: 'message_stop' }
-    return
-  }
-
-  const readerOrNull = response.body?.getReader()
-  if (!readerOrNull) throw new Error('Response body is not readable')
-  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
-  const readerCanceller = createReaderCanceller(reader, signal)
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
-  let streamComplete = false
-
-  const closeActiveContentBlock = async function* () {
-    if (!hasEmittedContentStart) return
-
-    const tail = thinkFilter.flush()
-    if (tail) {
-      throwIfStreamAborted(signal)
-      yield {
-        type: 'content_block_delta',
-        index: contentBlockIndex,
-        delta: { type: 'text_delta', text: tail },
-      }
-    }
-
-    throwIfStreamAborted(signal)
-    yield {
-      type: 'content_block_stop',
-      index: contentBlockIndex,
-    }
-    contentBlockIndex++
-    hasEmittedContentStart = false
-  }
-
-  const emitTextDelta = async function* (text: string) {
-    if (!text) return
-    if (!hasEmittedContentStart) {
-      throwIfStreamAborted(signal)
-      yield {
-        type: 'content_block_start',
-        index: contentBlockIndex,
-        content_block: { type: 'text', text: '' },
-      }
-      hasEmittedContentStart = true
-    }
-
-    const visible = thinkFilter.feed(text)
-    if (visible) {
-      throwIfStreamAborted(signal)
-      yield {
-        type: 'content_block_delta',
-        index: contentBlockIndex,
-        delta: { type: 'text_delta', text: visible },
-      }
-    }
-    processStreamChunk(streamState, text)
-  }
-
-  const emitParsedRawToolCalls = async function* (
-    toolCalls: ParsedRawToolCall[],
-  ) {
-    if (hasEmittedThinkingStart && !hasClosedThinking) {
-      throwIfStreamAborted(signal)
-      yield { type: 'content_block_stop', index: contentBlockIndex }
-      contentBlockIndex++
-      hasClosedThinking = true
-    }
-    if (hasEmittedContentStart) {
-      yield* closeActiveContentBlock()
-    }
-
-    for (const toolCall of toolCalls) {
-      throwIfStreamAborted(signal)
-      const toolBlockIndex = contentBlockIndex
-      yield {
-        type: 'content_block_start',
-        index: toolBlockIndex,
-        content_block: {
-          type: 'tool_use',
-          id: toolCall.id,
-          name: toolCall.name,
-          input: {},
-        },
-      }
-      contentBlockIndex++
-      throwIfStreamAborted(signal)
-      yield {
-        type: 'content_block_delta',
-        index: toolBlockIndex,
-        delta: {
-          type: 'input_json_delta',
-          partial_json: toolCall.argumentsJson,
-        },
-      }
-      throwIfStreamAborted(signal)
-      yield { type: 'content_block_stop', index: toolBlockIndex }
-      processStreamChunk(streamState, toolCall.argumentsJson)
-    }
-  }
-
-  try {
-    throwIfStreamAborted(signal)
-
-    // Emit message_start
-    yield {
-      type: 'message_start',
-      message: {
-        id: messageId,
-        type: 'message',
-        role: 'assistant',
-        content: [],
-        model,
-        stop_reason: null,
-        stop_sequence: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-    }
-
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
-        signal,
-        cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-          logForDebugging(
-            `OpenAI-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
-            { level: 'error' },
-          )
-        },
-      })
-      if (done) {
-        streamComplete = true
-        break
-      }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-      throwIfStreamAborted(signal)
-      const trimmed = line.trim()
-      if (!trimmed || trimmed === 'data: [DONE]') continue
-      if (!trimmed.startsWith('data: ')) continue
-
-      let chunk: OpenAIStreamChunk
-      try {
-        chunk = JSON.parse(trimmed.slice(6))
-      } catch {
-        continue
-      }
-
-      // In-stream error event. Used by OpenAI when a stream fails after
-      // headers have been sent, and by intermediaries (e.g. gateways) that
-      // want to signal a structured failure without dropping the TCP
-      // connection. Surface it as an APIError so callers see a clean
-      // message instead of "stream ended without [DONE]".
-      const inStreamError = (chunk as unknown as { error?: { message?: string; type?: string; code?: string } }).error
-      if (inStreamError && typeof inStreamError === 'object') {
-        const message =
-          typeof inStreamError.message === 'string'
-            ? inStreamError.message
-            : 'Provider returned an in-stream error'
-        const errorPayload = {
-          error: {
-            message,
-            type: inStreamError.type ?? 'api_error',
-            code: inStreamError.code ?? null,
-          },
-        }
-        throw APIError.generate(
-          (response.status ?? 200) as number,
-          errorPayload,
-          message,
-          response.headers as unknown as Headers,
-        )
-      }
-
-      const chunkUsage = convertChunkUsage(chunk.usage)
-
-      for (const choice of chunk.choices ?? []) {
-        throwIfStreamAborted(signal)
-        const delta = choice.delta
-
-        // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
-        // in `reasoning_content` before the actual reply appears in `content`.
-        // Emit reasoning as a thinking block and content as a text block.
-        if (delta.reasoning_content != null && delta.reasoning_content !== '') {
-          if (!hasEmittedThinkingStart) {
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_start',
-              index: contentBlockIndex,
-              content_block: { type: 'thinking', thinking: '' },
-            }
-            hasEmittedThinkingStart = true
-          }
-          throwIfStreamAborted(signal)
-          yield {
-            type: 'content_block_delta',
-            index: contentBlockIndex,
-            delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
-          }
-        }
-
-        // Text content — use != null to distinguish absent field from empty string,
-        // some providers send "" as first delta to signal streaming start
-        if (delta.content != null && delta.content !== '') {
-          // Close thinking block if transitioning from reasoning to content
-          if (hasEmittedThinkingStart && !hasClosedThinking) {
-            throwIfStreamAborted(signal)
-            yield { type: 'content_block_stop', index: contentBlockIndex }
-            contentBlockIndex++
-            hasClosedThinking = true
-          }
-
-          accumulatedText += delta.content
-          if (isOllamaStream) {
-            const visible = thinkFilter.feed(delta.content)
-            if (visible) {
-              ollamaTextBuffer += visible
-            }
-          } else if (xmlToolCallText !== null) {
-            // Inside an XML tool-call region — buffer, emit nothing visible.
-            xmlToolCallText += delta.content
-          } else if (
-            !hasEmittedContentStart &&
-            bufferedRawToolCallsText === null &&
-            couldBeRawToolCallsRequestedPrefix(delta.content)
-          ) {
-            bufferedRawToolCallsText = delta.content
-            processStreamChunk(streamState, delta.content)
-          } else if (bufferedRawToolCallsText !== null) {
-            bufferedRawToolCallsText += delta.content
-            processStreamChunk(streamState, delta.content)
-            if (!couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)) {
-              yield* emitTextDelta(bufferedRawToolCallsText)
-              bufferedRawToolCallsText = null
-            }
-          } else {
-            // Watch for an XML tool-call opener that may be split across deltas.
-            // Everything from `<tool_call>` onward is held back (never shown) and
-            // converted to tool_use blocks at finalize; prose before it streams
-            // normally, minus a trailing partial-opener prefix.
-            const combined = xmlHoldback + delta.content
-            const openIdx = findXmlToolCallOpener(
-              combined,
-              allowHy3ToolCalls,
-            )
-            if (openIdx !== -1) {
-              const before = combined.slice(0, openIdx)
-              if (before) yield* emitTextDelta(before)
-              xmlHoldback = ''
-              xmlToolCallText = combined.slice(openIdx)
-            } else {
-              const keep = trailingXmlOpenerPrefixLen(
-                combined,
-                allowHy3ToolCalls,
-              )
-              const emit =
-                keep > 0 ? combined.slice(0, combined.length - keep) : combined
-              xmlHoldback = keep > 0 ? combined.slice(combined.length - keep) : ''
-              if (emit) yield* emitTextDelta(emit)
-            }
-          }
-        }
-
-        // Tool calls
-        if (delta.tool_calls) {
-          // Structured tool calls arrived — any held-back XML was a false
-          // positive (the model uses one mechanism or the other). Flush it
-          // as text so nothing is lost.
-          if (xmlToolCallText !== null) {
-            yield* emitTextDelta(xmlToolCallText)
-            xmlToolCallText = null
-          }
-          if (xmlHoldback) {
-            yield* emitTextDelta(xmlHoldback)
-            xmlHoldback = ''
-          }
-          if (bufferedRawToolCallsText !== null) {
-            const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
-              bufferedRawToolCallsText,
-            )
-            if (
-              !parsedBufferedToolCalls &&
-              !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
-            ) {
-              yield* emitTextDelta(bufferedRawToolCallsText)
-            }
-            bufferedRawToolCallsText = null
-          }
-          for (const tc of delta.tool_calls) {
-            if (tc.id && tc.function?.name) {
-              // New tool call starting — close any open thinking block first
-              if (hasEmittedThinkingStart && !hasClosedThinking) {
-                throwIfStreamAborted(signal)
-                yield { type: 'content_block_stop', index: contentBlockIndex }
-                contentBlockIndex++
-                hasClosedThinking = true
-              }
-              // Flush buffered Ollama text before processing the tool call.
-              // Must run before hasEmittedContentStart check because for Ollama
-              // streams the text block may not have been opened yet (we buffer
-              // instead of emitting during the streaming phase).
-              if (isOllamaStream && ollamaTextBuffer) {
-                if (!hasEmittedContentStart) {
-                  throwIfStreamAborted(signal)
-                  yield {
-                    type: 'content_block_start',
-                    index: contentBlockIndex,
-                    content_block: { type: 'text', text: '' },
-                  }
-                  hasEmittedContentStart = true
-                }
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: contentBlockIndex,
-                  delta: { type: 'text_delta', text: ollamaTextBuffer },
-                }
-                ollamaTextBuffer = ''
-              }
-              if (hasEmittedContentStart) {
-                yield* closeActiveContentBlock()
-              }
-
-              const toolBlockIndex = contentBlockIndex
-              const initialArguments = tc.function.arguments ?? ''
-              const normalizeAtStop = hasToolFieldMapping(tc.function.name)
-              const toolExtraContent = tc.extra_content ?? delta.extra_content
-              const toolSignature =
-                geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
-                geminiThoughtSignatureFromExtraContent(delta.extra_content)
-              const mergedToolExtraContent = mergeGeminiThoughtSignature(
-                toolExtraContent,
-                toolSignature,
-              )
-              processStreamChunk(streamState, tc.function.arguments ?? '')
-              activeToolCalls.set(tc.index, {
-                id: tc.id,
-                name: tc.function.name,
-                index: toolBlockIndex,
-                jsonBuffer: initialArguments,
-                normalizeAtStop,
-              })
-
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_start',
-                index: toolBlockIndex,
-                content_block: {
-                  type: 'tool_use',
-                  id: tc.id,
-                  name: tc.function.name,
-                  input: {},
-                  ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
-                  ...(toolSignature ? { signature: toolSignature } : {}),
-                },
-              }
-              contentBlockIndex++
-
-              // Emit any initial arguments
-              if (tc.function.arguments && !normalizeAtStop) {
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: toolBlockIndex,
-                  delta: {
-                    type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
-                  },
-                }
-              }
-            } else if (tc.function?.arguments) {
-              // Continuation of existing tool call
-              const active = activeToolCalls.get(tc.index)
-              if (active) {
-                if (tc.function.arguments) {
-                  active.jsonBuffer += tc.function.arguments
-                }
-
-                if (active.normalizeAtStop) {
-                  continue
-                }
-
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: active.index,
-                  delta: {
-                    type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
-                  },
-                }
-              }
-            }
-          }
-        }
-
-        // Finish — guard ensures we only process finish_reason once even if
-        // multiple chunks arrive with finish_reason set (some providers do this)
-        if (choice.finish_reason && !hasProcessedFinishReason) {
-          hasProcessedFinishReason = true
-
-          // Close any open thinking block that wasn't closed by content transition
-          if (hasEmittedThinkingStart && !hasClosedThinking) {
-            throwIfStreamAborted(signal)
-            yield { type: 'content_block_stop', index: contentBlockIndex }
-            contentBlockIndex++
-            hasClosedThinking = true
-          }
-          // Ollama text-based tool call fallback (#1053):
-          // Must run before closeActiveContentBlock so the text buffer can be flushed
-          // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
-          // JSON text; scan accumulated text on any terminal finish reason with no
-          // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
-          // so the JSON fallback remains scoped to normal completions.
-          const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
-          const isTerminalOllamaFinish =
-            OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
-            activeToolCalls.size === 0 &&
-            isOllamaStream
-          const originalFinishReason = choice.finish_reason
-          let ollamaClosedContentBlock = false
-          if (isTerminalOllamaFinish) {
-            const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
-            if (textToolCalls.length > 0) {
-              ollamaClosedContentBlock = true
-              // Compute visible prose (tool-call JSON stripped, think-tags removed).
-              // Use accumulatedText (raw) as source because toolCallRanges are relative to it.
-              const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
-              const strippedVisible = stripThinkTags(stripped).trim()
-              if (hasEmittedContentStart) {
-                // Text block was already open — emit stripped prose then close it.
-                if (strippedVisible) {
-                  throwIfStreamAborted(signal)
-                  yield {
-                    type: 'content_block_delta',
-                    index: contentBlockIndex,
-                    delta: { type: 'text_delta', text: strippedVisible },
-                  }
-                }
-                yield* closeActiveContentBlock()
-              } else if (strippedVisible) {
-                // Text was buffered (Ollama path, hasEmittedContentStart === false).
-                // Open a text block, emit the visible prose before the tool call, close it.
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_start',
-                  index: contentBlockIndex,
-                  content_block: { type: 'text', text: '' },
-                }
-                hasEmittedContentStart = true
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: contentBlockIndex,
-                  delta: { type: 'text_delta', text: strippedVisible },
-                }
-                yield* closeActiveContentBlock()
-              }
-              for (const tc of textToolCalls) {
-                throwIfStreamAborted(signal)
-                const toolBlockIndex = contentBlockIndex
-                yield {
-                  type: 'content_block_start',
-                  index: toolBlockIndex,
-                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
-                }
-                contentBlockIndex++
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: toolBlockIndex,
-                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
-                }
-                throwIfStreamAborted(signal)
-                yield { type: 'content_block_stop', index: toolBlockIndex }
-              }
-              // Only remap finish_reason to 'tool_calls' for the normal stop case;
-              // non-stop terminal reasons keep their original reason.
-              if (originalFinishReason === 'stop') {
-                choice.finish_reason = 'tool_calls'
-              }
-            } else if (ollamaTextBuffer) {
-              // No tool calls — flush the buffered text before the normal close below.
-              // Open a text block first if one is not already open (guards the edge case
-              // where hasEmittedContentStart is false but the buffer has content).
-              if (!hasEmittedContentStart) {
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_start',
-                  index: contentBlockIndex,
-                  content_block: { type: 'text', text: '' },
-                }
-                hasEmittedContentStart = true
-              }
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_delta',
-                index: contentBlockIndex,
-                delta: { type: 'text_delta', text: ollamaTextBuffer },
-              }
-            }
-          }
-
-          // XML tool-call fallback for non-Ollama OpenAI-compatible providers
-          // (GLM/Qwen emit `<tool_call><function=…>` as text). Mirror the Ollama
-          // path: convert buffered XML to tool_use blocks and strip the raw XML.
-          let xmlClosedContentBlock = false
-          if (!isOllamaStream && xmlToolCallText !== null) {
-            const buffered = xmlToolCallText
-            xmlToolCallText = null
-            const { calls, toolCallRanges } = parseXmlToolCalls(
-              buffered,
-              allowHy3ToolCalls,
-            )
-            if (calls.length > 0) {
-              const stripped = stripRanges(buffered, toolCallRanges).trim()
-              const strippedVisible = stripThinkTags(stripped).trim()
-              if (strippedVisible) {
-                // emitTextDelta opens a text block if one is not already open;
-                // when prose preceded the opener the block is still open and we
-                // simply append the trailing prose to it.
-                yield* emitTextDelta(strippedVisible)
-              }
-              if (hasEmittedContentStart) {
-                yield* closeActiveContentBlock()
-                xmlClosedContentBlock = true
-              }
-              for (const tc of calls) {
-                throwIfStreamAborted(signal)
-                const toolBlockIndex = contentBlockIndex
-                yield {
-                  type: 'content_block_start',
-                  index: toolBlockIndex,
-                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
-                }
-                contentBlockIndex++
-                throwIfStreamAborted(signal)
-                yield {
-                  type: 'content_block_delta',
-                  index: toolBlockIndex,
-                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
-                }
-                throwIfStreamAborted(signal)
-                yield { type: 'content_block_stop', index: toolBlockIndex }
-              }
-              if (originalFinishReason === 'stop') {
-                choice.finish_reason = 'tool_calls'
-              }
-            } else {
-              // No valid tool calls parsed — the buffered text was a false
-              // positive (e.g. the model wrote about `<tool_call>` literally).
-              // Emit it verbatim so nothing is lost.
-              yield* emitTextDelta(buffered)
-            }
-          } else if (!isOllamaStream && xmlHoldback) {
-            // A trailing partial opener that never completed is just text.
-            yield* emitTextDelta(xmlHoldback)
-            xmlHoldback = ''
-          }
-
-          // Flush bufferedRawToolCallsText for non-Ollama providers
-          const parsedBufferedToolCalls = bufferedRawToolCallsText
-            ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
-            : null
-          if (parsedBufferedToolCalls) {
-            yield* emitParsedRawToolCalls(parsedBufferedToolCalls)
-            bufferedRawToolCallsText = null
-          } else if (bufferedRawToolCallsText !== null) {
-            yield* emitTextDelta(bufferedRawToolCallsText)
-            bufferedRawToolCallsText = null
-          }
-
-          // Close any open content blocks (skipped when the Ollama or XML
-          // fallback already closed it above)
-          if (hasEmittedContentStart && !ollamaClosedContentBlock && !xmlClosedContentBlock) {
-            yield* closeActiveContentBlock()
-          }
-          // Close active tool calls
-          for (const [, tc] of activeToolCalls) {
-            if (tc.normalizeAtStop) {
-              let partialJson: string
-              if (choice.finish_reason === 'length') {
-                // Truncated by max tokens — preserve raw buffer to avoid
-                // turning an incomplete tool call into an executable command
-                partialJson = tc.jsonBuffer
-              } else {
-                const repairedStructuredJson = repairPossiblyTruncatedObjectJson(
-                  tc.jsonBuffer,
-                )
-                if (repairedStructuredJson) {
-                  partialJson = repairedStructuredJson
-                } else {
-                  partialJson = JSON.stringify(
-                    normalizeToolArguments(tc.name, tc.jsonBuffer),
-                  )
-                }
-              }
-
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_delta',
-                index: tc.index,
-                delta: {
-                  type: 'input_json_delta',
-                  partial_json: partialJson,
-                },
-              }
-              throwIfStreamAborted(signal)
-              yield { type: 'content_block_stop', index: tc.index }
-              continue
-            }
-
-            let suffixToAdd = ''
-            if (tc.jsonBuffer) {
-              try {
-                JSON.parse(tc.jsonBuffer)
-              } catch {
-                const str = tc.jsonBuffer.trimEnd()
-                for (const combo of JSON_REPAIR_SUFFIXES) {
-                  try {
-                    JSON.parse(str + combo)
-                    suffixToAdd = combo
-                    break
-                  } catch {}
-                }
-              }
-            }
-
-            if (suffixToAdd) {
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_delta',
-                index: tc.index,
-                delta: {
-                  type: 'input_json_delta',
-                  partial_json: suffixToAdd,
-                },
-              }
-            }
-
-            throwIfStreamAborted(signal)
-            yield { type: 'content_block_stop', index: tc.index }
-          }
-
-          const stopReason =
-            parsedBufferedToolCalls || choice.finish_reason === 'tool_calls'
-              ? 'tool_use'
-              : choice.finish_reason === 'length'
-                ? 'max_tokens'
-                : 'end_turn'
-          if (choice.finish_reason === 'content_filter' || choice.finish_reason === 'safety') {
-            // Gemini/Azure content safety filter blocked the response.
-            // Emit a visible text block so the user knows why output was truncated.
-            if (!hasEmittedContentStart) {
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_start',
-                index: contentBlockIndex,
-                content_block: { type: 'text', text: '' },
-              }
-              hasEmittedContentStart = true
-            }
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: { type: 'text_delta', text: '\n\n[Content blocked by provider safety filter]' },
-            }
-          } else if (choice.finish_reason === 'length') {
-            // Response was truncated — either the model hit max_tokens, or
-            // an upstream/gateway watchdog synthesized a graceful end after
-            // detecting a stalled stream. Either way, the user should know
-            // the answer they're seeing isn't complete.
-            if (!hasEmittedContentStart) {
-              throwIfStreamAborted(signal)
-              yield {
-                type: 'content_block_start',
-                index: contentBlockIndex,
-                content_block: { type: 'text', text: '' },
-              }
-              hasEmittedContentStart = true
-            }
-            throwIfStreamAborted(signal)
-            yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: { type: 'text_delta', text: '\n\n[Response truncated — reached length limit or upstream stalled. Ask the model to continue.]' },
-            }
-          }
-          lastStopReason = stopReason
-
-          throwIfStreamAborted(signal)
-          yield {
-            type: 'message_delta',
-            delta: { stop_reason: stopReason, stop_sequence: null },
-            ...(chunkUsage ? { usage: chunkUsage } : {}),
-          }
-          if (chunkUsage) {
-            hasEmittedFinalUsage = true
-          }
-        }
-      }
-
-      if (
-        !hasEmittedFinalUsage &&
-        chunkUsage &&
-        (chunk.choices?.length ?? 0) === 0 &&
-        lastStopReason !== null
-      ) {
-        throwIfStreamAborted(signal)
-        yield {
-          type: 'message_delta',
-          delta: { stop_reason: lastStopReason, stop_sequence: null },
-          usage: chunkUsage,
-        }
-        hasEmittedFinalUsage = true
-      }
-    }
-    }
-  } finally {
-    if (!streamComplete || signal?.aborted) {
-      readerCanceller.cancel(createStreamAbortError())
-    }
-    readerCanceller.cleanup()
-    reader.releaseLock()
-  }
-
-  const stats = getStreamStats(streamState)
-  if (stats.totalChunks > 0) {
-    logForDebugging(
-      JSON.stringify({
-        type: 'stream_stats',
-        model,
-        total_chunks: stats.totalChunks,
-        first_token_ms: stats.firstTokenMs,
-        duration_ms: stats.durationMs,
-      }),
-      { level: 'debug' },
-    )
-  }
-
-  throwIfStreamAborted(signal)
-  yield { type: 'message_stop' }
+  yield* convertOpenAIStream(response, model, signal, isOllama, requestUrl, {
+    convertNonStreamingResponseToAnthropicMessage: (data, streamModel) =>
+      convertNonStreamingResponseToAnthropicMessage(
+        data as NonStreamingOpenAIResponse,
+        streamModel,
+      ),
+    couldBeRawToolCallsRequestedPrefix,
+    createReaderCanceller,
+    createStreamAbortError,
+    findXmlToolCallOpener,
+    geminiThoughtSignatureFromExtraContent,
+    getStreamIdleTimeoutMs,
+    headersWithRequestUrl,
+    isHy3Model,
+    makeMessageId,
+    mergeGeminiThoughtSignature,
+    parseRawToolCallsRequestedText,
+    parseTextToolCalls,
+    parseXmlToolCalls,
+    readWithIdleTimeout,
+    repairPossiblyTruncatedObjectJson,
+    stripRanges,
+    throwIfStreamAborted,
+    trailingXmlOpenerPrefixLen,
+  })
 }
+
+
+// Extraction seam: stream conversion | stream lifecycle façade.
 
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
@@ -4014,7 +2952,11 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4065,7 +3007,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4090,7 +3032,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4111,7 +3052,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4148,7 +3089,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4245,7 +3185,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -4263,6 +3203,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -4577,6 +3520,9 @@ class OpenAIShimMessages {
       })
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4618,6 +3564,9 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
@@ -4977,9 +3926,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -5036,6 +3985,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(
