@@ -583,67 +583,7 @@ afterEach(() => {
 })
 
 // openaiShim test extraction seam 001 start: strips canonical Anthropic headers from direct shim defaultHeaders
-test('strips canonical Anthropic headers from direct shim defaultHeaders', async () => {
-  let capturedHeaders: Headers | undefined
 
-  globalThis.fetch = (async (_input, init) => {
-    capturedHeaders = new Headers(init?.headers)
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'gpt-4o',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'ok',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 8,
-          completion_tokens: 3,
-          total_tokens: 11,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({
-    defaultHeaders: {
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
-      'x-anthropic-additional-protection': 'true',
-      'x-claude-remote-session-id': 'remote-123',
-      'x-app': 'cli',
-      'x-client-app': 'sdk',
-      'x-safe-header': 'keep-me',
-    },
-  }) as OpenAIShimClient
-
-  await client.beta.messages.create({
-    model: 'gpt-4o',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
-  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
-  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
-  expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
-  expect(capturedHeaders?.get('x-app')).toBeNull()
-  expect(capturedHeaders?.get('x-client-app')).toBeNull()
-  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
-})
 // openaiShim test extraction seam 001 end
 
 
@@ -1738,62 +1678,7 @@ test('ignores custom auth header value when no custom header is configured', asy
 
 
 // openaiShim test extraction seam 014 start: strips canonical Anthropic headers from per-request shim headers too
-test('strips canonical Anthropic headers from per-request shim headers too', async () => {
-  let capturedHeaders: Headers | undefined
 
-  globalThis.fetch = (async (_input, init) => {
-    capturedHeaders = new Headers(init?.headers)
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'gpt-4o',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'ok',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 8,
-          completion_tokens: 3,
-          total_tokens: 11,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  await client.beta.messages.create(
-    {
-      model: 'gpt-4o',
-      system: 'test system',
-      messages: [{ role: 'user', content: 'hello' }],
-      max_tokens: 64,
-      stream: false,
-    },
-    {
-      headers: {
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
-        'x-safe-header': 'keep-me',
-      },
-    },
-  )
-
-  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
-  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
-  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
-})
 // openaiShim test extraction seam 014 end
 
 
@@ -3376,180 +3261,12 @@ test('uses route-specific credential env vars for descriptor-backed openai-compa
 
 
 // openaiShim test extraction seam 047 start: preserves Gemini tool call extra_content in follow-up requests
-test('preserves Gemini tool call extra_content in follow-up requests', async () => {
-  let requestBody: Record<string, unknown> | undefined
 
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'done',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
-    system: 'test system',
-    messages: [
-      { role: 'user', content: 'Use Bash' },
-      {
-        role: 'assistant',
-        content: [
-          { type: 'thinking', thinking: 'I should inspect the working tree first.' },
-          {
-            type: 'tool_use',
-            id: 'call_1',
-            name: 'Bash',
-            input: { command: 'pwd' },
-            extra_content: {
-              google: {
-                thought_signature: 'sig-123',
-              },
-            },
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: 'call_1',
-            content: 'D:\\repo',
-          },
-        ],
-      },
-    ],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
-    message => Array.isArray(message.tool_calls),
-  ) as { tool_calls?: Array<Record<string, unknown>> } | undefined
-
-  expect(assistantWithToolCall?.tool_calls?.[0]).toMatchObject({
-    id: 'call_1',
-    type: 'function',
-    function: {
-      name: 'Bash',
-      arguments: JSON.stringify({ command: 'pwd' }),
-    },
-    extra_content: {
-      google: {
-        thought_signature: 'sig-123',
-      },
-    },
-  })
-})
 // openaiShim test extraction seam 047 end
 
 
 // openaiShim test extraction seam 048 start: replays Gemini tool signatures for OpenGateway Gemini models
-test('replays Gemini tool signatures for OpenGateway Gemini models', async () => {
-  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
-  let requestBody: Record<string, unknown> | undefined
 
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'done',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite',
-    messages: [
-      { role: 'user', content: 'Use Write' },
-      {
-        role: 'assistant',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'call_1',
-            name: 'Write',
-            input: { file_path: 'todo.md', content: 'todo' },
-            signature: 'sig-opengateway',
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: 'call_1',
-            content: 'created',
-          },
-        ],
-      },
-    ],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
-    message => Array.isArray(message.tool_calls),
-  ) as { tool_calls?: Array<Record<string, unknown>> } | undefined
-
-  expect(assistantWithToolCall?.tool_calls?.[0]).toMatchObject({
-    id: 'call_1',
-    extra_content: {
-      google: {
-        thought_signature: 'sig-opengateway',
-      },
-    },
-  })
-})
 // openaiShim test extraction seam 048 end
 
 
@@ -3862,127 +3579,12 @@ test('strips unsupported stream_options for Xiaomi MiMo streams', async () => {
 
 
 // openaiShim test extraction seam 053 start: preserves Grep tool pattern field in OpenAI-compatible schemas
-test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
-  let requestBody: Record<string, unknown> | undefined
 
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-grep-schema',
-        model: 'qwen/qwen3.6-plus',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'done',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  await client.beta.messages.create({
-    model: 'qwen/qwen3.6-plus',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'Use Grep' }],
-    tools: [
-      {
-        name: 'Grep',
-        description: 'Search file contents',
-        input_schema: {
-          type: 'object',
-          properties: {
-            pattern: { type: 'string', description: 'Search pattern' },
-            path: { type: 'string' },
-          },
-          required: ['pattern'],
-          additionalProperties: false,
-        },
-      },
-    ],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined
-  const grepTool = tools?.find(tool => (tool.function as Record<string, unknown>)?.name === 'Grep') as
-    | { function?: { parameters?: { properties?: Record<string, unknown>; required?: string[] } } }
-    | undefined
-
-  expect(Object.keys(grepTool?.function?.parameters?.properties ?? {})).toContain('pattern')
-  expect(grepTool?.function?.parameters?.required).toContain('pattern')
-})
 // openaiShim test extraction seam 053 end
 
 
 // openaiShim test extraction seam 054 start: does not infer Gemini mode from OPENAI_BASE_URL path substrings
-test('does not infer Gemini mode from OPENAI_BASE_URL path substrings', async () => {
-  let capturedAuthorization: string | null = null
 
-  process.env.OPENAI_BASE_URL =
-    'https://evil.example/generativelanguage.googleapis.com/v1beta/openai'
-  delete process.env.OPENAI_API_KEY
-  process.env.GEMINI_API_KEY = 'gemini-secret'
-
-  globalThis.fetch = (async (_input, init) => {
-    const headers = init?.headers as Record<string, string> | undefined
-    capturedAuthorization =
-      headers?.Authorization ?? headers?.authorization ?? null
-
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'fake-model',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'ok',
-            },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  await client.beta.messages.create({
-    model: 'fake-model',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(capturedAuthorization).toBeNull()
-})
 // openaiShim test extraction seam 054 end
 
 
@@ -5539,252 +5141,17 @@ test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async (
 
 
 // openaiShim test extraction seam 088 start: preserves Gemini tool call extra_content from streaming chunks
-test('preserves Gemini tool call extra_content from streaming chunks', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    const chunks = makeStreamChunks([
-      {
-        id: 'chatcmpl-1',
-        object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
-        choices: [
-          {
-            index: 0,
-            delta: {
-              role: 'assistant',
-              tool_calls: [
-                {
-                  index: 0,
-                  id: 'function-call-1',
-                  type: 'function',
-                  extra_content: {
-                    google: {
-                      thought_signature: 'sig-stream',
-                    },
-                  },
-                  function: {
-                    name: 'Bash',
-                    arguments: '{"command":"pwd"}',
-                  },
-                },
-              ],
-            },
-            finish_reason: null,
-          },
-        ],
-      },
-      {
-        id: 'chatcmpl-1',
-        object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
-        choices: [
-          {
-            index: 0,
-            delta: {},
-            finish_reason: 'tool_calls',
-          },
-        ],
-      },
-    ])
 
-    return makeSseResponse(chunks)
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const result = await client.beta.messages
-    .create({
-      model: 'google/gemini-3.1-pro-preview',
-      system: 'test system',
-      messages: [{ role: 'user', content: 'Use Bash' }],
-      max_tokens: 64,
-      stream: true,
-    })
-    .withResponse()
-
-  const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) {
-    events.push(event)
-  }
-
-  const toolStart = events.find(
-    event =>
-      event.type === 'content_block_start' &&
-      typeof event.content_block === 'object' &&
-      event.content_block !== null &&
-      (event.content_block as Record<string, unknown>).type === 'tool_use',
-  ) as { content_block?: Record<string, unknown> } | undefined
-
-  expect(toolStart?.content_block).toMatchObject({
-    type: 'tool_use',
-    id: 'function-call-1',
-    name: 'Bash',
-    extra_content: {
-      google: {
-        thought_signature: 'sig-stream',
-      },
-    },
-  })
-})
 // openaiShim test extraction seam 088 end
 
 
 // openaiShim test extraction seam 089 start: preserves Gemini thought signature from streaming delta extra_content
-test('preserves Gemini thought signature from streaming delta extra_content', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    const chunks = makeStreamChunks([
-      {
-        id: 'chatcmpl-1',
-        object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite',
-        choices: [
-          {
-            index: 0,
-            delta: {
-              role: 'assistant',
-              extra_content: {
-                google: {
-                  thought_signature: 'sig-delta',
-                },
-              },
-              tool_calls: [
-                {
-                  index: 0,
-                  id: 'function-call-1',
-                  type: 'function',
-                  function: {
-                    name: 'Write',
-                    arguments: '{"file_path":"todo.md","content":"todo"}',
-                  },
-                },
-              ],
-            },
-            finish_reason: null,
-          },
-        ],
-      },
-      {
-        id: 'chatcmpl-1',
-        object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite',
-        choices: [
-          {
-            index: 0,
-            delta: {},
-            finish_reason: 'tool_calls',
-          },
-        ],
-      },
-    ])
 
-    return makeSseResponse(chunks)
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const result = await client.beta.messages
-    .create({
-      model: 'google/gemini-3.1-flash-lite',
-      messages: [{ role: 'user', content: 'Use Write' }],
-      max_tokens: 64,
-      stream: true,
-    })
-    .withResponse()
-
-  const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) {
-    events.push(event)
-  }
-
-  const toolStart = events.find(
-    event =>
-      event.type === 'content_block_start' &&
-      typeof event.content_block === 'object' &&
-      event.content_block !== null &&
-      (event.content_block as Record<string, unknown>).type === 'tool_use',
-  ) as { content_block?: Record<string, unknown> } | undefined
-
-  expect(toolStart?.content_block).toMatchObject({
-    type: 'tool_use',
-    id: 'function-call-1',
-    name: 'Write',
-    extra_content: {
-      google: {
-        thought_signature: 'sig-delta',
-      },
-    },
-    signature: 'sig-delta',
-  })
-})
 // openaiShim test extraction seam 089 end
 
 
 // openaiShim test extraction seam 090 start: preserves Gemini thought signature from non-streaming message extra_content
-test('preserves Gemini thought signature from non-streaming message extra_content', async () => {
-  globalThis.fetch = (async (_input, _init) => {
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              extra_content: {
-                google: {
-                  thought_signature: 'sig-message',
-                },
-              },
-              tool_calls: [
-                {
-                  id: 'function-call-1',
-                  type: 'function',
-                  function: {
-                    name: 'Write',
-                    arguments: '{"file_path":"todo.md","content":"todo"}',
-                  },
-                },
-              ],
-            },
-            finish_reason: 'tool_calls',
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-  }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-
-  const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite',
-    messages: [{ role: 'user', content: 'Use Write' }],
-    max_tokens: 64,
-    stream: false,
-  }) as {
-    content?: Array<Record<string, unknown>>
-  }
-
-  expect(message.content?.[0]).toMatchObject({
-    type: 'tool_use',
-    id: 'function-call-1',
-    name: 'Write',
-    extra_content: {
-      google: {
-        thought_signature: 'sig-message',
-      },
-    },
-    signature: 'sig-message',
-  })
-})
 // openaiShim test extraction seam 090 end
 
 
@@ -9444,17 +8811,7 @@ test('Mistral host fallback: strips store on an unresolved Mistral-host route (#
 
 
 // openaiShim test extraction seam 142 start: hasMistralApiHost matches the Mistral host and its subdomains only
-test('hasMistralApiHost matches the Mistral host and its subdomains only', () => {
-  expect(hasMistralApiHost('https://api.mistral.ai/v1')).toBe(true)
-  expect(hasMistralApiHost('https://proxy.mistral.ai/v1')).toBe(true)
-  expect(hasMistralApiHost('https://eu.mistral.ai/v1')).toBe(true)
-  // Non-Mistral hosts (and look-alikes) must keep `store`.
-  expect(hasMistralApiHost('https://api.openai.com/v1')).toBe(false)
-  expect(hasMistralApiHost('https://notmistral.ai/v1')).toBe(false)
-  expect(hasMistralApiHost('https://api.mistral.ai.evil.com/v1')).toBe(false)
-  expect(hasMistralApiHost(undefined)).toBe(false)
-  expect(hasMistralApiHost('not a url')).toBe(false)
-})
+
 // openaiShim test extraction seam 142 end
 
 
@@ -9985,83 +9342,12 @@ test('DeepSeek sends thinking toggle and normalized reasoning effort', async () 
 
 
 // openaiShim test extraction seam 153 start: NVIDIA NIM DeepSeek sends chat template thinking kwargs
-test('NVIDIA NIM DeepSeek sends chat template thinking kwargs', async () => {
-  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-  process.env.NVIDIA_API_KEY = 'nvapi-test'
 
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'deepseek-ai/deepseek-v4-pro',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({
-    reasoningEffort: 'xhigh',
-  }) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'deepseek-ai/deepseek-v4-pro',
-    system: 'test',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    stream: false,
-    thinking: { type: 'enabled' },
-  })
-
-  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
-  expect(requestBody?.reasoning_effort).toBe('max')
-  expect(requestBody?.chat_template_kwargs).toEqual({
-    thinking: true,
-    enable_thinking: true,
-  })
-})
 // openaiShim test extraction seam 153 end
 
 
 // openaiShim test extraction seam 154 start: NVIDIA NIM DeepSeek omits chat template thinking kwargs when thinking is disabled
-test('NVIDIA NIM DeepSeek omits chat template thinking kwargs when thinking is disabled', async () => {
-  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-  process.env.NVIDIA_API_KEY = 'nvapi-test'
 
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'deepseek-ai/deepseek-v4-pro',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({
-    reasoningEffort: 'xhigh',
-  }) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'deepseek-ai/deepseek-v4-pro?thinking=disabled',
-    system: 'test',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(requestBody?.thinking).toBeUndefined()
-  expect(requestBody?.reasoning_effort).toBeUndefined()
-  expect(requestBody?.chat_template_kwargs).toBeUndefined()
-})
 // openaiShim test extraction seam 154 end
 
 
@@ -10671,114 +9957,17 @@ test('Z.AI GLM-5.2: per-turn thinking overrides model-query default', async () =
 
 
 // openaiShim test extraction seam 166 start: NVIDIA NIM Z.AI GLM sends chat template thinking kwargs
-test('NVIDIA NIM Z.AI GLM sends chat template thinking kwargs', async () => {
-  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-  process.env.NVIDIA_API_KEY = 'nvapi-test'
 
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'z-ai/glm-5.2',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({
-    reasoningEffort: 'xhigh',
-  }) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'z-ai/glm-5.2',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
-  expect(requestBody?.reasoning_effort).toBe('max')
-  expect(requestBody?.chat_template_kwargs).toEqual({
-    thinking: true,
-    enable_thinking: true,
-  })
-})
 // openaiShim test extraction seam 166 end
 
 
 // openaiShim test extraction seam 167 start: NVIDIA NIM Z.AI GLM omits chat template thinking kwargs without a reasoning request
-test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs without a reasoning request', async () => {
-  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-  process.env.NVIDIA_API_KEY = 'nvapi-test'
 
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'z-ai/glm-5.2',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'z-ai/glm-5.2',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(requestBody?.thinking).toBeUndefined()
-  expect(requestBody?.reasoning_effort).toBeUndefined()
-  expect(requestBody?.chat_template_kwargs).toBeUndefined()
-})
 // openaiShim test extraction seam 167 end
 
 
 // openaiShim test extraction seam 168 start: NVIDIA NIM Z.AI GLM omits chat template thinking kwargs when thinking is disabled
-test('NVIDIA NIM Z.AI GLM omits chat template thinking kwargs when thinking is disabled', async () => {
-  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-  process.env.NVIDIA_API_KEY = 'nvapi-test'
 
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'z-ai/glm-5.2',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as unknown as FetchType
-
-  const client = createOpenAIShimClient({
-    reasoningEffort: 'xhigh',
-  }) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'z-ai/glm-5.2?thinking=disabled',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    stream: false,
-  })
-
-  expect(requestBody?.thinking).toEqual({ type: 'disabled' })
-  expect(requestBody?.reasoning_effort).toBeUndefined()
-  expect(requestBody?.chat_template_kwargs).toBeUndefined()
-})
 // openaiShim test extraction seam 168 end
 
 
