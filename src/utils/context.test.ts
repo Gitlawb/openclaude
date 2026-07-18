@@ -29,6 +29,7 @@ const originalEnv = {
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
   USER_TYPE: process.env.USER_TYPE,
 }
@@ -49,6 +50,7 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.LONGCAT_API_KEY
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   delete process.env.USER_TYPE
 })
@@ -124,6 +126,11 @@ afterEach(() => {
       delete process.env.XAI_API_KEY
     } else {
       process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+    }
+    if (originalEnv.LONGCAT_API_KEY === undefined) {
+      delete process.env.LONGCAT_API_KEY
+    } else {
+      process.env.LONGCAT_API_KEY = originalEnv.LONGCAT_API_KEY
     }
     if (originalEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined) {
       delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
