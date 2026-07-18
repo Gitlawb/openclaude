@@ -6656,7 +6656,7 @@ test('optional tool properties are not added to required[] — fixes Groq/Azure 
 })
 
 // ---------------------------------------------------------------------------
-// Issue #202 — consecutive role coalescing (Devstral, Mistral strict templates)
+// Extraction boundary: tool conversion | message conversion (Issue #202)
 // ---------------------------------------------------------------------------
 
 function makeNonStreamResponse(content = 'ok'): Response {
@@ -6731,6 +6731,9 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 
+// ---------------------------------------------------------------------------
+// Extraction boundary: message conversion | non-streaming response conversion
+// ---------------------------------------------------------------------------
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
