@@ -55,7 +55,7 @@ export async function fetchWithProxyRetry(
         (response.status === 502 || response.status === 504) &&
         attempt < maxAttempts
       ) {
-        await response.body?.cancel().catch(() => {})
+        void response.body?.cancel().catch(() => {})
         disableKeepAlive()
         continue
       }

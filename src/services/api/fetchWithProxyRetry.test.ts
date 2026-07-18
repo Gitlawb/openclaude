@@ -144,6 +144,27 @@ test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 r
   expect((calls[1] as RequestInit).keepalive).toBe(false)
 })
 
+test('fetchWithProxyRetry retries when cancelling a discarded 504 body stalls', async () => {
+  let attempts = 0
+
+  globalThis.fetch = (async () => {
+    attempts++
+    if (attempts === 1) {
+      return new Response(new ReadableStream({
+        cancel() {
+          return new Promise(() => {})
+        },
+      }), { status: 504 })
+    }
+    return new Response('ok')
+  }) as unknown as FetchType
+
+  const response = await fetchWithProxyRetry('https://example.com/search')
+
+  expect(response.status).toBe(200)
+  expect(attempts).toBe(2)
+})
+
 test('fetchWithProxyRetry does not retry a 504 after the request is aborted', async () => {
   const controller = new AbortController()
   const abortReason = new DOMException('Deadline exceeded', 'TimeoutError')
