@@ -470,6 +470,17 @@ const getWindowsUserProfile = memoize(async (): Promise<string | undefined> => {
 export async function getIdeLockfilesPaths(): Promise<string[]> {
   const paths: string[] = [join(getClaudeConfigHomeDir(), 'ide')]
 
+  // Also look in the legacy ~/.claude/ide/ directory. The OpenClaude VS Code
+  // extension (and the upstream Claude Code extension) still write IDE lockfiles
+  // there; without this fallback OpenClaude cannot discover a running IDE that
+  // was registered by a Claude-compatible extension. We intentionally do not
+  // read CLAUDE_CONFIG_DIR (kept separate from OpenClaude config), but for IDE
+  // discovery specifically we honor the legacy well-known location.
+  const legacyIdeDir = join(os.homedir(), '.claude', 'ide')
+  if (legacyIdeDir !== paths[0]) {
+    paths.push(legacyIdeDir)
+  }
+
   if (getPlatform() !== 'wsl') {
     return paths
   }
