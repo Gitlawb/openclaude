@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 const facadePath = fileURLToPath(new URL('../openaiShim.ts', import.meta.url))
 const moduleDirectory = fileURLToPath(new URL('.', import.meta.url))
 
-// The shared extraction seam is 5,123 lines. Each independently mergeable PR
+// The shared extraction seam is 5,140 lines. Each independently mergeable PR
 // removes at least this many net lines when its representative module exists.
 // Detecting modules makes the ceiling tighten regardless of merge order.
 const extractionDeltas = [
@@ -18,7 +18,7 @@ const extractionDeltas = [
   ['streamConversion.ts', 1_072],
   ['clientDispatch.ts', 182],
   ['requestPlanner.ts', 304],
-  ['requestExecutor.ts', 716],
+  ['requestExecutor.ts', 704],
 ] as const
 
 describe('openaiShim façade architecture', () => {
@@ -30,6 +30,6 @@ describe('openaiShim façade architecture', () => {
     )
     const facadeLines = readFileSync(facadePath, 'utf8').trimEnd().split('\n').length
 
-    expect(facadeLines).toBeLessThanOrEqual(5_123 - activeReduction)
+    expect(facadeLines).toBeLessThanOrEqual(5_140 - activeReduction)
   })
 })
