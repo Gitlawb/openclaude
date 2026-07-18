@@ -66,6 +66,7 @@ const originalEnv = {
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   VENICE_API_KEY: process.env.VENICE_API_KEY,
   FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
+  LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
@@ -118,6 +119,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
@@ -158,6 +160,7 @@ beforeEach(async () => {
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
@@ -206,6 +209,7 @@ afterEach(() => {
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     restoreEnv('VENICE_API_KEY', originalEnv.VENICE_API_KEY)
     restoreEnv('FIREWORKS_API_KEY', originalEnv.FIREWORKS_API_KEY)
+    restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
