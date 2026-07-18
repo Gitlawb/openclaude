@@ -34,6 +34,7 @@ const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
 let hasSharedMutationLock = false
 
 type ImportAutoCompactOptions = {
+  autoCompactEnabled?: boolean
   compactConversation?: ReturnType<typeof mock>
   trySessionMemoryCompaction?: ReturnType<typeof mock>
 }
@@ -46,7 +47,9 @@ async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
   mock.module('../../utils/tokens.js', () => ({ ...realTokens }))
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
-    getGlobalConfig: () => ({ autoCompactEnabled: true }),
+    getGlobalConfig: () => ({
+      autoCompactEnabled: options.autoCompactEnabled ?? true,
+    }),
   }))
   if (options.compactConversation) {
     mock.module('./compact.js', () => ({
@@ -680,11 +683,10 @@ describe('autoCompactIfNeeded circuit breaker', () => {
   })
 
   test('memory-pressure signals honor disabled auto-compact', async () => {
-    process.env.DISABLE_COMPACT = '1'
-    process.env.DISABLE_AUTO_COMPACT = '1'
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
     const { autoCompactIfNeeded } = await importAutoCompact({
+      autoCompactEnabled: false,
       compactConversation,
       trySessionMemoryCompaction,
     })
