@@ -2822,6 +2822,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2996,6 +2998,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3913,6 +3917,8 @@ async function* openaiStreamToAnthropic(
   throwIfStreamAborted(signal)
   yield { type: 'message_stop' }
 }
+
+// Extraction seam: stream conversion | stream lifecycle façade.
 
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
