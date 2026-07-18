@@ -501,55 +501,54 @@ test('openai launch does not let a distinct proxy target inherit the saved aimla
         CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
         OPENAI_BASE_URL: persistedBaseUrl,
         OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEY: 'profile-own-tenant-key',
         AIMLAPI_API_KEY: 'profile-own-tenant-key',
+        OPENAI_AUTH_HEADER: 'X-Profile-Auth',
+        OPENAI_AUTH_HEADER_VALUE: 'profile-own-tenant-secret',
       }),
       goal: 'coding',
       processEnv: {
         OPENAI_BASE_URL: shellBaseUrl,
-        AIMLAPI_API_KEY: 'ambient-aimlapi-key',
-        OPENAI_API_KEY: 'ambient-openai-key',
+        OPENAI_API_KEY: 'user-supplied-key',
+        OPENAI_AUTH_HEADER_VALUE: 'user-supplied-secret',
       },
     })
 
     assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
+    // The dedicated aimlapi credential rides on the route identity, so a target
+    // that cannot inherit the identity never receives it.
     assert.equal(env.AIMLAPI_API_KEY, undefined)
-    // Losing the identity must not reopen the ambient leak: an aimlapi profile
-    // launched at an unrecognized endpoint still withholds ambient credentials.
-    assert.equal(env.OPENAI_API_KEY, undefined)
+    // Without that identity the launch falls back to the route-agnostic
+    // precedence: the credential the user supplied for THIS endpoint wins. The
+    // profile's own key must not be forced in over it — that would both hand a
+    // key to an endpoint it was never configured for and discard the user's.
+    assert.equal(env.OPENAI_API_KEY, 'user-supplied-key')
+    assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'user-supplied-secret')
   }
 })
 
-test('openai launch withholds ambient credentials from look-alike aimlapi endpoints', async () => {
-  // Endpoint spellings that are NOT the canonical endpoint must never receive
-  // the ambient canonical credential. The launch URL is judged by the strict
-  // canonical predicate, so a look-alike path on the real host and a
-  // query-decorated proxy both land on the withholding path — independent of
-  // how the saved route identity was resolved.
-  for (const [persistedBaseUrl, shellBaseUrl] of [
-    // Look-alike path case on the canonical host.
-    ['https://api.aimlapi.com/v1', 'https://api.aimlapi.com/V1'],
-    // Query parameters bolted onto a proxy endpoint.
-    ['https://proxy.example.com/v1', 'https://proxy.example.com/v1?tenant=other'],
-  ]) {
-    const env = await buildLaunchEnv({
-      profile: 'openai',
-      persisted: profile('openai', {
-        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
-        OPENAI_BASE_URL: persistedBaseUrl,
-        OPENAI_MODEL: 'gpt-4o',
-      }),
-      goal: 'coding',
-      processEnv: {
-        OPENAI_BASE_URL: shellBaseUrl,
-        OPENAI_API_KEY: 'ambient-openai-key',
-        AIMLAPI_API_KEY: 'ambient-aimlapi-key',
-      },
-    })
+test('openai launch withholds ambient credentials from a look-alike canonical path', async () => {
+  // `/V1` resolves to the aimlapi route by host, so the launch carries the
+  // identity — but the strict canonical predicate rejects the path, so it is
+  // treated as a proxy and the ambient canonical credential is withheld.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/V1',
+      OPENAI_API_KEY: 'ambient-openai-key',
+      AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+    },
+  })
 
-    assert.equal(env.OPENAI_BASE_URL, shellBaseUrl)
-    assert.equal(env.OPENAI_API_KEY, undefined)
-    assert.equal(env.AIMLAPI_API_KEY, undefined)
-  }
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.aimlapi.com/V1')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.AIMLAPI_API_KEY, undefined)
 })
 
 test('openai launch withholds ambient custom auth from a keyless proxy aimlapi profile', async () => {

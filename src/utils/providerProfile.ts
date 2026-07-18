@@ -1983,17 +1983,13 @@ export async function buildLaunchEnv(options: {
   // /OPENAI_API_KEYS alias either (the generic selection above prefers the live
   // shell value). Re-source the generic credential from the profile's OWN
   // persisted env and drop a purely ambient one.
-  // Withholding must NOT depend on identity retention. When the launch URL is
-  // an unrecognized endpoint, a profile saved as `aimlapi` is still an aimlapi
-  // profile even if the URL no longer matches the saved one exactly — so a
-  // retargeted proxy (different tenant path, added query) is covered too. A URL
-  // that resolves to some other known route is excluded: that is a deliberate
-  // switch away from aimlapi, and its own route rules apply.
-  const isAimlapiProxyLaunch =
-    effectiveOpenAIRouteId === 'aimlapi' ||
-    (!resolvedOpenAIRouteId && persistedOpenAIRouteId === 'aimlapi')
+  // Scoped to a launch that actually carries the aimlapi identity. A profile
+  // retargeted to an endpoint it was not saved for keeps no identity, so it is
+  // handled by the route-agnostic precedence above rather than here: forcing the
+  // profile's own credential in would both hand a key to an endpoint it was not
+  // configured for and discard a credential the user supplied for that endpoint.
   if (
-    isAimlapiProxyLaunch &&
+    effectiveOpenAIRouteId === 'aimlapi' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
   ) {
