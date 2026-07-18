@@ -29,6 +29,7 @@ export async function fetchWithProxyRetry(
 ): Promise<Response> {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 2)
   const fetcher = options?.fetcher ?? fetch
+  const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
   let lastError: unknown
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -39,9 +40,10 @@ export async function fetchWithProxyRetry(
           forAnthropicAPI: options?.forAnthropicAPI,
         }),
       })
-      if (init?.signal?.aborted) {
+      if (signal?.aborted) {
+        void response.body?.cancel().catch(() => {})
         throw (
-          init.signal.reason ??
+          signal.reason ??
           new DOMException('The operation was aborted.', 'AbortError')
         )
       }
@@ -61,10 +63,10 @@ export async function fetchWithProxyRetry(
       return response
     } catch (error) {
       lastError = error
-      if (init?.signal?.aborted) {
+      if (signal?.aborted) {
         throw error instanceof Error && error.name === 'AbortError'
           ? error
-          : (init.signal.reason ?? error)
+          : (signal.reason ?? error)
       }
       if (
         attempt >= maxAttempts ||

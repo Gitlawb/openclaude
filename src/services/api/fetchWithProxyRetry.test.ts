@@ -148,11 +148,16 @@ test('fetchWithProxyRetry does not retry a 504 after the request is aborted', as
   const controller = new AbortController()
   const abortReason = new DOMException('Deadline exceeded', 'TimeoutError')
   let attempts = 0
+  let bodyCancelled = false
 
   globalThis.fetch = (async () => {
     attempts++
     controller.abort(abortReason)
-    return new Response('Gateway Timeout', { status: 504 })
+    return new Response(new ReadableStream({
+      cancel() {
+        bodyCancelled = true
+      },
+    }), { status: 504 })
   }) as unknown as FetchType
 
   await expect(
@@ -162,6 +167,28 @@ test('fetchWithProxyRetry does not retry a 504 after the request is aborted', as
     }),
   ).rejects.toBe(abortReason)
 
+  expect(attempts).toBe(1)
+  await Promise.resolve()
+  expect(bodyCancelled).toBe(true)
+})
+
+test('fetchWithProxyRetry honors an aborted Request signal without replaying', async () => {
+  const controller = new AbortController()
+  const abortReason = new DOMException('Deadline exceeded', 'TimeoutError')
+  let attempts = 0
+
+  globalThis.fetch = (async () => {
+    attempts++
+    controller.abort(abortReason)
+    return new Response('Gateway Timeout', { status: 504 })
+  }) as unknown as FetchType
+
+  const request = new Request('https://example.com/generate', {
+    method: 'POST',
+    signal: controller.signal,
+  })
+
+  await expect(fetchWithProxyRetry(request)).rejects.toBe(abortReason)
   expect(attempts).toBe(1)
 })
 

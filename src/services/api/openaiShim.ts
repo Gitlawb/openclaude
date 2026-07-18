@@ -392,6 +392,7 @@ async function fetchWithHeadersDeadline(
     try {
       const response = await fetch(input, { ...attemptInit, signal })
       if (signal.aborted) {
+        void response.body?.cancel().catch(() => {})
         throw (
           signal.reason ??
           new DOMException('The operation was aborted.', 'AbortError')
