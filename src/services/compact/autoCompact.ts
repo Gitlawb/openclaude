@@ -316,7 +316,15 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (!forceReason && !isAutoCompactEnabled()) {
+  // Memory pressure is a process-resource signal, not evidence that this
+  // conversation has exhausted its context. Keep cache pruning available, but
+  // honor the user's disabled auto-compact choice rather than unexpectedly
+  // summarizing a short conversation (#1985). Message-count safety limits
+  // remain an explicit forced-compaction path.
+  if (
+    !isAutoCompactEnabled() &&
+    (!forceReason || forceReason === 'memory-pressure')
+  ) {
     return false
   }
 
