@@ -140,22 +140,29 @@ export function providerProfileSupportsSelfHostedTools(
 }
 
 /**
- * Attach OPENAI_SELF_HOSTED_TOOLS from the profile UI toggle.
+ * Profile UI toggle → managed env value.
  * - true  → '1' (force recovery on any host)
  * - false → '0' (force recovery off, including local URLs)
- * - undefined → leave unset (local/Ollama auto-detect still applies)
+ * - undefined → unset (local/Ollama auto-detect still applies)
  */
+function selfHostedToolsEnvValue(
+  selfHostedTools?: boolean,
+): '1' | '0' | undefined {
+  if (selfHostedTools === true) return '1'
+  if (selfHostedTools === false) return '0'
+  return undefined
+}
+
+/** Attach OPENAI_SELF_HOSTED_TOOLS from the profile UI toggle. */
 export function applySelfHostedToolsProfileEnv(
   env: ProfileEnv,
   selfHostedTools?: boolean,
 ): ProfileEnv {
-  if (selfHostedTools === true) {
-    return { ...env, OPENAI_SELF_HOSTED_TOOLS: '1' }
+  const value = selfHostedToolsEnvValue(selfHostedTools)
+  if (value === undefined) {
+    return env
   }
-  if (selfHostedTools === false) {
-    return { ...env, OPENAI_SELF_HOSTED_TOOLS: '0' }
-  }
-  return env
+  return { ...env, OPENAI_SELF_HOSTED_TOOLS: value }
 }
 
 /** Re-apply shell-origin self-hosted flags after managed profile env cleanup. */
@@ -866,11 +873,7 @@ function isProcessEnvAlignedWithProfile(
       // Match applyProviderProfileToProcessEnv: shell override wins when present.
       shellSelfHostedToolsOverride !== undefined
         ? shellSelfHostedToolsOverride
-        : profile.selfHostedTools === true
-          ? '1'
-          : profile.selfHostedTools === false
-            ? '0'
-            : undefined,
+        : selfHostedToolsEnvValue(profile.selfHostedTools),
     ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&

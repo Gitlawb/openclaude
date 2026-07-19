@@ -308,6 +308,20 @@ function mockProviderProfilesModule(options?: {
       }
     },
     getProviderProfiles: options?.getProviderProfiles ?? (() => []),
+    // Matches ProviderManager formSteps / persistDraft / profileSummary import.
+    // Real helper is openai-compatibility-mode; mirror that for test presets.
+    providerProfileSupportsSelfHostedTools: (provider: string) =>
+      ![
+        'anthropic',
+        'custom-anthropic',
+        'gemini',
+        'mistral',
+        'github',
+        'github-enterprise',
+        'bedrock',
+        'vertex',
+        'minimax',
+      ].includes(provider),
     setActiveProviderProfile: options?.setActiveProviderProfile ?? (() => null),
     updateProviderProfile: options?.updateProviderProfile ?? (() => null),
   }))
