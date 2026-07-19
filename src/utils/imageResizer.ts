@@ -191,6 +191,21 @@ export async function maybeResizeAndDownsampleImageBuffer(
     // API resizes large images server-side, so the raw buffer can still be
     // passed through to keep paste working.
     if (!metadata?.width || !metadata.height) {
+      // The native processor gave us no dimensions to check, but the API's
+      // stricter many-image 2000px limit still applies — a compact
+      // high-resolution screenshot (e.g. 3840x2160) must not pass through
+      // unresized just because it's small in bytes. Detect format from magic
+      // bytes (not `ext`) since that's also what the raw-return path below needs.
+      const detected = detectImageFormatFromBuffer(imageBuffer)
+      const limitResult = await enforceManyImageDimensionLimit(
+        imageBuffer,
+        detected,
+        originalSize,
+      )
+      if (limitResult) {
+        return limitResult
+      }
+
       if (originalSize > IMAGE_TARGET_RAW_SIZE) {
         // No dimensions to drive a resize, so rely on compression alone. Use
         // progressively lower JPEG quality (matching the "dimensions OK but
@@ -215,9 +230,8 @@ export async function maybeResizeAndDownsampleImageBuffer(
             `Please use a smaller or lower-resolution image.`,
         )
       }
-      // No metadata: detect format from magic bytes instead of trusting `ext`,
-      // and return the buffer without dimensions.
-      const detected = detectImageFormatFromBuffer(imageBuffer)
+      // No metadata: return the buffer without dimensions, using the format
+      // already detected above from magic bytes instead of trusting `ext`.
       const detectedExt = detected.slice(6)
       const normalizedExt = detectedExt === 'jpg' ? 'jpeg' : detectedExt
       return { buffer: imageBuffer, mediaType: normalizedExt }
@@ -445,55 +459,16 @@ export async function maybeResizeAndDownsampleImageBuffer(
     // many-image requests with a 400 "image dimensions exceed ... many-image"
     // error). The native processor has failed, so even when base64 is within
     // the limit we must not let an image over this bound pass through unchanged.
-    const rawDims = readImageDimensions(imageBuffer)
-    const exceedsManyImageLimit = await imageExceedsManyImageLimit({
-      buffer: imageBuffer,
-      detectedFormat: detected,
-      rawWidth: rawDims?.width ?? 0,
-      rawHeight: rawDims?.height ?? 0,
-    })
-
-    if (
-      base64Size <= API_IMAGE_MAX_BASE64_SIZE &&
-      exceedsManyImageLimit
-    ) {
-      const downsampled = await tryDownsampleToManyImageLimit(
+    if (base64Size <= API_IMAGE_MAX_BASE64_SIZE) {
+      const limitResult = await enforceManyImageDimensionLimit(
         imageBuffer,
         detected,
-        rawDims?.width ?? 0,
-        rawDims?.height ?? 0,
+        originalSize,
+        errorType,
       )
-      if (downsampled) {
-        // The downsample may still exceed the 5MB base64 payload budget (e.g.
-        // a high-entropy 2001x2001 image). Do not bypass the payload safeguard.
-        const downsampledBase64Size = Math.ceil(
-          (downsampled.length * 4) / 3,
-        )
-        if (downsampledBase64Size <= API_IMAGE_MAX_BASE64_SIZE) {
-          logEvent('tengu_image_resize_fallback', {
-            original_size_bytes: originalSize,
-            base64_size_bytes: base64Size,
-            error_type: errorType,
-            canvas_downsample: true,
-          })
-          logForDebugging(
-            '[imageResizer] processor failed but image exceeded many-image limit; downsampled via canvas fallback',
-            { level: 'warn' },
-          )
-          // Canvas can only emit PNG/JPEG; the result media type must match
-          // the emitted bytes (not the original format). ResizeResult.mediaType
-          // is the subtype (as everywhere else in this file), so return 'jpeg'
-          // or 'png', not a full MIME type.
-          const downsampledMediaType = detected === 'image/jpeg' ? 'jpeg' : 'png'
-          return { buffer: downsampled, mediaType: downsampledMediaType }
-        }
+      if (limitResult) {
+        return limitResult
       }
-      // Could not safely downsample without the native processor — reject
-      // rather than returning an oversized original that would fail later.
-      throw new ImageResizeError(
-        `Unable to resize image — dimensions exceed the many-image limit (${IMAGE_MANY_IMAGE_MAX_WIDTH}x${IMAGE_MANY_IMAGE_MAX_HEIGHT}px) and image processing failed. ` +
-          `Please resize the image to reduce its pixel dimensions.`,
-      )
     }
 
     // If original image's base64 encoding is within API limit, allow it through uncompressed
@@ -944,9 +919,10 @@ export function readImageDimensions(
  * Minimal parser for encoded (lossy/lossless) WebP dimension metadata.
  *
  * Lossless WebP stores width/height in the VP8L transform header. Lossy WebP
- * stores them in the VP8 keyframe header. The native image processor is
- * unavailable in the fallback path, so we read these directly rather than
- * depending on `sharp`/`image-processor-napi`.
+ * stores them in the VP8 keyframe header. Extended WebP (VP8X, used for
+ * alpha/animation/metadata) stores canvas dimensions in the VP8X chunk
+ * itself. The native image processor is unavailable in the fallback path, so
+ * we read these directly rather than depending on `sharp`/`image-processor-napi`.
  *
  * Returns null when the format is unrecognized or the buffer is too small.
  */
@@ -983,11 +959,23 @@ function readEncodedWebPDimensions(
     if (chunkFourCC === 'VP8 ') {
       // Lossy keyframe: 3-byte start code (0x9D 0x01 0x2A) is at bytes
       // 23-25; the 14-bit width spans bytes 26-27 and the 14-bit height
-      // spans bytes 28-29. Verified against real sharp-encoded VP8 frames.
+      // spans bytes 28-29, stored directly (no -1 bias; bits 14-15 are a
+      // scale factor, masked off). Verified against real sharp-encoded VP8
+      // frames.
       if (buffer.length < 30) return null
-      const width = ((buffer.readUInt16LE(26) & 0x3fff) + 1) >>> 0
-      const height = ((buffer.readUInt16LE(28) & 0x3fff) + 1) >>> 0
+      const width = buffer.readUInt16LE(26) & 0x3fff
+      const height = buffer.readUInt16LE(28) & 0x3fff
       return { width, height }
+    }
+    if (chunkFourCC === 'VP8X') {
+      // Extended WebP: chunk header at 12-19, flags byte at 20, 3 reserved
+      // bytes at 21-23, then 24-bit LE canvas width-1 at 24 and height-1 at
+      // 27 (unlike VP8/VP8L, VP8X canvas dimensions ARE stored minus one).
+      if (buffer.length < 30) return null
+      return {
+        width: buffer.readUIntLE(24, 3) + 1,
+        height: buffer.readUIntLE(27, 3) + 1,
+      }
     }
   } catch {
     return null
@@ -1141,12 +1129,18 @@ async function tryDownsampleToManyImageLimit(
       )(blob)
     } else {
       drawable = await new Promise((resolve, reject) => {
-        const img = new (ImageCtor as new (src: string) => Record<string, unknown> & {
+        // The DOM `Image` constructor takes optional width/height, not a URL —
+        // passing `dataUrl` as the first arg silently does nothing. Handlers
+        // must be installed before `src` is assigned so a synchronously-cached
+        // decode can't fire `onload` before we're listening.
+        const img = new (ImageCtor as new () => Record<string, unknown> & {
+          src: string
           onload: (() => void) | null
           onerror: ((e: unknown) => void) | null
-        })(dataUrl)
+        })()
         img.onload = () => resolve(img)
         img.onerror = () => reject(new Error('image decode failed'))
+        img.src = dataUrl
       })
     }
 
@@ -1168,6 +1162,69 @@ async function tryDownsampleToManyImageLimit(
   } catch {
     return null
   }
+}
+
+/**
+ * Shared many-image dimension-limit guard for the resize-failure fallback
+ * paths (native processor crashed, or returned no metadata). The API enforces
+ * a stricter 2000px bound when a request carries many images, so any path
+ * that hands back a buffer unresized must still check this before returning.
+ *
+ * Returns null when the image is already within the limit (caller should
+ * continue with its own logic). Otherwise downsamples via Canvas and returns
+ * the replacement buffer, or throws ImageResizeError if that isn't possible.
+ */
+async function enforceManyImageDimensionLimit(
+  imageBuffer: Buffer,
+  detectedFormat: ImageMediaType,
+  originalSize: number,
+  errorType?: number,
+): Promise<{ buffer: Buffer; mediaType: string } | null> {
+  const rawDims = readImageDimensions(imageBuffer)
+  const exceedsManyImageLimit = await imageExceedsManyImageLimit({
+    buffer: imageBuffer,
+    detectedFormat,
+    rawWidth: rawDims?.width ?? 0,
+    rawHeight: rawDims?.height ?? 0,
+  })
+  if (!exceedsManyImageLimit) return null
+
+  const downsampled = await tryDownsampleToManyImageLimit(
+    imageBuffer,
+    detectedFormat,
+    rawDims?.width ?? 0,
+    rawDims?.height ?? 0,
+  )
+  if (downsampled) {
+    // The downsample may still exceed the 5MB base64 payload budget (e.g. a
+    // high-entropy 2001x2001 image). Do not bypass the payload safeguard.
+    const downsampledBase64Size = Math.ceil((downsampled.length * 4) / 3)
+    if (downsampledBase64Size <= API_IMAGE_MAX_BASE64_SIZE) {
+      logEvent('tengu_image_resize_fallback', {
+        original_size_bytes: originalSize,
+        base64_size_bytes: Math.ceil((originalSize * 4) / 3),
+        error_type: errorType,
+        canvas_downsample: true,
+      })
+      logForDebugging(
+        '[imageResizer] image exceeded many-image limit; downsampled via canvas fallback',
+        { level: 'warn' },
+      )
+      // Canvas can only emit PNG/JPEG; the result media type must match the
+      // emitted bytes (not the original format). ResizeResult.mediaType is the
+      // subtype (as everywhere else in this file), so return 'jpeg' or 'png',
+      // not a full MIME type.
+      const downsampledMediaType =
+        detectedFormat === 'image/jpeg' ? 'jpeg' : 'png'
+      return { buffer: downsampled, mediaType: downsampledMediaType }
+    }
+  }
+  // Could not safely downsample without the native processor — reject rather
+  // than returning an oversized image that would fail later.
+  throw new ImageResizeError(
+    `Unable to resize image — dimensions exceed the many-image limit (${IMAGE_MANY_IMAGE_MAX_WIDTH}x${IMAGE_MANY_IMAGE_MAX_HEIGHT}px) and image processing failed. ` +
+      `Please resize the image to reduce its pixel dimensions.`,
+  )
 }
 
 /**
