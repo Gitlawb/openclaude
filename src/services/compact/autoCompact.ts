@@ -40,12 +40,7 @@ export function getEffectiveContextWindowSize(
   runtimeLimits?: { contextWindow?: number; maxOutputTokens?: number },
 ): number {
   const reservedTokensForSummary = Math.min(
-    runtimeLimits?.maxOutputTokens === undefined
-      ? getMaxOutputTokensForModel(model)
-      : Math.min(
-          runtimeLimits.maxOutputTokens,
-          getMaxOutputTokensForModel(model),
-        ),
+    runtimeLimits?.maxOutputTokens ?? getMaxOutputTokensForModel(model),
     MAX_OUTPUT_TOKENS_FOR_SUMMARY,
   )
   let contextWindow = getContextWindowForModel(

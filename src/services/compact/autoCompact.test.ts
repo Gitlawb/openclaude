@@ -271,6 +271,9 @@ describe('getEffectiveContextWindowSize', () => {
 
   test('uses explicit route runtime limits instead of ambient provider state', async () => {
     const { getEffectiveContextWindowSize } = await importAutoCompact()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
 
     expect(getEffectiveContextWindowSize('k3-256k', {
       contextWindow: 262_144,
