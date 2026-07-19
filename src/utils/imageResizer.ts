@@ -1189,12 +1189,14 @@ async function enforceManyImageDimensionLimit(
   })
   if (!exceedsManyImageLimit) return null
 
-  const downsampled = await tryDownsampleToManyImageLimit(
-    imageBuffer,
-    detectedFormat,
-    rawDims?.width ?? 0,
-    rawDims?.height ?? 0,
-  )
+  const downsampled = rawDims
+    ? await tryDownsampleToManyImageLimit(
+        imageBuffer,
+        detectedFormat,
+        rawDims.width,
+        rawDims.height,
+      )
+    : null
   if (downsampled) {
     // The downsample may still exceed the 5MB base64 payload budget (e.g. a
     // high-entropy 2001x2001 image). Do not bypass the payload safeguard.
