@@ -379,6 +379,7 @@ export function isLongcatBaseUrl(value: string | undefined): boolean {
     return (
       url.protocol === 'https:' &&
       url.hostname.toLowerCase() === 'api.longcat.chat' &&
+      !url.port &&
       !url.search &&
       !url.hash &&
       /^\/openai(?:\/v1)?(?:\/chat\/completions)?\/?$/.test(url.pathname)
@@ -735,6 +736,7 @@ export function hasLongcatEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
+    !hasAnyUsableOpenAICredential(processEnv) &&
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
