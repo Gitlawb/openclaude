@@ -317,11 +317,26 @@ function getShortHash(str: string): string {
 }
 
 function doMigration(data: any, sourcePath: string, projectKey: string): void {
+  // Track which sources were successfully archived so we never retire a
+  // source whose data was not preserved (P1).
+  const archivedSources = new Set<string>()
+
   // Create a backup using a fixed name (overwriting previous backup from failed attempts) to avoid unbounded backup files (M9)
   const backupPath = `${sourcePath}.migration-backup`
   if (existsSync(sourcePath)) {
     try {
       writeFileSync(backupPath, readFileSync(sourcePath))
+      archivedSources.add(sourcePath)
+      // If the selected source is SQLite, also snapshot WAL/SHM which may
+      // contain committed state not yet flushed to the main database file (P1).
+      if (sourcePath === getLegacySqlitePath()) {
+        for (const sidecar of ['-wal', '-shm']) {
+          const sidecarPath = `${sourcePath}${sidecar}`
+          if (existsSync(sidecarPath)) {
+            writeFileSync(`${sidecarPath}.migration-backup`, readFileSync(sidecarPath))
+          }
+        }
+      }
     } catch {
       console.error('[knowledgeGraph] Legacy migration: cannot create backup, aborting')
       return
@@ -443,6 +458,7 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
         const altBackupPath = `${p}.migration-backup`
         try {
           writeFileSync(altBackupPath, readFileSync(p))
+          archivedSources.add(p)
           if (p === sqlitePath) {
             for (const sidecar of ['-wal', '-shm']) {
               const sidecarPath = `${p}${sidecar}`
@@ -457,16 +473,20 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
       }
     }
 
-    if (existsSync(legacyPath)) {
+    // Only retire sources that were successfully archived. A source that
+    // exists but was never backed up retains its data on disk (P1).
+    if (archivedSources.has(legacyPath)) {
       try { rmSync(legacyPath, { force: true }) } catch { /* non-fatal */ }
     }
-    if (existsSync(sqlitePath)) {
+    if (archivedSources.has(sqlitePath)) {
       try { rmSync(sqlitePath, { force: true }) } catch { /* non-fatal */ }
     }
-    for (const sidecar of ['-wal', '-shm']) {
-      const sidecarPath = `${sqlitePath}${sidecar}`
-      if (existsSync(sidecarPath)) {
-        try { rmSync(sidecarPath, { force: true }) } catch { /* non-fatal */ }
+    if (archivedSources.has(sqlitePath)) {
+      for (const sidecar of ['-wal', '-shm']) {
+        const sidecarPath = `${sqlitePath}${sidecar}`
+        if (existsSync(sidecarPath)) {
+          try { rmSync(sidecarPath, { force: true }) } catch { /* non-fatal */ }
+        }
       }
     }
   } catch (e) {
