@@ -1079,10 +1079,9 @@ export function resolveProviderRequest(options?: {
     isGithubMode
       ? undefined
       : parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.requiredApiFormat)
-  // Precedence: explicit env/profile apiFormat (incl. chat_completions, the
-  // escape hatch) > catalog requiredApiFormat > this model+base predicate >
-  // shim default. The predicate fires only when nothing above resolved it, so
-  // an explicit format always wins over it.
+  // An explicitly required chat-completions route cannot be switched to a
+  // different endpoint. Other catalog-required formats retain their existing
+  // precedence over an absent or chat-completions selection.
   const autoResponsesApiFormat =
     !isGithubMode &&
     explicitApiFormat === undefined &&
@@ -1094,9 +1093,12 @@ export function resolveProviderRequest(options?: {
   const requestedApiFormat =
     requiredApiFormat === 'chat_completions'
       ? requiredApiFormat
-      : explicitApiFormat ??
-        autoResponsesApiFormat ??
-        parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.defaultApiFormat)
+      : requiredApiFormat &&
+          (explicitApiFormat === undefined || explicitApiFormat === 'chat_completions')
+        ? requiredApiFormat
+        : explicitApiFormat ??
+          autoResponsesApiFormat ??
+          parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.defaultApiFormat)
   const supportsRequestedApiFormat =
     (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
     openAIShimSupportsApiFormatForModel(
