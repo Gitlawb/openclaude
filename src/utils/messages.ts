@@ -1420,9 +1420,18 @@ export function normalizeMessagesForAPI(
   ): UserMessage => {
     const content = message.message.content
     if (!Array.isArray(content)) return message
+    let imageIndex = 0
+    const imageOwners: Array<string | null> = []
+    for (const block of content) {
+      if (block.type !== 'image') continue
+      const owner = message.imagePermissionToolUseIds?.[imageIndex++] ?? null
+      if (!types.has(block.type)) imageOwners.push(owner)
+    }
     const filtered = stripTargetsFromContent(content, types)
     return {
       ...message,
+      imagePermissionToolUseIds:
+        imageOwners.length > 0 ? imageOwners : undefined,
       message: {
         ...message.message,
         content: filtered.length > 0
@@ -1626,41 +1635,10 @@ export function normalizeMessagesForAPI(
           // the problematic content on every subsequent API call.
           const typesToStrip = stripTargets.get(normalizedMessage.uuid)
           if (typesToStrip) {
-            if (!normalizedMessage.isMeta) {
-              normalizedMessage = stripMediaFromUserMessage(
-                normalizedMessage,
-                typesToStrip,
-              )
-            } else {
-              const content = normalizedMessage.message.content
-              if (Array.isArray(content)) {
-                let imageIndex = 0
-                const imageOwners: Array<string | null> = []
-                const filtered = content.filter(block => {
-                  const keep = !typesToStrip.has(block.type)
-                  if (block.type === 'image') {
-                    const owner = normalizedMessage.imagePermissionToolUseIds?.[imageIndex++] ?? null
-                    if (keep) imageOwners.push(owner)
-                  }
-                  return keep
-                })
-                if (filtered.length === 0) {
-                  // All content blocks were stripped; skip this message entirely
-                  return
-                }
-                if (filtered.length < content.length) {
-                  normalizedMessage = {
-                    ...normalizedMessage,
-                    message: {
-                      ...normalizedMessage.message,
-                      content: filtered,
-                    },
-                    imagePermissionToolUseIds:
-                      imageOwners.length > 0 ? imageOwners : undefined,
-                  }
-                }
-              }
-            }
+            normalizedMessage = stripMediaFromUserMessage(
+              normalizedMessage,
+              typesToStrip,
+            )
           }
 
           // Server renders tool_reference expansion as <functions>...</functions>

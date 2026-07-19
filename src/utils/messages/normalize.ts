@@ -13,11 +13,13 @@ function createNormalizedUserBlockMessage({
   source,
   content,
   imagePasteIds,
+  imagePermissionToolUseIds,
   uuid,
 }: {
   source: UserMessage
   content: ContentBlockParam[]
   imagePasteIds?: number[]
+  imagePermissionToolUseIds?: Array<string | null>
   uuid: UUID
 }): UserMessage {
   return {
@@ -33,7 +35,7 @@ function createNormalizedUserBlockMessage({
     uuid,
     timestamp: source.timestamp,
     toolUseResult: source.toolUseResult,
-    imagePermissionToolUseIds: source.imagePermissionToolUseIds,
+    imagePermissionToolUseIds,
     mcpMeta: source.mcpMeta,
     imagePasteIds,
     origin: source.origin,
@@ -122,11 +124,15 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
             isImage && message.imagePasteIds
               ? message.imagePasteIds[imageIndex]
               : undefined
+          const imageOwner =
+            isImage ? message.imagePermissionToolUseIds?.[imageIndex] : undefined
           if (isImage) imageIndex++
           return createNormalizedUserBlockMessage({
             source: message,
             content: [_],
             imagePasteIds: imageId !== undefined ? [imageId] : undefined,
+            imagePermissionToolUseIds:
+              imageOwner !== undefined ? [imageOwner] : undefined,
             uuid: isNewChain ? deriveUUID(message.uuid, index) : message.uuid,
           }) as NormalizedMessage
         })
