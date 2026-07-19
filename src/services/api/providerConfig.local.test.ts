@@ -187,6 +187,24 @@ test('self-hosted tool compat is env- or local/Ollama-gated (any host when env s
   expect(
     shouldUseSelfHostedToolCompat('http://remote.example.com:11434/v1', {}),
   ).toBe(true)
+
+  // Explicit Disabled (OPENAI_SELF_HOSTED_TOOLS=0) must force recovery off even
+  // for loopback / RFC1918 / .local URLs.
+  expect(
+    shouldUseSelfHostedToolCompat('http://127.0.0.1:8080/v1', {
+      OPENAI_SELF_HOSTED_TOOLS: '0',
+    }),
+  ).toBe(false)
+  expect(
+    shouldUseSelfHostedToolCompat('http://192.168.1.50:9000/v1', {
+      OPENAI_SELF_HOSTED_TOOLS: 'false',
+    }),
+  ).toBe(false)
+  expect(
+    shouldUseSelfHostedToolCompat('http://gpu.local:8080/v1', {
+      OPENAI_PARSE_TEXT_TOOL_CALLS: 'off',
+    }),
+  ).toBe(false)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

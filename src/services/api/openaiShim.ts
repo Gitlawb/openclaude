@@ -3711,9 +3711,17 @@ async function* openaiStreamToAnthropic(
           // Must run before closeActiveContentBlock so the text buffer can be flushed
           // with tool-call JSON stripped (P2). Local models often emit tool calls as
           // raw JSON text; scan accumulated text on any terminal finish reason with no
-          // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
-          // so the JSON fallback remains scoped to normal completions.
-          const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
+          // API tool calls. Include finish_reason "tool_calls" so servers that mark
+          // text-form tools that way (without delta.tool_calls) still recover.
+          // finish_reason is mutated to 'tool_calls' only for 'stop' so the JSON
+          // fallback remains scoped to normal completions for other reasons.
+          const OLLAMA_TERMINAL_REASONS = new Set([
+            'stop',
+            'length',
+            'content_filter',
+            'safety',
+            'tool_calls',
+          ])
           const isTerminalOllamaFinish =
             OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
             activeToolCalls.size === 0 &&
@@ -4254,11 +4262,14 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       // A provider override is a complete route, so it must not inherit an
-      // Azure-style escape hatch intended for the parent route.
+      // Azure-style escape hatch or parent self-hosted recovery flags intended
+      // for the active profile. Evaluate recovery against this route only.
       const requestProcessEnv = self.providerOverride
         ? {
           ...process.env,
           OPENAI_AZURE_STYLE: undefined,
+          OPENAI_SELF_HOSTED_TOOLS: undefined,
+          OPENAI_PARSE_TEXT_TOOL_CALLS: undefined,
         }
         : process.env
       const request = resolveProviderRequest({
@@ -4270,10 +4281,11 @@ class OpenAIShimMessages {
       // JSON/XML-in-text tool recovery: only when tools are advertised and the
       // endpoint is Ollama or other self-hosted compat. Never when tools are
       // absent — otherwise benign {"name":...} prose becomes phantom tool_use.
+      // Use requestProcessEnv so parent profile flags do not leak into overrides.
       const enableTextToolCallFallback =
         Boolean(params.tools?.length) &&
         (isLikelyOllamaEndpoint(request.baseUrl) ||
-          shouldUseSelfHostedToolCompat(request.baseUrl))
+          shouldUseSelfHostedToolCompat(request.baseUrl, requestProcessEnv))
       const allowedToolNames = toolNamesFromShimParams(params.tools)
       const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response

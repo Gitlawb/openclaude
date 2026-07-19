@@ -1718,11 +1718,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         Object.keys(parsedCustomHeaders.headers).length > 0
           ? parsedCustomHeaders.headers
           : undefined,
-      selfHostedTools:
-        providerProfileSupportsSelfHostedTools(provider) &&
-        nextDraft.selfHostedTools === 'enabled'
-          ? true
-          : undefined,
+      selfHostedTools: providerProfileSupportsSelfHostedTools(provider)
+        ? nextDraft.selfHostedTools === 'enabled'
+        : undefined,
     }
 
     const saved = profileId

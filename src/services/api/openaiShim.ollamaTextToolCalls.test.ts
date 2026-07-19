@@ -763,4 +763,58 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
     const delta = messageDelta?.delta as Record<string, unknown> | undefined
     expect(delta?.stop_reason).not.toBe('tool_use')
   })
+
+  test('text-form tool recovered when finish_reason is tool_calls without delta.tool_calls', async () => {
+    // Compat servers may mark text-form tools with finish_reason tool_calls
+    // without ever emitting structured delta.tool_calls. Recovery must still
+    // run before the terminal delta, or stop_reason becomes tool_use with no
+    // tool block and the buffer flushes as plain text at EOF.
+    globalThis.fetch = (async () =>
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
+          ollamaChunk('{"name":"Bash","arguments":{"command":"pwd"}}'),
+          ollamaChunk('', 'tool_calls'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'run pwd' }],
+        tools: [...SAMPLE_TOOLS],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const toolStarts = events.filter(
+      e =>
+        e.type === 'content_block_start' &&
+        (e.content_block as Record<string, string>)?.type === 'tool_use',
+    )
+    expect(toolStarts).toHaveLength(1)
+    expect((toolStarts[0].content_block as Record<string, string>).name).toBe(
+      'Bash',
+    )
+
+    const allText = events
+      .filter(
+        e =>
+          e.type === 'content_block_delta' &&
+          (e.delta as Record<string, string>)?.type === 'text_delta',
+      )
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).not.toContain('{"name":"Bash"')
+
+    const messageDelta = events.find(e => e.type === 'message_delta') as
+      | Record<string, unknown>
+      | undefined
+    const delta = messageDelta?.delta as Record<string, unknown> | undefined
+    expect(delta?.stop_reason).toBe('tool_use')
+  })
 })

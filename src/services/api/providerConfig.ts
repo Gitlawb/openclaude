@@ -10,7 +10,7 @@ import {
   type CodexCredentialBlob,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
+import { isEnvDefinedFalsy, isEnvTruthy } from '../../utils/envUtils.js'
 import {
   asTrimmedString,
   parseChatgptAccountId,
@@ -744,13 +744,28 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
  * - base URL is loopback / RFC1918 / .local (llama-server on LAN, any port)
  * - endpoint looks like Ollama
  *
+ * Explicit `0`/`false`/`off` on either flag forces recovery off (including
+ * local URLs) so a profile/UI "Disabled" selection is honoured.
+ *
  * Host detection is intentionally not required when the env flag is set so a
  * publicly reverse-proxied llama-server works the same as localhost:8080.
+ *
+ * Callers with a providerOverride must pass that route's processEnv (with
+ * parent self-hosted flags cleared) so recovery is not inherited from the
+ * parent profile.
  */
 export function shouldUseSelfHostedToolCompat(
   baseUrl?: string,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  // Explicit disable wins over local/Ollama auto-detect and over a conflicting
+  // truthy alias — profile "Disabled" sets OPENAI_SELF_HOSTED_TOOLS=0.
+  if (
+    isEnvDefinedFalsy(processEnv[OPENAI_SELF_HOSTED_TOOLS_ENV]) ||
+    isEnvDefinedFalsy(processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)
+  ) {
+    return false
+  }
   if (isEnvTruthy(processEnv[OPENAI_SELF_HOSTED_TOOLS_ENV])) {
     return true
   }
