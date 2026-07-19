@@ -4690,7 +4690,7 @@ test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
-test('longcat provider flag preserves tool definitions and tool-call history', async () => {
+test('longcat provider flag strips unsupported tool definitions', async () => {
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -4708,23 +4708,6 @@ test('longcat provider flag preserves tool definitions and tool-call history', a
     model: 'LongCat-2.0',
     messages: [
       { role: 'user', content: 'List files' },
-      {
-        role: 'assistant',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'call_list_files',
-            name: 'Bash',
-            input: { command: 'ls' },
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'tool_result', tool_use_id: 'call_list_files', content: 'src' },
-        ],
-      },
     ],
     tools: [{
       name: 'Bash',
@@ -4739,33 +4722,7 @@ test('longcat provider flag preserves tool definitions and tool-call history', a
     stream: false,
   })
 
-  expect(requestBody?.tools).toBeDefined()
-  const outgoingMessages = requestBody?.messages as Array<Record<string, unknown>>
-  expect(outgoingMessages).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        role: 'assistant',
-        tool_calls: [
-          expect.objectContaining({
-            id: 'call_list_files',
-            function: expect.objectContaining({
-              name: 'Bash',
-              arguments: JSON.stringify({ command: 'ls' }),
-            }),
-          }),
-        ],
-      }),
-      expect.objectContaining({
-        role: 'tool',
-        tool_call_id: 'call_list_files',
-        content: 'src',
-      }),
-    ]),
-  )
-  const assistantWithToolCall = outgoingMessages.find(
-    message => message.role === 'assistant' && Array.isArray(message.tool_calls),
-  )
-  expect(assistantWithToolCall).not.toHaveProperty('reasoning_content')
+  expect(requestBody?.tools).toBeUndefined()
 })
 
 test('longcat rejects image input before dispatch', async () => {

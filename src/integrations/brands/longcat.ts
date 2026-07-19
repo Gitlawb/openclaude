@@ -6,7 +6,7 @@ export default defineBrand({
   canonicalVendorId: 'longcat',
   defaultCapabilities: {
     supportsStreaming: true,
-    supportsFunctionCalling: true,
+    supportsFunctionCalling: false,
     supportsJsonMode: false,
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
