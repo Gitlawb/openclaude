@@ -4326,16 +4326,6 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
       preferBaseUrlRoute: Boolean(this.providerOverride),
     })
-    const compressedMessages = fastPath.skipToolHistoryCompression
-      ? rawMessages
-      : compressToolHistory(rawMessages, runtimeModel, {
-          runtimeLimits: runtimeShimContext.catalogEntry
-            ? {
-                contextWindow: runtimeShimContext.catalogEntry.contextWindow,
-                maxOutputTokens: runtimeShimContext.catalogEntry.maxOutputTokens,
-              }
-            : undefined,
-        })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
     // API contract rather than request.transport from providerConfig.
@@ -4354,9 +4344,15 @@ class OpenAIShimMessages {
       rawMessages,
       () => fastPath.skipToolHistoryCompression
         ? rawMessages
-        : compressToolHistory(rawMessages, request.resolvedModel, {
+        : compressToolHistory(rawMessages, runtimeModel, {
           textBlockSeparator:
             effectiveTransport === 'chat_completions' ? '\n\n' : '\n',
+          runtimeLimits: runtimeShimContext.catalogEntry
+            ? {
+                contextWindow: runtimeShimContext.catalogEntry.contextWindow,
+                maxOutputTokens: runtimeShimContext.catalogEntry.maxOutputTokens,
+              }
+            : undefined,
         }),
     )
     const useNativeOllamaChat =
