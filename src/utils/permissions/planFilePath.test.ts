@@ -38,6 +38,28 @@ test('rejects a sibling directory whose name begins with the slug', () => {
   ).toBe(false)
 })
 
+test('rejects a lookalike agent directory', () => {
+  // {slug}-agent-evil/ is a sibling directory, not an agent plan file. Matching
+  // it would auto-allow unprompted reads and writes to everything beneath it.
+  expect(
+    isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}-agent-evil`, 'x.md')),
+  ).toBe(false)
+  expect(
+    isPlanFilePath(
+      PLANS,
+      SLUG,
+      join(PLANS, `${SLUG}-agent-a`, 'b', 'deep.md'),
+    ),
+  ).toBe(false)
+})
+
+test('rejects an agent plan file with an empty agent id', () => {
+  // getPlanFilePath never emits this shape.
+  expect(isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}-agent-.md`))).toBe(
+    false,
+  )
+})
+
 test('rejects a different session slug', () => {
   expect(isPlanFilePath(PLANS, SLUG, join(PLANS, 'calm-quiet-fox.md'))).toBe(
     false,

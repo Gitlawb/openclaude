@@ -277,9 +277,21 @@ export function isPlanFilePath(
   if (!normalizedPath.endsWith('.md')) {
     return false
   }
+  if (normalizedPath === expectedPrefix + '.md') {
+    return true
+  }
+  const agentPrefix = expectedPrefix + '-agent-'
+  if (!normalizedPath.startsWith(agentPrefix)) {
+    return false
+  }
+  // SECURITY: The remainder must be exactly one nonempty agent id followed by
+  // `.md`. Accepting the bare prefix would also allow a lookalike sibling
+  // *directory* ({slug}-agent-evil/anything.md), granting unprompted read and
+  // write to arbitrary files beneath it, as well as the malformed
+  // {slug}-agent-.md that getPlanFilePath never emits.
+  const agentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
   return (
-    normalizedPath === expectedPrefix + '.md' ||
-    normalizedPath.startsWith(expectedPrefix + '-agent-')
+    agentId.length > 0 && !agentId.includes('/') && !agentId.includes('\\')
   )
 }
 
