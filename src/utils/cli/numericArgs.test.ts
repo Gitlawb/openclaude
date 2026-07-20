@@ -38,6 +38,22 @@ test('rejects non-integers and Infinity', () => {
   )
 })
 
+test('rejects integers beyond the safe range', () => {
+  // Number.isInteger accepts these, but they no longer round-trip:
+  // 9007199254740993 silently parses as 9007199254740992, and 1e308 is a cap
+  // the turn loop can never reach.
+  expect(() => parsePositiveIntArg('--max-turns', '9007199254740993')).toThrow(
+    InvalidArgumentError,
+  )
+  expect(() => parsePositiveIntArg('--max-turns', '1e308')).toThrow(
+    InvalidArgumentError,
+  )
+  // The boundary itself is still accepted.
+  expect(parsePositiveIntArg('--max-turns', '9007199254740991')).toBe(
+    Number.MAX_SAFE_INTEGER,
+  )
+})
+
 test('names the option in the error message', () => {
   expect(() => parsePositiveIntArg('--max-turns', 'abc')).toThrow(
     '--max-turns must be a positive integer',
