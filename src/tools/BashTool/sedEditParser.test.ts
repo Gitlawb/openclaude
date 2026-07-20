@@ -191,6 +191,79 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     ).toBeNull()
   })
 
+  test('rejects numeric occurrence flags it does not model', () => {
+    // `2` selects the second match on each line, but the simulator always
+    // rewrites the first: sed turns "aaaa" into "aaX", a preview into "Xaa".
+    expect(parseSedEditCommand(cmd('s/a\\{2\\}/X/2'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/X/9'))).toBeNull()
+    // `p` prints and `m`/`M` redefine ^ and $ inside the pattern space.
+    expect(parseSedEditCommand(cmd('s/a/X/p'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/X/m'))).toBeNull()
+  })
+
+  test('rejects replacements carrying sed-specific syntax', () => {
+    // `\1` is a backreference to sed but two literal characters to the
+    // simulator: sed rewrites "aa" as "a", the preview as "\1".
+    expect(parseSedEditCommand(cmd('s/\\(a\\)\\{2\\}/\\1/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/\\n/'))).toBeNull()
+    // A plain literal replacement still simulates.
+    expect(parseSedEditCommand(cmd('s/a/X/'))).not.toBeNull()
+  })
+
+  test('rejects escapes whose sed meaning is not the JavaScript meaning', () => {
+    // GNU sed reads `\<`/`\>` as word boundaries; JS reads literal angle
+    // brackets, so the preview shows no change while sed rewrites the file.
+    expect(parseSedEditCommand(cmd('s/\\<foo\\>/X/g'))).toBeNull()
+    // The converse: `\d` is a digit class in JS but a literal `d` in BRE.
+    expect(parseSedEditCommand(cmd('s/\\d/X/g'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/\\w/X/g'))).toBeNull()
+  })
+
+  test('rejects ^ and $ where BRE treats them as literals', () => {
+    // Bare `^`/`$` only anchor at a BRE boundary; elsewhere sed matches them
+    // literally while JS always reads an anchor.
+    expect(parseSedEditCommand(cmd('s/a^b/X/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a$b/X/'))).toBeNull()
+    // Genuine anchors still simulate.
+    expect(parseSedEditCommand(cmd('s/^a/X/'))).not.toBeNull()
+    expect(parseSedEditCommand(cmd('s/a$/X/'))).not.toBeNull()
+  })
+
+  test('validates interval bodies on the ERE path too', () => {
+    // JS reads `a{,3}` as literal braces; GNU sed -E applies its extension and
+    // rewrites "aaaab" to "XXbX", and BSD has no portable behavior.
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/a{,3}/X/g' example.txt"),
+    ).toBeNull()
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/a{1,2,3}/X/g' example.txt"),
+    ).toBeNull()
+  })
+
+  test('counts characters like sed, not UTF-16 code units', () => {
+    // Verified against GNU sed 4.10: `s/.\{2\}/X/` on the emoji + "a" writes a
+    // bare "X". Without a unicode-aware matcher the quantifier consumes only
+    // the emoji's surrogate pair and leaves the "a".
+    const info = parseSedEditCommand(cmd('s/.\\{2\\}/X/'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('\u{1F600}a', info!)).toBe('X')
+  })
+
+  test('matches a carriage return the way sed pattern space does', () => {
+    // Verified against GNU sed 4.10: `s/./X/g` on "a\r\n" writes "XX\n" — the
+    // CR is an ordinary character in the pattern space. A JS `.` excludes
+    // carriage returns and would leave it in place.
+    const info = parseSedEditCommand(cmd('s/./X/g'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('a\r\n', info!)).toBe('XX\n')
+  })
+
+  test('rejects a standalone empty pattern', () => {
+    // `s//X/` has no previous regular expression to reuse, so sed errors and
+    // leaves the file untouched; an empty JS regex would prefix every line.
+    expect(parseSedEditCommand(cmd('s//X/'))).toBeNull()
+  })
+
   test('applies the substitution once per line like sed, not once per file', () => {
     // sed substitutes the first match on EVERY line even without `g`.
     const info = parseSedEditCommand(cmd('s/a\\{2\\}/X/'))
