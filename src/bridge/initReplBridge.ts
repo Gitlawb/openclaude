@@ -35,8 +35,8 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logForDebugging } from '../utils/debug.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
 import { errorMessage } from '../utils/errors.js'
-import { truncateToWidth } from '../utils/format.js'
 import { getBranch, getRemoteUrl } from '../utils/git.js'
+import { getGraphemeSegmenter } from '../utils/intl.js'
 import { toSDKMessages } from '../utils/messages/mappers.js'
 import {
   getContentText,
@@ -572,10 +572,31 @@ export function deriveTitle(raw: string): string | undefined {
   // Collapse newlines/tabs — titles are single-line in the claude.ai list.
   const flat = firstSentence.replace(/\s+/g, ' ').trim()
   if (!flat) return undefined
-  // Truncate on grapheme boundaries. A raw slice cuts at a UTF-16 code-unit
-  // index, so an emoji/CJK-astral char straddling the boundary loses half its
-  // surrogate pair; the lone surrogate then goes over the wire as U+FFFD when
-  // the title is UTF-8-serialized to the claude.ai backend. truncateToWidth is
-  // the same helper deriveSessionTitle in bridgeMain.ts already uses.
-  return truncateToWidth(flat, TITLE_MAX_LEN)
+  return truncateTitleToLength(flat, TITLE_MAX_LEN)
+}
+
+/**
+ * Truncate to at most `maxLen` UTF-16 code units without splitting a grapheme.
+ *
+ * TITLE_MAX_LEN bounds the session-title API field in characters, so the cut
+ * must be measured in code units — not terminal columns. A plain
+ * `slice(0, maxLen - 1)` cuts at an arbitrary code-unit index, so an emoji or
+ * astral-plane character straddling the boundary loses half its surrogate pair
+ * and the lone surrogate is transmitted as U+FFFD once the title is
+ * UTF-8-serialized to the claude.ai backend. Walking graphemes keeps the pair
+ * (and any combining marks) intact while still enforcing the character bound —
+ * a display-width measure would instead truncate wide scripts early and let
+ * zero-width input through unbounded.
+ *
+ * exported for testing
+ */
+export function truncateTitleToLength(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  if (maxLen <= 1) return '…'
+  let result = ''
+  for (const { segment } of getGraphemeSegmenter().segment(text)) {
+    if (result.length + segment.length > maxLen - 1) break
+    result += segment
+  }
+  return result + '…'
 }

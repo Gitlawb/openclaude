@@ -29,7 +29,24 @@ test('never emits a lone surrogate when truncating on an emoji boundary', () => 
 test('truncates long single-line titles with an ellipsis', () => {
   const title = deriveTitle('x'.repeat(200))!
   expect(title.endsWith('…')).toBe(true)
-  expect(title.length).toBeLessThanOrEqual(51)
+  expect(title.length).toBeLessThanOrEqual(50)
+})
+
+test('bounds the title in characters, not terminal columns', () => {
+  // TITLE_MAX_LEN caps the session-title API field in characters. A
+  // display-width measure charges 2 columns per wide glyph, so 30 CJK
+  // characters — comfortably inside the 50-char field — would be cut to 24
+  // plus an ellipsis and lose content.
+  const cjk = deriveTitle('你'.repeat(30))!
+  expect(cjk).toBe('你'.repeat(30))
+  expect(cjk.endsWith('…')).toBe(false)
+})
+
+test('still bounds input whose display width is zero', () => {
+  // The mirror failure: zero-width graphemes cost 0 columns, so a width-based
+  // cap never triggers and the full payload is PATCHed as the title.
+  const title = deriveTitle('​'.repeat(100_000))!
+  expect(title.length).toBeLessThanOrEqual(50)
 })
 
 test('keeps a short title unchanged', () => {
