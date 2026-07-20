@@ -240,7 +240,10 @@ function buildScopeDefinitions(
   activeConfig: ScopedMcpServerConfig | undefined,
   deps: McpDoctorDependencies,
 ): McpDoctorDefinition[] {
-  const config = servers[name]
+  // Own-property lookup: these maps are plain objects from JSON config, so a
+  // bare servers[name] resolves inherited Object.prototype members and would
+  // fabricate a definition for a name like 'constructor'.
+  const config = Object.hasOwn(servers, name) ? servers[name] : undefined
   if (!config) {
     return []
   }
@@ -540,7 +543,9 @@ async function buildServerReport(
   }
   const { servers: activeServers } = await deps.getAllMcpConfigs()
   const serverDisabled = deps.isMcpServerDisabled(name)
-  const runtimeConfig = activeServers[name] ?? undefined
+  const runtimeConfig = Object.hasOwn(activeServers, name)
+    ? activeServers[name]
+    : undefined
   const activeConfig = serverDisabled ? undefined : runtimeConfig
 
   const definitions = [

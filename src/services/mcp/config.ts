@@ -633,6 +633,13 @@ export async function addMcpConfig(
     )
   }
 
+  // "__proto__" passes the character check but cannot be stored: assigning it
+  // on a plain object invokes the prototype setter instead of creating an own
+  // property, so the server would be reported as added and silently vanish.
+  if (name === '__proto__') {
+    throw new Error(`Cannot add MCP server "${name}": this name is reserved.`)
+  }
+
   // Block reserved server name "claude-in-chrome"
   if (isClaudeInChromeMCPServer(name)) {
     throw new Error(`Cannot add MCP server "${name}": this name is reserved.`)
@@ -682,21 +689,21 @@ export async function addMcpConfig(
   switch (scope) {
     case 'project': {
       const { servers } = getProjectMcpConfigsFromCwd()
-      if (servers[name]) {
+      if (Object.hasOwn(servers, name)) {
         throw new Error(`MCP server ${name} already exists in .mcp.json`)
       }
       break
     }
     case 'user': {
       const globalConfig = getGlobalConfig()
-      if (globalConfig.mcpServers?.[name]) {
+      if (Object.hasOwn(globalConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in user config`)
       }
       break
     }
     case 'local': {
       const projectConfig = getCurrentProjectConfig()
-      if (projectConfig.mcpServers?.[name]) {
+      if (Object.hasOwn(projectConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in local config`)
       }
       break
@@ -774,7 +781,7 @@ export async function removeMcpConfig(
     case 'project': {
       const { servers: existingServers } = getProjectMcpConfigsFromCwd()
 
-      if (!existingServers[name]) {
+      if (!Object.hasOwn(existingServers, name)) {
         throw new Error(`No MCP server found with name: ${name} in .mcp.json`)
       }
 
@@ -799,7 +806,7 @@ export async function removeMcpConfig(
 
     case 'user': {
       const config = getGlobalConfig()
-      if (!config.mcpServers?.[name]) {
+      if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
         throw new Error(`No user-scoped MCP server found with name: ${name}`)
       }
       saveGlobalConfig(current => {
@@ -815,7 +822,7 @@ export async function removeMcpConfig(
     case 'local': {
       // Check if server exists before updating
       const config = getCurrentProjectConfig()
-      if (!config.mcpServers?.[name]) {
+      if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
         throw new Error(`No project-local MCP server found with name: ${name}`)
       }
       saveCurrentProjectConfig(current => {
