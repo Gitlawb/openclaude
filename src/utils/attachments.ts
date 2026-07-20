@@ -45,7 +45,7 @@ import {
   getConditionalRulesForCwdLevelDirectory,
   type MemoryFileInfo,
 } from './claudemd.js'
-import { dirname, parse, relative, resolve } from 'path'
+import { dirname, isAbsolute, parse, relative, resolve } from 'path'
 import { getCwd } from 'src/utils/cwd.js'
 import { getViewedTeammateTask } from '../state/selectors.js'
 import { logError } from './log.js'
@@ -142,7 +142,6 @@ import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
 import {
   matchingRuleForInput,
   pathInAllowedWorkingPath,
-  pathInWorkingPath,
 } from './permissions/filesystem.js'
 import {
   generateTaskAttachments,
@@ -1757,6 +1756,23 @@ async function getSelectedLinesFromIDE(
  * @param originalCwd The original current working directory
  * @returns Object with nestedDirs and cwdLevelDirs arrays, both ordered from parent to child
  */
+/**
+ * True when `child` sits strictly beneath `parent`, compared on path
+ * boundaries.
+ *
+ * Deliberately not the permissions predicate (`pathInWorkingPath`): that one
+ * case-folds both operands on every platform to stop case-variant spellings
+ * from slipping past a security check. Applying it here would go the wrong way
+ * — on a case-sensitive filesystem `/work/MyApp` and `/work/myapp` are two
+ * unrelated projects, and folding them together would load the other project's
+ * CLAUDE.md/AGENTS.md as nested memory. `relative` keeps the platform's native
+ * case semantics.
+ */
+function isPathUnder(child: string, parent: string): boolean {
+  const rel = relative(parent, child)
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
 export function getDirectoriesToProcess(
   targetPath: string,
   originalCwd: string,
@@ -1773,7 +1789,7 @@ export function getDirectoriesToProcess(
   // startsWith accepts it — so its CLAUDE.md loaded as Project memory purely
   // because of how the directory happened to be spelled.
   while (currentDir !== originalCwd && currentDir !== parse(currentDir).root) {
-    if (pathInWorkingPath(currentDir, originalCwd)) {
+    if (isPathUnder(currentDir, originalCwd)) {
       nestedDirs.push(currentDir)
     }
     currentDir = dirname(currentDir)

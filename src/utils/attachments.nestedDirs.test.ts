@@ -45,6 +45,19 @@ describe('getDirectoriesToProcess', () => {
     expect(nestedDirs).toEqual([join(CWD, 'src'), join(CWD, 'src', 'deep')])
   })
 
+  test('does not treat a case-variant sibling as nested', () => {
+    // On a case-sensitive filesystem /work/MyApp and /work/myapp are two
+    // unrelated projects. A case-folding containment check would merge them and
+    // load the other project's CLAUDE.md/AGENTS.md as nested project memory.
+    const caseVariant = join(WORK, 'MyApp')
+    const { nestedDirs } = getDirectoriesToProcess(
+      join(CWD, 'src', 'a.ts'),
+      caseVariant,
+    )
+    expect(nestedDirs).not.toContain(CWD)
+    expect(nestedDirs).not.toContain(join(CWD, 'src'))
+  })
+
   test('reports directories from the root down to the CWD', () => {
     const { cwdLevelDirs } = getDirectoriesToProcess(
       join(CWD, 'src', 'a.ts'),
