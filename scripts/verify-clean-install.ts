@@ -351,31 +351,50 @@ function packWorkingTree(work: string): string {
   return join(work, filename)
 }
 
+type NpmRunResult = { status: number; stdout: string; stderr: string }
+
 // Same retry/infra discipline as installWithRetry: a transient registry
-// hiccup must not silently drop the upgrade-scenario coverage (exit 2 keeps
-// it distinguishable from a hygiene verdict). A clean "not published" answer
-// (e.g. E404 before the first release) legitimately returns null → skip.
-function previousPublishedVersion(home: string): string | null {
-  for (let attempt = 1; attempt <= INSTALL_RETRIES; attempt++) {
-    const { status, stdout, stderr } = runNpm(
-      ['view', `${PACKAGE_NAME}@latest`, 'version', '--loglevel=error'],
-      home,
-    )
+// hiccup must not silently drop the upgrade-scenario coverage (the infra
+// callback exits 2, distinguishable from a hygiene verdict). A clean "not
+// published" answer (e.g. E404 before the first release) legitimately
+// returns null → skip. Effects are injected so the retry/skip/infra branches
+// are unit-testable (verify-clean-install.test.ts) without shelling out.
+export function resolvePreviousPublishedVersion(options: {
+  runView: () => NpmRunResult
+  onRetry: (attempt: number) => void
+  onInfraFailure: (combinedOutput: string) => never
+  retries?: number
+}): string | null {
+  const retries = options.retries ?? INSTALL_RETRIES
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const { status, stdout, stderr } = options.runView()
     if (status === 0) {
       const version = stdout.trim()
       return /^\d+\.\d+\.\d+/.test(version) ? version : null
     }
     const combined = `${stdout}\n${stderr}`
     if (!looksLikeInfraFailure(combined)) return null
-    if (attempt < INSTALL_RETRIES) {
-      console.log(`  … npm view failed with network symptoms, retrying (${attempt}/${INSTALL_RETRIES})`)
+    if (attempt < retries) {
+      options.onRetry(attempt)
       continue
     }
-    console.error(combined)
-    console.error(`\n⚠️  npm view ${PACKAGE_NAME}@latest failed with network/registry symptoms after ${INSTALL_RETRIES} attempts — infra problem, not a hygiene verdict.`)
-    process.exit(2)
+    options.onInfraFailure(combined)
   }
   return null
+}
+
+function previousPublishedVersion(home: string): string | null {
+  return resolvePreviousPublishedVersion({
+    runView: () =>
+      runNpm(['view', `${PACKAGE_NAME}@latest`, 'version', '--loglevel=error'], home),
+    onRetry: attempt =>
+      console.log(`  … npm view failed with network symptoms, retrying (${attempt}/${INSTALL_RETRIES})`),
+    onInfraFailure: combined => {
+      console.error(combined)
+      console.error(`\n⚠️  npm view ${PACKAGE_NAME}@latest failed with network/registry symptoms after ${INSTALL_RETRIES} attempts — infra problem, not a hygiene verdict.`)
+      return process.exit(2)
+    },
+  })
 }
 
 function runScenarios(
@@ -459,4 +478,8 @@ function main(): void {
   console.log('\n✓ install hygiene verified: clean output, no install scripts, contract intact, binary boots silently.')
 }
 
-main()
+// Guarded so the test file can import resolvePreviousPublishedVersion without
+// kicking off a real pack + registry install.
+if (import.meta.main) {
+  main()
+}
