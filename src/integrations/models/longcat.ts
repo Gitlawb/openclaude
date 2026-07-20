@@ -10,7 +10,7 @@ export default [
     defaultModel: 'LongCat-2.0',
     capabilities: {
       supportsStreaming: true,
-      supportsFunctionCalling: true,
+      supportsFunctionCalling: false,
       supportsJsonMode: false,
       supportsReasoning: true,
       supportsPreciseTokenCount: false,

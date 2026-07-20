@@ -4690,7 +4690,7 @@ test('longcat provider flag prefers LONGCAT_API_KEY over generic OPENAI_API_KEYS
   expect(captured.authorization).toBe('Bearer fake-longcat-key')
 })
 
-test('longcat provider flag forwards supported tool definitions', async () => {
+test('longcat provider flag strips unsupported tool definitions', async () => {
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -4722,12 +4722,7 @@ test('longcat provider flag forwards supported tool definitions', async () => {
     stream: false,
   })
 
-  expect(requestBody?.tools).toEqual([
-    expect.objectContaining({
-      type: 'function',
-      function: expect.objectContaining({ name: 'Bash' }),
-    }),
-  ])
+  expect(requestBody?.tools).toBeUndefined()
 })
 
 test('longcat rejects image input before dispatch', async () => {
