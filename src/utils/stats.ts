@@ -870,14 +870,21 @@ export function inclusiveCalendarDaySpan(
 }
 
 /**
- * The two shapes this pipeline actually persists: a full ISO instant (from
- * `session.timestamp`) or a bare `dailyActivity` date key. Anything else is
- * corruption. `Date.parse` alone is far too lenient to detect it — "2026-07",
- * "2026", "123" and "01/01/2026" all parse to real dates, so a truncated or
- * foreign-format value would silently yield a plausible-but-wrong span instead
- * of being rejected.
+ * The two shapes this pipeline actually persists: a bare `dailyActivity` date
+ * key, or a complete timezone-qualified ISO instant (from `session.timestamp`).
+ * Anything else is corruption. `Date.parse` alone is far too lenient to detect
+ * it — "2026-07", "2026", "123" and "01/01/2026" all parse to real dates, so a
+ * truncated or foreign-format value would silently yield a
+ * plausible-but-wrong span instead of being rejected.
+ *
+ * The match is anchored at both ends and the zone designator is required. A
+ * space-delimited "2026-07-13 23:30:00" is neither shape, and `Date.parse`
+ * would read it as a host-local time — making the computed span depend on the
+ * machine's timezone (2 under UTC, 1 under America/Los_Angeles) rather than
+ * falling back to 0 for corrupt input.
  */
-const PERSISTED_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/
+const PERSISTED_DATE_PATTERN =
+  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/
 
 function parsePersistedDateMs(value: string): number {
   if (!PERSISTED_DATE_PATTERN.test(value)) {
