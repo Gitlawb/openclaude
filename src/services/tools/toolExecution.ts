@@ -488,12 +488,20 @@ export async function* runToolUse(
   })
   if (doomLoop.blocked) {
     logForDebugging(`Doom loop detected for ${toolName} (${doomLoop.count} consecutive identical calls)`)
+    // Observability for tuning: a burst of these against varied tools would
+    // indicate false positives (e.g. legitimate polling), not stuck agents.
+    logEvent('tengu_doom_loop_blocked', {
+      toolName: sanitizeToolNameForAnalytics(
+        toolName,
+      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      count: doomLoop.count,
+    })
     yield {
       message: createUserMessage({
         content: [
           {
             type: 'tool_result',
-            content: `<tool_use_error>Blocked: This tool has been called ${doomLoop.count} times in a row with identical input. You are likely in a loop. Please try a different approach or ask the user for help.</tool_use_error>`,
+            content: `<tool_use_error>Blocked: ${doomLoop.count} consecutive calls to this tool with identical input — you are likely in a loop. Change the input, try a different tool, or ask the user for help. A deliberate repeat is fine once something observable has changed (new output to check, a modified file, an updated instruction).</tool_use_error>`,
             is_error: true,
             tool_use_id: toolUse.id,
           },

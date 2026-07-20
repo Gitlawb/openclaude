@@ -7,6 +7,13 @@
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 import type { Message } from '../types/message.js'
 
+/**
+ * Default number of recent messages preserved verbatim by relevance pruning.
+ * Shared by autoCompact's `compactTailTurns` config plumbing and the /config
+ * UI display so a future default change stays in sync everywhere.
+ */
+export const DEFAULT_COMPACT_TAIL_TURNS = 3
+
 export interface PruningOptions {
   targetTokens: number
   taskContext?: string
@@ -161,7 +168,7 @@ export function pruneByRelevance(
   options: PruningOptions,
 ): Message[] {
   const targetTokens = options.targetTokens ?? 5000
-  const preserveRecent = options.preserveRecent ?? 3
+  const preserveRecent = options.preserveRecent ?? DEFAULT_COMPACT_TAIL_TURNS
 
   if (messages.length <= preserveRecent) {
     return messages

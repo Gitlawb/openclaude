@@ -10,6 +10,7 @@ import figures from 'figures';
 import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
+import { DEFAULT_COMPACT_TAIL_TURNS } from '../../utils/relevancePruning.js';
 import chalk from 'chalk';
 import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
@@ -314,9 +315,9 @@ export function Config({
   }, {
     id: 'compactTailTurns',
     label: 'Compaction: recent messages kept',
-    value: String(globalConfig.compactTailTurns ?? 3),
+    value: String(globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS),
     // Include a hand-edited config value so it round-trips through the picker.
-    options: [...new Set(['2', '3', '5', '8', String(globalConfig.compactTailTurns ?? 3)])],
+    options: [...new Set(['2', '3', '5', '8', String(globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS)])],
     type: 'enum' as const,
     onChange(compactTailTurnsValue: string) {
       const compactTailTurns = Number(compactTailTurnsValue);
@@ -1267,7 +1268,7 @@ export function Config({
       formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
-      formattedChanges.push(`Set compaction recent messages kept to ${globalConfig.compactTailTurns ?? 3}`);
+      formattedChanges.push(`Set compaction recent messages kept to ${globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

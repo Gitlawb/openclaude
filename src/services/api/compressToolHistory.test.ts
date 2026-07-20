@@ -862,3 +862,64 @@ test('idempotent: a second pass over compressed output is a no-op', () => {
     JSON.parse(JSON.stringify(once)),
   )
 })
+
+test('a block aged from mid to old tier upgrades from truncation to a stub', () => {
+  // First pass: exchange sits in the mid tier and gets truncated.
+  const initial = buildConversation(10)
+  const compressedOnce = compressToolHistoryForTest(initial)
+  const truncatedMsg = getResultMessages(compressedOnce)[0]!
+  expect(getResultText(truncatedMsg)).toContain('truncated')
+
+  // The conversation grows; the same block now falls in the old tier. The
+  // tier-aware guard must still upgrade it (blanket idempotency would leave
+  // it truncated — larger — forever).
+  const grown = [
+    ...compressedOnce,
+    ...buildToolExchange(10, 5_000),
+    ...buildToolExchange(11, 5_000),
+    ...buildToolExchange(12, 5_000),
+    ...buildToolExchange(13, 5_000),
+    ...buildToolExchange(14, 5_000),
+    ...buildToolExchange(15, 5_000),
+  ]
+  const compressedTwice = compressToolHistoryForTest(grown)
+  const text = getResultText(getResultMessages(compressedTwice)[0]!)
+  expect(text).toContain('chars omitted')
+  expect(text).not.toContain('truncated')
+})
+
+test('the upgraded stub reports the recovered pre-truncation length', () => {
+  // 5,000-char result truncated in the mid tier, then aged into the old
+  // tier: the stub must say 5000 chars were omitted (the tool's real output
+  // size), not the size of the truncated remnant it was derived from.
+  const initial = buildConversation(10, 5_000)
+  const compressedOnce = compressToolHistoryForTest(initial)
+  const grown = [
+    ...compressedOnce,
+    ...buildToolExchange(10, 5_000),
+    ...buildToolExchange(11, 5_000),
+    ...buildToolExchange(12, 5_000),
+    ...buildToolExchange(13, 5_000),
+    ...buildToolExchange(14, 5_000),
+    ...buildToolExchange(15, 5_000),
+  ]
+  const compressedTwice = compressToolHistoryForTest(grown)
+  const text = getResultText(getResultMessages(compressedTwice)[0]!)
+  const omitted = text.match(/→ (\d+) chars omitted/)
+  expect(omitted).not.toBeNull()
+  expect(Number(omitted![1])).toBe(5_000)
+
+  // And it must match what a fresh single-pass stub of the same conversation
+  // would have reported — upgrade path and direct path agree.
+  const fresh = compressToolHistoryForTest([
+    ...initial,
+    ...buildToolExchange(10, 5_000),
+    ...buildToolExchange(11, 5_000),
+    ...buildToolExchange(12, 5_000),
+    ...buildToolExchange(13, 5_000),
+    ...buildToolExchange(14, 5_000),
+    ...buildToolExchange(15, 5_000),
+  ])
+  const freshText = getResultText(getResultMessages(fresh)[0]!)
+  expect(freshText).toBe(text)
+})

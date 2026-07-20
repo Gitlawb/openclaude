@@ -13,7 +13,10 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { partitionContext } from '../../utils/contextPartitioning.js'
-import { pruneByRelevance } from '../../utils/relevancePruning.js'
+import {
+  DEFAULT_COMPACT_TAIL_TURNS,
+  pruneByRelevance,
+} from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
@@ -496,7 +499,7 @@ export async function autoCompactIfNeeded(
       preserveRecent:
         configuredTailTurns && configuredTailTurns > 0
           ? Math.floor(configuredTailTurns)
-          : 3,
+          : DEFAULT_COMPACT_TAIL_TURNS,
       preserveTools: true,
       preserveErrors: true,
     })

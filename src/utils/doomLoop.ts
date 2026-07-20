@@ -11,6 +11,8 @@
  * call once trip the block, and any interleaved call would reset it.
  */
 
+import { createHash } from 'crypto'
+
 const DEFAULT_THRESHOLD = 3
 
 const MAIN_AGENT_KEY = 'main'
@@ -35,13 +37,18 @@ function getState(agentKey: string): DoomLoopState {
 }
 
 function computeSignature(toolName: string, input: unknown): ToolSignature {
-  // Use a stable JSON serialization for the input.
-  // Truncate to avoid hashing huge inputs — first 2K chars is enough
-  // to detect identical calls.
+  // Hash the FULL serialized input: prefix-truncated comparison treated two
+  // genuinely different calls sharing a 2KB prefix (e.g. Write calls to the
+  // same file with different trailing content) as identical — a false
+  //-positive block on legitimate, distinct work. Serialization of the
+  // in-memory input is the unavoidable cost either way; the digest keeps the
+  // stored signature fixed-size. The tool name stays readable for
+  // getDoomLoopState diagnostics.
   const inputStr = typeof input === 'string'
     ? input
     : JSON.stringify(input) ?? ''
-  return `${toolName}::${inputStr.slice(0, 2048)}`
+  const digest = createHash('sha256').update(inputStr).digest('hex')
+  return `${toolName}::${digest}`
 }
 
 /**

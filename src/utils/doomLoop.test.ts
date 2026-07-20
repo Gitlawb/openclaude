@@ -116,4 +116,16 @@ describe('doomLoop', () => {
     expect(getDoomLoopState('agent-1').consecutiveCount).toBe(1)
     expect(getDoomLoopState().consecutiveCount).toBe(0)
   })
+
+  it('distinguishes large inputs that share a long identical prefix', () => {
+    // Regression: prefix-truncated signatures collided for inputs identical
+    // in the first 2KB — e.g. two Write calls to the same file differing only
+    // in trailing content — falsely tripping the block on distinct work.
+    const prefix = 'x'.repeat(4096)
+    checkDoomLoop('Write', { file_path: '/a.ts', content: prefix + 'ONE' })
+    checkDoomLoop('Write', { file_path: '/a.ts', content: prefix + 'TWO' })
+    const third = checkDoomLoop('Write', { file_path: '/a.ts', content: prefix + 'THREE' })
+    expect(third.blocked).toBe(false)
+    expect(third.count).toBe(1)
+  })
 })
