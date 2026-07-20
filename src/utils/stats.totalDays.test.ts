@@ -109,4 +109,38 @@ describe('inclusiveCalendarDaySpan', () => {
     // Leap 2024: a real day, spans inclusively to March 1.
     expect(inclusiveCalendarDaySpan('2024-02-29', '2024-03-01')).toBe(2)
   })
+
+  test('rejects timestamps that are not one of the two persisted shapes', () => {
+    // Space-delimited: Date.parse would read this as host-local time, so the
+    // span would depend on the machine's timezone instead of falling back to 0.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13 23:30:00',
+        '2026-07-14T00:30:00.000Z',
+      ),
+    ).toBe(0)
+    // ISO shape with no zone designator is equally ambiguous.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T23:30:00',
+        '2026-07-14T00:30:00.000Z',
+      ),
+    ).toBe(0)
+    // Trailing junk after a valid instant.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T23:30:00.000Zjunk',
+        '2026-07-14T00:30:00.000Z',
+      ),
+    ).toBe(0)
+  })
+
+  test('accepts a UTC offset instant as well as Z', () => {
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T23:30:00+05:30',
+        '2026-07-14T00:30:00.000Z',
+      ),
+    ).toBeGreaterThan(0)
+  })
 })
