@@ -55,7 +55,10 @@ import {
   refreshCopilotTokenOn401,
 } from '../../utils/githubModelsCredentials.js'
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
-import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
+import {
+  resolveModelRuntimeLimits,
+  resolveOpenAIShimRuntimeContext,
+} from '../../integrations/runtimeMetadata.js'
 import {
   getRouteDescriptor,
   isLongcatBaseUrl,
@@ -4326,6 +4329,11 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
       preferBaseUrlRoute: Boolean(this.providerOverride),
     })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model: runtimeModel,
+      baseUrl: request.baseUrl,
+      processEnv: requestProcessEnv,
+    })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
     // API contract rather than request.transport from providerConfig.
@@ -4347,12 +4355,7 @@ class OpenAIShimMessages {
         : compressToolHistory(rawMessages, runtimeModel, {
           textBlockSeparator:
             effectiveTransport === 'chat_completions' ? '\n\n' : '\n',
-          runtimeLimits: runtimeShimContext.catalogEntry
-            ? {
-                contextWindow: runtimeShimContext.catalogEntry.contextWindow,
-                maxOutputTokens: runtimeShimContext.catalogEntry.maxOutputTokens,
-              }
-            : undefined,
+          runtimeLimits,
         }),
     )
     const useNativeOllamaChat =
@@ -4412,6 +4415,13 @@ class OpenAIShimMessages {
      // most OpenAI-compatible endpoints read it from this top-level field.
     if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
       body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+    }
+    if (
+      reasoningRequestPlan.wireFormat === 'reasoning_effort' &&
+      reasoningRequestPlan.thinkingType === 'disabled'
+    ) {
+      body.thinking = { type: 'disabled' }
+      delete body.reasoning_effort
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.

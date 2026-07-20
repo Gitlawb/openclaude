@@ -2263,7 +2263,7 @@ test('providerOverride K3 preserves supported model-query reasoning', async () =
   }
 })
 
-test('providerOverride K3 does not silently downgrade when thinking is disabled', async () => {
+test('providerOverride K3 forwards disabled thinking to the Kimi API', async () => {
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body))
@@ -2293,7 +2293,7 @@ test('providerOverride K3 does not silently downgrade when thinking is disabled'
     })
 
     expect(requestBody?.model).toBe('k3')
-    expect(requestBody?.thinking).toBeUndefined()
+    expect(requestBody?.thinking).toEqual({ type: 'disabled' })
     expect(requestBody?.reasoning_effort).toBeUndefined()
   } finally {
     globalThis.fetch = originalFetch
