@@ -76,6 +76,22 @@ describe('MCP tool activity', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(reportServerProgress).toBeDefined()
+
+    // Silent server: no progress notifications at all. The wrapper's own
+    // heartbeat must still fire so QueryGuard sees activity.
+    vi.advanceTimersByTime(30_000)
+    await Promise.resolve()
+    expect(onProgress).toHaveBeenLastCalledWith({
+      toolUseID: 'toolu_heartbeat',
+      data: expect.objectContaining({
+        type: 'mcp_progress',
+        status: 'progress',
+        serverName: 'heartbeat-test',
+        toolName: 'slow-tool',
+        elapsedTimeMs: expect.any(Number),
+      }),
+    })
+
     reportServerProgress?.({
       progress: 4,
       total: 10,
@@ -84,6 +100,7 @@ describe('MCP tool activity', () => {
     vi.advanceTimersByTime(30_000)
     await Promise.resolve()
 
+    // The next heartbeat carries the cached server progress values.
     expect(onProgress).toHaveBeenLastCalledWith({
       toolUseID: 'toolu_heartbeat',
       data: expect.objectContaining({
@@ -94,6 +111,7 @@ describe('MCP tool activity', () => {
         progress: 4,
         total: 10,
         progressMessage: 'Indexing files',
+        elapsedTimeMs: expect.any(Number),
       }),
     })
 
