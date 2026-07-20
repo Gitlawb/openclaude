@@ -22,7 +22,7 @@ export default defineVendor({
       // The documented Chat Completions request accepts text input only.
       supportsImageInputs: false,
       // LongCat documents thinking:{type} but not reasoning_effort.
-      removeBodyFields: ['store', 'reasoning_effort', 'stream_options', 'tools'],
+      removeBodyFields: ['store', 'reasoning_effort', 'stream_options'],
       requiredApiFormat: 'chat_completions',
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
@@ -55,7 +55,7 @@ export default defineVendor({
         modelDescriptorId: 'LongCat-2.0',
         capabilities: {
           supportsStreaming: true,
-          supportsFunctionCalling: false,
+          supportsFunctionCalling: true,
           supportsReasoning: true,
         },
         contextWindow: 1_048_576,
