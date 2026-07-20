@@ -4333,6 +4333,7 @@ class OpenAIShimMessages {
       model: runtimeModel,
       baseUrl: request.baseUrl,
       processEnv: requestProcessEnv,
+      activeProfileProvider: runtimeShimContext.routeId ?? undefined,
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
