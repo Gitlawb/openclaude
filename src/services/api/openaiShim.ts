@@ -177,6 +177,7 @@ import {
   convertTools as convertToolsModule,
   normalizeSchemaForOpenAI as normalizeSchemaForOpenAIModule,
 } from './openaiShim/toolConversion.js'
+import { parseApiTimeoutMsEnv } from './apiTimeout.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -229,12 +230,10 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function getApiTimeoutMs(): number {
-  const raw = process.env.API_TIMEOUT_MS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_API_TIMEOUT_MS
-  const parsed = Number(raw)
-  return Number.isSafeInteger(parsed) && parsed > 0
-    ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
-    : DEFAULT_API_TIMEOUT_MS
+  const parsed = parseApiTimeoutMsEnv()
+  return parsed === null
+    ? DEFAULT_API_TIMEOUT_MS
+    : Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
 }
 
 function combineRequestSignals(
