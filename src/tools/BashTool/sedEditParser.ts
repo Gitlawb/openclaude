@@ -70,6 +70,7 @@ function findBracketEnd(pattern: string, open: number): number {
  * translated faithfully and the caller must decline to simulate the edit.
  */
 function convertBrePatternToJs(pattern: string): string | null {
+  if (!breAnchorsAreUnambiguous(pattern)) return null
   let result = ''
 
   for (let i = 0; i < pattern.length; i++) {
@@ -137,8 +138,11 @@ function convertBrePatternToJs(pattern: string): string | null {
         result += '\\\\'
       } else if (BRE_PORTABLE_OPERATOR_ESCAPES.includes(next)) {
         result += next
-      } else {
+      } else if (BRE_PORTABLE_LITERAL_ESCAPES.includes(next)) {
         result += `\\${next}`
+      } else {
+        // Not a portable escape: its sed meaning is not the JS meaning.
+        return null
       }
       i++
       continue
@@ -159,6 +163,59 @@ function convertBrePatternToJs(pattern: string): string | null {
   }
 
   return result
+}
+
+/**
+ * Only replacements that are pure literal text can be previewed.
+ *
+ * sed's replacement syntax has its own meanings that this module does not
+ * translate: `\1`-`\9` are backreferences, `&` is the whole match, `\n`/`\t`
+ * are escapes, and `\U`/`\L` (GNU) case-fold. The simulator passes the
+ * replacement to String.replace as-is, so `s/\(a\)\{2\}/\1/` writes the two
+ * literal characters `\1` where sed writes `a`. Decline anything carrying a
+ * backslash or an unescaped `&`.
+ */
+function isFaithfullyLiteralReplacement(replacement: string): boolean {
+  return !replacement.includes('\\') && !replacement.includes('&')
+}
+
+/**
+ * Escapes that mean the same thing in a POSIX BRE and in the emitted JS regex.
+ *
+ * Everything outside this set declines. GNU sed reads `\<`/`\>` as word
+ * boundaries while JS reads them as literal angle brackets, so `s/\<foo\>/X/g`
+ * previews no change while sed rewrites the file; `\d` has the converse problem
+ * (a digit class in JS, a literal `d` in BRE). Carrying unhandled escapes
+ * through means the emitted regex is not the pattern sed was given.
+ */
+const BRE_PORTABLE_LITERAL_ESCAPES = '.*[]^$/'
+
+/**
+ * `^` and `$` are only anchors at the start/end of a BRE or of a `\( \)`
+ * subexpression; anywhere else sed matches them literally, while JS always
+ * reads them as anchors. `s/a^b/X/` would therefore be accepted and preview no
+ * edit while sed rewrites the literal text. Rather than model every
+ * subexpression boundary, decline when either character appears outside the
+ * positions where both dialects agree it anchors.
+ */
+function breAnchorsAreUnambiguous(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i]!
+    if (char === '\\') {
+      i++
+      continue
+    }
+    if (char === '[') {
+      const end = findBracketEnd(pattern, i)
+      if (end === -1) return false
+      i = end
+      continue
+    }
+    // A leading `^` and a trailing `$` are anchors in both dialects.
+    if (char === '^' && i !== 0) return false
+    if (char === '$' && i !== pattern.length - 1) return false
+  }
+  return true
 }
 
 /**
@@ -350,8 +407,13 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
     return null
   }
 
-  // Validate flags - only allow safe substitution flags
-  const validFlags = /^[gpimIM1-9]*$/
+  // Only the flags this module actually models. `1`-`9` select the Nth match on
+  // each line and `p` prints, neither of which the simulator implements — it
+  // always rewrites the first match (or every match under `g`), so
+  // `s/a\{2\}/X/2` on "aaaa" would be previewed as "Xaa" where sed writes
+  // "aaX". `m`/`M` redefine `^`/`$` per line inside the pattern space. Decline
+  // all of them rather than approve a write that differs from the command.
+  const validFlags = /^[giI]*$/
   if (!validFlags.test(flags)) {
     return null
   }
@@ -360,6 +422,10 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
   // Declining falls back to ordinary bash rendering, which is far better than
   // showing the user a diff that does not match what sed will write.
   if (!canSimulateFaithfully(pattern, flags, extendedRegex)) {
+    return null
+  }
+
+  if (!isFaithfullyLiteralReplacement(replacement)) {
     return null
   }
 
@@ -390,6 +456,20 @@ function ereHasUnfaithfulConstructs(pattern: string): boolean {
       continue
     }
     if (char === '|') return true
+    if (char === '^' && i !== 0) return true
+    if (char === '$' && i !== pattern.length - 1) return true
+    if (char === '{') {
+      // JS reads an illegal interval body as literal braces, but GNU sed either
+      // errors or applies its own extension: `sed -E 's/a{,3}/X/g'` rewrites
+      // "aaaab" to "XXbX" while JS matches the literal text "a{,3}". BSD has no
+      // portable behavior here either, so anything outside the POSIX forms
+      // declines.
+      const close = pattern.indexOf('}', i + 1)
+      if (close === -1) return true
+      if (breIntervalBodyToJs(pattern.slice(i + 1, close)) === null) return true
+      i = close
+      continue
+    }
     if (char === '[') {
       const end = findBracketEnd(pattern, i)
       if (end === -1) return true
@@ -435,12 +515,19 @@ function canSimulateFaithfully(
   flags: string,
   extendedRegex: boolean,
 ): boolean {
+  // A standalone `s//X/` has no previous regular expression to reuse, so sed
+  // errors and leaves the file untouched. JS would compile an empty regex that
+  // matches at every position and prefix every line.
+  if (pattern === '') return false
+
   const jsPattern = toJsPatternSource(pattern, extendedRegex)
   if (jsPattern === null) return false
 
   let regex: RegExp
   try {
-    regex = new RegExp(jsPattern)
+    // Same flags the simulator will use, so a source that only compiles without
+    // them cannot slip through the gate.
+    regex = new RegExp(jsPattern, jsRegexFlags(flags))
   } catch {
     return false
   }
@@ -451,6 +538,26 @@ function canSimulateFaithfully(
 }
 
 /**
+ * The JS flags that reproduce sed's matching for the accepted flag subset.
+ *
+ * `u` is not optional: in the UTF-8 locales sed runs in, a quantifier counts
+ * characters, while a non-unicode JS regex counts UTF-16 code units — without
+ * it `s/.\{2\}/X/` turns "\u{1F600}a" into "Xa" (consuming only the emoji's
+ * surrogate pair) where sed writes "X".
+ *
+ * `s` makes `.` match every character in the line. sed's pattern space holds a
+ * lone `\r` on CRLF input and `.` matches it, but a JS `.` excludes carriage
+ * returns, so `sed 's/./X/g'` on "a\r\n" writes "XX" where an unflagged
+ * simulation writes "X\r".
+ */
+function jsRegexFlags(sedFlags: string): string {
+  let flags = 'us'
+  if (sedFlags.includes('g')) flags += 'g'
+  if (sedFlags.includes('i') || sedFlags.includes('I')) flags += 'i'
+  return flags
+}
+
+/**
  * Apply a sed substitution to file content
  * Returns the new content after applying the substitution
  */
@@ -458,23 +565,7 @@ export function applySedSubstitution(
   content: string,
   sedInfo: SedEditInfo,
 ): string {
-  // Convert sed pattern to JavaScript regex
-  let regexFlags = ''
-
-  // Handle global flag
-  if (sedInfo.flags.includes('g')) {
-    regexFlags += 'g'
-  }
-
-  // Handle case-insensitive flag (i or I in sed)
-  if (sedInfo.flags.includes('i') || sedInfo.flags.includes('I')) {
-    regexFlags += 'i'
-  }
-
-  // Handle multiline flag (m or M in sed)
-  if (sedInfo.flags.includes('m') || sedInfo.flags.includes('M')) {
-    regexFlags += 'm'
-  }
+  const regexFlags = jsRegexFlags(sedInfo.flags)
 
   // Convert sed pattern to JavaScript regex pattern. In BRE mode (no -E flag)
   // metacharacters have opposite escaping: BRE `\+` means "one or more" and `+`
