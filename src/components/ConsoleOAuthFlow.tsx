@@ -11,6 +11,7 @@ import { sendNotification } from '../services/notifier.js';
 import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
+import { getEnvProviderOption } from '../utils/envProviderOption.js';
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js';
 import { type ProviderProfile } from '../utils/config.js';
 import {
@@ -401,16 +402,17 @@ function OAuthStatusMessage({
       // the route (resolveActiveRouteIdFromEnv requires CLAUDE_CODE_USE_OPENAI
       // or a saved profile), so selecting this saves + activates a profile.
       // Both fields gate the option because a profile requires baseUrl+model.
-      // Name the variable the value actually came from, so someone
-      // troubleshooting an OPENAI_API_BASE setup isn't told to look at
-      // OPENAI_BASE_URL (which is unset in their shell).
-      const envBaseUrlVarName = process.env.OPENAI_BASE_URL
-        ? 'OPENAI_BASE_URL'
-        : 'OPENAI_API_BASE'
-      const envBaseUrl =
-        process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
-      const envModel = process.env.OPENAI_MODEL
-      const envConfigAvailable = Boolean(envBaseUrl && envModel)
+      // getEnvProviderOption owns the secret-disclosure boundary: only
+      // `displayBaseUrl` (redacted) may be rendered — the raw `baseUrl`
+      // exists solely for profile creation/activation. See its tests for
+      // the credential cases.
+      const {
+        available: envConfigAvailable,
+        varName: envBaseUrlVarName,
+        baseUrl: envBaseUrl,
+        displayBaseUrl: envBaseUrlForDisplay,
+        model: envModel,
+      } = getEnvProviderOption()
 
       const loginOptions = [
         ...(envConfigAvailable
@@ -420,7 +422,7 @@ function OAuthStatusMessage({
                   <Text>
                     Use current environment configuration ·{' '}
                     <Text dimColor>
-                      {envBaseUrlVarName}={envBaseUrl}
+                      {envBaseUrlVarName}={envBaseUrlForDisplay}
                     </Text>
                     {'\n'}
                   </Text>
@@ -527,7 +529,7 @@ function OAuthStatusMessage({
                   logEvent('tengu_oauth_env_config_selected', {})
                   setOAuthStatus({
                     state: 'platform_setup_complete',
-                    message: `${existing ? 'Activated' : 'Saved'} ${saved.name} (${envBaseUrl}) as your active provider.`,
+                    message: `${existing ? 'Activated' : 'Saved'} ${saved.name} (${envBaseUrlForDisplay}) as your active provider.`,
                   })
                   return
                 }

@@ -714,6 +714,24 @@ describe('Onboarding and trust dialog — third-party providers', () => {
     expect(content).toContain('if (setupScreens.trustDialog)')
   })
 
+  test('the env-config option never renders the raw endpoint', async () => {
+    // OPENAI_BASE_URL/OPENAI_API_BASE can carry credentials (userinfo or
+    // token query params) and everything rendered lands in terminal
+    // scrollback. Redaction behavior is tested in envProviderOption.test.ts;
+    // this guards the wiring — the raw `envBaseUrl` may only reach profile
+    // persistence (addProviderProfile/getProviderProfiles/label), never a
+    // rendered label or status message.
+    const content = await file('components/ConsoleOAuthFlow.tsx').text()
+
+    expect(content).toContain('getEnvProviderOption()')
+    // Rendered sites use the redacted value.
+    expect(content).toMatch(/\{envBaseUrlVarName\}=\{envBaseUrlForDisplay\}/)
+    expect(content).toMatch(/\$\{envBaseUrlForDisplay\}\) as your active provider/)
+    // No rendered site interpolates the raw endpoint.
+    expect(content).not.toMatch(/\{envBaseUrl\}/)
+    expect(content).not.toMatch(/\$\{envBaseUrl\}/)
+  })
+
   test('no dialog is gated behind usesAnthropicSetup', async () => {
     const content = await file('interactiveHelpers.tsx').text()
 
