@@ -450,7 +450,7 @@ test('buildStartupEnvFromProfile fresh-install OpenGateway env is invalid withou
   assert.ok(error!.includes('OPENGATEWAY_API_KEY'))
 })
 
-test('applyStartupEnvFromProfile ignores invalid startup env and warns (issue #1651)', async () => {
+test('applyStartupEnvFromProfile ignores the invalid fresh-install default SILENTLY (issue #1651 + zero-warning install)', async () => {
   const processEnv: NodeJS.ProcessEnv = {}
   const warnings: string[] = []
 
@@ -460,8 +460,29 @@ test('applyStartupEnvFromProfile ignores invalid startup env and warns (issue #1
     onValidationError: message => warnings.push(message),
   })
 
+  // Still ignored (not applied), but a brand-new machine must not see a
+  // "saved provider profile" warning on every command — nothing was saved.
   assert.notEqual(error, null)
   assert.ok(error!.includes('OPENGATEWAY_API_KEY'))
+  assert.deepEqual(warnings, [])
+  assert.deepEqual(processEnv, {})
+})
+
+test('applyStartupEnvFromProfile still warns when a genuinely saved profile fails validation', async () => {
+  const processEnv: NodeJS.ProcessEnv = {}
+  const warnings: string[] = []
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: {
+      profile: 'openai',
+      env: { OPENAI_BASE_URL: 'https://api.openai.com/v1' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    processEnv,
+    onValidationError: message => warnings.push(message),
+  })
+
+  assert.notEqual(error, null)
   assert.deepEqual(warnings, [
     `Warning: ignoring saved provider profile. ${error}`,
   ])

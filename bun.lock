@@ -5,9 +5,9 @@
     "": {
       "name": "@gitlawb/openclaude",
       "dependencies": {
-        "@orama/orama": "^3.1.18",
-        "@orama/plugin-data-persistence": "^3.1.18",
-        "@vscode/ripgrep": "^1.17.1",
+        "@orama/orama": "3.1.18",
+        "@orama/plugin-data-persistence": "3.1.18",
+        "@vscode/ripgrep": "1.18.0",
       },
       "devDependencies": {
         "@alcalzone/ansi-tokenize": "0.3.0",

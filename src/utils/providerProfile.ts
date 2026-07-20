@@ -2136,9 +2136,18 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
 
   const validationError = await getProviderValidationError(startupEnv)
   if (validationError) {
-    onValidationError?.(
-      `Warning: ignoring saved provider profile. ${validationError}`,
-    )
+    // The injected fresh-install Opengateway default failing validation is the
+    // EXPECTED state for a brand-new machine with no OPENGATEWAY_API_KEY —
+    // nothing was "saved", so warning on every command (even --help) is
+    // first-boot noise, not signal (#1651 chose ignore+warn; the warn half
+    // broke the zero-warning install contract). Onboarding surfaces provider
+    // setup instead. Genuinely persisted profiles that fail validation still
+    // warn: the user configured something that no longer works.
+    if (!isDefaultStartupProviderEnv(startupEnv)) {
+      onValidationError?.(
+        `Warning: ignoring saved provider profile. ${validationError}`,
+      )
+    }
     return validationError
   }
 
