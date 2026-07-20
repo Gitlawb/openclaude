@@ -20,6 +20,7 @@ import { onChangeAppState } from './state/onChangeAppState.js';
 import { normalizeApiKeyForConfig } from './utils/authPortable.js';
 import { getExternalClaudeMdIncludes, getMemoryFiles, shouldShowClaudeMdExternalIncludesWarning } from './utils/claudemd.js';
 import { checkHasTrustDialogAccepted, getCustomApiKeyStatus, getGlobalConfig, saveGlobalConfig } from './utils/config.js';
+import { getRequiredSetupScreens } from './utils/setupScreenGates.js';
 import { updateDeepLinkTerminalPreference } from './utils/deepLink/terminalPreference.js';
 import { isEnvTruthy, isRunningOnHomespace } from './utils/envUtils.js';
 import { type FpsMetrics, FpsTracker } from './utils/fpsTracker.js';
@@ -118,9 +119,16 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // and the component itself drops the preflight/OAuth steps when Anthropic
   // auth is not enabled (see oauthEnabled in Onboarding.tsx). Gating this on
   // the Anthropic account flow left third-party users with no theme choice
-  // and, worse, no prompt-injection/safety notes.
-  if ((!config.theme || !config.hasCompletedOnboarding) // always show onboarding at least once
-  ) {
+  // and, worse, no prompt-injection/safety notes. The decisions live in the
+  // provider-free setupScreenGates seam (behaviorally tested there — this
+  // module's import chain cannot be loaded under bun test).
+  const setupScreens = getRequiredSetupScreens({
+    theme: config.theme,
+    hasCompletedOnboarding: config.hasCompletedOnboarding,
+    trustDialogAccepted: checkHasTrustDialogAccepted(),
+    isClaubbit: isEnvTruthy(process.env.CLAUBBIT),
+  });
+  if (setupScreens.onboarding) {
     onboardingShown = true;
     const {
       Onboarding
@@ -144,7 +152,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     // with which API provider is configured, so it runs for third-party
     // providers too (an untrusted repo is exactly as dangerous over Ollama as
     // over Anthropic).
-    if (!checkHasTrustDialogAccepted()) {
+    if (setupScreens.trustDialog) {
       const {
         TrustDialog
       } = await import('./components/TrustDialog/TrustDialog.js');

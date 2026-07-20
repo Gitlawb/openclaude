@@ -699,27 +699,33 @@ describe('Dev-channels dialog coverage', () => {
 // ---------------------------------------------------------------------------
 // Fix: onboarding + trust dialog skipped entirely for third-party providers
 // ---------------------------------------------------------------------------
+// Behavioral coverage lives in src/utils/setupScreenGates.test.ts — the
+// gating decisions were extracted into that provider-free seam because this
+// module's import chain cannot be loaded under bun test (compile-time
+// feature() macro checker, same constraint as the dev-channels tests above).
+// These wiring checks assert showSetupScreens actually consults the seam and
+// that no provider gate was re-introduced around the dialogs.
 describe('Onboarding and trust dialog — third-party providers', () => {
-  test('the onboarding dialog is NOT gated behind usesAnthropicSetup', async () => {
+  test('showSetupScreens routes both dialogs through the provider-free seam', async () => {
     const content = await file('interactiveHelpers.tsx').text()
 
-    // Theme choice and the security notes are universal; Onboarding.tsx drops
-    // the OAuth/preflight steps itself when Anthropic auth is not enabled.
-    // Gating the whole dialog on the Anthropic account flow left third-party
-    // users with no safety notes at all.
-    expect(content).not.toMatch(
-      /usesAnthropicSetup\s*&&\s*\(\s*!config\.theme/,
-    )
+    expect(content).toContain('getRequiredSetupScreens({')
+    expect(content).toContain('if (setupScreens.onboarding)')
+    expect(content).toContain('if (setupScreens.trustDialog)')
   })
 
-  test('the trust dialog is NOT gated behind usesAnthropicSetup', async () => {
+  test('no dialog is gated behind usesAnthropicSetup', async () => {
     const content = await file('interactiveHelpers.tsx').text()
 
-    // Workspace trust is orthogonal to the API provider: an untrusted repo is
-    // exactly as dangerous over a local model as over Anthropic.
+    // Theme choice + security notes are universal, and workspace trust is
+    // orthogonal to the API provider: an untrusted repo is exactly as
+    // dangerous over a local model as over Anthropic. The seam takes no
+    // provider input, so the only way to regress is to add a gate at the
+    // call sites — which this guards against.
+    expect(content).not.toMatch(/usesAnthropicSetup\s*&&\s*\(?\s*setupScreens/)
+    expect(content).not.toMatch(/usesAnthropicSetup\s*&&\s*\(\s*!config\.theme/)
     expect(content).not.toMatch(
       /usesAnthropicSetup\s*&&\s*!checkHasTrustDialogAccepted/,
     )
-    expect(content).toContain('if (!checkHasTrustDialogAccepted())')
   })
 })

@@ -12,7 +12,11 @@ import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js';
-import { addProviderProfile } from '../utils/providerProfiles.js';
+import {
+  addProviderProfile,
+  getProviderProfiles,
+  setActiveProviderProfile,
+} from '../utils/providerProfiles.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { ProviderManager } from './ProviderManager.js';
 import { Select } from './CustomSelect/select.js';
@@ -456,15 +460,27 @@ function OAuthStatusMessage({
               options={loginOptions}
               onChange={value => {
                 if (value === 'environment') {
-                  const saved = addProviderProfile(
-                    {
-                      name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
-                      baseUrl: envBaseUrl as string,
-                      model: envModel as string,
-                      apiKey: process.env.OPENAI_API_KEY,
-                    },
-                    { makeActive: true },
+                  // Re-entering this flow with the same env must not stack
+                  // near-identical profiles: reuse (and activate) an existing
+                  // profile matching the env base URL + model before creating
+                  // a new one. setActiveProviderProfile also re-applies the
+                  // profile env and syncs the startup profile file.
+                  const existing = getProviderProfiles().find(
+                    profile =>
+                      profile.baseUrl?.trim() === envBaseUrl?.trim() &&
+                      profile.model?.trim() === envModel?.trim(),
                   )
+                  const saved = existing
+                    ? setActiveProviderProfile(existing.id)
+                    : addProviderProfile(
+                        {
+                          name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
+                          baseUrl: envBaseUrl as string,
+                          model: envModel as string,
+                          apiKey: process.env.OPENAI_API_KEY,
+                        },
+                        { makeActive: true },
+                      )
                   if (!saved) {
                     // Env values failed profile validation — fall back to the
                     // guided provider setup with fields prefilled from env.
