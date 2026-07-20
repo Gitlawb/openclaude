@@ -184,5 +184,10 @@ describe('normalizeCompactTailTurns', () => {
     expect(normalizeCompactTailTurns('abc')).toBe(DEFAULT_COMPACT_TAIL_TURNS)
     expect(normalizeCompactTailTurns(undefined)).toBe(DEFAULT_COMPACT_TAIL_TURNS)
     expect(normalizeCompactTailTurns(null)).toBe(DEFAULT_COMPACT_TAIL_TURNS)
+    // Non-string non-number shapes must not coerce (Number(true) === 1,
+    // Number([2]) === 2) into a tiny tail.
+    expect(normalizeCompactTailTurns(true)).toBe(DEFAULT_COMPACT_TAIL_TURNS)
+    expect(normalizeCompactTailTurns([2])).toBe(DEFAULT_COMPACT_TAIL_TURNS)
+    expect(normalizeCompactTailTurns({})).toBe(DEFAULT_COMPACT_TAIL_TURNS)
   })
 })

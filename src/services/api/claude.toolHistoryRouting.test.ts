@@ -9,12 +9,12 @@ import { shouldCompressNativeToolHistory } from './claude.js'
 // across four transports and two exclusions.
 
 const NATIVE_CASES = [
-  { apiProvider: 'firstParty', isGithubNativeAnthropic: false },
-  { apiProvider: 'bedrock', isGithubNativeAnthropic: false },
-  { apiProvider: 'vertex', isGithubNativeAnthropic: false },
+  { apiProvider: 'firstParty', isFirstPartyBaseUrl: true, isGithubNativeAnthropic: false },
+  { apiProvider: 'bedrock', isFirstPartyBaseUrl: false, isGithubNativeAnthropic: false },
+  { apiProvider: 'vertex', isFirstPartyBaseUrl: false, isGithubNativeAnthropic: false },
   // GitHub-native-Anthropic reports its own provider id; the mode flag is
   // what marks it native.
-  { apiProvider: 'github', isGithubNativeAnthropic: true },
+  { apiProvider: 'github', isFirstPartyBaseUrl: false, isGithubNativeAnthropic: true },
 ] as const
 
 describe('shouldCompressNativeToolHistory', () => {
@@ -60,6 +60,7 @@ describe('shouldCompressNativeToolHistory', () => {
         expect(
           shouldCompressNativeToolHistory({
             apiProvider,
+            isFirstPartyBaseUrl: false,
             isGithubNativeAnthropic: false,
             hasProviderOverride: false,
             promptCachingEnabled,
@@ -67,5 +68,20 @@ describe('shouldCompressNativeToolHistory', () => {
         ).toBe(false)
       }
     }
+  })
+
+  test('firstParty on a custom ANTHROPIC_BASE_URL is NOT native — no compression', () => {
+    // A custom first-party base URL (proxy / Anthropic-compatible endpoint)
+    // reports firstParty AND caching-disabled; without the base-URL guard it
+    // would be compressed against an endpoint we make no assumptions about.
+    expect(
+      shouldCompressNativeToolHistory({
+        apiProvider: 'firstParty',
+        isFirstPartyBaseUrl: false,
+        isGithubNativeAnthropic: false,
+        hasProviderOverride: false,
+        promptCachingEnabled: false,
+      }),
+    ).toBe(false)
   })
 })

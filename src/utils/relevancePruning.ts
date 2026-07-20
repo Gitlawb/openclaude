@@ -23,7 +23,15 @@ export const DEFAULT_COMPACT_TAIL_TURNS = 3
  * tail of zero, and a displayed `2.5` must not silently behave as 2.
  */
 export function normalizeCompactTailTurns(value: unknown): number {
-  const num = typeof value === 'number' ? value : Number(value)
+  // Only numbers (persisted config) and strings (the /config picker's value
+  // channel) are coercible; other hand-edited shapes (true → 1, [2] → 2 via
+  // Number()) must not smuggle in a tiny tail — they fall back instead.
+  const num =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN
   return Number.isFinite(num) && num >= 1
     ? Math.floor(num)
     : DEFAULT_COMPACT_TAIL_TURNS

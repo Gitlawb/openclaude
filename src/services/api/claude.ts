@@ -1114,12 +1114,18 @@ export function stripExcessMediaItems(
  */
 export function shouldCompressNativeToolHistory(options: {
   apiProvider: string
+  // firstParty alone is not enough: a custom ANTHROPIC_BASE_URL (proxy /
+  // compatible endpoint) also reports firstParty, but getPromptCachingEnabled
+  // already returns false there — treating it as native would compress every
+  // request against an endpoint we make no assumptions about. Mirror the
+  // same base-URL guard prompt caching itself uses.
+  isFirstPartyBaseUrl: boolean
   isGithubNativeAnthropic: boolean
   hasProviderOverride: boolean
   promptCachingEnabled: boolean
 }): boolean {
   const isNativeTransport =
-    options.apiProvider === 'firstParty' ||
+    (options.apiProvider === 'firstParty' && options.isFirstPartyBaseUrl) ||
     options.apiProvider === 'bedrock' ||
     options.apiProvider === 'vertex' ||
     options.isGithubNativeAnthropic
@@ -1385,6 +1391,7 @@ async function* queryModel(
   // function actually inspects.
   const compressNativeToolHistory = shouldCompressNativeToolHistory({
     apiProvider: getAPIProvider(),
+    isFirstPartyBaseUrl: isFirstPartyAnthropicBaseUrl(),
     isGithubNativeAnthropic: isGithubNativeAnthropicMode(options.model),
     hasProviderOverride: Boolean(options.providerOverride),
     promptCachingEnabled: getPromptCachingEnabled(options.model),
