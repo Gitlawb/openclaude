@@ -845,10 +845,13 @@ export function parseUserSpecifiedModel(
   // runtime model id on the tier that has real descriptor metadata, so
   // context-window sizing and display names don't fall back to defaults.
   // Match on the base name so a ?reasoning=/?thinking= query suffix does not
-  // defeat the rewrite; the query is preserved on the resolved tier id.
+  // defeat the rewrite; the query is preserved on the resolved tier id and a
+  // [1m] tag stays TRAILING (after the query, mirroring the input form) so
+  // downstream query parsing sees `?reasoning=...` intact — request-time
+  // parsing (parseModelDescriptor) strips the trailing tag itself.
   if (modelString === 'gpt-5.6' || modelString.startsWith('gpt-5.6?')) {
     const query = modelString.slice('gpt-5.6'.length)
-    return 'gpt-5.6-sol' + (has1mTag ? '[1m]' : '') + query
+    return 'gpt-5.6-sol' + query + (has1mTag ? '[1m]' : '')
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as

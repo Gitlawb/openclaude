@@ -359,7 +359,13 @@ export function parseOpenAICompatibleApiFormat(
 }
 
 function parseModelDescriptor(model: string): ModelDescriptor {
-  const trimmed = model.trim()
+  // A trailing [1m] suffix is the client-side 1M-context opt-in (see
+  // has1mContext) — never part of the wire model id or the ?query syntax.
+  // Strip it before parsing so tagged aliases keep their mapping and effort
+  // defaults and the resolved model id stays valid for the backend. The tag
+  // can trail the whole string (`gpt-5.6-sol?reasoning=medium[1m]`) or sit
+  // on the base id (`gpt-5.5[1m]`); both forms are handled.
+  const trimmed = model.trim().replace(/\[1m]$/i, '').trim()
   const queryIndex = trimmed.indexOf('?')
   if (queryIndex === -1) {
     const alias = trimmed.toLowerCase() as CodexAlias
@@ -382,7 +388,10 @@ function parseModelDescriptor(model: string): ModelDescriptor {
     }
   }
 
-  const baseModel = trimmed.slice(0, queryIndex).trim()
+  const baseModel = trimmed
+    .slice(0, queryIndex)
+    .trim()
+    .replace(/\[1m]$/i, '')
   const params = new URLSearchParams(trimmed.slice(queryIndex + 1))
   const alias = baseModel.toLowerCase() as CodexAlias
   const aliasConfig = Object.hasOwn(CODEX_ALIAS_MODELS, alias)

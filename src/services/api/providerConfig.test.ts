@@ -247,3 +247,42 @@ test('resolveProviderRequest honors reasoning query overrides on GPT-5.6 aliases
   expect(request.resolvedModel).toBe('gpt-5.6-sol')
   expect(request.reasoning).toEqual({ effort: 'medium' })
 })
+
+test('resolveProviderRequest scopes GPT-5.6 alias effort defaults to the Codex transport', () => {
+  // On a custom OpenAI-compatible gateway (non-Codex transport) the alias
+  // default must NOT leak (#1961's contract: gateways do not inherit
+  // first-party effort metadata) — while an explicit ?reasoning= pick flows.
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'https://gateway.example/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+
+  const plain = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv })
+  expect(plain.resolvedModel).toBe('gpt-5.6-sol')
+  expect(plain.transport).not.toBe('codex_responses')
+  expect(plain.reasoning).toBeUndefined()
+
+  const explicit = resolveProviderRequest({
+    model: 'gpt-5.6-sol?reasoning=medium',
+    processEnv,
+  })
+  expect(explicit.transport).not.toBe('codex_responses')
+  expect(explicit.reasoning).toEqual({ effort: 'medium' })
+})
+
+test('resolveProviderRequest strips a trailing [1m] tag before alias mapping', () => {
+  // The [1m] suffix is a client-side context opt-in, never a wire model id:
+  // tagged forms must still resolve through the alias map (effort defaults
+  // included) and never leak the bracket suffix into resolvedModel.
+  const combined = resolveProviderRequest({
+    model: 'gpt-5.6-sol?reasoning=medium[1m]',
+    processEnv: {},
+  })
+  expect(combined.resolvedModel).toBe('gpt-5.6-sol')
+  expect(combined.reasoning).toEqual({ effort: 'medium' })
+
+  const tagged = resolveProviderRequest({ model: 'gpt-5.5[1m]', processEnv: {} })
+  expect(tagged.resolvedModel).toBe('gpt-5.5')
+  expect(tagged.reasoning).toEqual({ effort: 'high' })
+})

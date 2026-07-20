@@ -66,4 +66,14 @@ describe('parseUserSpecifiedModel — bare gpt-5.6 resolves to Sol', () => {
       'gpt-5.6-sol?thinking=enabled',
     )
   })
+
+  test('combined query + [1m] tag keeps the tag trailing after the query', () => {
+    // The tag must stay at the very end (mirroring the input form): placed
+    // between the id and the query it would corrupt the base-model split,
+    // and folded into the query it would corrupt the reasoning value.
+    // parseModelDescriptor strips the trailing tag at request time.
+    expect(parseUserSpecifiedModel('gpt-5.6?reasoning=medium[1m]')).toBe(
+      'gpt-5.6-sol?reasoning=medium[1m]',
+    )
+  })
 })
