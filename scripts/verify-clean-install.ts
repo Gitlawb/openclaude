@@ -351,11 +351,31 @@ function packWorkingTree(work: string): string {
   return join(work, filename)
 }
 
+// Same retry/infra discipline as installWithRetry: a transient registry
+// hiccup must not silently drop the upgrade-scenario coverage (exit 2 keeps
+// it distinguishable from a hygiene verdict). A clean "not published" answer
+// (e.g. E404 before the first release) legitimately returns null → skip.
 function previousPublishedVersion(home: string): string | null {
-  const { status, stdout } = runNpm(['view', `${PACKAGE_NAME}@latest`, 'version', '--loglevel=error'], home)
-  if (status !== 0) return null
-  const version = stdout.trim()
-  return /^\d+\.\d+\.\d+/.test(version) ? version : null
+  for (let attempt = 1; attempt <= INSTALL_RETRIES; attempt++) {
+    const { status, stdout, stderr } = runNpm(
+      ['view', `${PACKAGE_NAME}@latest`, 'version', '--loglevel=error'],
+      home,
+    )
+    if (status === 0) {
+      const version = stdout.trim()
+      return /^\d+\.\d+\.\d+/.test(version) ? version : null
+    }
+    const combined = `${stdout}\n${stderr}`
+    if (!looksLikeInfraFailure(combined)) return null
+    if (attempt < INSTALL_RETRIES) {
+      console.log(`  … npm view failed with network symptoms, retrying (${attempt}/${INSTALL_RETRIES})`)
+      continue
+    }
+    console.error(combined)
+    console.error(`\n⚠️  npm view ${PACKAGE_NAME}@latest failed with network/registry symptoms after ${INSTALL_RETRIES} attempts — infra problem, not a hygiene verdict.`)
+    process.exit(2)
+  }
+  return null
 }
 
 function runScenarios(
