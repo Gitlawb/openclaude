@@ -1103,6 +1103,33 @@ export function stripExcessMediaItems(
   }) as (UserMessage | AssistantMessage)[]
 }
 
+/**
+ * Tool-history compression routing for Anthropic-native transports (exported
+ * for focused tests — queryModel itself needs a live client to exercise).
+ * Native transports (first-party, Bedrock, Vertex, GitHub-native-Anthropic)
+ * compress only while prompt caching is inactive: retroactive tier rewrites
+ * diverge the cached request prefix and cost more than they save. Requests
+ * carrying a per-agent providerOverride are shim-routed and compress at the
+ * shim layer instead.
+ */
+export function shouldCompressNativeToolHistory(options: {
+  apiProvider: string
+  isGithubNativeAnthropic: boolean
+  hasProviderOverride: boolean
+  promptCachingEnabled: boolean
+}): boolean {
+  const isNativeTransport =
+    options.apiProvider === 'firstParty' ||
+    options.apiProvider === 'bedrock' ||
+    options.apiProvider === 'vertex' ||
+    options.isGithubNativeAnthropic
+  return (
+    isNativeTransport &&
+    !options.hasProviderOverride &&
+    !options.promptCachingEnabled
+  )
+}
+
 async function* queryModel(
   messages: Message[],
   systemPrompt: SystemPrompt,
@@ -1356,14 +1383,13 @@ async function* queryModel(
   // compressToolHistory is generic over AnyMessage — cast to satisfy the type
   // checker since OpenClaude's Message union is a superset of what the
   // function actually inspects.
-  const apiProvider = getAPIProvider()
-  const isAnthropicNativeTransport =
-    (apiProvider === 'firstParty' ||
-      apiProvider === 'bedrock' ||
-      apiProvider === 'vertex' ||
-      isGithubNativeAnthropicMode(options.model)) &&
-    !options.providerOverride
-  if (isAnthropicNativeTransport && !getPromptCachingEnabled(options.model)) {
+  const compressNativeToolHistory = shouldCompressNativeToolHistory({
+    apiProvider: getAPIProvider(),
+    isGithubNativeAnthropic: isGithubNativeAnthropicMode(options.model),
+    hasProviderOverride: Boolean(options.providerOverride),
+    promptCachingEnabled: getPromptCachingEnabled(options.model),
+  })
+  if (compressNativeToolHistory) {
     const { compressToolHistory } = await import('./compressToolHistory.js')
     messages = compressToolHistory(
       messages as unknown as Parameters<typeof compressToolHistory>[0],

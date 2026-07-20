@@ -10,7 +10,7 @@ import figures from 'figures';
 import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
-import { DEFAULT_COMPACT_TAIL_TURNS } from '../../utils/relevancePruning.js';
+import { normalizeCompactTailTurns } from '../../utils/relevancePruning.js';
 import chalk from 'chalk';
 import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
@@ -315,12 +315,14 @@ export function Config({
   }, {
     id: 'compactTailTurns',
     label: 'Compaction: recent messages kept',
-    value: String(globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS),
+    // Display and persist through the SAME normalization autoCompact applies,
+    // so a hand-edited 2.5 or 0 shows (and saves) as what actually runs.
+    value: String(normalizeCompactTailTurns(globalConfig.compactTailTurns)),
     // Include a hand-edited config value so it round-trips through the picker.
-    options: [...new Set(['2', '3', '5', '8', String(globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS)])],
+    options: [...new Set(['2', '3', '5', '8', String(normalizeCompactTailTurns(globalConfig.compactTailTurns))])],
     type: 'enum' as const,
     onChange(compactTailTurnsValue: string) {
-      const compactTailTurns = Number(compactTailTurnsValue);
+      const compactTailTurns = normalizeCompactTailTurns(compactTailTurnsValue);
       saveGlobalConfig(current => ({
         ...current,
         compactTailTurns
@@ -1268,7 +1270,7 @@ export function Config({
       formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
-      formattedChanges.push(`Set compaction recent messages kept to ${globalConfig.compactTailTurns ?? DEFAULT_COMPACT_TAIL_TURNS}`);
+      formattedChanges.push(`Set compaction recent messages kept to ${normalizeCompactTailTurns(globalConfig.compactTailTurns)}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

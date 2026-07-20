@@ -14,7 +14,7 @@ import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { partitionContext } from '../../utils/contextPartitioning.js'
 import {
-  DEFAULT_COMPACT_TAIL_TURNS,
+  normalizeCompactTailTurns,
   pruneByRelevance,
 } from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
@@ -491,15 +491,12 @@ export async function autoCompactIfNeeded(
     const systemMessages = messages.filter(m => m.message?.role === 'system')
     const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
     
-    // Config may be hand-edited; anything that isn't a positive number
-    // falls back to the default rather than pruning the entire tail.
-    const configuredTailTurns = getGlobalConfig().compactTailTurns
+    // Config may be hand-edited; normalizeCompactTailTurns is the single
+    // rule (shared with the /config UI) — a stray `0.5` must not floor to a
+    // zero-message tail, and invalid values fall back to the default.
     const pruned = pruneByRelevance(nonSystemMessages, {
       targetTokens: availableSpace,
-      preserveRecent:
-        configuredTailTurns && configuredTailTurns > 0
-          ? Math.floor(configuredTailTurns)
-          : DEFAULT_COMPACT_TAIL_TURNS,
+      preserveRecent: normalizeCompactTailTurns(getGlobalConfig().compactTailTurns),
       preserveTools: true,
       preserveErrors: true,
     })

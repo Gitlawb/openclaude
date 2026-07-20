@@ -14,6 +14,21 @@ import type { Message } from '../types/message.js'
  */
 export const DEFAULT_COMPACT_TAIL_TURNS = 3
 
+/**
+ * Single normalization rule for the hand-editable `compactTailTurns` config:
+ * any finite value ≥ 1 floors to an integer; everything else (0, negatives,
+ * fractions below 1, NaN, non-numbers) falls back to the default. The /config
+ * UI displays and persists through this SAME rule, so what the picker shows
+ * is exactly what autoCompact preserves — a raw `0.5` must not floor to a
+ * tail of zero, and a displayed `2.5` must not silently behave as 2.
+ */
+export function normalizeCompactTailTurns(value: unknown): number {
+  const num = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(num) && num >= 1
+    ? Math.floor(num)
+    : DEFAULT_COMPACT_TAIL_TURNS
+}
+
 export interface PruningOptions {
   targetTokens: number
   taskContext?: string
