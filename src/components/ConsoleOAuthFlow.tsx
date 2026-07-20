@@ -12,10 +12,12 @@ import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js';
+import { type ProviderProfile } from '../utils/config.js';
 import {
   addProviderProfile,
   getProviderProfiles,
   setActiveProviderProfile,
+  updateProviderProfile,
 } from '../utils/providerProfiles.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { ProviderManager } from './ProviderManager.js';
@@ -399,6 +401,12 @@ function OAuthStatusMessage({
       // the route (resolveActiveRouteIdFromEnv requires CLAUDE_CODE_USE_OPENAI
       // or a saved profile), so selecting this saves + activates a profile.
       // Both fields gate the option because a profile requires baseUrl+model.
+      // Name the variable the value actually came from, so someone
+      // troubleshooting an OPENAI_API_BASE setup isn't told to look at
+      // OPENAI_BASE_URL (which is unset in their shell).
+      const envBaseUrlVarName = process.env.OPENAI_BASE_URL
+        ? 'OPENAI_BASE_URL'
+        : 'OPENAI_API_BASE'
       const envBaseUrl =
         process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
       const envModel = process.env.OPENAI_MODEL
@@ -411,7 +419,9 @@ function OAuthStatusMessage({
                 label: (
                   <Text>
                     Use current environment configuration ·{' '}
-                    <Text dimColor>OPENAI_BASE_URL={envBaseUrl}</Text>
+                    <Text dimColor>
+                      {envBaseUrlVarName}={envBaseUrl}
+                    </Text>
                     {'\n'}
                   </Text>
                 ),
@@ -470,17 +480,32 @@ function OAuthStatusMessage({
                       profile.baseUrl?.trim() === envBaseUrl?.trim() &&
                       profile.model?.trim() === envModel?.trim(),
                   )
-                  const saved = existing
-                    ? setActiveProviderProfile(existing.id)
-                    : addProviderProfile(
-                        {
-                          name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
-                          baseUrl: envBaseUrl as string,
-                          model: envModel as string,
-                          apiKey: process.env.OPENAI_API_KEY,
-                        },
-                        { makeActive: true },
-                      )
+                  let saved: ProviderProfile | null
+                  if (existing) {
+                    // Refresh the stored credential from the environment
+                    // before activating: the env is the source of truth the
+                    // user just chose, so a rotated OPENAI_API_KEY must not
+                    // leave the profile running on a stale key. Keep the
+                    // existing key when the env no longer carries one rather
+                    // than blanking a working credential.
+                    updateProviderProfile(existing.id, {
+                      name: existing.name,
+                      baseUrl: envBaseUrl as string,
+                      model: envModel as string,
+                      apiKey: process.env.OPENAI_API_KEY ?? existing.apiKey,
+                    })
+                    saved = setActiveProviderProfile(existing.id)
+                  } else {
+                    saved = addProviderProfile(
+                      {
+                        name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
+                        baseUrl: envBaseUrl as string,
+                        model: envModel as string,
+                        apiKey: process.env.OPENAI_API_KEY,
+                      },
+                      { makeActive: true },
+                    )
+                  }
                   if (!saved) {
                     // Env values failed profile validation — fall back to the
                     // guided provider setup with fields prefilled from env.
@@ -490,7 +515,7 @@ function OAuthStatusMessage({
                   logEvent('tengu_oauth_env_config_selected', {})
                   setOAuthStatus({
                     state: 'platform_setup_complete',
-                    message: `Saved ${saved.name} (${envBaseUrl}) as your active provider.`,
+                    message: `${existing ? 'Activated' : 'Saved'} ${saved.name} (${envBaseUrl}) as your active provider.`,
                   })
                   return
                 }
