@@ -24,7 +24,10 @@ import { sanitizeToolNameForAnalytics } from 'src/services/analytics/metadata.js
 import type { AgentId } from 'src/types/ids.js'
 import { companionIntroText } from '../buddy/prompt.js'
 import { NO_CONTENT_MESSAGE } from '../constants/messages.js'
-import { OUTPUT_STYLE_CONFIG } from '../constants/outputStyles.js'
+import {
+  OUTPUT_STYLE_CONFIG,
+  resolveOutputStyle,
+} from '../constants/outputStyles.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import {
   checkStatsigFeatureGate_CACHED_MAY_BE_STALE,
@@ -2751,10 +2754,15 @@ Read the team config to discover your teammates' names. Check the task list peri
       ])
     }
     case 'output_style': {
-      const outputStyle =
-        OUTPUT_STYLE_CONFIG[
-          attachment.style as keyof typeof OUTPUT_STYLE_CONFIG
-        ]
+      // Own-property lookup: OUTPUT_STYLE_CONFIG is a plain object and
+      // `attachment.style` carries the free-form settings value, so a bare
+      // index resolves inherited Object.prototype members. Those are truthy, so
+      // the guard below would pass and the reminder would announce a style that
+      // does not exist ("Object output style is active").
+      const outputStyle = resolveOutputStyle(
+        OUTPUT_STYLE_CONFIG,
+        attachment.style,
+      )
       if (!outputStyle) {
         return []
       }
