@@ -221,7 +221,9 @@ export class AimlapiClient {
         signal,
       },
     )
-    if (!isAuthResult(result)) throw new Error('aimlapi.com did not return an auth token.')
+    if (!isAuthResult(result)) {
+      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
+    }
     return result
   }
 
@@ -235,7 +237,9 @@ export class AimlapiClient {
       `${this.endpoints.authBaseUrl}/v1/auth/account`,
       { method: 'PUT', body: { email, password }, signal },
     )
-    if (!isAuthResult(result)) throw new Error('aimlapi.com did not return an auth token.')
+    if (!isAuthResult(result)) {
+      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
+    }
     return result
   }
 
@@ -270,7 +274,9 @@ export class AimlapiClient {
       `${this.endpoints.authBaseUrl}/v1/auth/sign-in/code/verify`,
       { method: 'POST', body: { email, code }, signal },
     )
-    if (!isAuthResult(result)) throw new Error('aimlapi.com did not return an auth token.')
+    if (!isAuthResult(result)) {
+      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
+    }
     return result
   }
 
@@ -279,7 +285,9 @@ export class AimlapiClient {
       `${this.endpoints.authBaseUrl}/v1/auth/account/passwordless`,
       { method: 'POST', body: { email }, signal },
     )
-    if (!isAuthResult(result)) throw new Error('aimlapi.com did not return an auth token.')
+    if (!isAuthResult(result)) {
+      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
+    }
     return result
   }
 
@@ -295,7 +303,7 @@ export class AimlapiClient {
       signal,
     })
     if (!isCreatedKey(result)) {
-      throw new Error('aimlapi.com did not return an API key.')
+      throw new AimlapiApiError('aimlapi.com did not return an API key.', 200, '')
     }
     return result
   }

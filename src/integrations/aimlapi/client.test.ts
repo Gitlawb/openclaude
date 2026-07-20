@@ -160,12 +160,21 @@ test('password methods reject a response without a token', async () => {
   globalThis.fetch = mock(async () => jsonResponse({ exp: 1 })) as unknown as typeof fetch
 
   const client = new AimlapiClient(endpoints)
-  await expect(
-    client.signup({ email: 'user@example.com', password: 'secret' }),
-  ).rejects.toThrow('did not return an auth token')
-  await expect(client.login('user@example.com', 'secret')).rejects.toThrow(
-    'did not return an auth token',
-  )
+  // A malformed success payload must surface the same error contract as every
+  // other endpoint, so a caller can branch on the type/status uniformly instead
+  // of special-casing the auth paths.
+  for (const call of [
+    () => client.signup({ email: 'user@example.com', password: 'secret' }),
+    () => client.login('user@example.com', 'secret'),
+  ]) {
+    const error = await call().then(
+      () => null,
+      (reason: unknown) => reason,
+    )
+    expect(error).toBeInstanceOf(AimlapiApiError)
+    expect((error as AimlapiApiError).status).toBe(200)
+    expect((error as AimlapiApiError).message).toContain('did not return an auth token')
+  }
 })
 
 test('topUpByKey uses the v2 billing endpoint and API key bearer', async () => {
