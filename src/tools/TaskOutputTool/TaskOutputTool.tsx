@@ -52,6 +52,7 @@ type TaskOutputToolOutput = {
   retrieval_status: 'success' | 'timeout' | 'not_ready';
   task: TaskOutput | null;
 };
+const TASK_OUTPUT_ACTIVITY_INTERVAL_MS = 30_000;
 
 // Re-export Progress from centralized types to break import cycles
 export type { TaskOutputProgress as Progress } from '../../types/tools.js';
@@ -240,17 +241,27 @@ export const TaskOutputTool: Tool<InputSchema, TaskOutputToolOutput> = buildTool
     }
 
     // Blocking: wait for completion
-    if (onProgress) {
+    const reportWaiting = () => {
+      if (!onProgress) return;
       onProgress({
-        toolUseID: `task-output-waiting-${Date.now()}`,
+        toolUseID: `task-output-waiting-${task_id}`,
         data: {
           type: 'waiting_for_task',
           taskDescription: task.description,
           taskType: task.type
         }
       });
+    };
+    reportWaiting();
+    const activityInterval = onProgress ? setInterval(reportWaiting, TASK_OUTPUT_ACTIVITY_INTERVAL_MS) : undefined;
+    let completedTask: TaskState | null;
+    try {
+      completedTask = await waitForTaskCompletion(task_id, toolUseContext.getAppState, timeout, toolUseContext.abortController);
+    } finally {
+      if (activityInterval !== undefined) {
+        clearInterval(activityInterval);
+      }
     }
-    const completedTask = await waitForTaskCompletion(task_id, toolUseContext.getAppState, timeout, toolUseContext.abortController);
     if (!completedTask) {
       return {
         data: {

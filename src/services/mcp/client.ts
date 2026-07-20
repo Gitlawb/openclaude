@@ -213,6 +213,7 @@ export function isMcpSessionExpiredError(error: Error): boolean {
  * tools to hang indefinitely on unresponsive servers.
  */
 const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000
+const MCP_TOOL_ACTIVITY_INTERVAL_MS = 30_000
 
 /**
  * Cap on MCP tool descriptions and server instructions sent to the model.
@@ -1938,6 +1939,38 @@ export const fetchToolsForClient = memoizeWithLRU(
               }
 
               const startTime = Date.now()
+              // Cover connection setup, retries, and elicitation waits, not only
+              // the individual protocol request inside callMCPTool.
+              let latestServerProgress:
+                | {
+                    progress: number
+                    total?: number
+                    progressMessage?: string
+                  }
+                | undefined
+              let activityInterval =
+                onProgress && toolUseId
+                  ? setInterval(() => {
+                      onProgress({
+                        toolUseID: toolUseId,
+                        data: {
+                          type: 'mcp_progress',
+                          status: 'progress',
+                          serverName: client.name,
+                          toolName: tool.name,
+                          ...latestServerProgress,
+                          elapsedTimeMs: Date.now() - startTime,
+                        },
+                      })
+                    }, MCP_TOOL_ACTIVITY_INTERVAL_MS)
+                  : undefined
+              const stopActivityHeartbeat = () => {
+                if (activityInterval !== undefined) {
+                  clearInterval(activityInterval)
+                  activityInterval = undefined
+                }
+              }
+
               const MAX_SESSION_RETRIES = 1
               for (let attempt = 0; ; attempt++) {
                 try {
@@ -1953,6 +1986,20 @@ export const fetchToolsForClient = memoizeWithLRU(
                     onProgress:
                       onProgress && toolUseId
                         ? progressData => {
+                          if (
+                            progressData.status === 'progress' &&
+                            typeof progressData.progress === 'number'
+                          ) {
+                            latestServerProgress = {
+                              progress: progressData.progress,
+                              ...(progressData.total !== undefined && {
+                                total: progressData.total,
+                              }),
+                              ...(progressData.progressMessage !== undefined && {
+                                progressMessage: progressData.progressMessage,
+                              }),
+                            }
+                          }
                           onProgress({
                             toolUseID: toolUseId,
                             data: progressData,
@@ -1962,6 +2009,7 @@ export const fetchToolsForClient = memoizeWithLRU(
                     handleElicitation: context.handleElicitation,
                   })
 
+                  stopActivityHeartbeat()
                   // Emit progress when tool completes successfully
                   if (onProgress && toolUseId) {
                     onProgress({
@@ -2003,6 +2051,7 @@ export const fetchToolsForClient = memoizeWithLRU(
                     continue
                   }
 
+                  stopActivityHeartbeat()
                   // Emit progress when tool fails
                   if (onProgress && toolUseId) {
                     onProgress({

@@ -1177,9 +1177,9 @@ export const AgentTool = buildTool({
               }
             }
 
-            // Forward bash_progress events from sub-agent to parent so the SDK
-            // receives tool_progress events just as it does for the main agent.
-            if (message.type === 'progress' && (message.data.type === 'bash_progress' || message.data.type === 'powershell_progress') && onProgress) {
+            // Forward progress from long-running sub-agent tools so the parent
+            // query remains active while the child is doing bounded work.
+            if (message.type === 'progress' && (message.data.type === 'bash_progress' || message.data.type === 'powershell_progress' || message.data.type === 'mcp_progress' || message.data.type === 'waiting_for_task') && onProgress) {
               onProgress({
                 toolUseID: message.toolUseID,
                 data: message.data
