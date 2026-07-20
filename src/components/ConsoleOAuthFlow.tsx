@@ -488,12 +488,24 @@ function OAuthStatusMessage({
                     // leave the profile running on a stale key. Keep the
                     // existing key when the env no longer carries one rather
                     // than blanking a working credential.
-                    updateProviderProfile(existing.id, {
-                      name: existing.name,
-                      baseUrl: envBaseUrl as string,
-                      model: envModel as string,
+                    //
+                    // updateProviderProfile REPLACES the profile (toProfile
+                    // builds a fresh object, it does not merge), so spread
+                    // the existing profile first — otherwise a configured
+                    // apiFormat / auth header / customHeaders / context
+                    // length would be silently dropped on refresh.
+                    const refreshed = updateProviderProfile(existing.id, {
+                      ...existing,
                       apiKey: process.env.OPENAI_API_KEY ?? existing.apiKey,
                     })
+                    if (!refreshed) {
+                      // The env values failed profile validation. Activating
+                      // now would claim a refresh that did not happen, so send
+                      // the user to guided setup instead of silently running
+                      // on the stale credential.
+                      setOAuthStatus({ state: 'platform_setup' })
+                      return
+                    }
                     saved = setActiveProviderProfile(existing.id)
                   } else {
                     saved = addProviderProfile(
