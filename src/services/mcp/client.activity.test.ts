@@ -115,10 +115,106 @@ describe('MCP tool activity', () => {
       }),
     })
 
+    // A later notification carrying only progress must not drop the
+    // previously reported total/progressMessage, either in the forwarded
+    // event or in subsequent heartbeats.
+    reportServerProgress?.({ progress: 7 })
+    await Promise.resolve()
+    expect(onProgress).toHaveBeenLastCalledWith({
+      toolUseID: 'toolu_heartbeat',
+      data: expect.objectContaining({
+        type: 'mcp_progress',
+        status: 'progress',
+        progress: 7,
+        total: 10,
+        progressMessage: 'Indexing files',
+      }),
+    })
+    vi.advanceTimersByTime(30_000)
+    await Promise.resolve()
+    expect(onProgress).toHaveBeenLastCalledWith({
+      toolUseID: 'toolu_heartbeat',
+      data: expect.objectContaining({
+        type: 'mcp_progress',
+        status: 'progress',
+        progress: 7,
+        total: 10,
+        progressMessage: 'Indexing files',
+        elapsedTimeMs: expect.any(Number),
+      }),
+    })
+
     resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
     await callPromise
     const progressCountAfterCompletion = onProgress.mock.calls.length
     vi.advanceTimersByTime(30_000)
     expect(onProgress).toHaveBeenCalledTimes(progressCountAfterCompletion)
+  })
+
+  test('a throwing progress callback does not break the tool call', async () => {
+    vi.useFakeTimers()
+    let resolveToolCall: ((result: unknown) => void) | undefined
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(
+        () =>
+          new Promise(resolve => {
+            resolveToolCall = resolve
+          }),
+      ),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'heartbeat-throw-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
+      if (data.status === 'progress') {
+        throw new Error('progress consumer failure')
+      }
+    })
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_heartbeat_throw',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    const callPromise = tool!.call(
+      {},
+      {
+        abortController: new AbortController(),
+        setAppState: vi.fn(),
+      } as never,
+      undefined as never,
+      parentMessage,
+      onProgress,
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Heartbeat throws inside the timer callback; it must be contained
+    // instead of surfacing as an uncaught exception.
+    expect(() => vi.advanceTimersByTime(30_000)).not.toThrow()
+
+    resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
+    await expect(callPromise).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
   })
 })

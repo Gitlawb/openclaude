@@ -15,6 +15,7 @@ import type { RemoteAgentTaskState } from '../../tasks/RemoteAgentTask/RemoteAge
 import type { TaskState } from '../../tasks/types.js';
 import { AbortError } from '../../utils/errors.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { logError } from '../../utils/log.js';
 import { extractTextContent } from '../../utils/messages.js';
 import { semanticBoolean } from '../../utils/semanticBoolean.js';
 import { sleep } from '../../utils/sleep.js';
@@ -243,14 +244,20 @@ export const TaskOutputTool: Tool<InputSchema, TaskOutputToolOutput> = buildTool
     // Blocking: wait for completion
     const reportWaiting = () => {
       if (!onProgress) return;
-      onProgress({
-        toolUseID: `task-output-waiting-${task_id}`,
-        data: {
-          type: 'waiting_for_task',
-          taskDescription: task.description,
-          taskType: task.type
-        }
-      });
+      try {
+        onProgress({
+          toolUseID: `task-output-waiting-${task_id}`,
+          data: {
+            type: 'waiting_for_task',
+            taskDescription: task.description,
+            taskType: task.type
+          }
+        });
+      } catch (error) {
+        // Timer callbacks escape the surrounding try/finally; an uncaught
+        // throw here would crash the process.
+        logError(error);
+      }
     };
     reportWaiting();
     const activityInterval = onProgress ? setInterval(reportWaiting, TASK_OUTPUT_ACTIVITY_INTERVAL_MS) : undefined;

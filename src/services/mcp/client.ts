@@ -1951,17 +1951,23 @@ export const fetchToolsForClient = memoizeWithLRU(
               let activityInterval =
                 onProgress && toolUseId
                   ? setInterval(() => {
-                      onProgress({
-                        toolUseID: toolUseId,
-                        data: {
-                          type: 'mcp_progress',
-                          status: 'progress',
-                          serverName: client.name,
-                          toolName: tool.name,
-                          ...latestServerProgress,
-                          elapsedTimeMs: Date.now() - startTime,
-                        },
-                      })
+                      try {
+                        onProgress({
+                          toolUseID: toolUseId,
+                          data: {
+                            type: 'mcp_progress',
+                            status: 'progress',
+                            serverName: client.name,
+                            toolName: tool.name,
+                            ...latestServerProgress,
+                            elapsedTimeMs: Date.now() - startTime,
+                          },
+                        })
+                      } catch (error) {
+                        // Timer callbacks escape the surrounding try/finally;
+                        // an uncaught throw here would crash the process.
+                        logMCPError(client.name, error)
+                      }
                     }, MCP_TOOL_ACTIVITY_INTERVAL_MS)
                   : undefined
               const stopActivityHeartbeat = () => {
@@ -1986,11 +1992,16 @@ export const fetchToolsForClient = memoizeWithLRU(
                     onProgress:
                       onProgress && toolUseId
                         ? progressData => {
+                          let dataToEmit = progressData
                           if (
                             progressData.status === 'progress' &&
                             typeof progressData.progress === 'number'
                           ) {
+                            // Merge partial updates so a notification carrying
+                            // only progress does not drop the previously
+                            // reported total/progressMessage.
                             latestServerProgress = {
+                              ...latestServerProgress,
                               progress: progressData.progress,
                               ...(progressData.total !== undefined && {
                                 total: progressData.total,
@@ -1999,10 +2010,14 @@ export const fetchToolsForClient = memoizeWithLRU(
                                 progressMessage: progressData.progressMessage,
                               }),
                             }
+                            dataToEmit = {
+                              ...progressData,
+                              ...latestServerProgress,
+                            }
                           }
                           onProgress({
                             toolUseID: toolUseId,
-                            data: progressData,
+                            data: dataToEmit,
                           })
                         }
                         : undefined,
