@@ -21,6 +21,25 @@ function jsonResponse(value: unknown): Response {
   })
 }
 
+/** A structurally complete pay/top-up receipt, as the backend contract defines. */
+function payReceipt(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test' },
+    partnerCheckout: {
+      id: 'sess_1',
+      sessionToken: 'session',
+      partnerId: 'part_1',
+      partnerName: 'OpenClaude',
+      userId: 1,
+      amountUsdMinor: 2500,
+      status: 'pending_payment',
+      issuedKeyId: null,
+      returnUrl: null,
+    },
+    ...overrides,
+  }
+}
+
 test('passwordless onboarding methods use the current backend contracts', async () => {
   const calls: Array<{ url: string; init?: RequestInit; body?: unknown }> = []
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
@@ -73,10 +92,7 @@ test('pay only sends autoTopUp when it is enabled', async () => {
   const bodies: unknown[] = []
   globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
     bodies.push(typeof init?.body === 'string' ? JSON.parse(init.body) : undefined)
-    return jsonResponse({
-      checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test' },
-      partnerCheckout: { sessionToken: 'session' },
-    })
+    return jsonResponse(payReceipt())
   }) as unknown as typeof fetch
 
   const client = new AimlapiClient(endpoints)
@@ -101,10 +117,7 @@ test('pay carries the selected method and omits an absent payment session id', a
   const bodies: unknown[] = []
   globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
     bodies.push(typeof init?.body === 'string' ? JSON.parse(init.body) : undefined)
-    return jsonResponse({
-      checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test' },
-      partnerCheckout: { sessionToken: 'session' },
-    })
+    return jsonResponse(payReceipt())
   }) as unknown as typeof fetch
 
   const client = new AimlapiClient(endpoints)
@@ -116,6 +129,101 @@ test('pay carries the selected method and omits an absent payment session id', a
   expect(bodies).toEqual([
     { amountUsdMinor: 2500, method: 'crypto', successUrl: 'https://ok.test' },
   ])
+})
+
+test('pay and topUpByKey reject a malformed checkout receipt', async () => {
+  // The charge is already requested by the time this returns, so a receipt that
+  // is not fully usable must fail loudly instead of being opened as a URL and
+  // polled until timeout.
+  for (const receipt of [
+    { checkout: { payUrl: true } },
+    { checkout: { providerSessionId: 'provider', payUrl: 42 } },
+    { checkout: { providerSessionId: '', payUrl: 'https://checkout.test' } },
+    payReceipt({ partnerCheckout: { sessionToken: 'session' } }),
+  ]) {
+    globalThis.fetch = mock(async () => jsonResponse(receipt)) as unknown as typeof fetch
+    const client = new AimlapiClient(endpoints)
+
+    await expect(
+      client.pay('bearer', 'session', { amountUsdMinor: 2500, paymentSessionId: 'p' }),
+    ).rejects.toThrow('invalid checkout')
+    await expect(
+      client.topUpByKey('key', {
+        sessionToken: 'session',
+        amountUsdMinor: 2500,
+        paymentSessionId: 'p',
+      }),
+    ).rejects.toThrow('invalid checkout')
+  }
+
+  // `payUrl: null` is a valid receipt - the backend may defer the URL.
+  globalThis.fetch = mock(async () =>
+    jsonResponse(payReceipt({ checkout: { providerSessionId: 'provider', payUrl: null } })),
+  ) as unknown as typeof fetch
+  const client = new AimlapiClient(endpoints)
+  expect(
+    (await client.pay('bearer', 'session', { amountUsdMinor: 2500, paymentSessionId: 'p' }))
+      .checkout.payUrl,
+  ).toBeNull()
+})
+
+test('checkAccount rejects an unsupported account action', async () => {
+  // `action` selects the onboarding branch, so an unknown value must not cross
+  // the client boundary as an impossible typed value.
+  globalThis.fetch = mock(async () =>
+    jsonResponse({ action: 'disabled' }),
+  ) as unknown as typeof fetch
+  const client = new AimlapiClient(endpoints)
+  await expect(client.checkAccount('user@example.com')).rejects.toThrow(
+    'invalid account response',
+  )
+
+  globalThis.fetch = mock(async () =>
+    jsonResponse({ action: 'sign-up', provider: 'google' }),
+  ) as unknown as typeof fetch
+  expect(await client.checkAccount('user@example.com')).toEqual({
+    action: 'sign-up',
+    provider: 'google',
+  })
+})
+
+test('a non-success body is redacted before it reaches the error', async () => {
+  // CLI handlers print `error.body` verbatim, and a proxy can reflect the
+  // credential back in a 4xx/5xx payload.
+  globalThis.fetch = mock(
+    async () =>
+      new Response('{"error":"bad token session-secret for bearer-secret"}', {
+        status: 401,
+      }),
+  ) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const error = await client
+    .exchange('bearer-secret', 'session-secret')
+    .then(() => null, (reason: unknown) => reason)
+
+  expect(error).toBeInstanceOf(AimlapiApiError)
+  const apiError = error as AimlapiApiError
+  expect(apiError.body).not.toContain('session-secret')
+  expect(apiError.body).not.toContain('bearer-secret')
+  expect(apiError.body).toContain('[REDACTED]')
+})
+
+test('a short session token is still redacted from transport errors', async () => {
+  // The path-segment scan skips short segments, so tokens are redacted from an
+  // explicit secret list instead of relying on their length.
+  globalThis.fetch = mock(async () => {
+    throw new Error('connect ECONNREFUSED https://app.example.test/v3/partner-checkout/sessions/abc')
+  }) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const error = await client
+    .getSession('abc')
+    .then(() => null, (reason: unknown) => reason)
+
+  expect(error).toBeInstanceOf(AimlapiApiError)
+  expect((error as AimlapiApiError).message).not.toContain('abc')
+  expect((error as AimlapiApiError).message).toContain('[REDACTED]')
 })
 
 test('password sign-up and sign-in keep their existing contracts', async () => {
@@ -185,10 +293,7 @@ test('topUpByKey uses the v2 billing endpoint and API key bearer', async () => {
     seenUrl = String(input)
     seenHeaders = new Headers(init?.headers)
     seenBody = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
-    return jsonResponse({
-      checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test' },
-      partnerCheckout: { sessionToken: 'session' },
-    })
+    return jsonResponse(payReceipt())
   }) as unknown as typeof fetch
 
   const client = new AimlapiClient(endpoints)

@@ -70,10 +70,28 @@ function redactRequestSecrets(
   message: string,
   url: string,
   bearer: string | undefined,
+  extraSecrets: ReadonlyArray<string | undefined> = [],
 ): string {
   const secrets = new Set<string>()
-  if (bearer?.trim()) secrets.add(bearer.trim())
+  const addSecret = (value: string | undefined): void => {
+    const trimmed = value?.trim()
+    if (!trimmed) return
+    secrets.add(trimmed)
+    // A token embedded in a path is percent-encoded, so redact both forms.
+    secrets.add(encodeURIComponent(trimmed))
+    try {
+      secrets.add(decodeURIComponent(trimmed))
+    } catch {
+      // Keep the raw value when it is not valid percent-encoding.
+    }
+  }
+  addSecret(bearer)
+  for (const extra of extraSecrets) addSecret(extra)
   try {
+    // Callers pass every short-lived token through `extraSecrets`, so this scan
+    // is only a backstop for opaque ids: length is never relied on for safety.
+    // Short segments are route names (`v1`, `keys`) whose redaction would mangle
+    // the message without protecting anything.
     for (const segment of new URL(url).pathname.split('/')) {
       if (segment.length < 6) continue
       secrets.add(segment)
@@ -112,8 +130,22 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+const ACCOUNT_ACTIONS: ReadonlySet<string> = new Set<AccountCheckResult['action']>([
+  'sign-in',
+  'sign-up',
+])
+
 function isAccountCheckResult(value: unknown): value is AccountCheckResult {
-  return isRecord(value) && typeof value.action === 'string'
+  // `action` drives the onboarding branch, so an unsupported value must fail at
+  // the boundary instead of crossing it as an impossible typed value.
+  return (
+    isRecord(value) &&
+    typeof value.action === 'string' &&
+    ACCOUNT_ACTIONS.has(value.action) &&
+    (value.provider === undefined ||
+      value.provider === null ||
+      typeof value.provider === 'string')
+  )
 }
 
 function isAuthResult(value: unknown): value is AuthResult {
@@ -128,8 +160,23 @@ function isExchangeResult(value: unknown): value is ExchangeResult {
   return isRecord(value) && isNonEmptyString(value.apiKey) && isNonEmptyString(value.apiKeyId)
 }
 
+function isPaymentSession(value: unknown): value is PaymentSession {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.providerSessionId) &&
+    (value.payUrl === null || isNonEmptyString(value.payUrl))
+  )
+}
+
 function isPayResult(value: unknown): value is PayResult {
-  return isRecord(value) && isRecord(value.checkout)
+  // The charge has already been requested by the time this lands, so validate
+  // the whole receipt: a non-string `payUrl` would otherwise be opened as a URL,
+  // silently fail, and leave the flow polling until it times out.
+  return (
+    isRecord(value) &&
+    isPaymentSession(value.checkout) &&
+    isPartnerCheckoutSession(value.partnerCheckout)
+  )
 }
 
 function isPartnerCheckoutSession(value: unknown): value is PartnerCheckoutSession {
@@ -349,7 +396,11 @@ export class AimlapiClient {
     signal?: AbortSignal,
   ): Promise<PartnerCheckoutSession> {
     const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}`
-    const result = await this.request<unknown>(url, { method: 'GET', signal })
+    const result = await this.request<unknown>(url, {
+      method: 'GET',
+      signal,
+      secrets: [sessionToken],
+    })
     // A malformed/empty 200 must not read as an unknown status: that would let
     // callers clear the retained payment identity or take an ambiguous retry.
     // Surface it as a non-terminal error so retained state is preserved.
@@ -389,6 +440,7 @@ export class AimlapiClient {
         ...(input.autoTopUp ? { autoTopUp: true } : {}),
       },
       signal,
+      secrets: [sessionToken],
     })
     if (!isPayResult(result)) {
       throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid checkout`, 200, '')
@@ -425,6 +477,7 @@ export class AimlapiClient {
         ...(input.autoTopUp ? { autoTopUp: true } : {}),
       },
       signal,
+      secrets: [input.sessionToken],
     })
     if (!isPayResult(result)) {
       throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid checkout`, 200, '')
@@ -438,7 +491,12 @@ export class AimlapiClient {
     signal?: AbortSignal,
   ): Promise<ExchangeResult> {
     const url = `${this.endpoints.appBaseUrl}/v3/partner-checkout/sessions/${encodeURIComponent(sessionToken)}/exchange`
-    const result = await this.request<unknown>(url, { method: 'POST', bearer, signal })
+    const result = await this.request<unknown>(url, {
+      method: 'POST',
+      bearer,
+      signal,
+      secrets: [sessionToken],
+    })
     if (!isExchangeResult(result)) {
       throw new AimlapiApiError(`POST ${requestLabel(url)} returned an invalid exchange response`, 200, '')
     }
@@ -453,9 +511,16 @@ export class AimlapiClient {
       bearer?: string
       signal?: AbortSignal
       expectJson?: boolean
+      /**
+       * Short-lived tokens this request embeds (path or body). Redacted from
+       * every error message and body, independent of their length.
+       */
+      secrets?: ReadonlyArray<string | undefined>
     },
   ): Promise<T> {
     const label = requestLabel(url)
+    const redact = (value: string): string =>
+      redactRequestSecrets(value, url, options.bearer, options.secrets)
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer.trim()}`
@@ -474,11 +539,7 @@ export class AimlapiClient {
     } catch (error) {
       combined.cleanup()
       if (options.signal?.aborted) throw error
-      const reason = redactRequestSecrets(
-        error instanceof Error ? error.message : String(error),
-        url,
-        options.bearer,
-      )
+      const reason = redact(error instanceof Error ? error.message : String(error))
       throw new AimlapiApiError(`Network request to ${label} failed: ${reason}`, 0, '')
     }
 
@@ -494,21 +555,19 @@ export class AimlapiClient {
           '',
         )
       }
-      const reason = redactRequestSecrets(
-        error instanceof Error ? error.message : String(error),
-        url,
-        options.bearer,
-      )
+      const reason = redact(error instanceof Error ? error.message : String(error))
       throw new AimlapiApiError(`Network response from ${label} failed: ${reason}`, 0, '')
     } finally {
       combined.cleanup()
     }
 
     if (!response.ok) {
+      // A proxy or backend can reflect the bearer or session token in a 4xx/5xx
+      // body, and CLI handlers print `body` verbatim — redact before exposing.
       throw new AimlapiApiError(
         `${options.method} ${label} -> ${response.status}`,
         response.status,
-        text,
+        redact(text),
       )
     }
     if (!text.trim()) {
@@ -526,7 +585,7 @@ export class AimlapiClient {
       throw new AimlapiApiError(
         `${options.method} ${label} returned non-JSON body`,
         response.status,
-        text,
+        redact(text),
       )
     }
     // Every endpoint returns a JSON object. Reject null/non-object bodies here so
