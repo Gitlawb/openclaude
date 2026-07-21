@@ -313,6 +313,78 @@ test('a non-success body is redacted before it reaches the error', async () => {
   expect(apiError.body).toContain('[REDACTED]')
 })
 
+test('a JSON-escaped credential is redacted from a reflected body', async () => {
+  // A backend reflecting a credential usually re-serializes it, so the body
+  // carries the JSON-escaped form rather than the raw one.
+  const password = 'p\\q"r'
+  globalThis.fetch = mock(
+    async () =>
+      new Response(JSON.stringify({ error: `bad password ${password}` }), {
+        status: 401,
+      }),
+  ) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const error = await client
+    .login('user@example.com', password)
+    .then(() => null, (reason: unknown) => reason)
+
+  expect(error).toBeInstanceOf(AimlapiApiError)
+  const body = (error as AimlapiApiError).body
+  expect(body).not.toContain(JSON.stringify(password).slice(1, -1))
+  expect(body).not.toContain(password)
+  expect(body).toContain('[REDACTED]')
+})
+
+test('overlapping secrets are redacted longest-first', async () => {
+  // The bearer is a prefix of the session token; redacting it first would leave
+  // the token's tail behind.
+  globalThis.fetch = mock(
+    async () => new Response('{"error":"abc123 rejected"}', { status: 403 }),
+  ) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const error = await client
+    .exchange('abc', 'abc123')
+    .then(() => null, (reason: unknown) => reason)
+
+  expect(error).toBeInstanceOf(AimlapiApiError)
+  const body = (error as AimlapiApiError).body
+  expect(body).not.toContain('abc123')
+  expect(body).not.toContain('123')
+  expect(body).toContain('[REDACTED]')
+})
+
+test('a cancelled request does not leak its token through the error', async () => {
+  const controller = new AbortController()
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () =>
+          reject(
+            new DOMException(
+              'The operation was aborted: https://app.example.test/v3/partner-checkout/sessions/session-secret',
+              'AbortError',
+            ),
+          ),
+        { once: true },
+      )
+    })
+  }) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const pending = client.getSession('session-secret', controller.signal)
+  controller.abort()
+  const error = await pending.then(() => null, (reason: unknown) => reason)
+
+  // Cancellation identity is preserved for callers that branch on it...
+  expect((error as Error).name).toBe('AbortError')
+  // ...but the token never reaches the message.
+  expect((error as Error).message).not.toContain('session-secret')
+  expect((error as Error).message).toContain('[REDACTED]')
+})
+
 test('a short session token is still redacted from transport errors', async () => {
   // The path-segment scan skips short segments, so tokens are redacted from an
   // explicit secret list instead of relying on their length.

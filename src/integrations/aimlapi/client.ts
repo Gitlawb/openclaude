@@ -77,8 +77,11 @@ function redactRequestSecrets(
     const trimmed = value?.trim()
     if (!trimmed) return
     secrets.add(trimmed)
-    // A token embedded in a path is percent-encoded, so redact both forms.
+    // A token embedded in a path is percent-encoded, and a backend reflecting a
+    // credential usually re-serializes it with JSON.stringify (escaping quotes
+    // and backslashes). Redact every form it can appear in.
     secrets.add(encodeURIComponent(trimmed))
+    secrets.add(JSON.stringify(trimmed).slice(1, -1))
     try {
       secrets.add(decodeURIComponent(trimmed))
     } catch {
@@ -105,7 +108,9 @@ function redactRequestSecrets(
     // The request label already handles malformed URLs without exposing them.
   }
   let redacted = message
-  for (const secret of secrets) {
+  // Longest first: a shorter credential must not redact the prefix of a longer
+  // one (`abc` vs `abc123`) and leave the remaining tail exposed.
+  for (const secret of [...secrets].sort((a, b) => b.length - a.length)) {
     if (secret) redacted = redacted.split(secret).join('[REDACTED]')
   }
   return redacted
@@ -553,6 +558,15 @@ export class AimlapiClient {
     const label = requestLabel(url)
     const redact = (value: string): string =>
       redactRequestSecrets(value, url, options.bearer, options.secrets)
+    // A cancelled request still rethrows the transport error, whose message can
+    // carry the request URL and its token. Keep the cancellation identity (the
+    // error name, alongside the caller's own signal) but redact the message.
+    const redactCancellation = (error: unknown): unknown => {
+      if (!(error instanceof Error)) return error
+      const redacted = new Error(redact(error.message))
+      redacted.name = error.name
+      return redacted
+    }
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer.trim()}`
@@ -570,7 +584,7 @@ export class AimlapiClient {
       })
     } catch (error) {
       combined.cleanup()
-      if (options.signal?.aborted) throw error
+      if (options.signal?.aborted) throw redactCancellation(error)
       const reason = redact(error instanceof Error ? error.message : String(error))
       throw new AimlapiApiError(`Network request to ${label} failed: ${reason}`, 0, '')
     }
@@ -579,7 +593,7 @@ export class AimlapiClient {
     try {
       text = await readResponseText(response)
     } catch (error) {
-      if (options.signal?.aborted) throw error
+      if (options.signal?.aborted) throw redactCancellation(error)
       if (error instanceof AimlapiResponseTooLargeError) {
         throw new AimlapiApiError(
           `${options.method} ${label} response body exceeds ${MAX_RESPONSE_BODY_BYTES} bytes`,
