@@ -45,7 +45,7 @@ import {
   getConditionalRulesForCwdLevelDirectory,
   type MemoryFileInfo,
 } from './claudemd.js'
-import { dirname, isAbsolute, parse, relative, resolve } from 'path'
+import { dirname, isAbsolute, parse, relative, resolve, sep } from 'path'
 import { getCwd } from 'src/utils/cwd.js'
 import { getViewedTeammateTask } from '../state/selectors.js'
 import { logError } from './log.js'
@@ -1770,7 +1770,15 @@ async function getSelectedLinesFromIDE(
  */
 function isPathUnder(child: string, parent: string): boolean {
   const rel = relative(parent, child)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+  // Compare on segment boundaries, not a string prefix: a directory legitimately
+  // named `..hello` yields the relative path `..hello`, which starts with `..`
+  // without being an upward traversal.
+  return (
+    rel !== '' &&
+    rel !== '..' &&
+    !rel.startsWith('..' + sep) &&
+    !isAbsolute(rel)
+  )
 }
 
 export function getDirectoriesToProcess(

@@ -45,7 +45,13 @@ describe('getDirectoriesToProcess', () => {
     expect(nestedDirs).toEqual([join(CWD, 'src'), join(CWD, 'src', 'deep')])
   })
 
-  test('does not treat a case-variant sibling as nested', () => {
+  // Windows path comparison is case-insensitive, so `/work/MyApp` and
+  // `/work/myapp` genuinely are the same directory there and treating them as
+  // nested is correct. This behavior only differs on case-sensitive platforms.
+  const caseSensitive = process.platform !== 'win32'
+  const testIfCaseSensitive = caseSensitive ? test : test.skip
+
+  testIfCaseSensitive('does not treat a case-variant sibling as nested', () => {
     // On a case-sensitive filesystem /work/MyApp and /work/myapp are two
     // unrelated projects. A case-folding containment check would merge them and
     // load the other project's CLAUDE.md/AGENTS.md as nested project memory.
@@ -56,6 +62,14 @@ describe('getDirectoriesToProcess', () => {
     )
     expect(nestedDirs).not.toContain(CWD)
     expect(nestedDirs).not.toContain(join(CWD, 'src'))
+  })
+
+  test('collects a nested directory whose name begins with dots', () => {
+    // `relative()` returns "..hello" here, which begins with ".." without being
+    // an upward traversal — a string-prefix check would drop it.
+    const dotted = join(CWD, '..hello')
+    const { nestedDirs } = getDirectoriesToProcess(join(dotted, 'a.ts'), CWD)
+    expect(nestedDirs).toContain(dotted)
   })
 
   test('reports directories from the root down to the CWD', () => {
