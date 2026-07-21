@@ -167,6 +167,68 @@ test('pay and topUpByKey reject a malformed checkout receipt', async () => {
   ).toBeNull()
 })
 
+test('a receipt whose payUrl cannot be opened is rejected', async () => {
+  // `payUrl` goes straight to openBrowser; a value it cannot open would leave the
+  // flow polling for 20 minutes with no usable checkout link after the charge.
+  for (const payUrl of [
+    'not-a-url',
+    'javascript:alert(1)',
+    'file:///tmp/checkout',
+    'ftp://checkout.test/pay',
+  ]) {
+    globalThis.fetch = mock(async () =>
+      jsonResponse(payReceipt({ checkout: { providerSessionId: 'provider', payUrl } })),
+    ) as unknown as typeof fetch
+    const client = new AimlapiClient(endpoints)
+    await expect(
+      client.pay('bearer', 'session', { amountUsdMinor: 2500, paymentSessionId: 'p' }),
+    ).rejects.toThrow('invalid checkout')
+  }
+})
+
+test('the one-time sign-in code is redacted from a reflected error', async () => {
+  // An auth service that echoes the invalid code must not leak it through
+  // `error.body`, which CLI handlers print verbatim.
+  globalThis.fetch = mock(
+    async () =>
+      new Response('{"error":"code 123456 is invalid"}', { status: 400 }),
+  ) as unknown as typeof fetch
+
+  const client = new AimlapiClient(endpoints)
+  const error = await client
+    .verifySignInCode('user@example.com', '123456')
+    .then(() => null, (reason: unknown) => reason)
+
+  expect(error).toBeInstanceOf(AimlapiApiError)
+  expect((error as AimlapiApiError).body).not.toContain('123456')
+  expect((error as AimlapiApiError).body).toContain('[REDACTED]')
+})
+
+test('exported result types reject malformed required fields', async () => {
+  const client = new AimlapiClient(endpoints)
+
+  // `exp` is part of AuthResult, so a missing/non-numeric value must not pass.
+  for (const auth of [{ token: 'bearer' }, { token: 'bearer', exp: 'soon' }]) {
+    globalThis.fetch = mock(async () => jsonResponse(auth)) as unknown as typeof fetch
+    await expect(
+      client.verifySignInCode('user@example.com', '123456'),
+    ).rejects.toThrow('did not return an auth token')
+  }
+
+  // Nullable-but-required session fields are still typed, so validate them.
+  for (const override of [
+    { partnerName: 42 },
+    { userId: 'one' },
+    { amountUsdMinor: '2500' },
+    { issuedKeyId: 7 },
+    { returnUrl: false },
+  ]) {
+    const session = { ...(payReceipt().partnerCheckout as object), ...override }
+    globalThis.fetch = mock(async () => jsonResponse(session)) as unknown as typeof fetch
+    await expect(client.getSession('session-token')).rejects.toThrow('invalid session')
+  }
+})
+
 test('checkAccount rejects an unsupported account action', async () => {
   // `action` selects the onboarding branch, so an unknown value must not cross
   // the client boundary as an impossible typed value.

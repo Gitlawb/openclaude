@@ -130,6 +130,24 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
+/** Consumers hand `payUrl` straight to `openBrowser`, which only opens HTTP(S). */
+function isOpenableHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 const ACCOUNT_ACTIONS: ReadonlySet<string> = new Set<AccountCheckResult['action']>([
   'sign-in',
   'sign-up',
@@ -149,7 +167,12 @@ function isAccountCheckResult(value: unknown): value is AccountCheckResult {
 }
 
 function isAuthResult(value: unknown): value is AuthResult {
-  return isRecord(value) && isNonEmptyString(value.token)
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.token) &&
+    typeof value.exp === 'number' &&
+    Number.isFinite(value.exp)
+  )
 }
 
 function isCreatedKey(value: unknown): value is CreatedKey {
@@ -164,7 +187,8 @@ function isPaymentSession(value: unknown): value is PaymentSession {
   return (
     isRecord(value) &&
     isNonEmptyString(value.providerSessionId) &&
-    (value.payUrl === null || isNonEmptyString(value.payUrl))
+    (value.payUrl === null ||
+      (isNonEmptyString(value.payUrl) && isOpenableHttpUrl(value.payUrl)))
   )
 }
 
@@ -187,7 +211,14 @@ function isPartnerCheckoutSession(value: unknown): value is PartnerCheckoutSessi
     isNonEmptyString(session.sessionToken) &&
     isNonEmptyString(session.partnerId) &&
     typeof session.status === 'string' &&
-    PARTNER_CHECKOUT_STATUSES.has(session.status)
+    PARTNER_CHECKOUT_STATUSES.has(session.status) &&
+    // Nullable-but-required fields are part of the exported type, so validate
+    // them too rather than letting a wrong-typed value cross the boundary.
+    isNullableString(session.partnerName) &&
+    isNullableFiniteNumber(session.userId) &&
+    isNullableFiniteNumber(session.amountUsdMinor) &&
+    isNullableString(session.issuedKeyId) &&
+    isNullableString(session.returnUrl)
   )
 }
 
@@ -266,6 +297,7 @@ export class AimlapiClient {
           ...(input.inviteCode ? { inviteCode: input.inviteCode } : {}),
         },
         signal,
+        secrets: [input.password, input.inviteCode],
       },
     )
     if (!isAuthResult(result)) {
@@ -282,7 +314,7 @@ export class AimlapiClient {
   ): Promise<AuthResult> {
     const result = await this.request<unknown>(
       `${this.endpoints.authBaseUrl}/v1/auth/account`,
-      { method: 'PUT', body: { email, password }, signal },
+      { method: 'PUT', body: { email, password }, signal, secrets: [password] },
     )
     if (!isAuthResult(result)) {
       throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
@@ -319,7 +351,7 @@ export class AimlapiClient {
   ): Promise<AuthResult> {
     const result = await this.request<unknown>(
       `${this.endpoints.authBaseUrl}/v1/auth/sign-in/code/verify`,
-      { method: 'POST', body: { email, code }, signal },
+      { method: 'POST', body: { email, code }, signal, secrets: [code] },
     )
     if (!isAuthResult(result)) {
       throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
