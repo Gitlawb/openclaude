@@ -66,6 +66,19 @@ function findBracketEnd(pattern: string, open: number): number {
 }
 
 /**
+ * True when a bracket expression opens with a `]` member (`[]]`, `[^]]`).
+ *
+ * POSIX treats that first `]` as an ordinary member, so `s/[]]/X/g` rewrites
+ * "a]b" to "aXb". JavaScript reads it as the class terminator instead, leaving
+ * the text untouched, so the two dialects disagree and the pattern declines.
+ */
+function bracketHasLeadingCloseMember(pattern: string, open: number): boolean {
+  let i = open + 1
+  if (pattern[i] === '^') i++
+  return pattern[i] === ']'
+}
+
+/**
  * Convert a BRE pattern to its JS equivalent, or null when it cannot be
  * translated faithfully and the caller must decline to simulate the edit.
  */
@@ -88,6 +101,7 @@ function convertBrePatternToJs(pattern: string): string | null {
       //    to JS, which would read them as a plain set of characters.
       const end = findBracketEnd(pattern, i)
       if (end === -1) return null
+      if (bracketHasLeadingCloseMember(pattern, i)) return null
       const body = pattern.slice(i, end + 1)
       if (body.includes('\\') || body.slice(1).includes('[')) return null
       // Remaining members are literal in both dialects; carry the body as-is.
@@ -473,6 +487,7 @@ function ereHasUnfaithfulConstructs(pattern: string): boolean {
     if (char === '[') {
       const end = findBracketEnd(pattern, i)
       if (end === -1) return true
+      if (bracketHasLeadingCloseMember(pattern, i)) return true
       const body = pattern.slice(i + 1, end)
       if (body.includes('\\') || body.includes('[')) return true
       i = end
