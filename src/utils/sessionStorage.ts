@@ -199,6 +199,7 @@ const EPHEMERAL_PROGRESS_TYPES = new Set([
   'bash_progress',
   'powershell_progress',
   'mcp_progress',
+  'waiting_for_task',
   ...(feature('PROACTIVE') || feature('KAIROS')
     ? (['sleep_progress'] as const)
     : []),
