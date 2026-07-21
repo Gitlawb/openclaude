@@ -174,6 +174,7 @@ export async function* anthropicSsePassthrough<T extends object>(
         const rawData = dataLines.map(line => line.slice(5).replace(/^ /, '')).join('\n')
         if (rawData === '[DONE]') {
           streamComplete = true
+          readerCanceller.cancel()
           return
         }
         let parsed: T

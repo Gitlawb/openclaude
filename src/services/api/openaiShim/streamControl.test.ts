@@ -204,6 +204,29 @@ test('Anthropic passthrough emits a final unterminated SSE data frame at EOF', a
   expect(events).toEqual([{ type: 'message_stop' }])
 })
 
+test('Anthropic passthrough cancels a source that stays open after [DONE]', async () => {
+  const cancelReasons: unknown[] = []
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'))
+      },
+      cancel(reason) {
+        cancelReasons.push(reason)
+      },
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+
+  const events: Array<{ type: string }> = []
+  for await (const event of anthropicSsePassthrough<{ type: string }>(response, undefined, () => {})) {
+    events.push(event)
+  }
+
+  expect(events).toEqual([])
+  expect(cancelReasons).toHaveLength(1)
+})
+
 test('Anthropic passthrough accepts CRLF frames and data fields without a space', async () => {
   const response = new Response(
     new TextEncoder().encode('data:{"type":"message_start"}\r\n\r\ndata: {"type":"message_stop"}\r\n\r\n'),
