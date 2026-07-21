@@ -22,3 +22,21 @@ export function parsePositiveIntArg(name: string, value: string): number {
   }
   return parsed
 }
+
+/**
+ * Commander argParser for options that must be a positive amount, decimals
+ * allowed (e.g. a dollar budget).
+ *
+ * Number.isFinite rather than a bare !isNaN check: `Number('Infinity')` is not
+ * NaN and is greater than zero, so an unbounded budget would otherwise pass
+ * validation for a spending cap.
+ */
+export function parsePositiveAmountArg(name: string, value: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new InvalidArgumentError(
+      `${name} must be a positive number greater than 0`,
+    )
+  }
+  return parsed
+}

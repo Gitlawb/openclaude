@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test'
 import { InvalidArgumentError } from '@commander-js/extra-typings'
 
-import { parsePositiveIntArg } from './numericArgs.js'
+import {
+  parsePositiveAmountArg,
+  parsePositiveIntArg,
+} from './numericArgs.js'
 
 test('accepts a positive integer', () => {
   expect(parsePositiveIntArg('--max-turns', '3')).toBe(3)
@@ -57,5 +60,35 @@ test('rejects integers beyond the safe range', () => {
 test('names the option in the error message', () => {
   expect(() => parsePositiveIntArg('--max-turns', 'abc')).toThrow(
     '--max-turns must be a positive integer',
+  )
+})
+
+test('parsePositiveAmountArg accepts positive amounts including decimals', () => {
+  expect(parsePositiveAmountArg('--max-budget-usd', '5')).toBe(5)
+  expect(parsePositiveAmountArg('--max-budget-usd', '0.25')).toBe(0.25)
+})
+
+test('parsePositiveAmountArg rejects non-numeric, zero and negative values', () => {
+  for (const bad of ['abc', '', '   ', '0', '-1']) {
+    expect(() => parsePositiveAmountArg('--max-budget-usd', bad)).toThrow(
+      InvalidArgumentError,
+    )
+  }
+})
+
+test('parsePositiveAmountArg rejects an unbounded budget', () => {
+  // Number('Infinity') is not NaN and is greater than zero, so a bare isNaN
+  // check would accept it as a spending cap that can never be reached.
+  expect(() => parsePositiveAmountArg('--max-budget-usd', 'Infinity')).toThrow(
+    InvalidArgumentError,
+  )
+  expect(() => parsePositiveAmountArg('--max-budget-usd', '1e999')).toThrow(
+    InvalidArgumentError,
+  )
+})
+
+test('parsePositiveAmountArg names the option in the error message', () => {
+  expect(() => parsePositiveAmountArg('--max-budget-usd', 'abc')).toThrow(
+    '--max-budget-usd must be a positive number greater than 0',
   )
 })
