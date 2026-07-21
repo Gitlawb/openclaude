@@ -602,8 +602,12 @@ export class AimlapiClient {
         redact(text),
       )
     }
+    // The caller opted out of a JSON payload, so any successful body counts as
+    // an acknowledgement — including a non-empty plain-text one. Parsing it
+    // would fail a request that already delivered the one-time code and push the
+    // user into a retry that can invalidate or rate-limit it.
+    if (options.expectJson === false) return undefined as T
     if (!text.trim()) {
-      if (options.expectJson === false) return undefined as T
       throw new AimlapiApiError(
         `${options.method} ${label} returned empty body`,
         response.status,

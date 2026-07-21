@@ -167,6 +167,29 @@ test('pay and topUpByKey reject a malformed checkout receipt', async () => {
   ).toBeNull()
 })
 
+test('sendSignInCode accepts a non-empty plain-text acknowledgement', async () => {
+  // The code has already been delivered by the time this returns, so a
+  // non-JSON acknowledgement must not surface as an error and push the user
+  // into a retry that can invalidate or rate-limit the one-time code.
+  for (const body of ['code sent', '', 'OK']) {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(body, { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+    ) as unknown as typeof fetch
+    const client = new AimlapiClient(endpoints)
+    expect(await client.sendSignInCode('user@example.com')).toBeUndefined()
+  }
+
+  // A non-2xx acknowledgement is still an error.
+  globalThis.fetch = mock(
+    async () => new Response('rate limited', { status: 429 }),
+  ) as unknown as typeof fetch
+  const client = new AimlapiClient(endpoints)
+  await expect(client.sendSignInCode('user@example.com')).rejects.toBeInstanceOf(
+    AimlapiApiError,
+  )
+})
+
 test('a receipt whose payUrl cannot be opened is rejected', async () => {
   // `payUrl` goes straight to openBrowser; a value it cannot open would leave the
   // flow polling for 20 minutes with no usable checkout link after the charge.
