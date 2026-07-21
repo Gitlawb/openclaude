@@ -42,6 +42,8 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { anthropicSsePassthrough as parseAnthropicSsePassthrough, createReaderCanceller, createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError, throwIfStreamAborted } from './openaiShim/streamControl.js'
+export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import {
   resolveModelReasoningControl,
@@ -158,13 +160,6 @@ function isCopilotTokenExpiredError(text: string): boolean {
   return lower.includes('token expired') || lower.includes('token has expired')
 }
 
-class StreamIdleTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Stream idle timeout - no chunks received for ${timeoutMs}ms`)
-    this.name = 'StreamIdleTimeoutError'
-  }
-}
-
 class ResponseHeadersTimeoutError extends Error {
   constructor(timeoutMs: number, url: string) {
     super(
@@ -193,55 +188,6 @@ function isAbortError(error: unknown): boolean {
       'name' in error &&
       error.name === 'AbortError')
   )
-}
-
-function createStreamAbortError(): DOMException {
-  return new DOMException('Aborted', 'AbortError')
-}
-
-function throwIfStreamAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createStreamAbortError()
-  }
-}
-
-type StreamReadResult = Awaited<
-  ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>
->
-
-function createReaderCanceller(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal,
-): {
-    cancel: (error?: unknown) => void
-    cleanup: () => void
-  } {
-  let cancelled = false
-  const cancel = (error: unknown = createStreamAbortError()) => {
-    if (cancelled) return
-    cancelled = true
-    void reader.cancel(error).catch(() => {})
-  }
-  const onAbort = () => cancel(createStreamAbortError())
-
-  signal?.addEventListener('abort', onAbort, { once: true })
-  if (signal?.aborted) {
-    onAbort()
-  }
-
-  return {
-    cancel,
-    cleanup: () => signal?.removeEventListener('abort', onAbort),
-  }
-}
-
-export function getStreamIdleTimeoutMs(): number {
-  const raw = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_STREAM_IDLE_TIMEOUT_MS
-  const parsed = Number(raw)
-  return Number.isSafeInteger(parsed) && parsed > 0
-    ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
-    : DEFAULT_STREAM_IDLE_TIMEOUT_MS
 }
 
 export function getApiTimeoutMs(): number {
@@ -437,69 +383,6 @@ async function fetchWithHeadersDeadline(
     { ...init, signal: options.callerSignal },
     { fetcher: fetchWithAttemptDeadline },
   )
-}
-
-async function readWithIdleTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
-  options: {
-    signal?: AbortSignal
-    cancelReader?: (error?: unknown) => void
-    onTimeout?: () => void
-  } = {},
-): Promise<StreamReadResult> {
-  const signal = options.signal
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-
-  return new Promise<StreamReadResult>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId)
-        timeoutId = undefined
-      }
-      signal?.removeEventListener('abort', onAbort)
-    }
-    const finishResolve = (value: StreamReadResult) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve(value)
-    }
-    const finishReject = (error: unknown) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(error)
-    }
-    const cancelAndReject = (error: unknown) => {
-      if (options.cancelReader) {
-        options.cancelReader(error)
-      } else {
-        void reader.cancel(error).catch(() => {})
-      }
-      finishReject(error)
-    }
-    const onAbort = () => cancelAndReject(createStreamAbortError())
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-    if (signal?.aborted) {
-      onAbort()
-      return
-    }
-
-    timeoutId = setTimeout(() => {
-      const error = new StreamIdleTimeoutError(timeoutMs)
-      try {
-        options.onTimeout?.()
-      } catch {
-        // ignore diagnostic callback failures
-      }
-      cancelAndReject(error)
-    }, timeoutMs)
-
-    reader.read().then(finishResolve, finishReject)
-  })
 }
 
 function isGithubModelsMode(): boolean {
@@ -2546,74 +2429,13 @@ async function* anthropicSsePassthrough(
   _model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const readerOrNull = response.body?.getReader()
-  if (!readerOrNull) throw new Error('Response body is not readable')
-  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
-  const readerCanceller = createReaderCanceller(reader, signal)
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
-  let streamComplete = false
-
-  try {
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
-        signal,
-        cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-          logForDebugging(
-            `Anthropic-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
-            { level: 'error' },
-          )
-        },
-      })
-      if (done) {
-        streamComplete = true
-        break
-      }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-
-      for (const chunk of chunks) {
-        throwIfStreamAborted(signal)
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
-        if (lines.length === 0) continue
-
-        const dataLines = lines.filter(l => l.startsWith('data: '))
-        if (dataLines.length === 0) continue
-
-        const rawData = dataLines.map(l => l.slice(6)).join('\n')
-        if (rawData === '[DONE]') {
-          streamComplete = true
-          return
-        }
-
-        let parsed: AnthropicStreamEvent
-        try {
-          parsed = JSON.parse(rawData) as AnthropicStreamEvent
-        } catch {
-          // skip malformed frames
-          continue
-        }
-        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-          throwIfStreamAborted(signal)
-          yield parsed
-        }
-      }
-    }
-  } finally {
-    if (!streamComplete || signal?.aborted) {
-      readerCanceller.cancel(createStreamAbortError())
-    }
-    readerCanceller.cleanup()
-    reader.releaseLock()
-  }
+  yield* parseAnthropicSsePassthrough<AnthropicStreamEvent>(
+    response,
+    signal,
+    (message, options) => options?.level
+      ? logForDebugging(message, { level: options.level })
+      : logForDebugging(message),
+  )
 }
 
 /**

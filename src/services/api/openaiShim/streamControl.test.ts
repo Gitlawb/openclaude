@@ -192,6 +192,30 @@ test('Anthropic-compatible passthrough stream rejects with idle timeout when it 
   expect(stalled.cancelReasons[0]).toBeInstanceOf(StreamIdleTimeoutError)
 })
 
+test('Anthropic passthrough emits a final unterminated SSE data frame at EOF', async () => {
+  const response = new Response(
+    new TextEncoder().encode('data: {"type":"message_stop"}'),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+  const events: Array<{ type: string }> = []
+  for await (const event of anthropicSsePassthrough<{ type: string }>(response, undefined, () => {})) {
+    events.push(event)
+  }
+  expect(events).toEqual([{ type: 'message_stop' }])
+})
+
+test('Anthropic passthrough accepts CRLF frames and data fields without a space', async () => {
+  const response = new Response(
+    new TextEncoder().encode('data:{"type":"message_start"}\r\n\r\ndata: {"type":"message_stop"}\r\n\r\n'),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+  const events: Array<{ type: string }> = []
+  for await (const event of anthropicSsePassthrough<{ type: string }>(response, undefined, () => {})) {
+    events.push(event)
+  }
+  expect(events).toEqual([{ type: 'message_start' }, { type: 'message_stop' }])
+})
+
 test('controller abort reaches Anthropic messages SSE passthrough', async () => {
   const controller = new AbortController()
   const stalled = makeStallingResponse([{ type: 'message_start' }])

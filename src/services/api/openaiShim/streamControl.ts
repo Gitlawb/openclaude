@@ -158,20 +158,20 @@ export async function* anthropicSsePassthrough<T extends object>(
       })
       if (done) {
         streamComplete = true
-        break
+        buffer += decoder.decode()
+      } else {
+        if (value) lastDataTime = Date.now()
+        throwIfStreamAborted(signal)
+        buffer += decoder.decode(value, { stream: true })
       }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
+      const chunks = done ? (buffer ? [buffer] : []) : buffer.split(/\r\n\r\n|\n\n|\r\r/)
+      buffer = done ? '' : (chunks.pop() ?? '')
       for (const chunk of chunks) {
         throwIfStreamAborted(signal)
-        const lines = chunk.split('\n').map(line => line.trim()).filter(Boolean)
-        const dataLines = lines.filter(line => line.startsWith('data: '))
+        const lines = chunk.split(/\r\n|\n|\r/).map(line => line.trim()).filter(Boolean)
+        const dataLines = lines.filter(line => line.startsWith('data:'))
         if (dataLines.length === 0) continue
-        const rawData = dataLines.map(line => line.slice(6)).join('\n')
+        const rawData = dataLines.map(line => line.slice(5).replace(/^ /, '')).join('\n')
         if (rawData === '[DONE]') {
           streamComplete = true
           return
@@ -188,6 +188,7 @@ export async function* anthropicSsePassthrough<T extends object>(
           yield parsed as Awaited<T>
         }
       }
+      if (done) break
     }
   } finally {
     if (!streamComplete || signal?.aborted) readerCanceller.cancel(createStreamAbortError())
