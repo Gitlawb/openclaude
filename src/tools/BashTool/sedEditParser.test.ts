@@ -169,6 +169,17 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     expect(parseSedEditCommand(cmd('s/a*\\{2\\}/X/g'))).toBeNull()
   })
 
+  test('rejects bracket expressions with a leading ] member', () => {
+    // POSIX treats the first `]` as an ordinary member, so GNU sed rewrites
+    // "a]b" to "aXb"; JavaScript reads it as the class terminator and matches
+    // nothing, leaving the text untouched.
+    expect(parseSedEditCommand(cmd('s/[]]/X/g'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/[^]]/X/g'))).toBeNull()
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/[]]/X/g' example.txt"),
+    ).toBeNull()
+  })
+
   test('rejects an unterminated bracket expression', () => {
     // GNU sed rejects `s/[/X/g` with an unterminated-address error and leaves
     // the file untouched; rendering `[` as a literal would persist an edit the
