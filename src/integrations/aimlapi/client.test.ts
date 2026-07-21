@@ -171,14 +171,33 @@ test('sendSignInCode accepts a non-empty plain-text acknowledgement', async () =
   // The code has already been delivered by the time this returns, so a
   // non-JSON acknowledgement must not surface as an error and push the user
   // into a retry that can invalidate or rate-limit the one-time code.
+  const requests: Array<{ method?: string; url: string; body?: unknown }> = []
   for (const body of ['code sent', '', 'OK']) {
     globalThis.fetch = mock(
-      async () =>
-        new Response(body, { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push({
+          method: init?.method,
+          url: String(input),
+          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+        })
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        })
+      },
     ) as unknown as typeof fetch
     const client = new AimlapiClient(endpoints)
     expect(await client.sendSignInCode('user@example.com')).toBeUndefined()
   }
+
+  // Accepting any successful body must not mask a wrong endpoint or payload.
+  expect(requests).toEqual(
+    Array.from({ length: 3 }, () => ({
+      method: 'POST',
+      url: `${endpoints.authBaseUrl}/v1/auth/sign-in/code`,
+      body: { email: 'user@example.com' },
+    })),
+  )
 
   // A non-2xx acknowledgement is still an error.
   globalThis.fetch = mock(
