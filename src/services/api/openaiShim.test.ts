@@ -14,7 +14,7 @@ import {
   extractOpenAICategoryMarker,
   isOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.ts'
-import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
+import { createOpenAIShimClient, hasMistralApiHost, parseTextToolCalls, parseXmlToolCalls } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
@@ -7045,7 +7045,19 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
 // ---------------------------------------------------------------------------
 
 test('the OpenAI shim façade creates independent client instances', () => {
-  expect(createOpenAIShimClient({})).not.toBe(createOpenAIShimClient({}))
+  const first = createOpenAIShimClient({}) as OpenAIShimClient
+  const second = createOpenAIShimClient({}) as OpenAIShimClient
+  expect(first).not.toBe(second)
+  expect(first.beta).not.toBe(second.beta)
+  expect(first.beta.messages).not.toBe(second.beta.messages)
+})
+
+test('raw-text and XML fallback tool calls use one unique sequence', () => {
+  const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
+  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
+  expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
+  expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
+  expect(text.calls[0]?.id?.replace(/^\D+/, '')).not.toBe(xml.calls[0]?.id?.replace(/^\D+/, ''))
 })
 
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
