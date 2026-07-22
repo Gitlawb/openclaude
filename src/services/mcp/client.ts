@@ -1989,10 +1989,9 @@ export const fetchToolsForClient = memoizeWithLRU(
                     meta,
                     signal: context.abortController.signal,
                     setAppState: context.setAppState,
-                    onRetryAttempt: () => {
-                      // A URL-elicitation retry reissues the call from zero,
-                      // so cached progress from the abandoned attempt is no
-                      // longer truthful.
+                    onUrlElicitationRequired: () => {
+                      // The protocol attempt has ended before elicitation
+                      // handling begins, so its cached progress is stale.
                       latestServerProgress = undefined
                     },
                     onProgress:
@@ -2998,7 +2997,7 @@ export async function callMCPToolWithUrlElicitationRetry({
   onProgress,
   callToolFn = callMCPTool,
   handleElicitation,
-  onRetryAttempt,
+  onUrlElicitationRequired,
 }: {
   client: ConnectedMCPServer
   clientConnection: MCPServerConnection
@@ -3024,8 +3023,8 @@ export async function callMCPToolWithUrlElicitationRetry({
     params: ElicitRequestURLParams,
     signal: AbortSignal,
   ) => Promise<ElicitResult>
-  /** Called before each retried attempt so callers can reset per-attempt state. */
-  onRetryAttempt?: () => void
+  /** Called after validating a URL-elicitation error, before awaiting handling. */
+  onUrlElicitationRequired?: () => void
 }): Promise<MCPToolCallResult> {
   const MAX_URL_ELICITATION_RETRIES = 3
   for (let attempt = 0; ; attempt++) {
@@ -3033,9 +3032,6 @@ export async function callMCPToolWithUrlElicitationRetry({
     // elicitation retry loop continues spinning until MAX retries
     if (signal.aborted) {
       throw new Error('Tool call aborted during URL elicitation')
-    }
-    if (attempt > 0) {
-      onRetryAttempt?.()
     }
     try {
       return await callToolFn({
@@ -3097,6 +3093,7 @@ export async function callMCPToolWithUrlElicitationRetry({
         throw error
       }
 
+      onUrlElicitationRequired?.()
       logMCPDebug(
         serverName,
         `Tool '${tool}' requires URL elicitation (error -32042, attempt ${attempt + 1}), processing ${elicitations.length} elicitation(s)`,

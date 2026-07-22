@@ -513,10 +513,13 @@ describe('MCP tool activity', () => {
     })
   })
 
-  test('url-elicitation retry resets cached server progress', async () => {
+  test('url-elicitation wait and retry reset cached server progress', async () => {
     vi.useFakeTimers()
     let callCount = 0
     let resolveToolCall: ((result: unknown) => void) | undefined
+    let resolveElicitation:
+      | ((result: { action: 'accept' }) => void)
+      | undefined
     let reportServerProgress:
       | ((progress: {
           progress: number
@@ -597,21 +600,26 @@ describe('MCP tool activity', () => {
       {
         abortController: new AbortController(),
         setAppState: vi.fn(),
-        handleElicitation: vi.fn(async () => ({ action: 'accept' as const })),
+        handleElicitation: vi.fn(
+          () =>
+            new Promise<{ action: 'accept' }>(resolve => {
+              resolveElicitation = resolve
+            }),
+        ),
       } as never,
       undefined as never,
       parentMessage,
       onProgress,
     )
-    // Let the first attempt fail with the elicitation error, the elicitation
-    // resolve via the injected handler, and the retried attempt start.
-    for (let i = 0; i < 200 && callCount < 2; i++) {
+    // Let the first attempt fail and block while the user handles the URL.
+    for (let i = 0; i < 200 && !resolveElicitation; i++) {
       await Promise.resolve()
     }
-    expect(sdkClient.callTool).toHaveBeenCalledTimes(2)
+    expect(resolveElicitation).toBeDefined()
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(1)
 
-    // Heartbeats during the retried attempt must not report the abandoned
-    // attempt's cached progress, since the retried call starts over.
+    // Heartbeats while waiting for elicitation must not report progress from
+    // the abandoned protocol attempt.
     onProgress.mockClear()
     vi.advanceTimersByTime(30_000)
     await Promise.resolve()
@@ -624,6 +632,12 @@ describe('MCP tool activity', () => {
     expect(lastHeartbeat.data.progress).toBeUndefined()
     expect(lastHeartbeat.data.total).toBeUndefined()
     expect(lastHeartbeat.data.progressMessage).toBeUndefined()
+
+    resolveElicitation?.({ action: 'accept' })
+    for (let i = 0; i < 200 && callCount < 2; i++) {
+      await Promise.resolve()
+    }
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(2)
 
     resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
     await expect(callPromise).resolves.toMatchObject({
