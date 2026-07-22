@@ -58,6 +58,14 @@ test('adds text part for image-only user messages', () => {
   ])
 })
 
+test('rejects image content for text-only providers', () => {
+  expect(() => convertMessages(
+    [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'https://example.test/image.png' } }] }],
+    undefined,
+    { supportsImageInputs: false },
+  )).toThrow('does not support image inputs')
+})
+
 test('preserves mixed text and image tool results as multipart content', () => {
   const messages = convert(toolExchange([
     { type: 'text', text: 'Screenshot captured' },
