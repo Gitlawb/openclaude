@@ -551,10 +551,16 @@ function cacheToStats(
   let lastSessionDate: string | null = null
   if (todayStats) {
     for (const session of todayStats.sessionStats) {
-      if (!firstSessionDate || session.timestamp < firstSessionDate) {
+      if (
+        !firstSessionDate ||
+        comparePersistedDates(session.timestamp, firstSessionDate) < 0
+      ) {
         firstSessionDate = session.timestamp
       }
-      if (!lastSessionDate || session.timestamp > lastSessionDate) {
+      if (
+        !lastSessionDate ||
+        comparePersistedDates(session.timestamp, lastSessionDate) > 0
+      ) {
         lastSessionDate = session.timestamp
       }
     }
@@ -768,10 +774,16 @@ function processedStatsToClaudeCodeStats(
   let firstSessionDate: string | null = null
   let lastSessionDate: string | null = null
   for (const session of stats.sessionStats) {
-    if (!firstSessionDate || session.timestamp < firstSessionDate) {
+    if (
+      !firstSessionDate ||
+      comparePersistedDates(session.timestamp, firstSessionDate) < 0
+    ) {
       firstSessionDate = session.timestamp
     }
-    if (!lastSessionDate || session.timestamp > lastSessionDate) {
+    if (
+      !lastSessionDate ||
+      comparePersistedDates(session.timestamp, lastSessionDate) > 0
+    ) {
       lastSessionDate = session.timestamp
     }
   }
@@ -884,11 +896,28 @@ export function inclusiveCalendarDaySpan(
  * falling back to 0 for corrupt input.
  */
 const PERSISTED_DATE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/
+  /^\d{4}-\d{2}-\d{2}(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2})))?$/
 
 function parsePersistedDateMs(value: string): number {
-  if (!PERSISTED_DATE_PATTERN.test(value)) {
+  const match = PERSISTED_DATE_PATTERN.exec(value)
+  if (!match) {
     return NaN
+  }
+  // The clock components need the same treatment as the calendar ones below.
+  // `Date.parse` normalizes an out-of-range time instead of rejecting it, so
+  // "2026-07-13T24:00:00.000Z" becomes midnight on July 14 -- a corrupt
+  // persisted timestamp silently shifting the span by a day rather than
+  // falling back to 0.
+  const [, hour, minute, second, offsetHour, offsetMinute] = match
+  if (hour !== undefined) {
+    if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) {
+      return NaN
+    }
+  }
+  if (offsetHour !== undefined) {
+    if (Number(offsetHour) > 23 || Number(offsetMinute) > 59) {
+      return NaN
+    }
   }
   // A date-shaped prefix is not enough: Date.parse silently normalizes
   // impossible calendar values (2026-02-30 parses as March 2), which would turn
@@ -907,6 +936,31 @@ function parsePersistedDateMs(value: string): number {
     return NaN
   }
   return Date.parse(value)
+}
+
+/**
+ * Chronological ordering for the persisted date shapes, for picking the first
+ * and last session out of a set.
+ *
+ * These endpoints cannot be compared as strings. An offset-qualified instant
+ * does not sort lexicographically by the moment it denotes:
+ * "2026-07-13T23:30:00-10:00" is later than "2026-07-14T00:00:00+14:00", but
+ * sorts earlier, so it would be picked as the first endpoint and the span would
+ * come out as 0 for two sessions that occupy different UTC days.
+ *
+ * Falls back to string order only when a value is not parseable, which keeps
+ * the selection deterministic for a corrupt cache -- the span helper rejects it
+ * separately.
+ *
+ * Exported for testing.
+ */
+export function comparePersistedDates(a: string, b: string): number {
+  const aMs = parsePersistedDateMs(a)
+  const bMs = parsePersistedDateMs(b)
+  if (Number.isNaN(aMs) || Number.isNaN(bMs)) {
+    return a < b ? -1 : a > b ? 1 : 0
+  }
+  return aMs - bMs
 }
 
 function calculateStreaks(dailyActivity: DailyActivity[]): StreakInfo {

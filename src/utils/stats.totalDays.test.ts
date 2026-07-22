@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { inclusiveCalendarDaySpan } from './stats.js'
+import { comparePersistedDates, inclusiveCalendarDaySpan } from './stats.js'
 
 describe('inclusiveCalendarDaySpan', () => {
   test('is 1 when both timestamps fall on the same UTC calendar day', () => {
@@ -142,5 +142,65 @@ describe('inclusiveCalendarDaySpan', () => {
         '2026-07-14T00:30:00.000Z',
       ),
     ).toBeGreaterThan(0)
+  })
+
+  test('returns 0 for out-of-range clock components', () => {
+    // Date.parse normalizes T24:00:00 to midnight the next day, so a corrupt
+    // persisted timestamp would shift the span by a day rather than take the
+    // documented 0 fallback.
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T24:00:00.000Z',
+        '2026-07-14T00:00:00.000Z',
+      ),
+    ).toBe(0)
+    for (const bad of [
+      '2026-07-13T25:00:00.000Z',
+      '2026-07-13T12:60:00.000Z',
+      '2026-07-13T12:00:60.000Z',
+      '2026-07-13T12:00:00+24:00',
+      '2026-07-13T12:00:00+05:60',
+    ]) {
+      expect(inclusiveCalendarDaySpan(bad, '2026-07-15T06:00:00.000Z')).toBe(0)
+    }
+  })
+})
+
+describe('comparePersistedDates', () => {
+  test('orders offset instants by the moment they denote, not by string', () => {
+    // 2026-07-13T23:30:00-10:00 is 2026-07-14T09:30Z; 2026-07-14T00:00:00+14:00
+    // is 2026-07-13T10:00Z. String order gets this exactly backwards, so the
+    // later instant was selected as firstSessionDate and the span collapsed to
+    // 0 for two sessions occupying different UTC days.
+    const earlier = '2026-07-14T00:00:00+14:00'
+    const later = '2026-07-13T23:30:00-10:00'
+    // String order puts the chronologically earlier instant last -- that
+    // inversion is the bug.
+    expect(earlier > later).toBe(true)
+    expect(comparePersistedDates(earlier, later)).toBeLessThan(0)
+    expect(comparePersistedDates(later, earlier)).toBeGreaterThan(0)
+    // Selected chronologically, the pair spans UTC July 13 and 14.
+    expect(inclusiveCalendarDaySpan(earlier, later)).toBe(2)
+  })
+
+  test('orders same-zone instants and bare date keys', () => {
+    expect(
+      comparePersistedDates(
+        '2026-07-13T01:00:00.000Z',
+        '2026-07-13T20:00:00.000Z',
+      ),
+    ).toBeLessThan(0)
+    expect(comparePersistedDates('2026-07-13', '2026-07-15')).toBeLessThan(0)
+    const same = '2026-07-13T12:00:00.000Z'
+    expect(comparePersistedDates(same, same)).toBe(0)
+  })
+
+  test('stays deterministic when a value is not parseable', () => {
+    // The span helper rejects corrupt values separately; selection must still
+    // be total and stable rather than depending on NaN comparisons.
+    // Falls back to string order, which is at least total and antisymmetric.
+    expect(comparePersistedDates('not-a-date', '2026-07-13')).toBeGreaterThan(0)
+    expect(comparePersistedDates('2026-07-13', 'not-a-date')).toBeLessThan(0)
+    expect(comparePersistedDates('not-a-date', 'not-a-date')).toBe(0)
   })
 })
