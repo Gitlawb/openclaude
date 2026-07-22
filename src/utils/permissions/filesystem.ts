@@ -289,6 +289,10 @@ export function isPlanFilePath(
   // *directory* ({slug}-agent-evil/anything.md), granting unprompted read and
   // write to arbitrary files beneath it, as well as the malformed
   // {slug}-agent-.md that getPlanFilePath never emits.
+  //
+  // This stays compatible with every path getPlanFilePath produces because it
+  // percent-escapes separators in the agent id (encodeAgentIdForPlanFile), so
+  // a teammate on a team named `a/b` still gets a single-component filename.
   const agentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
   return (
     agentId.length > 0 && !agentId.includes('/') && !agentId.includes('\\')
