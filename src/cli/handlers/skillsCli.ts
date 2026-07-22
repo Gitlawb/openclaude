@@ -1,3 +1,4 @@
+import { SKILLS_GLOBAL_BOOLEAN_FLAGS } from '../skillsBooleanFlags.js'
 import { setAdditionalDirectoriesForClaudeMd } from '../../bootstrap/state.js'
 
 type SkillsCliOptions = {
@@ -10,28 +11,6 @@ type SkillsCliOptions = {
   sha256?: string
 }
 
-const TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([
-  '--bare',
-  '--debug',
-  '--debug-to-stderr',
-  '--dangerously-skip-permissions',
-  '--allow-dangerously-skip-permissions',
-  '--disable-slash-commands',
-  '--enable-auth-status',
-  '--fork-session',
-  '--ide',
-  '--include-hook-events',
-  '--include-partial-messages',
-  '--init',
-  '--init-only',
-  '--maintenance',
-  '--mcp-debug',
-  '--no-chrome',
-  '--no-session-persistence',
-  '--replay-user-messages',
-  '--strict-mcp-config',
-  '--verbose',
-])
 
 const TRAILING_GLOBAL_VALUE_FLAGS = new Set([
   '--agent',
@@ -130,7 +109,7 @@ function parseSkillsCliArgs(args: string[]): {
         return { options, positionals, error: '--sha256 requires a value.' }
       }
       options.sha256 = value
-    } else if (TRAILING_GLOBAL_BOOLEAN_FLAGS.has(arg)) {
+    } else if (SKILLS_GLOBAL_BOOLEAN_FLAGS.has(arg)) {
       continue
     } else if (TRAILING_GLOBAL_VALUE_FLAGS.has(arg)) {
       const value = args[index + 1]

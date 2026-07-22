@@ -50,6 +50,7 @@ import {
   redactSecretValueForDisplay,
   type SecretValueSource,
 } from './providerSecrets.js'
+import { resolvesHeadlessFlags } from '../mainCliOptions.js'
 
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
@@ -658,12 +659,15 @@ export function shouldExitForStartupProviderValidationError(options: {
     return true
   }
 
-  return (
-    args.includes('-p') ||
-    args.includes('--print') ||
-    args.includes('--init-only') ||
-    args.some(arg => arg.startsWith('--sdk-url'))
-  )
+  // Commander-authoritative: see interactivity.ts. A post-`--` positional
+  // (produced by the ssh argv rewrite) must not make startup validation
+  // hard-exit on a TTY, for any of these three flags.
+  //
+  // Enumerated, not Object.values(): otherwise a fourth field added to
+  // HeadlessRoutingFlags would silently become a hard-exit trigger here while
+  // interactivity.ts (which destructures) stayed unaffected.
+  const { print, initOnly, sdkUrl } = resolvesHeadlessFlags(args)
+  return print || initOnly || sdkUrl
 }
 
 export async function validateProviderEnvForStartupOrExit(

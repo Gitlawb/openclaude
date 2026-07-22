@@ -43,7 +43,7 @@ import { logError } from './utils/log.js'
 import { getRecentActivity } from './utils/logoV2Utils.js'
 import { lockCurrentVersion } from './utils/nativeInstaller/index.js'
 import { checkSupportedNodeVersion } from './utils/nodeRuntime.js'
-import type { PermissionMode } from './utils/permissions/PermissionMode.js'
+import { isDangerousPermissionMode, type PermissionMode } from './utils/permissions/PermissionMode.js'
 import { getPlanSlug } from './utils/plans.js'
 import { saveWorktreeState } from './utils/sessionStorage.js'
 import { profileCheckpoint } from './utils/startupProfiler.js'
@@ -380,11 +380,7 @@ export async function setup(
   }
 
   // If permission mode is set to bypass, verify we're in a safe environment
-  if (
-    permissionMode === 'bypassPermissions' ||
-    permissionMode === 'fullAccess' ||
-    allowDangerouslySkipPermissions
-  ) {
+  if (isDangerousPermissionMode(permissionMode) || allowDangerouslySkipPermissions) {
     // Check if running as root/sudo on Unix-like systems
     // Allow root if in a sandbox (e.g., TPU devspaces that require root)
     if (
@@ -394,9 +390,19 @@ export async function setup(
       process.env.IS_SANDBOX !== '1' &&
       !isEnvTruthy(process.env.CLAUDE_CODE_BUBBLEWRAP)
     ) {
+      // Name what actually triggered the gate: it fires for a bypassing
+      // permission mode (however it was set — --dangerously-skip-permissions,
+      // its --yolo alias, --permission-mode, or settings defaultMode) as well as
+      // for --allow-dangerously-skip-permissions.
+      // Distinguish the two triggers: a bypassing permission mode is active
+      // bypass, whereas --allow-dangerously-skip-permissions only makes it
+      // available — saying "bypass is active" for the latter would mislead.
+      const reason = isDangerousPermissionMode(permissionMode)
+        ? `Permission bypass (permission mode ${permissionMode})`
+        : '--allow-dangerously-skip-permissions'
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.error(
-        `--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons`,
+        `${reason} cannot be used with root/sudo privileges for security reasons`,
       )
       process.exit(1)
     }

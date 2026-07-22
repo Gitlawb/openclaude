@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { Box } from '../ink.js';
+import { getRemoteBypassPermissions } from '../bootstrap/state.js';
 import { useAppState } from '../state/AppState.js';
 import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js';
 import type { MemoryFileInfo } from '../utils/claudemd.js';
@@ -97,6 +98,10 @@ export function StatusNotices(t0) {
     isLocalModel,
     localModelContextLoad,
     permissionMode,
+    // Remote sessions downgrade the local mode on purpose; without this the
+    // bypass warning would be silent for a session whose remote tools run
+    // without consent.
+    remoteBypassPermissions: getRemoteBypassPermissions(),
     mainLoopModel: mainLoopModel ?? undefined,
   };
   const activeNotices = getActiveNotices(context);

@@ -39,9 +39,14 @@ const SAVED_ARGV = process.argv
 const SAVED_API_KEY = process.env.ANTHROPIC_API_KEY
 
 beforeEach(() => {
-  // Reset argv each test so the dangerously-skip-permissions detector starts
-  // from a known baseline.
-  process.argv = [...SAVED_ARGV.filter(a => a !== '--dangerously-skip-permissions')]
+  // Test isolation: normalize argv to a clean baseline so a stray bypass flag
+  // in the test runner's argv can't leak into any test. (The notice itself is
+  // keyed off permissionMode, not argv.)
+  process.argv = [
+    ...SAVED_ARGV.filter(
+      a => a !== '--dangerously-skip-permissions' && a !== '--yolo',
+    ),
+  ]
   // Other status notices read auth state via getAnthropicApiKeyWithSource,
   // which throws when no key/token is present. Seed a dummy so getActiveNotices
   // can iterate every notice without unrelated failures crashing the test.
@@ -136,15 +141,106 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
 })
 
 describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
-  test('fires when --dangerously-skip-permissions is in argv', () => {
-    process.argv = [...process.argv, '--dangerously-skip-permissions']
-    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
-  })
-
-  test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
+  // The notice is Commander-authoritative: both --dangerously-skip-permissions
+  // and its --yolo alias are resolved into permissionMode === 'bypassPermissions'
+  // during startup, so the notice keys off the resolved mode, not raw argv.
+  test('fires when permission mode is bypassPermissions', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',
     )
+  })
+
+  test('fires for fullAccess too (bypass-equivalent mode)', () => {
+    expect(activeIds(buildContext({ permissionMode: 'fullAccess' }))).toContain(
+      'dangerously-skip-permissions-no-sandbox',
+    )
+  })
+
+  test('fires for a REMOTE session whose local mode was downgraded', () => {
+    // `cc://` and ssh sessions forward the bypass flag to the remote executor
+    // and deliberately resolve the LOCAL mode to `default`. Reading the mode
+    // alone would silence the warning for exactly the case the user cannot
+    // see — tools running on another host with every consent check bypassed.
+    const ctx = buildContext({
+      permissionMode: 'default',
+      remoteBypassPermissions: true,
+    })
+    expect(activeIds(ctx)).toContain('dangerously-skip-permissions-no-sandbox')
+  })
+
+  test('stays silent for an ordinary local session', () => {
+    expect(
+      activeIds(buildContext({ permissionMode: 'default' })),
+    ).not.toContain('dangerously-skip-permissions-no-sandbox')
+    expect(
+      activeIds(
+        buildContext({ permissionMode: 'default', remoteBypassPermissions: false }),
+      ),
+    ).not.toContain('dangerously-skip-permissions-no-sandbox')
+  })
+
+  test('the remote wording says where the bypass applies', async () => {
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'default', remoteBypassPermissions: true }),
+    )
+    expect(notice).toContain('remote')
+    // must not claim THIS session is bypassing — its mode is default
+    expect(notice).not.toContain('(default)')
+    expect(notice).toContain('--yolo')
+    // Both halves of the remediation: reconnecting without the flag alone can
+    // leave the remote bypassed when a bypassing --permission-mode or a settings
+    // defaultMode is what granted it.
+    expect(notice).toContain('--permission-mode')
+    expect(notice).toContain('defaultMode')
+  })
+
+  test('remote wording survives a later LOCAL mode change (jatmn P2)', async () => {
+    // remoteBypassPermissions is decided once at startup; the local mode stays
+    // live (Shift+Tab, /permission-mode). Preferring the local branch swapped in
+    // wording claiming THIS session bypasses, hiding that tools still run
+    // remotely without consent.
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({
+        permissionMode: 'bypassPermissions', // user switched locally, mid-session
+        remoteBypassPermissions: true,
+      }),
+    )
+    expect(notice).toContain('remote')
+    // both are true here, so it must say both rather than pick one
+    expect(notice).toContain('bypassPermissions')
+    expect(notice).not.toContain('this local session is unaffected')
+    // …and it must say how to restore LOCAL prompts. Reconnecting fixes only the
+    // remote half, so a notice naming just that leaves the user believing they
+    // cleared a bypass that is still active here.
+    expect(notice).toContain('/permission-mode')
+    expect(notice).toContain('Shift+Tab')
+  })
+
+  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'bypassPermissions' }),
+    )
+    // Fires for either spelling, so its text must name both.
+    expect(notice).toContain('--yolo')
+    expect(notice).toContain('--dangerously-skip-permissions')
+  })
+
+  test('rendered notice names the resolved mode, not just the flag', async () => {
+    // The notice also fires for a mode set via settings/--permission-mode, so
+    // the headline must reflect the actual mode rather than claiming a flag.
+    const full = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'fullAccess' }),
+    )
+    expect(full).toContain('fullAccess')
+    const bypass = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'bypassPermissions' }),
+    )
+    expect(bypass).toContain('bypassPermissions')
   })
 
   test('does not fire in default mode without the flag', () => {
@@ -175,10 +271,10 @@ describe('safety notice rendering', () => {
       `${figures.warning}bypassPermissions`,
     )
     expect(dangerouslySkipNotice).toContain(
-      `${figures.warning} --dangerously-skip-permissions`,
+      `${figures.warning} Permission bypass`,
     )
     expect(dangerouslySkipNotice).not.toContain(
-      `${figures.warning}--dangerously-skip-permissions`,
+      `${figures.warning}Permission bypass`,
     )
     expect(
       thirdPartyNotice

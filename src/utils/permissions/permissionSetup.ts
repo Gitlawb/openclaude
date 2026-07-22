@@ -1539,6 +1539,13 @@ export function isBypassPermissionsModeDisabled(): boolean {
 type DangerousPermissionModeTransitionValidationDeps = {
   getStartupDangerousPermissionPromptState: typeof getStartupDangerousPermissionPromptState
   shouldDisableBypassPermissions: typeof shouldDisableBypassPermissions
+  /**
+   * Injectable so a test can reach the branches BEHIND it: this reads settings
+   * and the Statsig gate, and when it returns true the function short-circuits,
+   * which silently skipped the enablement-guidance assertions on any machine
+   * configured that way.
+   */
+  isBypassPermissionsModeDisabled: typeof isBypassPermissionsModeDisabled
 }
 
 export type PermissionModeChangeRequestDecision =
@@ -1553,6 +1560,7 @@ const DEFAULT_DANGEROUS_PERMISSION_MODE_TRANSITION_VALIDATION_DEPS: DangerousPer
   {
     getStartupDangerousPermissionPromptState,
     shouldDisableBypassPermissions,
+    isBypassPermissionsModeDisabled,
   }
 
 export async function getPermissionModeChangeRequestDecision({
@@ -1656,7 +1664,7 @@ export async function getDangerousPermissionModeTransitionError({
     return undefined
   }
 
-  if (isBypassPermissionsModeDisabled()) {
+  if (deps.isBypassPermissionsModeDisabled()) {
     return `Cannot set permission mode to ${mode} because it is disabled by settings or configuration`
   }
 
@@ -1664,7 +1672,7 @@ export async function getDangerousPermissionModeTransitionError({
     !toolPermissionContext.isBypassPermissionsModeAvailable &&
     !allowSessionBypassPermissionsModeEnable
   ) {
-    return `Cannot set permission mode to ${mode}. Enable it with --allow-dangerously-skip-permissions or set permissions.allowBypassPermissionsMode in settings.json`
+    return `Cannot set permission mode to ${mode}. Enable it with --allow-dangerously-skip-permissions, start the session with --dangerously-skip-permissions (alias --yolo), or set permissions.allowBypassPermissionsMode in settings.json`
   }
 
   if (requireLocalConfirmation) {

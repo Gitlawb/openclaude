@@ -77,3 +77,34 @@ describe('isInteractiveSession', () => {
     ).toBe(false)
   })
 })
+
+describe('isInteractiveSession — post-`--` print positional (PR #1939 review P1)', () => {
+  test('stays interactive for the argv the ssh rewrite produces', () => {
+    // `openclaude ssh host -- --print` is deliberately NOT headless; the ssh
+    // flow rewrites argv to ['--','--print']. A token scan saw `--print` and
+    // classified the session non-interactive, so the main action took the
+    // headless branch instead of the SSH REPL branch.
+    const base = { stdoutIsTTY: true, env: {} as NodeJS.ProcessEnv }
+    expect(isInteractiveSession({ ...base, args: ['--', '--print'] })).toBe(true)
+    expect(isInteractiveSession({ ...base, args: ['--', '-p'] })).toBe(true)
+
+    // …while genuine print requests stay non-interactive, bundled shorts too.
+    expect(isInteractiveSession({ ...base, args: ['--print'] })).toBe(false)
+    expect(isInteractiveSession({ ...base, args: ['-p'] })).toBe(false)
+    expect(isInteractiveSession({ ...base, args: ['-pv'] })).toBe(false)
+  })
+
+  test('the same holds for --init-only and --sdk-url', () => {
+    // These were still raw token scans after the --print migration, so the same
+    // rewritten argv misclassified the session. One commander parse now resolves
+    // all three together.
+    const base = { stdoutIsTTY: true, env: {} as NodeJS.ProcessEnv }
+    expect(isInteractiveSession({ ...base, args: ['--', '--init-only'] })).toBe(true)
+    expect(isInteractiveSession({ ...base, args: ['--', '--sdk-url', 'x'] })).toBe(true)
+
+    expect(isInteractiveSession({ ...base, args: ['--init-only'] })).toBe(false)
+    expect(isInteractiveSession({ ...base, args: ['--sdk-url', 'x'] })).toBe(false)
+    // `=` form, which the old startsWith() scan caught and commander also does
+    expect(isInteractiveSession({ ...base, args: ['--sdk-url=x'] })).toBe(false)
+  })
+})

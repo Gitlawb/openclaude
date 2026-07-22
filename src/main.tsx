@@ -19,7 +19,8 @@ import { ensureKeychainPrefetchCompleted, startKeychainPrefetch } from './utils/
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 startKeychainPrefetch();
 import { feature } from 'bun:bundle';
-import { Command as CommanderCommand, InvalidArgumentError, Option } from '@commander-js/extra-typings';
+import { Command as CommanderCommand, Option } from '@commander-js/extra-typings';
+import { applyMainOptions, BYPASS_PERMISSIONS_FLAGS, localDangerouslySkipPermissions, localPermissionModeCli, localResolvedPermissionMode, resolvesPrintMode } from './mainCliOptions.js';
 import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import mapValues from 'lodash-es/mapValues.js';
@@ -27,6 +28,7 @@ import pickBy from 'lodash-es/pickBy.js';
 import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { getOauthConfig } from './constants/oauth.js';
+import { parseSshFlags } from './utils/sshPreParse.js';
 import { getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
 import { init, initializeTelemetryAfterTrust } from './entrypoints/init.js';
@@ -122,7 +124,7 @@ import { logError } from './utils/log.js';
 import { getModelDeprecationWarning } from './utils/model/deprecation.js';
 import { getDefaultMainLoopModel, getUserSpecifiedModelSetting, normalizeModelStringForAPI, parseUserSpecifiedModel } from './utils/model/model.js';
 import { ensureModelStringsInitialized } from './utils/model/modelStrings.js';
-import { PERMISSION_MODES } from './utils/permissions/PermissionMode.js';
+import { isDangerousPermissionMode, PERMISSION_MODES, type PermissionMode } from './utils/permissions/PermissionMode.js';
 import { checkAndDisableBypassPermissions, getAutoModeEnabledStateIfCached, initializeToolPermissionContext, initialPermissionModeFromCLI, isDefaultPermissionModeAuto, parseToolListFromCLI, stripDangerousPermissionsForAutoMode, verifyAutoModeGateAccess } from './utils/permissions/permissionSetup.js';
 import { cleanupOrphanedPluginVersionsInBackground } from './utils/plugins/cacheUtils.js';
 import { initializeVersionedPlugins } from './utils/plugins/installedPluginsManager.js';
@@ -163,11 +165,11 @@ import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdo
 import { setAllHookEventsEnabled } from 'src/utils/hooks/hookEvents.js';
 import { refreshModelCapabilities } from 'src/utils/model/modelCapabilities.js';
 import { peekForStdinData, writeToStderr } from 'src/utils/process.js';
-import { createHeadlessHeartbeat, parseHeadlessHeartbeatDuration, validateHeadlessHeartbeatPrintMode } from 'src/cli/headlessHeartbeat.js';
+import { createHeadlessHeartbeat, validateHeadlessHeartbeatPrintMode } from 'src/cli/headlessHeartbeat.js';
 import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
 import { plural } from 'src/utils/stringUtils.js';
-import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionDangerousPermissionMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
+import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, getRemoteBypassPermissions, setRemoteBypassPermissions, setSessionBypassPermissionsMode, setSessionDangerousPermissionMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('./utils/permissions/autoModeState.js') as typeof import('./utils/permissions/autoModeState.js') : null;
@@ -512,12 +514,10 @@ function initializeEntrypoint(isNonInteractive: boolean): void {
 type PendingConnect = {
   url: string | undefined;
   authToken: string | undefined;
-  dangerouslySkipPermissions: boolean;
 };
 const _pendingConnect: PendingConnect | undefined = feature('DIRECT_CONNECT') ? {
   url: undefined,
-  authToken: undefined,
-  dangerouslySkipPermissions: false
+  authToken: undefined
 } : undefined;
 
 // Set by early argv processing when `claude assistant [sessionId]` is detected
@@ -569,7 +569,24 @@ export async function main() {
     // In print mode, print.ts registers its own SIGINT handler that aborts
     // the in-flight query and calls gracefulShutdown; skip here to avoid
     // preempting it with a synchronous process.exit().
-    if (process.argv.includes('-p') || process.argv.includes('--print')) {
+    // Commander-authoritative: after the ssh rewrite argv can hold a literal
+    // `-- --print` positional, which a token scan would misread as print mode.
+    //
+    // Guarded like the handler in gracefulShutdown.ts, and for a sharper reason:
+    // this listener is registered FIRST, and Node's EventEmitter is synchronous,
+    // so a throw here would stop the later (guarded) listener from ever running
+    // and turn Ctrl-C into a silent no-op.
+    //
+    // resolvesHeadlessFlags guards its own config read and option-set
+    // construction, so this is a second layer that should never fire — kept
+    // because of that asymmetry, not because the callee is unguarded.
+    let isPrintMode = false;
+    try {
+      isPrintMode = resolvesPrintMode(process.argv.slice(2));
+    } catch {
+      // fall through to process.exit(0)
+    }
+    if (isPrintMode) {
       return;
     }
     process.exit(0);
@@ -588,25 +605,33 @@ export async function main() {
         parseConnectUrl
       } = await import('./server/parseConnectUrl.js');
       const parsed = parseConnectUrl(ccUrl);
-      _pendingConnect.dangerouslySkipPermissions = rawCliArgs.includes('--dangerously-skip-permissions');
-      if (rawCliArgs.includes('-p') || rawCliArgs.includes('--print')) {
+      // Only the cc:// URL is stripped here; the argv is otherwise untouched.
+      // The --dangerously-skip-permissions / --yolo flag is left in place so
+      // commander — never a token scan — decides whether it is set: the `open`
+      // subcommand registers it on the headless path, and the main command does
+      // on the interactive one. Because that flag targets the REMOTE session,
+      // the interactive path forwards it to createDirectConnectSession but
+      // deliberately does NOT apply it to this local client's permission mode
+      // (see isPendingRemoteSession where the mode is computed).
+      const withoutCcUrl = rawCliArgs.filter((_, i) => i !== ccIdx);
+      // The headless-routing check runs before commander (it decides WHICH
+      // command parses), so it asks commander itself: that judges bundled
+      // shorts (`-pv`), `-- --print` positionals and value positions exactly as
+      // the real parse will, unlike a token scan.
+      // Judge the same token list the branches actually parse (both use
+      // withoutCcUrl), so the routing decision can't diverge from the real parse.
+      if (resolvesPrintMode(withoutCcUrl)) {
         // Headless: rewrite to internal `open` subcommand
-        const stripped = rawCliArgs.filter((_, i) => i !== ccIdx);
-        const dspIdx = stripped.indexOf('--dangerously-skip-permissions');
-        if (dspIdx !== -1) {
-          stripped.splice(dspIdx, 1);
-        }
-        process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...stripped];
+        process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...withoutCcUrl];
       } else {
-        // Interactive: strip cc:// URL and flags, run main command
+        // Interactive: only the cc:// URL is dropped — nothing claims or
+        // rewrites the bypass flag. It stays in argv so the main command's
+        // parse resolves it, is forwarded to the remote via
+        // createDirectConnectSession, and is excluded from THIS session's
+        // permission mode by localDangerouslySkipPermissions below.
         _pendingConnect.url = parsed.serverUrl;
         _pendingConnect.authToken = parsed.authToken;
-        const stripped = rawCliArgs.filter((_, i) => i !== ccIdx);
-        const dspIdx = stripped.indexOf('--dangerously-skip-permissions');
-        if (dspIdx !== -1) {
-          stripped.splice(dspIdx, 1);
-        }
-        process.argv = [process.argv[0]!, process.argv[1]!, ...stripped];
+        process.argv = [process.argv[0]!, process.argv[1]!, ...withoutCcUrl];
       }
     }
   }
@@ -675,95 +700,45 @@ export async function main() {
   // sessions need the local REPL to drive them (interrupt, permissions).
   if (feature('SSH_REMOTE') && _pendingSSH) {
     const rawCliArgs = process.argv.slice(2);
-    // SSH-specific flags can appear before the host positional (e.g.
-    // `ssh --permission-mode auto host /tmp` — standard POSIX flags-before-
-    // positionals). Pull them all out BEFORE checking whether a host was
-    // given, so `claude ssh --permission-mode auto host` and `claude ssh host
-    // --permission-mode auto` are equivalent. The host check below only needs
-    // to guard against `-h`/`--help` (which commander should handle).
     if (rawCliArgs[0] === 'ssh') {
-      const localIdx = rawCliArgs.indexOf('--local');
-      if (localIdx !== -1) {
-        _pendingSSH.local = true;
-        rawCliArgs.splice(localIdx, 1);
-      }
-      const dspIdx = rawCliArgs.indexOf('--dangerously-skip-permissions');
-      if (dspIdx !== -1) {
-        _pendingSSH.dangerouslySkipPermissions = true;
-        rawCliArgs.splice(dspIdx, 1);
-      }
-      const pmIdx = rawCliArgs.indexOf('--permission-mode');
-      if (pmIdx !== -1 && rawCliArgs[pmIdx + 1] && !rawCliArgs[pmIdx + 1]!.startsWith('-')) {
-        _pendingSSH.permissionMode = rawCliArgs[pmIdx + 1];
-        rawCliArgs.splice(pmIdx, 2);
-      }
-      const pmEqIdx = rawCliArgs.findIndex(a => a.startsWith('--permission-mode='));
-      if (pmEqIdx !== -1) {
-        _pendingSSH.permissionMode = rawCliArgs[pmEqIdx]!.split('=')[1];
-        rawCliArgs.splice(pmEqIdx, 1);
-      }
-      // Forward session-resume + model flags to the remote CLI's initial spawn.
-      // --continue/-c and --resume <uuid> operate on the REMOTE session history
-      // (which persists under the remote's ~/.claude/projects/<cwd>/).
-      // --model controls which model the remote uses.
-      const extractFlag = (flag: string, opts: {
-        hasValue?: boolean;
-        as?: string;
-      } = {}) => {
-        const i = rawCliArgs.indexOf(flag);
-        if (i !== -1) {
-          _pendingSSH.extraCliArgs.push(opts.as ?? flag);
-          const val = rawCliArgs[i + 1];
-          if (opts.hasValue && val && !val.startsWith('-')) {
-            _pendingSSH.extraCliArgs.push(val);
-            rawCliArgs.splice(i, 2);
-          } else {
-            rawCliArgs.splice(i, 1);
-          }
-        }
-        const eqI = rawCliArgs.findIndex(a => a.startsWith(`${flag}=`));
-        if (eqI !== -1) {
-          _pendingSSH.extraCliArgs.push(opts.as ?? flag, rawCliArgs[eqI]!.slice(flag.length + 1));
-          rawCliArgs.splice(eqI, 1);
-        }
-      };
-      extractFlag('-c', {
-        as: '--continue'
-      });
-      extractFlag('--continue');
-      extractFlag('--resume', {
-        hasValue: true
-      });
-      extractFlag('--model', {
-        hasValue: true
-      });
-      extractFlag('--fallback-model', {
-        hasValue: true
-      });
-    }
-    // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
-    // (commander handles) or an unknown-to-ssh flag (fall through to commander
-    // so it surfaces a proper error). Only a non-dash arg is the host.
-    if (rawCliArgs[0] === 'ssh' && rawCliArgs[1] && !rawCliArgs[1].startsWith('-')) {
-      _pendingSSH.host = rawCliArgs[1];
-      // Optional positional cwd.
-      let consumed = 2;
-      if (rawCliArgs[2] && !rawCliArgs[2].startsWith('-')) {
-        _pendingSSH.cwd = rawCliArgs[2];
-        consumed = 3;
-      }
-      const rest = rawCliArgs.slice(consumed);
-
-      // Headless (-p) mode is not supported with SSH in v1 — reject early
-      // so the flag doesn't silently cause local execution.
-      if (rest.includes('-p') || rest.includes('--print')) {
+      // Parse the ssh line with commander (see parseSshFlags): option arity,
+      // last-value, and the `--` marker are all handled by the parser, so
+      // flags-before-host (`ssh --permission-mode auto host`) and `ssh host
+      // --permission-mode auto` are equivalent.
+      const parsed = parseSshFlags(rawCliArgs);
+      // Headless (-p) mode is not supported with SSH in v1. Rejected OUTSIDE the
+      // host check on purpose: print shorts are not ssh-side options, so
+      // commander stops collecting operands at them and `ssh -p host` leaves the
+      // host unbound — inside the check, that line skipped the guard entirely and
+      // fell through to the LOCAL print path with the workspace trust dialog
+      // skipped. parsed.headless is commander-resolved, so a bundled `-pv` is
+      // caught (a raw scan missed it) and a `ssh host -- --print` positional
+      // correctly is not.
+      //
+      // Also before any _pendingSSH write, so module state stays untouched on the
+      // rejected path (gracefulShutdownSync only sets process.exitCode, so a
+      // future edit that keeps executing must not find a populated session).
+      if (parsed.headless) {
         process.stderr.write('Error: headless (-p/--print) mode is not supported with openclaude ssh\n');
         gracefulShutdownSync(1);
         return;
       }
+      // Only a real host triggers the ssh flow; otherwise (no host, `-h`,
+      // `--help`) fall through to commander's `ssh` usage action.
+      if (parsed.host !== undefined) {
 
-      // Rewrite argv so the main command sees remaining flags but not `ssh`.
-      process.argv = [process.argv[0]!, process.argv[1]!, ...rest];
+        _pendingSSH.host = parsed.host;
+        _pendingSSH.cwd = parsed.cwd;
+        _pendingSSH.local = parsed.local;
+        if (parsed.permissionMode !== undefined) {
+          _pendingSSH.permissionMode = parsed.permissionMode;
+        }
+        _pendingSSH.dangerouslySkipPermissions = parsed.dangerouslySkipPermissions;
+        _pendingSSH.extraCliArgs.push(...parsed.extraCliArgs);
+
+        // Rewrite argv so the main command sees the leftover flags but not `ssh`.
+        process.argv = [process.argv[0]!, process.argv[1]!, ...parsed.forwardToMain];
+      }
     }
   }
 
@@ -931,58 +906,10 @@ async function run(): Promise<CommanderCommand> {
     }
     profileCheckpoint('preAction_after_settings_sync');
   });
-  program.name('openclaude').description(`OpenClaude - starts an interactive session by default, use -p/--print for non-interactive output`).argument('[prompt]', 'Your prompt', String)
+  applyMainOptions(program.name('openclaude').description(`OpenClaude - starts an interactive session by default, use -p/--print for non-interactive output`).argument('[prompt]', 'Your prompt', String)
   // Subcommands inherit helpOption via commander's copyInheritedSettings —
   // setting it once here covers mcp, plugin, auth, and all other subcommands.
-  .helpOption('-h, --help', 'Display help for command').option('-d, --debug [filter]', 'Enable debug mode with optional category filtering (e.g., "api,hooks" or "!1p,!file")', (_value: string | true) => {
-    // If value is provided, it will be the filter string
-    // If not provided but flag is present, value will be true
-    // The actual filtering is handled in debug.ts by parsing process.argv
-    return true;
-  }).addOption(new Option('-d2e, --debug-to-stderr', 'Enable debug mode (to stderr)').argParser(Boolean).hideHelp()).option('--debug-file <path>', 'Write debug logs to a specific file path (implicitly enables debug mode)', () => true).option('--verbose', 'Override verbose mode setting from config', () => true).option('-p, --print', 'Print response and exit (useful for pipes). Note: The workspace trust dialog is skipped when Claude is run with the -p mode. Only use this flag in directories you trust.', () => true).addOption(new Option('--heartbeat <duration>', 'Emit a headless liveness heartbeat while output is quiet (only works with --print, e.g. 30s, 2m; pre-stream startup heartbeats use stderr)').argParser(value => {
-    try {
-      return parseHeadlessHeartbeatDuration(value);
-    } catch (error) {
-      throw new InvalidArgumentError(errorMessage(error));
-    }
-  })).option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.', () => true).addOption(new Option('--init', 'Run Setup hooks with init trigger, then continue').hideHelp()).addOption(new Option('--init-only', 'Run Setup and SessionStart:startup hooks, then exit').hideHelp()).addOption(new Option('--maintenance', 'Run Setup hooks with maintenance trigger, then continue').hideHelp()).addOption(new Option('--output-format <format>', 'Output format (only works with --print): "text" (default), "json" (single result), or "stream-json" (realtime streaming)').choices(['text', 'json', 'stream-json'])).addOption(new Option('--json-schema <schema>', 'JSON Schema for structured output validation. ' + 'Example: {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}').argParser(String)).option('--include-hook-events', 'Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)', () => true).option('--include-partial-messages', 'Include partial message chunks as they arrive (only works with --print and --output-format=stream-json)', () => true).addOption(new Option('--input-format <format>', 'Input format (only works with --print): "text" (default), or "stream-json" (realtime streaming input)').choices(['text', 'stream-json'])).option('--mcp-debug', '[DEPRECATED. Use --debug instead] Enable MCP debug mode (shows MCP server errors)', () => true).option('--dangerously-skip-permissions', 'Bypass all permission checks. Recommended only for sandboxes with no internet access.', () => true).option('--allow-dangerously-skip-permissions', 'Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.', () => true).addOption(new Option('--thinking <mode>', 'Thinking mode: enabled (equivalent to adaptive), disabled').choices(['enabled', 'adaptive', 'disabled']).hideHelp()).addOption(new Option('--max-thinking-tokens <tokens>', '[DEPRECATED. Use --thinking instead for newer models] Maximum number of thinking tokens (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-turns <turns>', 'Maximum number of agentic turns in non-interactive mode. This will early exit the conversation after the specified number of turns. (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-budget-usd <amount>', 'Maximum dollar amount to spend on API calls (only works with --print)').argParser(value => {
-    const amount = Number(value);
-    if (isNaN(amount) || amount <= 0) {
-      throw new Error('--max-budget-usd must be a positive number greater than 0');
-    }
-    return amount;
-  })).addOption(new Option('--task-budget <tokens>', 'API-side task budget in tokens (output_config.task_budget)').argParser(value => {
-    const tokens = Number(value);
-    if (isNaN(tokens) || tokens <= 0 || !Number.isInteger(tokens)) {
-      throw new Error('--task-budget must be a positive integer');
-    }
-    return tokens;
-  }).hideHelp()).option('--replay-user-messages', 'Re-emit user messages from stdin back on stdout for acknowledgment (only works with --input-format=stream-json and --output-format=stream-json)', () => true).addOption(new Option('--enable-auth-status', 'Enable auth status messages in SDK mode').default(false).hideHelp()).option('--allowedTools, --allowed-tools <tools...>', 'Comma or space-separated list of tool names to allow (e.g. "Bash(git:*) Edit")').option('--tools <tools...>', 'Specify the list of available tools from the built-in set. Use "" to disable all tools, "default" to use all tools, or specify tool names (e.g. "Bash,Edit,Read").').option('--disallowedTools, --disallowed-tools <tools...>', 'Comma or space-separated list of tool names to deny (e.g. "Bash(git:*) Edit")').option('--mcp-config <configs...>', 'Load MCP servers from JSON files or strings (space-separated)').addOption(new Option('--permission-prompt-tool <tool>', 'MCP tool to use for permission prompts (only works with --print)').argParser(String).hideHelp()).addOption(new Option('--system-prompt <prompt>', 'System prompt to use for the session').argParser(String)).addOption(new Option('--system-prompt-file <file>', 'Read system prompt from a file').argParser(String).hideHelp()).addOption(new Option('--append-system-prompt <prompt>', 'Append a system prompt to the default system prompt').argParser(String)).addOption(new Option('--append-system-prompt-file <file>', 'Read system prompt from a file and append to the default system prompt').argParser(String).hideHelp()).addOption(new Option('--permission-mode <mode>', 'Permission mode to use for the session').argParser(String).choices(PERMISSION_MODES))
-  .option('-c, --continue', 'Continue the most recent conversation in the current directory', () => true)
-  .option('-r, --resume [value]', 'Resume a conversation by session ID, or open interactive picker with optional search term', value => value || true)
-  .option('--fork-session', 'When resuming, branch the conversation into a new session ID; does not create filesystem or worktree isolation (use with --resume or --continue)', () => true)
-  .addOption(new Option('--prefill <text>', 'Pre-fill the prompt input with text without submitting it').hideHelp()).addOption(new Option('--deep-link-origin', 'Signal that this session was launched from a deep link').hideHelp()).addOption(new Option('--deep-link-repo <slug>', 'Repo slug the deep link ?repo= parameter resolved to the current cwd').hideHelp()).addOption(new Option('--deep-link-last-fetch <ms>', 'FETCH_HEAD mtime in epoch ms, precomputed by the deep link trampoline').argParser(v => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  }).hideHelp()).option('--from-pr [value]', 'Resume a session linked to a PR by PR number/URL, or open interactive picker with optional search term', value => value || true).option('--no-session-persistence', 'Disable session persistence - sessions will not be saved to disk and cannot be resumed (only works with --print)').addOption(new Option('--resume-session-at <message id>', 'When resuming, only messages up to and including the assistant message with <message.id> (use with --resume in print mode)').argParser(String).hideHelp()).addOption(new Option('--rewind-files <user-message-id>', 'Restore files to state at the specified user message and exit (requires --resume)').hideHelp())
-  // @[MODEL LAUNCH]: Update the example model ID in the --model help text.
-  .option('--model <model>', `Model for the current session. Provide an alias for the latest model (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-sonnet-4-6').`).option('--provider <provider>', `AI provider to use (anthropic, openai, gemini, github, bedrock, vertex, ollama). Reads API keys from environment variables.`).addOption(new Option('--effort <level>', `Effort level for the current session (low, medium, high, xhigh, max, ultracode)`).argParser((rawValue: string) => {
-    const value = rawValue.toLowerCase();
-    const allowed = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
-    if (!allowed.includes(value)) {
-      throw new InvalidArgumentError(`It must be one of: ${allowed.join(', ')}`);
-    }
-    return value;
-  })).option('--agent <agent>', `Agent for the current session. Overrides the 'agent' setting.`).option('--betas <betas...>', 'Beta headers to include in API requests (API key users only)').option('--fallback-model <model>', 'Enable automatic fallback to specified model when default model is overloaded').addOption(new Option('--workload <tag>', 'Workload tag for billing-header attribution (cc_workload). Process-scoped; set by SDK daemon callers that spawn subprocesses for cron work. (only works with --print)').hideHelp()).option('--settings <file-or-json>', 'Path to a settings JSON file or a JSON string to load additional settings from').option('--add-dir <directories...>', 'Additional directories to allow tool access to').option('--ide', 'Automatically connect to IDE on startup if exactly one valid IDE is available', () => true).option('--strict-mcp-config', 'Only use MCP servers from --mcp-config, ignoring all other MCP configurations', () => true).option('--session-id <uuid>', 'Use a specific session ID for the conversation (must be a valid UUID)').option('-n, --name <name>', 'Set a display name for this session (shown in /resume and terminal title)').option('--agents <json>', 'JSON object defining custom agents (e.g. \'{"reviewer": {"description": "Reviews code", "prompt": "You are a code reviewer"}}\')').option('--setting-sources <sources>', 'Comma-separated list of setting sources to load (user, project, local).')
-  // gh-33508: <paths...> (variadic) consumed everything until the next
-  // --flag. `claude --plugin-dir /path mcp add --transport http` swallowed
-  // `mcp` and `add` as paths, then choked on --transport as an unknown
-  // top-level option. Single-value + collect accumulator means each
-  // --plugin-dir takes exactly one arg; repeat the flag for multiple dirs.
-  .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)')
-  // cli.tsx consumes --provider-env-file before provider resolution; this registration
-  // keeps Commander help and unknown-option handling aligned with that bootstrap path.
-  .option('--provider-env-file <path>', 'Load provider environment variables from a file before validation (repeatable; existing values win)', (val: string, prev: string[]) => [...prev, val], [] as string[]).action(async (prompt, options) => {
+  .helpOption('-h, --help', 'Display help for command')).action(async (prompt, options) => {
     profileCheckpoint('action_handler_start');
 
     // --bare = one-switch minimal mode. Sets SIMPLE so all the existing
@@ -1362,13 +1289,82 @@ async function run(): Promise<CommanderCommand> {
       const addendum = getTeammatePromptAddendum().TEAMMATE_SYSTEM_PROMPT_ADDENDUM;
       appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${addendum}` : addendum;
     }
+    // Both remote paths run the tools elsewhere, so the bypass flag belongs to
+    // THAT session, not this local client: `cc://` forwards it via
+    // createDirectConnectSession, ssh via _pendingSSH.dangerouslySkipPermissions.
+    const isPendingRemoteSession =
+      (feature('DIRECT_CONNECT') && Boolean(_pendingConnect?.url)) ||
+      (feature('SSH_REMOTE') && Boolean(_pendingSSH?.host));
     const {
-      mode: permissionMode,
+      mode: permissionModeFromCLI,
       notification: permissionModeNotification
     } = initialPermissionModeFromCLI({
-      permissionModeCli,
-      dangerouslySkipPermissions
+      // Every door to bypass is shut for a remote session, not just the flag.
+      // Two are CLI-side and gated here so the resolver's notification stays
+      // coherent; the third (settings `permissions.defaultMode`) is computed
+      // inside the resolver and is neutralized by the backstop below.
+      // (Pre-existing gaps — only the flag was handled before this PR.)
+      permissionModeCli: localPermissionModeCli(
+        permissionModeCli,
+        isPendingRemoteSession
+      ),
+      dangerouslySkipPermissions: localDangerouslySkipPermissions(
+        dangerouslySkipPermissions,
+        isPendingRemoteSession
+      )
     });
+    // A dangerous --permission-mode is a bypass REQUEST, and for `cc://` the
+    // remote protocol can express it: dangerously_skip_permissions is the only
+    // permission field createDirectConnectSession takes. Dropping the mode
+    // locally (above) without translating it here meant the user asked for
+    // bypass and silently got a default-permission remote session.
+    // bypassPermissions and fullAccess are treated as equivalent throughout this
+    // codebase (isDangerousPermissionMode, setSessionBypassPermissionsMode, the
+    // root/sudo gate), so both map onto the single boolean.
+    // All three sources, not just the two CLI ones: permissionModeFromCLI is the
+    // mode the resolver produced BEFORE the backstop, and since both CLI inputs
+    // were already suppressed above, a dangerous value there can only have come
+    // from settings `permissions.defaultMode`. Without it, `cc://` with that
+    // setting downgraded the local mode, sent dangerouslySkipPermissions:false
+    // to the remote, and recorded no remote-bypass state — the user asked for
+    // bypass and got a default-permission session with no signal at all.
+    const remoteBypassRequested =
+      Boolean(dangerouslySkipPermissions) ||
+      isDangerousPermissionMode(permissionModeCli as PermissionMode | undefined) ||
+      isDangerousPermissionMode(permissionModeFromCLI);
+    // Backstop, whatever the source: this local client never runs bypassing.
+    const permissionMode = localResolvedPermissionMode(
+      permissionModeFromCLI,
+      isPendingRemoteSession
+    );
+    // …but the REMOTE executor may still run without consent, and the local mode
+    // no longer shows it. Record that separately so the UI can still warn — the
+    // notice reads the resolved local mode, which is now `default` here.
+    // Per PATH, not one shared predicate: what actually reaches each remote
+    // differs, and claiming bypass the remote never received is its own bug.
+    //
+    // `cc://` gets remoteBypassRequested itself — the same value passed to
+    // createDirectConnectSession below — so a settings-derived dangerous mode
+    // counts there precisely because it IS forwarded.
+    //
+    // ssh gets ONLY what the ssh pre-parse resolved from its own argv. The
+    // launch contract carries `_pendingSSH.permissionMode` and
+    // `.dangerouslySkipPermissions` and nothing else, so a local settings
+    // defaultMode never reaches the remote and must not be reported as if it
+    // had. Reading _pendingSSH also catches what is invisible locally:
+    // `ssh --yolo host` claims the flag for the remote and forwards nothing.
+    const ccRemoteBypass =
+      feature('DIRECT_CONNECT') &&
+      Boolean(_pendingConnect?.url) &&
+      remoteBypassRequested;
+    const sshRemoteBypass =
+      feature('SSH_REMOTE') &&
+      Boolean(_pendingSSH?.host) &&
+      (Boolean(_pendingSSH?.dangerouslySkipPermissions) ||
+        isDangerousPermissionMode(
+          _pendingSSH?.permissionMode as PermissionMode | undefined
+        ));
+    setRemoteBypassPermissions(ccRemoteBypass || sshRemoteBypass);
 
     // Store session bypass permissions mode for trust dialog check
     setSessionBypassPermissionsMode(permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess');
@@ -2462,9 +2458,20 @@ async function run(): Promise<CommanderCommand> {
       worktreeEnabled,
       skipWebFetchPreflight: getInitialSettings().skipWebFetchPreflight,
       githubActionInputs: process.env.GITHUB_ACTION_INPUTS,
+      // Local-only on purpose: this records whether the flag reached THIS
+      // command's argv. On `ssh --yolo host` it is false while modeIsBypass is
+      // true — the remote runs bypassing but the flag never reaches the
+      // rewritten local argv. Read the two together, not as a contradiction.
       dangerouslySkipPermissionsPassed: dangerouslySkipPermissions ?? false,
       permissionMode,
-      modeIsBypass: permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess',
+      // Remote sessions downgrade the LOCAL mode on purpose, so reading it alone
+      // recorded modeIsBypass:false for `ssh --yolo host` — a session whose tools
+      // do run bypassing, just elsewhere. The flag itself is not visible either:
+      // that argv never reaches the rewritten main command.
+      modeIsBypass:
+        permissionMode === 'bypassPermissions' ||
+        permissionMode === 'fullAccess' ||
+        getRemoteBypassPermissions(),
       allowDangerouslySkipPermissionsPassed: allowDangerouslySkipPermissions,
       systemPromptFlag: systemPrompt ? options.systemPromptFile ? 'file' : 'flag' : undefined,
       appendSystemPromptFlag: appendSystemPrompt ? options.appendSystemPromptFile ? 'file' : 'flag' : undefined,
@@ -3123,7 +3130,11 @@ async function run(): Promise<CommanderCommand> {
           serverUrl: _pendingConnect.url,
           authToken: _pendingConnect.authToken,
           cwd: getOriginalCwd(),
-          dangerouslySkipPermissions: _pendingConnect.dangerouslySkipPermissions
+          // Applied to the REMOTE session only (the local permission mode
+          // deliberately ignores it for cc:// connects). Includes a dangerous
+          // --permission-mode, which this protocol can only express as the
+          // bypass boolean — otherwise that request was accepted and dropped.
+          dangerouslySkipPermissions: remoteBypassRequested
         });
         if (session.workDir) {
           setOriginalCwd(session.workDir);
@@ -3679,56 +3690,6 @@ async function run(): Promise<CommanderCommand> {
     }
   }).version(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (OpenClaude)`, '-v, --version', 'Output the version number');
 
-  // Worktree flags
-  program.option('-w, --worktree [name]', 'Create a new git worktree for this session (optionally specify a name)');
-  program.option('--tmux', 'Create a tmux session for the worktree (requires --worktree). Uses iTerm2 native panes when available; use --tmux=classic for traditional tmux.');
-  if (canUserConfigureAdvisor()) {
-    program.addOption(new Option('--advisor <model>', 'Enable the server-side advisor tool with the specified model (alias or full ID).').hideHelp());
-  }
-  if (feature('TRANSCRIPT_CLASSIFIER')) {
-    program.addOption(new Option('--enable-auto-mode', 'Opt in to auto mode').hideHelp());
-  }
-  if (feature('PROACTIVE') || feature('KAIROS')) {
-    program.addOption(new Option('--proactive', 'Start in proactive autonomous mode'));
-  }
-  if (feature('UDS_INBOX')) {
-    program.addOption(new Option('--messaging-socket-path <path>', 'Unix domain socket path for the UDS messaging server (defaults to a tmp path)'));
-  }
-  if (feature('KAIROS') || feature('KAIROS_BRIEF')) {
-    program.addOption(new Option('--brief', 'Enable SendUserMessage tool for agent-to-user communication'));
-  }
-  if (feature('KAIROS')) {
-    program.addOption(new Option('--assistant', 'Force assistant mode (Agent SDK daemon use)').hideHelp());
-  }
-  if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
-    program.addOption(new Option('--channels <servers...>', 'MCP servers whose channel notifications (inbound push) should register this session. Space-separated server names.').hideHelp());
-    program.addOption(new Option('--dangerously-load-development-channels <servers...>', 'Load channel servers not on the approved allowlist. For local channel development only. Shows a confirmation dialog at startup.').hideHelp());
-  }
-
-  // Teammate identity options (set by leader when spawning tmux teammates)
-  // These replace the CLAUDE_CODE_* environment variables
-  program.addOption(new Option('--agent-id <id>', 'Teammate agent ID').hideHelp());
-  program.addOption(new Option('--agent-name <name>', 'Teammate display name').hideHelp());
-  program.addOption(new Option('--team-name <name>', 'Team name for swarm coordination').hideHelp());
-  program.addOption(new Option('--agent-color <color>', 'Teammate UI color').hideHelp());
-  program.addOption(new Option('--plan-mode-required', 'Require plan mode before implementation').hideHelp());
-  program.addOption(new Option('--parent-session-id <id>', 'Parent session ID for analytics correlation').hideHelp());
-  program.addOption(new Option('--teammate-mode <mode>', 'How to spawn teammates: "tmux", "in-process", or "auto"').choices(['auto', 'tmux', 'in-process']).hideHelp());
-  program.addOption(new Option('--agent-type <type>', 'Custom agent type for this teammate').hideHelp());
-
-  // Enable SDK URL for all builds but hide from help
-  program.addOption(new Option('--sdk-url <url>', 'Use remote WebSocket endpoint for SDK I/O streaming (only with -p and stream-json format)').hideHelp());
-
-  // Enable teleport/remote flags for all builds but keep them undocumented until GA
-  program.addOption(new Option('--teleport [session]', 'Resume a teleport session, optionally specify session ID').hideHelp());
-  program.addOption(new Option('--remote [description]', 'Create a remote session with the given description').hideHelp());
-  if (feature('BRIDGE_MODE')) {
-    program.addOption(new Option('--remote-control [name]', 'Start an interactive session with Remote Control enabled (optionally named)').argParser(value => value || true).hideHelp());
-    program.addOption(new Option('--rc [name]', 'Alias for --remote-control').argParser(value => value || true).hideHelp());
-  }
-  if (feature('HARD_FAIL')) {
-    program.addOption(new Option('--hard-fail', 'Crash on logError calls instead of silently logging').hideHelp());
-  }
   profileCheckpoint('run_main_options_built');
 
   // -p/--print mode: skip subcommand registration. The 52 subcommands
@@ -3739,7 +3700,10 @@ async function run(): Promise<CommanderCommand> {
   // + 40ms sync keychain subprocess), both hidden by the try/catch that
   // always returns false before enableConfigs(). cc:// URLs are rewritten to
   // `open` at main() line ~851 BEFORE this runs, so argv check is safe here.
-  const isPrintMode = process.argv.includes('-p') || process.argv.includes('--print');
+  // Commander-authoritative (~0.6ms): `ssh host -- --print` rewrites argv to a
+  // literal `-- --print` positional, and a token scan would take the print path
+  // instead of opening the interactive remote session. Also judges `-pv`.
+  const isPrintMode = resolvesPrintMode(process.argv.slice(2));
   const isCcUrl = process.argv.some(a => a.startsWith('cc://') || a.startsWith('cc+unix://'));
   if (isPrintMode && !isCcUrl) {
     profileCheckpoint('run_before_parse');
@@ -3903,7 +3867,7 @@ async function run(): Promise<CommanderCommand> {
   // this action it means the argv rewrite didn't fire (e.g. user ran
   // `claude ssh` with no host) — just print usage.
   if (feature('SSH_REMOTE')) {
-    program.command('ssh <host> [dir]').description('Run OpenClaude on a remote host over SSH. Deploys the binary and ' + 'tunnels API auth back through your local machine — no remote setup needed.').option('--permission-mode <mode>', 'Permission mode for the remote session').option('--dangerously-skip-permissions', 'Skip all permission prompts on the remote (dangerous)').option('--local', 'e2e test mode — spawn the child CLI locally (skip ssh/deploy). ' + 'Exercises the auth proxy and unix-socket plumbing without a remote host.').action(async () => {
+    program.command('ssh <host> [dir]').description('Run OpenClaude on a remote host over SSH. Deploys the binary and ' + 'tunnels API auth back through your local machine — no remote setup needed.').addOption(new Option('--permission-mode <mode>', 'Permission mode for the remote session').choices(PERMISSION_MODES)).option(BYPASS_PERMISSIONS_FLAGS, 'Skip all permission prompts on the remote (alias: --yolo; dangerous)', () => true).option('--local', 'e2e test mode — spawn the child CLI locally (skip ssh/deploy). ' + 'Exercises the auth proxy and unix-socket plumbing without a remote host.').action(async () => {
       // Argv rewriting in main() should have consumed `ssh <host>` before
       // commander runs. Reaching here means host was missing or the
       // rewrite predicate didn't match.
@@ -3916,9 +3880,19 @@ async function run(): Promise<CommanderCommand> {
   // Interactive mode (without -p) is handled by early argv rewriting in main()
   // which redirects to the main command with full TUI support.
   if (feature('DIRECT_CONNECT')) {
-    program.command('open <cc-url>').description('Connect to an OpenClaude server (internal — use cc:// URLs)').option('-p, --print [prompt]', 'Print mode (headless)').option('--output-format <format>', 'Output format: text, json, stream-json', 'text').action(async (ccUrl: string, opts: {
+    program.command('open <cc-url>')
+      // NOT allowUnknownOption(): this stub is a rewrite target for the cc://
+      // headless path, which forwards whatever the user typed alongside the URL.
+      // Tolerating unknown options made it fail OPEN — security-scoping flags
+      // like --disallowed-tools, --tools, --strict-mcp-config and --add-dir were
+      // silently ignored while --dangerously-skip-permissions/--yolo still
+      // applied, so a session could open with fewer constraints than the user
+      // asked for. Erroring on a flag this stub cannot honour is the safe
+      // direction, and matches the behaviour before the alias existed.
+      .description('Connect to an OpenClaude server (internal — use cc:// URLs)').option('-p, --print [prompt]', 'Print mode (headless)').option('--output-format <format>', 'Output format: text, json, stream-json', 'text').option(BYPASS_PERMISSIONS_FLAGS, 'Bypass all permission checks (alias: --yolo)', () => true).action(async (ccUrl: string, opts: {
       print?: string | boolean;
       outputFormat: string;
+      dangerouslySkipPermissions?: boolean;
     }) => {
       const {
         parseConnectUrl
@@ -3933,7 +3907,7 @@ async function run(): Promise<CommanderCommand> {
           serverUrl,
           authToken,
           cwd: getOriginalCwd(),
-          dangerouslySkipPermissions: _pendingConnect?.dangerouslySkipPermissions
+          dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? false
         });
         if (session.workDir) {
           setOriginalCwd(session.workDir);

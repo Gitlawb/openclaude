@@ -79,12 +79,89 @@ describe('getDangerousPermissionModeTransitionError', () => {
           shouldShow: true,
         }),
         shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => false,
       },
     })
 
     expect(error).toBe(
       'Cannot set permission mode to fullAccess until the user explicitly confirms Full Access in a local interactive session',
     )
+  })
+
+  test('reports the settings-disabled reason instead of enablement guidance', async () => {
+    // Every other call site injects `() => false` to reach the guidance branch,
+    // which left the deny branch this dep controls untested: dropping the
+    // `deps.isBypassPermissionsModeDisabled()` call would keep the suite green
+    // while making a configuration-disabled bypass reachable.
+    const error = await getDangerousPermissionModeTransitionError({
+      mode: 'bypassPermissions',
+      toolPermissionContext: {
+        isBypassPermissionsModeAvailable: false,
+      },
+      requireLocalConfirmation: false,
+      deps: {
+        getStartupDangerousPermissionPromptState: () => ({
+          mode: 'bypassPermissions',
+          shouldShow: false,
+        }),
+        shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => true,
+      },
+    })
+
+    expect(error).toContain('disabled by settings or configuration')
+    // and it must NOT hand out the enablement route while disabled
+    expect(error).not.toContain('--yolo')
+  })
+
+  test('names both spellings when bypass is not yet enabled (PR #1939)', async () => {
+    // The enablement message is the one place a blocked transition tells the
+    // user how to unblock it, so it has to mention the alias as well as the
+    // canonical flag — otherwise `--yolo` is undiscoverable from the error.
+    const error = await getDangerousPermissionModeTransitionError({
+      mode: 'bypassPermissions',
+      toolPermissionContext: {
+        isBypassPermissionsModeAvailable: false,
+      },
+      requireLocalConfirmation: false,
+      deps: {
+        getStartupDangerousPermissionPromptState: () => ({
+          mode: 'bypassPermissions',
+          shouldShow: false,
+        }),
+        shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => false,
+      },
+    })
+
+    // Deterministic: the resolver consults isBypassPermissionsModeDisabled()
+    // BEFORE this branch and it reads settings plus the Statsig gate, so on a
+    // machine configured that way the guidance was never reached and the
+    // assertions silently skipped. It is injected above instead of branching on
+    // ambient state — and module mocking was not an option here, since bun's
+    // mock.module is process-wide and broke 84 tests elsewhere in this suite.
+    expect(error).toContain('--dangerously-skip-permissions (alias --yolo)')
+    expect(error).toContain('--allow-dangerously-skip-permissions')
+    expect(error).toContain('permissions.allowBypassPermissionsMode')
+
+    // …and the same guidance is given for fullAccess, which the flag also
+    // unblocks (it sets the shared isBypassPermissionsModeAvailable bit).
+    const fullAccessError = await getDangerousPermissionModeTransitionError({
+      mode: 'fullAccess',
+      toolPermissionContext: {
+        isBypassPermissionsModeAvailable: false,
+      },
+      requireLocalConfirmation: false,
+      deps: {
+        getStartupDangerousPermissionPromptState: () => ({
+          mode: 'fullAccess',
+          shouldShow: false,
+        }),
+        shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => false,
+      },
+    })
+    expect(fullAccessError).toContain('--yolo')
   })
 
   test('uses the authoritative org gate for later dangerous-mode entry', async () => {
@@ -99,6 +176,7 @@ describe('getDangerousPermissionModeTransitionError', () => {
           shouldShow: false,
         }),
         shouldDisableBypassPermissions: async () => true,
+        isBypassPermissionsModeDisabled: () => false,
       },
     })
 
@@ -120,6 +198,7 @@ describe('getDangerousPermissionModeTransitionError', () => {
           mode: 'fullAccess',
         }),
         shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => false,
       },
     })
 
@@ -140,6 +219,7 @@ describe('getDangerousPermissionModeTransitionError', () => {
           mode: 'fullAccess',
         }),
         shouldDisableBypassPermissions: async () => false,
+        isBypassPermissionsModeDisabled: () => false,
       },
     })
 

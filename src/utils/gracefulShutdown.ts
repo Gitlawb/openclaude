@@ -43,6 +43,7 @@ import { isEnvTruthy } from './envUtils.js'
 import { getCurrentSessionTitle, sessionIdExists } from './sessionStorage.js'
 import { sleep } from './sleep.js'
 import { profileReport } from './startupProfiler.js'
+import { resolvesPrintMode } from '../mainCliOptions.js'
 
 /**
  * Clean up terminal modes synchronously before process exit.
@@ -264,7 +265,22 @@ export const setupGracefulShutdown = memoize(() => {
     // avoid racing with it. Only check print mode — other non-interactive
     // sessions (--sdk-url, --init-only, non-TTY) don't register their own
     // SIGINT handler and need gracefulShutdown to run.
-    if (process.argv.includes('-p') || process.argv.includes('--print')) {
+    // Commander-authoritative, matching the handler in main.tsx: a `-- --print`
+    // positional from the ssh rewrite is not print mode.
+    //
+    // Second layer, deliberately kept: resolvesHeadlessFlags guards its own
+    // config read and its option-set construction, so this should never fire.
+    // It stays because the consequence here is asymmetric — a throw in a SIGNAL
+    // handler leaves gracefulShutdown unreached and makes Ctrl-C a no-op, which
+    // is far worse than misclassifying print mode. Do not remove it on the
+    // grounds that the callee is already guarded.
+    let isPrintMode = false
+    try {
+      isPrintMode = resolvesPrintMode(process.argv.slice(2))
+    } catch {
+      // fall through to the shutdown path
+    }
+    if (isPrintMode) {
       return
     }
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGINT' })

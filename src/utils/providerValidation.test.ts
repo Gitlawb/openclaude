@@ -665,3 +665,26 @@ test('startup provider validation stays strict for non-interactive launches', ()
     }),
   ).toBe(true)
 })
+
+test('print resolution is commander-authoritative on a TTY (PR #1939 review)', () => {
+  const onTTY = (args: string[]) =>
+    shouldExitForStartupProviderValidationError({ args, stdoutIsTTY: true })
+
+  // `openclaude ssh host -- --print` rewrites argv to a literal `-- --print`
+  // POSITIONAL, which is not print mode — startup validation must not hard-exit.
+  expect(onTTY(['--', '--print'])).toBe(false)
+  expect(onTTY(['--', '-p'])).toBe(false)
+
+  // …while genuine print requests still gate, including a bundled short that a
+  // token scan missed before.
+  expect(onTTY(['--print'])).toBe(true)
+  expect(onTTY(['-p'])).toBe(true)
+  expect(onTTY(['-pv'])).toBe(true)
+
+  // …and the other two routing flags, migrated in the same commit
+  expect(onTTY(['--', '--init-only'])).toBe(false)
+  expect(onTTY(['--', '--sdk-url', 'x'])).toBe(false)
+  expect(onTTY(['--init-only'])).toBe(true)
+  expect(onTTY(['--sdk-url', 'x'])).toBe(true)
+  expect(onTTY(['--sdk-url=x'])).toBe(true)
+})

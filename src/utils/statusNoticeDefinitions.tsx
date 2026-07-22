@@ -4,6 +4,7 @@ import * as React from 'react';
 import { getLargeMemoryFiles, MAX_MEMORY_CHARACTER_COUNT, type MemoryFileInfo } from './claudemd.js';
 import figures from 'figures';
 import { getCwd } from './cwd.js';
+import { isDangerousPermissionMode } from './permissions/PermissionMode.js';
 import { relative } from 'path';
 import { formatNumber } from './format.js';
 import type { getGlobalConfig } from './config.js';
@@ -28,6 +29,12 @@ export type StatusNoticeContext = {
   localModelContextLoad?: LocalModelContextWarning | null;
   /** Active session permission mode. Used by the 3P-safety notices. */
   permissionMode?: PermissionMode;
+  /**
+   * True when this session forwards bypass to a REMOTE tool executor (`cc://`
+   * or ssh). Those sessions downgrade the LOCAL mode to `default` on purpose,
+   * so `permissionMode` alone cannot reveal that tools run without consent.
+   */
+  remoteBypassPermissions?: boolean;
   /** Current main-loop model id. Used by the 3P-safety notices to decide
    * whether the AI classifier would actually run. */
   mainLoopModel?: string;
@@ -288,25 +295,52 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // every tool call. On first-party builds an employee-only sandbox check
 // (Docker/Bubblewrap + no internet) gates this flag; external users skip the
 // check entirely (setup.ts), so the flag is effectively "run any command with
-// no review". Warn loudly. Detection reads from process.argv so the notice
-// fires from the first frame, before any AppState mode change propagates.
-// See issue #244 finding 2.
-function hasDangerouslySkipPermissionsArg(): boolean {
-  return process.argv.includes('--dangerously-skip-permissions');
-}
+// no review". Warn loudly.
+// See issue #244 finding 2. Commander-authoritative: bypass (from either
+// --dangerously-skip-permissions or its --yolo alias) is resolved by commander
+// into the permission mode during startup, before this notice renders, so we
+// read the resolved mode instead of re-scanning raw argv (which cannot model
+// commander's option arity / `--` semantics).
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',
   type: 'warning',
+  // fullAccess is bypass-equivalent (see setSessionBypassPermissionsMode in
+  // main.tsx and the root/sudo gate in setup.ts), so it must warn too.
+  // Two ways to be bypassing: this session's own resolved mode, or a remote
+  // executor this session handed the flag to. The local mode is deliberately
+  // downgraded for remote sessions, so reading it alone would silence the
+  // warning for exactly the case where the user cannot see what the tools do.
   isActive: ctx =>
-    hasDangerouslySkipPermissionsArg() ||
-    ctx.permissionMode === 'bypassPermissions',
-  render: () => <WarningNoticeRow>
+    isDangerousPermissionMode(ctx.permissionMode) ||
+    Boolean(ctx.remoteBypassPermissions),
+  // Name the resolved mode, not the flag: this fires for either bypass mode
+  // however it was reached (--dangerously-skip-permissions/--yolo, settings
+  // defaultMode, or --permission-mode), so flag-only wording would mislead.
+  // Remote takes precedence over the local mode, and is not silently replaced
+  // by it: `remoteBypassPermissions` is decided once at startup, while the local
+  // mode stays live (Shift+Tab, /permission-mode). Preferring the local branch
+  // meant that switching modes mid-session on a remote connection swapped in
+  // wording claiming THIS session bypasses, hiding the fact that tools still run
+  // remotely without consent. When both are true, say both.
+  render: ctx => ctx.remoteBypassPermissions ? <WarningNoticeRow>
       <Text color="warning">
-        <Text bold>--dangerously-skip-permissions</Text> is active.
+        Permission bypass is active on the <Text bold>remote</Text> session
+        {isDangerousPermissionMode(ctx.permissionMode) ? <Text> and locally (<Text bold>{ctx.permissionMode}</Text>)</Text> : null}.
+      </Text>
+      <Text dimColor>
+        Tools run on the remote host with every consent check bypassed
+        {isDangerousPermissionMode(ctx.permissionMode) ? ', and this local session is bypassing too' : '; this local session is unaffected'}.
+        Reconnect without <Text bold>--dangerously-skip-permissions</Text>/<Text bold>--yolo</Text> — and without a
+        bypassing <Text bold>--permission-mode</Text> (or a <Text bold>permissions.defaultMode</Text> setting that sets one) — to re-enable prompts there.
+        {isDangerousPermissionMode(ctx.permissionMode) ? <Text> Reconnecting does not clear the LOCAL bypass: switch this session's mode back with <Text bold>/permission-mode</Text> (or Shift+Tab).</Text> : null}
+      </Text>
+    </WarningNoticeRow> : <WarningNoticeRow>
+      <Text color="warning">
+        Permission bypass (<Text bold>{ctx.permissionMode}</Text>) is active.
       </Text>
       <Text dimColor>
         Every tool consent check is bypassed. Only use inside a sandbox with no internet access.
-        Restart without the flag to re-enable prompts.
+        Restart without <Text bold>--dangerously-skip-permissions</Text>/<Text bold>--yolo</Text> (or change the permission mode) to re-enable prompts.
       </Text>
     </WarningNoticeRow>
 };

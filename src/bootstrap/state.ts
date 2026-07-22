@@ -111,6 +111,13 @@ type State = {
   useCoworkPlugins: boolean
   // Session-only bypass permissions mode flag (not persisted)
   sessionBypassPermissionsMode: boolean
+  /**
+   * True when THIS session hands bypass to a remote tool executor (`cc://` or
+   * ssh). The local permission mode is deliberately downgraded for those
+   * sessions, so the mode alone cannot tell the UI that tools run without
+   * consent — see the bypass status notice.
+   */
+  remoteBypassPermissions: boolean
   // Session startup dangerous permission mode for integrations that need to
   // preserve the distinction between bypassPermissions and fullAccess before
   // the app is fully mounted.
@@ -325,6 +332,7 @@ function getInitialState(): State {
     useCoworkPlugins: false,
     // Session-only bypass permissions mode flag (not persisted)
     sessionBypassPermissionsMode: false,
+    remoteBypassPermissions: false,
     sessionDangerousPermissionMode: null,
     // Scheduled tasks disabled until flag or dialog enables them
     scheduledTasksEnabled: false,
@@ -1205,6 +1213,14 @@ export function setSessionBypassPermissionsMode(enabled: boolean): void {
 
 export function getSessionBypassPermissionsMode(): boolean {
   return STATE.sessionBypassPermissionsMode
+}
+
+export function setRemoteBypassPermissions(enabled: boolean): void {
+  STATE.remoteBypassPermissions = enabled
+}
+
+export function getRemoteBypassPermissions(): boolean {
+  return STATE.remoteBypassPermissions
 }
 
 export function setSessionDangerousPermissionMode(

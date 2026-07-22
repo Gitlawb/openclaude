@@ -1,3 +1,7 @@
+import {
+  SKILLS_GLOBAL_BOOLEAN_FLAGS,
+  SKILLS_PROMPT_MODE_FLAGS,
+} from '../cli/skillsBooleanFlags.js';
 import { feature } from 'bun:bundle';
 
 // Defensive compatibility guard for environments where globalThis.File is
@@ -38,28 +42,6 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
-const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
-  '--bare',
-  '--debug',
-  '--debug-to-stderr',
-  '--dangerously-skip-permissions',
-  '--allow-dangerously-skip-permissions',
-  '--disable-slash-commands',
-  '--enable-auth-status',
-  '--fork-session',
-  '--ide',
-  '--include-hook-events',
-  '--include-partial-messages',
-  '--init',
-  '--init-only',
-  '--maintenance',
-  '--mcp-debug',
-  '--no-chrome',
-  '--no-session-persistence',
-  '--replay-user-messages',
-  '--strict-mcp-config',
-  '--verbose',
-])
 
 const SKILLS_LEADING_VALUE_FLAGS = new Set([
   '--agent',
@@ -91,15 +73,7 @@ const SKILLS_LEADING_VALUE_FLAGS = new Set([
   '--name',
 ])
 
-const SKILLS_LEADING_OPTIONAL_VALUE_FLAGS = new Set([
-  '--continue',
-  '--from-pr',
-  '--print',
-  '-c',
-  '-p',
-  '-r',
-  '--resume',
-])
+
 
 const SKILLS_LEADING_MULTI_VALUE_FLAGS = new Set([
   '--add-dir',
@@ -132,7 +106,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
       }
       return { additionalDirectories, args: args.slice(index) }
     }
-    if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
+    if (SKILLS_GLOBAL_BOOLEAN_FLAGS.has(arg)) {
       continue
     }
     if (SKILLS_LEADING_MULTI_VALUE_FLAGS.has(arg)) {
@@ -186,7 +160,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
     ) {
       continue
     }
-    if (SKILLS_LEADING_OPTIONAL_VALUE_FLAGS.has(arg)) {
+    if (SKILLS_PROMPT_MODE_FLAGS.has(arg)) {
       sawPromptModeFlag = true
       if (
         args[index + 1] &&
@@ -198,7 +172,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
       continue
     }
     if (
-      Array.from(SKILLS_LEADING_OPTIONAL_VALUE_FLAGS).some(flag =>
+      Array.from(SKILLS_PROMPT_MODE_FLAGS).some(flag =>
         arg?.startsWith(`${flag}=`),
       )
     ) {
@@ -311,6 +285,28 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
+  // --yolo is registered as a native commander alias of
+  // --dangerously-skip-permissions: on the main command in applyMainOptions
+  // (mainCliOptions.ts), and on the `ssh`/`open` stubs in main.tsx. commander
+  // resolves it and all opts().dangerouslySkipPermissions
+  // reads work unchanged — cc://, the ssh line, and the bypass safety notice are
+  // all commander-authoritative, so there are no raw-argv bypass scanners.
+  //
+  // Both spellings are listed in exactly one place: the shared
+  // SKILLS_GLOBAL_BOOLEAN_FLAGS set in src/cli/skillsBooleanFlags.ts, which the
+  // skills fast-path pre-parse below and its counterpart in skillsCli.ts both
+  // consume — and that set is purely for `skills` routing (skipping flags around
+  // the subcommand), not bypass detection.
+  //
+  // main() does NOT mirror the caller's `args` array onto process.argv for the
+  // general cliMain flow: cliMain() parses the global process.argv, and the sole
+  // production entry (the auto-run at the tail of this file) calls main() with no
+  // args, so `args` already equals process.argv.slice(2). Keeping a caller's args
+  // out of the process-global argv avoids leaking a programmatic invocation's
+  // arguments (including a permission-bypass flag) into an overlapping call or
+  // the host process. (The `skills` and `--update` fast-paths below do rewrite
+  // process.argv, but only to re-route to their own subcommand, not to inject the
+  // caller's args.)
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}

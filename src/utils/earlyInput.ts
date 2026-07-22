@@ -12,6 +12,7 @@
  */
 
 import { lastGrapheme } from './intl.js'
+import { resolvesPrintMode } from '../mainCliOptions.js'
 
 // Buffer for early input characters
 let earlyInputBuffer = ''
@@ -33,8 +34,9 @@ export function startCapturingEarlyInput(): void {
   if (
     !process.stdin.isTTY ||
     isCapturing ||
-    process.argv.includes('-p') ||
-    process.argv.includes('--print')
+    // Commander-authoritative: a post-`--` `--print` positional (produced by
+    // the ssh argv rewrite) is not print mode, so capture must still happen.
+    resolvesPrintMode(process.argv.slice(2))
   ) {
     return
   }
