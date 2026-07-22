@@ -326,4 +326,186 @@ describe('MCP tool activity', () => {
       ),
     ).rejects.toThrow('original tool failure')
   })
+
+  test('a consumer throwing on forwarded server progress does not break the call', async () => {
+    let resolveToolCall: ((result: unknown) => void) | undefined
+    let reportServerProgress:
+      | ((progress: { progress: number }) => void)
+      | undefined
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(
+        (
+          _request: unknown,
+          _schema: unknown,
+          options: { onprogress?: typeof reportServerProgress },
+        ) => {
+          reportServerProgress = options.onprogress
+          return new Promise(resolve => {
+            resolveToolCall = resolve
+          })
+        },
+      ),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'forward-throw-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
+      if (data.status === 'progress') {
+        throw new Error('progress consumer failure')
+      }
+    })
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_forward_throw',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    const callPromise = tool!.call(
+      {},
+      {
+        abortController: new AbortController(),
+        setAppState: vi.fn(),
+      } as never,
+      undefined as never,
+      parentMessage,
+      onProgress,
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reportServerProgress).toBeDefined()
+
+    // The consumer throws when a real server notification is forwarded; the
+    // exception must not propagate into the MCP SDK notification handler.
+    expect(() => reportServerProgress?.({ progress: 3 })).not.toThrow()
+
+    resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
+    await expect(callPromise).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
+  })
+
+  test('session-expired retry resets cached server progress', async () => {
+    vi.useFakeTimers()
+    let callCount = 0
+    let resolveToolCall: ((result: unknown) => void) | undefined
+    let reportServerProgress:
+      | ((progress: {
+          progress: number
+          total?: number
+          message?: string
+        }) => void)
+      | undefined
+    const sessionExpiredError = Object.assign(
+      new Error('{"error":{"code":-32001,"message":"Session not found"}}'),
+      { code: 404 },
+    )
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(
+        (
+          _request: unknown,
+          _schema: unknown,
+          options: { onprogress?: typeof reportServerProgress },
+        ) => {
+          reportServerProgress = options.onprogress
+          callCount++
+          if (callCount === 1) {
+            return new Promise((_resolve, reject) => {
+              reportServerProgress?.({
+                progress: 7,
+                total: 10,
+                message: 'Indexing files',
+              })
+              reject(sessionExpiredError)
+            })
+          }
+          return new Promise(resolve => {
+            resolveToolCall = resolve
+          })
+        },
+      ),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'session-retry-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn()
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_session_retry',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    const callPromise = tool!.call(
+      {},
+      {
+        abortController: new AbortController(),
+        setAppState: vi.fn(),
+      } as never,
+      undefined as never,
+      parentMessage,
+      onProgress,
+    )
+    // Let the first attempt fail with session expiry and the retry start.
+    for (let i = 0; i < 50 && callCount < 2; i++) {
+      await Promise.resolve()
+    }
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(2)
+
+    // Heartbeats during the retried attempt must not report the previous
+    // attempt's cached progress, since the retried call starts over.
+    onProgress.mockClear()
+    vi.advanceTimersByTime(30_000)
+    await Promise.resolve()
+    expect(onProgress).toHaveBeenCalled()
+    const lastCall = onProgress.mock.calls.at(-1)?.[0]
+    expect(lastCall.data).toMatchObject({
+      type: 'mcp_progress',
+      status: 'progress',
+    })
+    expect(lastCall.data.progress).toBeUndefined()
+    expect(lastCall.data.total).toBeUndefined()
+    expect(lastCall.data.progressMessage).toBeUndefined()
+
+    resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
+    await expect(callPromise).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
+  })
 })

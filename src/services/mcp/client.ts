@@ -2015,10 +2015,16 @@ export const fetchToolsForClient = memoizeWithLRU(
                               ...latestServerProgress,
                             }
                           }
-                          onProgress({
-                            toolUseID: toolUseId,
-                            data: dataToEmit,
-                          })
+                          try {
+                            onProgress({
+                              toolUseID: toolUseId,
+                              data: dataToEmit,
+                            })
+                          } catch (error) {
+                            // A throwing consumer must not propagate into
+                            // the MCP SDK's notification handler.
+                            logMCPError(client.name, error)
+                          }
                         }
                         : undefined,
                     handleElicitation: context.handleElicitation,
@@ -2069,6 +2075,9 @@ export const fetchToolsForClient = memoizeWithLRU(
                       client.name,
                       `Retrying tool '${tool.name}' after session recovery`,
                     )
+                    // The retried call starts over, so cached progress from
+                    // the previous attempt is no longer truthful.
+                    latestServerProgress = undefined
                     continue
                   }
 
