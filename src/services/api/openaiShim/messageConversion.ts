@@ -95,6 +95,7 @@ export function convertContentBlocks(
   if (!Array.isArray(content)) return String(content ?? '')
   const parts: OpenAIContentPart[] = []
   for (const block of content) {
+    if (!block || typeof block !== 'object') continue
     switch (block.type) {
       case 'text':
         parts.push({ type: 'text', text: block.text ?? '' })
@@ -106,13 +107,18 @@ export function convertContentBlocks(
           )
         }
         const source = block.source
-        if (source?.type === 'base64') {
+        if (
+          source?.type === 'base64' &&
+          typeof source.media_type === 'string' &&
+          typeof source.data === 'string'
+        ) {
           parts.push({
             type: 'image_url',
             image_url: { url: `data:${source.media_type};base64,${source.data}` },
           })
+        } else if (source?.type === 'url' && typeof source.url === 'string') {
+          parts.push({ type: 'image_url', image_url: { url: source.url } })
         }
-        else if (source?.type === 'url') parts.push({ type: 'image_url', image_url: { url: source.url } })
         break
       }
       case 'tool_use':
@@ -121,7 +127,9 @@ export function convertContentBlocks(
       case 'redacted_thinking':
         break
       default:
-        if (block.text) parts.push({ type: 'text', text: block.text })
+        if (typeof block.text === 'string') {
+          parts.push({ type: 'text', text: block.text })
+        }
     }
   }
   if (parts.length === 0) return ''

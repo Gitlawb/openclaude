@@ -66,7 +66,7 @@ test('rejects image content for text-only providers', () => {
   )).toThrow('does not support image inputs')
 })
 
-test('preserves mixed text and image tool results as multipart content', () => {
+test('reports multipart shape for text+image tool results', () => {
   const messages = convert(toolExchange([
     { type: 'text', text: 'Screenshot captured' },
     {
@@ -80,6 +80,11 @@ test('preserves mixed text and image tool results as multipart content', () => {
     { type: 'text', text: 'Screenshot captured' },
     { type: 'image_url', image_url: { url: 'data:image/png;base64,ZmFrZQ==' } },
   ])
+})
+
+test('skips malformed image and non-object content blocks', () => {
+  expect(convert([{ role: 'user', content: [null, { type: 'image', source: { type: 'base64' } }] }], undefined))
+    .toEqual([{ role: 'user', content: '' }])
 })
 
 test('coalesces consecutive user messages to avoid alternation errors (issue #202)', () => {
