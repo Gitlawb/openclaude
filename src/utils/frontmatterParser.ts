@@ -120,7 +120,25 @@ function quoteProblematicValues(frontmatterText: string): string {
   return result.join('\n')
 }
 
-export const FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)---\s*\n?/
+/**
+ * The opening delimiter is anchored but the closing one must be too.
+ *
+ * `[\s\S]*?` is lazy, so an unanchored close stops at the first `---` appearing
+ * anywhere -- including in the middle of a value. `description: Reviews code
+ * --- thoroughly` ends the block early: the description is truncated to
+ * "Reviews code", and the rest of the frontmatter plus the real delimiter leak
+ * into the body that is sent to the model. A `---` line inside a block scalar
+ * has the same effect.
+ *
+ * Requiring the captured block to be empty or to end at a line break pins the
+ * close to the start of a line. The `m` flag would do the same for the close
+ * but would also un-anchor the open, letting a horizontal rule partway down a
+ * body be read as frontmatter. Only spaces and tabs may follow the close --
+ * `\s*` matched a newline, so a bare `---` with no line terminator after it was
+ * accepted mid-document too.
+ */
+export const FRONTMATTER_REGEX =
+  /^---[ \t]*\n((?:[\s\S]*?\n)?)---[ \t]*(?:\n|$)/
 
 /**
  * Parses markdown content to extract frontmatter and content
