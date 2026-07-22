@@ -87,6 +87,23 @@ test('parsePositiveAmountArg rejects an unbounded budget', () => {
   )
 })
 
+test('parsePositiveAmountArg rejects finite budgets the guard can never reach', () => {
+  // `getTotalCost() >= maxBudgetUsd` never fires for these, so they are the
+  // unbounded-budget hole again -- and past MAX_SAFE_INTEGER the enforced cap
+  // is not even the number the user supplied.
+  expect(() => parsePositiveAmountArg('--max-budget-usd', '1e308')).toThrow(
+    InvalidArgumentError,
+  )
+  expect(() =>
+    parsePositiveAmountArg('--max-budget-usd', '9007199254740993'),
+  ).toThrow(InvalidArgumentError)
+  // Realistic budgets, and the boundary itself, still parse.
+  expect(parsePositiveAmountArg('--max-budget-usd', '250.75')).toBe(250.75)
+  expect(
+    parsePositiveAmountArg('--max-budget-usd', '9007199254740991'),
+  ).toBe(Number.MAX_SAFE_INTEGER)
+})
+
 test('parsePositiveAmountArg names the option in the error message', () => {
   expect(() => parsePositiveAmountArg('--max-budget-usd', 'abc')).toThrow(
     '--max-budget-usd must be a positive number greater than 0',

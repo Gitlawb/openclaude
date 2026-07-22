@@ -30,10 +30,23 @@ export function parsePositiveIntArg(name: string, value: string): number {
  * Number.isFinite rather than a bare !isNaN check: `Number('Infinity')` is not
  * NaN and is greater than zero, so an unbounded budget would otherwise pass
  * validation for a spending cap.
+ *
+ * Finite is not sufficient on its own though. The cap is enforced as
+ * `getTotalCost() >= maxBudgetUsd`, so it has to be a dollar figure real
+ * spending can actually reach: 1e308 is finite and positive but the guard can
+ * never fire, which is the unbounded-budget hole again with a different
+ * literal. Anything past Number.MAX_SAFE_INTEGER also stops round-tripping,
+ * so the enforced cap would differ from the one the user typed. Bound at the
+ * safe-integer range -- far above any real budget, below where either problem
+ * starts.
  */
 export function parsePositiveAmountArg(name: string, value: string): number {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    parsed > Number.MAX_SAFE_INTEGER
+  ) {
     throw new InvalidArgumentError(
       `${name} must be a positive number greater than 0`,
     )
