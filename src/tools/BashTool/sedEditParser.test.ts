@@ -295,3 +295,94 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     expect(applySedSubstitution('', info!)).toBe('')
   })
 })
+
+describe('replacement text is written literally, as sed writes it', () => {
+  const cmd = (expr: string) => `sed -i '' '${expr}' example.txt`
+
+  test('writes dollar tokens literally instead of expanding them', () => {
+    // `$` is an ordinary character in a sed replacement but a substitution
+    // token to String.replace. GNU sed 4.10 writes the two characters `$1`
+    // here; before the fix the preview expanded it to the matched text, so an
+    // approved diff differed from what the command performs.
+    const one = parseSedEditCommand(cmd('s/\\(a\\)/$1/'))
+    expect(one).not.toBeNull()
+    expect(applySedSubstitution('a', one!)).toBe('$1')
+
+    const dollars = parseSedEditCommand(cmd('s/a/$$/'))
+    expect(dollars).not.toBeNull()
+    expect(applySedSubstitution('a', dollars!)).toBe('$$')
+
+    // $` and $' expand to the text before/after the match in JS.
+    const before = parseSedEditCommand(cmd('s/b/$`/'))
+    expect(before).not.toBeNull()
+    expect(applySedSubstitution('abc', before!)).toBe('a$`c')
+
+    // `$'` cannot go through the single-quoted fixture above, so drive it
+    // directly: in JS it expands to the text following the match.
+    expect(applySedSubstitution('abc', sedInfo('b', "$'"))).toBe("a$'c")
+
+    // `&` is sed's own whole-match token and is declined outright, so a
+    // replacement spelling JS's `$&` never reaches the simulator.
+    expect(parseSedEditCommand(cmd('s/b/$&/'))).toBeNull()
+  })
+
+  test('a plain replacement is unaffected', () => {
+    const info = parseSedEditCommand(cmd('s/a/USD 5/g'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('a b a', info!)).toBe('USD 5 b USD 5')
+  })
+})
+
+describe('ERE patterns are screened for JS-only escapes', () => {
+  const ere = (expr: string) => `sed -i '' -E '${expr}' example.txt`
+
+  test('declines escapes that mean a character class only in JS', () => {
+    // GNU sed reads `\d` as a literal `d`, so `-E 's/\d/X/g'` on "1d2" writes
+    // "1X2"; a JS regex reads a digit class and would preview "XdX". The same
+    // divergence applies to the other JS-only escapes, and several are not
+    // valid sed at all.
+    for (const expr of [
+      's/\\d/X/g',
+      's/\\w/X/g',
+      's/\\s/X/g',
+      's/\\S/X/g',
+      's/\\b/X/g',
+      's/\\u{41}/X/g',
+      's/\\p{L}/X/g',
+      's/\\x41/X/g',
+    ]) {
+      expect(parseSedEditCommand(ere(expr))).toBeNull()
+    }
+  })
+
+  test('still accepts escapes that are the same literal in both dialects', () => {
+    const dot = parseSedEditCommand(ere('s/a\\.b/X/g'))
+    expect(dot).not.toBeNull()
+    expect(applySedSubstitution('a.b axb', dot!)).toBe('X axb')
+
+    const plus = parseSedEditCommand(ere('s/a\\+/X/g'))
+    expect(plus).not.toBeNull()
+    expect(applySedSubstitution('a+ aa', plus!)).toBe('X aa')
+  })
+
+  test('declines a trailing lone backslash', () => {
+    expect(parseSedEditCommand(ere('s/a\\/X/g'))).toBeNull()
+  })
+})
+
+describe('case-insensitive matching is declined', () => {
+  test('declines the i and I flags rather than folding by Unicode rules', () => {
+    // The emitted regex needs `u` for the quantifier fix, and `u` + `i` is
+    // ECMAScript Unicode case folding, not sed's locale matching: `s/k/X/I`
+    // would rewrite a Kelvin sign that GNU sed under C.UTF-8 leaves alone.
+    for (const expr of ["s/k/X/I", "s/k/X/i", "s/k/X/gI", "s/k/X/gi"]) {
+      expect(
+        parseSedEditCommand(`sed -i '' '${expr}' example.txt`),
+      ).toBeNull()
+    }
+    // The g flag on its own is still simulated.
+    expect(
+      parseSedEditCommand("sed -i '' 's/k/X/g' example.txt"),
+    ).not.toBeNull()
+  })
+})
