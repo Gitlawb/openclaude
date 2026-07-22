@@ -131,8 +131,9 @@ export function maybeSetNvidiaNimChatTemplateThinking(
 ): void {
   if (!hasNvidiaNimApiHost(baseUrl)) return
   if (
-    reasoningRequestPlan.thinkingType !== 'enabled' &&
-    !reasoningRequestPlan.reasoningEffort
+    reasoningRequestPlan.thinkingType === 'disabled' ||
+    (reasoningRequestPlan.thinkingType !== 'enabled' &&
+      !reasoningRequestPlan.reasoningEffort)
   ) {
     return
   }

@@ -139,6 +139,20 @@ import {
   parseCredentialList,
 } from './credentialPool.js'
 import { MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS } from '../../utils/ollamaContext.js'
+import {
+  filterAnthropicHeaders,
+  geminiThoughtSignatureFromExtraContent,
+  hasCerebrasApiHost,
+  hasGeminiApiHost as matchesGeminiApiHost,
+  hasMistralApiHost,
+  isGithubModelsMode,
+  isGeminiModelName,
+  mergeGeminiThoughtSignature,
+  maybeSetNvidiaNimChatTemplateThinking,
+  shouldPreserveGeminiThoughtSignature as shouldPreserveGeminiThoughtSignatureForRoute,
+} from './openaiShim/providerCompatibility.js'
+
+export { hasMistralApiHost }
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -384,21 +398,6 @@ async function fetchWithHeadersDeadline(
     { fetcher: fetchWithAttemptDeadline },
   )
 }
-
-import {
-  filterAnthropicHeaders,
-  geminiThoughtSignatureFromExtraContent,
-  hasCerebrasApiHost,
-  hasGeminiApiHost as matchesGeminiApiHost,
-  hasMistralApiHost,
-  isGithubModelsMode,
-  isGeminiModelName,
-  mergeGeminiThoughtSignature,
-  maybeSetNvidiaNimChatTemplateThinking,
-  shouldPreserveGeminiThoughtSignature as shouldPreserveGeminiThoughtSignatureForRoute,
-} from './openaiShim/providerCompatibility.js'
-
-export { hasMistralApiHost }
 
 function hasGeminiApiHost(baseUrl: string | undefined): boolean {
   return matchesGeminiApiHost(baseUrl, GEMINI_API_HOST)

@@ -302,6 +302,7 @@ test('applies NIM thinking kwargs only for an enabled reasoning request', () => 
     ['https://api.example.test/v1', { reasoningEffort: 'high' }],
     ['https://integrate.api.nvidia.com/v1', {}],
     ['https://integrate.api.nvidia.com/v1', { thinkingType: 'disabled' }],
+    ['https://integrate.api.nvidia.com/v1', { thinkingType: 'disabled', reasoningEffort: 'high' }],
   ] as const) {
     const body: Record<string, unknown> = {}
     maybeSetNvidiaNimChatTemplateThinking(body, baseUrl, plan)
