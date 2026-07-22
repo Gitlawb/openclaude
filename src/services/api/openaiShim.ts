@@ -212,10 +212,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function getApiTimeoutMs(): number {
-  const parsed = parseApiTimeoutMsEnv()
-  return parsed === null
-    ? DEFAULT_API_TIMEOUT_MS
-    : Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
+  return parseApiTimeoutMsEnv() ?? DEFAULT_API_TIMEOUT_MS
 }
 
 function combineRequestSignals(
