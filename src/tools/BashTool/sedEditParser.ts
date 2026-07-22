@@ -194,6 +194,17 @@ function isFaithfullyLiteralReplacement(replacement: string): boolean {
 }
 
 /**
+ * `$` is an ordinary character in a sed replacement but a substitution token in
+ * a JS one: `$1`, `$$`, `` $` `` and `$'` all expand. `s/\(a\)/$1/` is a
+ * literal replacement by the rule above, yet String.replace would write the
+ * matched text where sed writes the two characters `$1`. Doubling each `$` is
+ * the documented way to emit one literally.
+ */
+function escapeJsReplacement(replacement: string): string {
+  return replacement.replaceAll('$', '$$$$')
+}
+
+/**
  * Escapes that mean the same thing in a POSIX BRE and in the emitted JS regex.
  *
  * Everything outside this set declines. GNU sed reads `\<`/`\>` as word
@@ -427,7 +438,13 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
   // `s/a\{2\}/X/2` on "aaaa" would be previewed as "Xaa" where sed writes
   // "aaX". `m`/`M` redefine `^`/`$` per line inside the pattern space. Decline
   // all of them rather than approve a write that differs from the command.
-  const validFlags = /^[giI]*$/
+  //
+  // `i`/`I` are declined for a subtler reason: the emitted regex needs `u` for
+  // the quantifier fix, and `u` + `i` selects ECMAScript Unicode case folding
+  // rather than sed's locale-based matching. `s/k/X/I` would then rewrite a
+  // Kelvin sign, which GNU sed under C.UTF-8 leaves alone. Until that folding
+  // can be modeled, an approved preview would not be the edit sed performs.
+  const validFlags = /^g*$/
   if (!validFlags.test(flags)) {
     return null
   }
@@ -453,6 +470,19 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
 }
 
 /**
+ * Escapes that denote the same literal character in a POSIX ERE and in the
+ * emitted JS regex: the ERE metacharacters, plus the delimiter and a literal
+ * backslash.
+ *
+ * ERE patterns are handed to JS verbatim, so an escape outside this set is not
+ * the pattern sed was given. `\d` is the clearest case -- GNU sed reads it as a
+ * literal `d`, JS as a digit class, so `sed -E 's/\d/X/g'` on "1d2" previews
+ * "XdX" while sed writes "1X2". `\w`, `\s`, `\b` and `\u{...}` diverge the same
+ * way, and several are not valid sed at all.
+ */
+const ERE_PORTABLE_LITERAL_ESCAPES = '.*[]^$/+?(){}|\\'
+
+/**
  * Reject ERE constructs whose behavior in a JS regex is not the POSIX behavior.
  * The BRE converter declines these itself; ERE patterns carry over verbatim, so
  * they need the same screening:
@@ -460,12 +490,17 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
  *    that matches;
  *  - bracket expressions holding a backslash (literal member in POSIX, escape
  *    in JS), a POSIX `[:class:]`-style construct, or no terminator at all
- *    (an error in sed, not a literal).
+ *    (an error in sed, not a literal);
+ *  - escapes outside the set that is literal in both dialects (see
+ *    ERE_PORTABLE_LITERAL_ESCAPES).
  */
 function ereHasUnfaithfulConstructs(pattern: string): boolean {
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i]!
     if (char === '\\') {
+      const escaped = pattern[i + 1]
+      if (escaped === undefined) return true
+      if (!ERE_PORTABLE_LITERAL_ESCAPES.includes(escaped)) return true
       i++
       continue
     }
@@ -564,11 +599,13 @@ function canSimulateFaithfully(
  * lone `\r` on CRLF input and `.` matches it, but a JS `.` excludes carriage
  * returns, so `sed 's/./X/g'` on "a\r\n" writes "XX" where an unflagged
  * simulation writes "X\r".
+ *
+ * There is deliberately no `i` here: `u` + `i` is Unicode case folding, not
+ * sed's locale matching, so `i`/`I` are declined at the flag gate instead.
  */
 function jsRegexFlags(sedFlags: string): string {
   let flags = 'us'
   if (sedFlags.includes('g')) flags += 'g'
-  if (sedFlags.includes('i') || sedFlags.includes('I')) flags += 'i'
   return flags
 }
 
@@ -597,7 +634,7 @@ export function applySedSubstitution(
   // Use a unique placeholder with random salt to prevent injection attacks
   const salt = randomBytes(8).toString('hex')
   const ESCAPED_AMP_PLACEHOLDER = `___ESCAPED_AMPERSAND_${salt}___`
-  const jsReplacement = sedInfo.replacement
+  const jsReplacement = escapeJsReplacement(sedInfo.replacement)
     // Unescape \/ to /
     .replace(/\\\//g, '/')
     // First escape \& to a placeholder
