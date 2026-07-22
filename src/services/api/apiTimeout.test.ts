@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
-import { parseApiTimeoutMsEnv } from './apiTimeout.js'
+import { MAX_API_TIMEOUT_MS, parseApiTimeoutMsEnv } from './apiTimeout.js'
 
 let saved: string | undefined
 
@@ -56,4 +56,14 @@ test('rejects non-integer and unsafe-integer values', () => {
   expect(withValue('1.5')).toBeNull()
   expect(withValue('1e9')).toBeNull()
   expect(withValue('9007199254740993')).toBeNull()
+})
+
+test('caps values above the timer maximum instead of passing them through', () => {
+  // Node coerces a setTimeout delay past 2147483647 to 1ms, so an uncapped
+  // value aborts every request immediately -- the opposite of what someone
+  // asking for a very long timeout wants.
+  expect(withValue('3000000000')).toBe(MAX_API_TIMEOUT_MS)
+  expect(withValue(String(Number.MAX_SAFE_INTEGER))).toBe(MAX_API_TIMEOUT_MS)
+  expect(withValue(String(MAX_API_TIMEOUT_MS))).toBe(MAX_API_TIMEOUT_MS)
+  expect(withValue(String(MAX_API_TIMEOUT_MS - 1))).toBe(MAX_API_TIMEOUT_MS - 1)
 })

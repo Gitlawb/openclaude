@@ -11,11 +11,21 @@
  * away from the actual problem.
  *
  * Mirrors the validation getApiTimeoutMs already performs for the
- * OpenAI-compatible path: digits only, a safe integer, and strictly positive.
+ * OpenAI-compatible path: digits only, a safe integer, and strictly positive,
+ * capped to what a timer can actually hold.
+ *
+ * The cap is not cosmetic. Every consumer ends up handing this value to
+ * setTimeout, and Node coerces a delay above 2147483647 to 1ms, so an
+ * over-large timeout aborts requests immediately instead of extending them --
+ * the same "typo makes everything time out" failure this helper exists to
+ * prevent, just from the other end of the range.
  */
+export const MAX_API_TIMEOUT_MS = 2_147_483_647
+
 export function parseApiTimeoutMsEnv(): number | null {
   const raw = process.env.API_TIMEOUT_MS?.trim()
   if (!raw || !/^\d+$/.test(raw)) return null
   const parsed = Number(raw)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null
+  return Math.min(parsed, MAX_API_TIMEOUT_MS)
 }
