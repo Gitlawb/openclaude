@@ -217,4 +217,113 @@ describe('MCP tool activity', () => {
       data: [{ type: 'text', text: 'done' }],
     })
   })
+
+  test('a throwing completed callback does not turn success into failure', async () => {
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(async () => ({
+        content: [{ type: 'text', text: 'done' }],
+      })),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'completed-throw-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
+      if (data.status === 'completed') {
+        throw new Error('progress consumer failure')
+      }
+    })
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_completed_throw',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    await expect(
+      tool!.call(
+        {},
+        {
+          abortController: new AbortController(),
+          setAppState: vi.fn(),
+        } as never,
+        undefined as never,
+        parentMessage,
+        onProgress,
+      ),
+    ).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(1)
+  })
+
+  test('a throwing failed callback preserves the original tool error', async () => {
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(async () => {
+        throw new Error('original tool failure')
+      }),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'failed-throw-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
+      if (data.status === 'failed') {
+        throw new Error('progress consumer failure')
+      }
+    })
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_failed_throw',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    await expect(
+      tool!.call(
+        {},
+        {
+          abortController: new AbortController(),
+          setAppState: vi.fn(),
+        } as never,
+        undefined as never,
+        parentMessage,
+        onProgress,
+      ),
+    ).rejects.toThrow('original tool failure')
+  })
 })

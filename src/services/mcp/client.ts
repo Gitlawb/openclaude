@@ -2027,16 +2027,22 @@ export const fetchToolsForClient = memoizeWithLRU(
                   stopActivityHeartbeat()
                   // Emit progress when tool completes successfully
                   if (onProgress && toolUseId) {
-                    onProgress({
-                      toolUseID: toolUseId,
-                      data: {
-                        type: 'mcp_progress',
-                        status: 'completed',
-                        serverName: client.name,
-                        toolName: tool.name,
-                        elapsedTimeMs: Date.now() - startTime,
-                      },
-                    })
+                    try {
+                      onProgress({
+                        toolUseID: toolUseId,
+                        data: {
+                          type: 'mcp_progress',
+                          status: 'completed',
+                          serverName: client.name,
+                          toolName: tool.name,
+                          elapsedTimeMs: Date.now() - startTime,
+                        },
+                      })
+                    } catch (error) {
+                      // A throwing progress consumer must not turn a
+                      // completed tool call into a failure.
+                      logMCPError(client.name, error)
+                    }
                   }
 
                   return {
@@ -2069,16 +2075,22 @@ export const fetchToolsForClient = memoizeWithLRU(
                   stopActivityHeartbeat()
                   // Emit progress when tool fails
                   if (onProgress && toolUseId) {
-                    onProgress({
-                      toolUseID: toolUseId,
-                      data: {
-                        type: 'mcp_progress',
-                        status: 'failed',
-                        serverName: client.name,
-                        toolName: tool.name,
-                        elapsedTimeMs: Date.now() - startTime,
-                      },
-                    })
+                    try {
+                      onProgress({
+                        toolUseID: toolUseId,
+                        data: {
+                          type: 'mcp_progress',
+                          status: 'failed',
+                          serverName: client.name,
+                          toolName: tool.name,
+                          elapsedTimeMs: Date.now() - startTime,
+                        },
+                      })
+                    } catch (progressError) {
+                      // Preserve the original tool error; the progress
+                      // consumer failure is only logged.
+                      logMCPError(client.name, progressError)
+                    }
                   }
                   // Wrap MCP SDK errors so telemetry gets useful context
                   // instead of just "Error" or "McpError" (the constructor
