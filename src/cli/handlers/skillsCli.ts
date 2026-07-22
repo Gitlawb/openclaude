@@ -14,6 +14,7 @@ const TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
+  '--yolo', // alias for --dangerously-skip-permissions
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--disable-slash-commands',

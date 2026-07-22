@@ -288,21 +288,20 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // every tool call. On first-party builds an employee-only sandbox check
 // (Docker/Bubblewrap + no internet) gates this flag; external users skip the
 // check entirely (setup.ts), so the flag is effectively "run any command with
-// no review". Warn loudly. Detection reads from process.argv so the notice
-// fires from the first frame, before any AppState mode change propagates.
-// See issue #244 finding 2.
-function hasDangerouslySkipPermissionsArg(): boolean {
-  return process.argv.includes('--dangerously-skip-permissions');
-}
+// no review". Warn loudly.
+// See issue #244 finding 2. Commander-authoritative: bypass (from either
+// --dangerously-skip-permissions or its --yolo alias) is resolved by commander
+// into the permission mode during startup, before this notice renders, so we
+// read the resolved mode instead of re-scanning raw argv (which cannot model
+// commander's option arity / `--` semantics).
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',
   type: 'warning',
-  isActive: ctx =>
-    hasDangerouslySkipPermissionsArg() ||
-    ctx.permissionMode === 'bypassPermissions',
+  isActive: ctx => ctx.permissionMode === 'bypassPermissions',
   render: () => <WarningNoticeRow>
       <Text color="warning">
-        <Text bold>--dangerously-skip-permissions</Text> is active.
+        <Text bold>--dangerously-skip-permissions</Text> (alias{' '}
+        <Text bold>--yolo</Text>) is active.
       </Text>
       <Text dimColor>
         Every tool consent check is bypassed. Only use inside a sandbox with no internet access.
