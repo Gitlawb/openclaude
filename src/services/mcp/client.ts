@@ -1989,6 +1989,12 @@ export const fetchToolsForClient = memoizeWithLRU(
                     meta,
                     signal: context.abortController.signal,
                     setAppState: context.setAppState,
+                    onRetryAttempt: () => {
+                      // A URL-elicitation retry reissues the call from zero,
+                      // so cached progress from the abandoned attempt is no
+                      // longer truthful.
+                      latestServerProgress = undefined
+                    },
                     onProgress:
                       onProgress && toolUseId
                         ? progressData => {
@@ -2992,6 +2998,7 @@ export async function callMCPToolWithUrlElicitationRetry({
   onProgress,
   callToolFn = callMCPTool,
   handleElicitation,
+  onRetryAttempt,
 }: {
   client: ConnectedMCPServer
   clientConnection: MCPServerConnection
@@ -3017,6 +3024,8 @@ export async function callMCPToolWithUrlElicitationRetry({
     params: ElicitRequestURLParams,
     signal: AbortSignal,
   ) => Promise<ElicitResult>
+  /** Called before each retried attempt so callers can reset per-attempt state. */
+  onRetryAttempt?: () => void
 }): Promise<MCPToolCallResult> {
   const MAX_URL_ELICITATION_RETRIES = 3
   for (let attempt = 0; ; attempt++) {
@@ -3024,6 +3033,9 @@ export async function callMCPToolWithUrlElicitationRetry({
     // elicitation retry loop continues spinning until MAX retries
     if (signal.aborted) {
       throw new Error('Tool call aborted during URL elicitation')
+    }
+    if (attempt > 0) {
+      onRetryAttempt?.()
     }
     try {
       return await callToolFn({

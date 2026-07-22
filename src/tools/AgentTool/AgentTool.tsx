@@ -29,6 +29,7 @@ import {
 import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { logError } from '../../utils/log.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
 import { getAgentModel } from '../../utils/model/agent.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
@@ -1180,10 +1181,16 @@ export const AgentTool = buildTool({
             // Forward progress from long-running sub-agent tools so the parent
             // query remains active while the child is doing bounded work.
             if (message.type === 'progress' && (message.data.type === 'bash_progress' || message.data.type === 'powershell_progress' || message.data.type === 'mcp_progress' || message.data.type === 'waiting_for_task') && onProgress) {
-              onProgress({
-                toolUseID: message.toolUseID,
-                data: message.data
-              });
+              try {
+                onProgress({
+                  toolUseID: message.toolUseID,
+                  data: message.data
+                });
+              } catch (error) {
+                // A throwing parent progress consumer must not become
+                // syncAgentError and change the subagent outcome.
+                logError(error);
+              }
             }
             if (message.type !== 'assistant' && message.type !== 'user') {
               continue;

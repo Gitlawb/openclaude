@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import {
+  ErrorCode,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js'
 import { createAssistantMessage } from '../../utils/messages.js'
 import { fetchToolsForClient } from './client.js'
 import type { ConnectedMCPServer } from './types.js'
@@ -502,6 +506,124 @@ describe('MCP tool activity', () => {
     expect(lastCall.data.progress).toBeUndefined()
     expect(lastCall.data.total).toBeUndefined()
     expect(lastCall.data.progressMessage).toBeUndefined()
+
+    resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
+    await expect(callPromise).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
+  })
+
+  test('url-elicitation retry resets cached server progress', async () => {
+    vi.useFakeTimers()
+    let callCount = 0
+    let resolveToolCall: ((result: unknown) => void) | undefined
+    let reportServerProgress:
+      | ((progress: {
+          progress: number
+          total?: number
+          message?: string
+        }) => void)
+      | undefined
+    const elicitationError = new McpError(
+      ErrorCode.UrlElicitationRequired,
+      'URL elicitation required',
+      {
+        elicitations: [
+          {
+            mode: 'url',
+            url: 'https://example.com/auth',
+            elicitationId: 'elicit-1',
+            message: 'Open this URL to continue',
+          },
+        ],
+      },
+    )
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(
+        (
+          _request: unknown,
+          _schema: unknown,
+          options: { onprogress?: typeof reportServerProgress },
+        ) => {
+          reportServerProgress = options.onprogress
+          callCount++
+          if (callCount === 1) {
+            return new Promise((_resolve, reject) => {
+              reportServerProgress?.({
+                progress: 7,
+                total: 10,
+                message: 'Indexing files',
+              })
+              reject(elicitationError)
+            })
+          }
+          return new Promise(resolve => {
+            resolveToolCall = resolve
+          })
+        },
+      ),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'url-elicitation-retry-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn()
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_url_elicit_retry',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    const callPromise = tool!.call(
+      {},
+      {
+        abortController: new AbortController(),
+        setAppState: vi.fn(),
+        handleElicitation: vi.fn(async () => ({ action: 'accept' as const })),
+      } as never,
+      undefined as never,
+      parentMessage,
+      onProgress,
+    )
+    // Let the first attempt fail with the elicitation error, the elicitation
+    // resolve via the injected handler, and the retried attempt start.
+    for (let i = 0; i < 200 && callCount < 2; i++) {
+      await Promise.resolve()
+    }
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(2)
+
+    // Heartbeats during the retried attempt must not report the abandoned
+    // attempt's cached progress, since the retried call starts over.
+    onProgress.mockClear()
+    vi.advanceTimersByTime(30_000)
+    await Promise.resolve()
+    expect(onProgress).toHaveBeenCalled()
+    const lastHeartbeat = onProgress.mock.calls.at(-1)?.[0]
+    expect(lastHeartbeat.data).toMatchObject({
+      type: 'mcp_progress',
+      status: 'progress',
+    })
+    expect(lastHeartbeat.data.progress).toBeUndefined()
+    expect(lastHeartbeat.data.total).toBeUndefined()
+    expect(lastHeartbeat.data.progressMessage).toBeUndefined()
 
     resolveToolCall?.({ content: [{ type: 'text', text: 'done' }] })
     await expect(callPromise).resolves.toMatchObject({

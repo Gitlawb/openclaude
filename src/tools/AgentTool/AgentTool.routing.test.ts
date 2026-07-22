@@ -211,6 +211,46 @@ test('sync agents forward long-running tool progress to the parent tool call', a
   })
 })
 
+test('a throwing parent progress consumer does not change the subagent outcome', async () => {
+  const mcpProgress = {
+    type: 'progress' as const,
+    uuid: 'progress-throw-1',
+    timestamp: new Date().toISOString(),
+    toolUseID: 'toolu_child_mcp',
+    parentToolUseID: 'toolu_agent',
+    data: {
+      type: 'mcp_progress',
+      status: 'progress',
+      serverName: 'demo',
+      toolName: 'slow-tool',
+    },
+  }
+  const { AgentTool } = await importAgentToolWithRoutingMocks([mcpProgress])
+  const onProgress = mock(({ data }: { data: { type: string } }) => {
+    if (data.type === 'mcp_progress' || data.type === 'waiting_for_task') {
+      throw new Error('progress consumer failure')
+    }
+  })
+
+  const result = await AgentTool.call(
+    {
+      description: 'Inspect implementation',
+      prompt: 'Find the bug',
+      subagent_type: 'general-purpose',
+    },
+    createToolUseContext('parent-model', [createAgentDefinition()]),
+    mock(async () => ({ behavior: 'allow' })) as never,
+    { message: { id: 'parent-message' } } as never,
+    onProgress as never,
+  )
+
+  expect(onProgress).toHaveBeenCalledWith({
+    toolUseID: 'toolu_child_mcp',
+    data: mcpProgress.data,
+  })
+  expect(result.data.status).toBe('completed')
+})
+
 async function importAgentToolWithRoutingMocks(
   messages?: Array<Record<string, unknown>>,
 ): Promise<{
