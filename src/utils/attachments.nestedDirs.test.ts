@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { join, resolve } from 'path'
-import { getDirectoriesToProcess } from './attachments.js'
+import { join, posix, resolve, win32 } from 'path'
+import { getDirectoriesToProcess, isPathUnder } from './attachments.js'
 
 // Build every fixture with node:path so drive letters and separators match what
 // the implementation's own resolve()/dirname() produce on Windows as well.
@@ -45,13 +45,7 @@ describe('getDirectoriesToProcess', () => {
     expect(nestedDirs).toEqual([join(CWD, 'src'), join(CWD, 'src', 'deep')])
   })
 
-  // Windows path comparison is case-insensitive, so `/work/MyApp` and
-  // `/work/myapp` genuinely are the same directory there and treating them as
-  // nested is correct. This behavior only differs on case-sensitive platforms.
-  const caseSensitive = process.platform !== 'win32'
-  const testIfCaseSensitive = caseSensitive ? test : test.skip
-
-  testIfCaseSensitive('does not treat a case-variant sibling as nested', () => {
+  test('does not treat a case-variant sibling as nested', () => {
     // On a case-sensitive filesystem /work/MyApp and /work/myapp are two
     // unrelated projects. A case-folding containment check would merge them and
     // load the other project's CLAUDE.md/AGENTS.md as nested project memory.
@@ -78,5 +72,45 @@ describe('getDirectoriesToProcess', () => {
       CWD,
     )
     expect(cwdLevelDirs).toEqual([WORK, CWD])
+  })
+})
+
+// The Windows semantics are driven through the injected path implementation so
+// they run on every host: path.win32.relative() compares components
+// case-insensitively, and NTFS supports per-directory case sensitivity, so a
+// case-variant spelling there can be a genuinely different project tree.
+describe('isPathUnder', () => {
+  test('keeps case distinct under Windows path semantics', () => {
+    expect(isPathUnder('C:\\work\\myapp\\src', 'C:\\work\\MyApp', win32)).toBe(
+      false,
+    )
+    expect(isPathUnder('C:\\work\\MyApp\\src', 'C:\\work\\MyApp', win32)).toBe(
+      true,
+    )
+  })
+
+  test('keeps case distinct under POSIX path semantics', () => {
+    expect(isPathUnder('/work/myapp/src', '/work/MyApp', posix)).toBe(false)
+    expect(isPathUnder('/work/myapp/src', '/work/myapp', posix)).toBe(true)
+  })
+
+  test('matches on boundaries, not string prefixes, on both platforms', () => {
+    for (const [api, child, parent, dotted, dottedParent] of [
+      [posix, '/work/myapp-backend/src', '/work/myapp', '/work/myapp/..hello', '/work/myapp'],
+      [
+        win32,
+        'C:\\work\\myapp-backend\\src',
+        'C:\\work\\myapp',
+        'C:\\work\\myapp\\..hello',
+        'C:\\work\\myapp',
+      ],
+    ] as const) {
+      expect(isPathUnder(child, parent, api)).toBe(false)
+      // `..hello` yields a relative path starting with ".." without being an
+      // upward traversal.
+      expect(isPathUnder(dotted, dottedParent, api)).toBe(true)
+      expect(isPathUnder(parent, parent, api)).toBe(false)
+      expect(isPathUnder(parent, child, api)).toBe(false)
+    }
   })
 })

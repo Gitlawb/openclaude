@@ -45,7 +45,7 @@ import {
   getConditionalRulesForCwdLevelDirectory,
   type MemoryFileInfo,
 } from './claudemd.js'
-import { dirname, isAbsolute, parse, relative, resolve, sep } from 'path'
+import nodePath, { dirname, parse, relative, resolve } from 'path'
 import { getCwd } from 'src/utils/cwd.js'
 import { getViewedTeammateTask } from '../state/selectors.js'
 import { logError } from './log.js'
@@ -1765,19 +1765,45 @@ async function getSelectedLinesFromIDE(
  * from slipping past a security check. Applying it here would go the wrong way
  * — on a case-sensitive filesystem `/work/MyApp` and `/work/myapp` are two
  * unrelated projects, and folding them together would load the other project's
- * CLAUDE.md/AGENTS.md as nested memory. `relative` keeps the platform's native
- * case semantics.
+ * CLAUDE.md/AGENTS.md as nested memory.
+ *
+ * `relative()` gets the boundary right but is not case-faithful on Windows: it
+ * compares components case-insensitively, so `C:\work\MyApp` -> `C:\work\myapp\src`
+ * returns `src` as though it were nested. NTFS supports per-directory case
+ * sensitivity, so those can be distinct trees there too. Rebuilding the child
+ * from the parent and comparing exactly keeps the boundary logic while
+ * restoring the lexical case distinction.
+ *
+ * `pathApi` is injectable so the Windows semantics can be covered from any
+ * host. Exported for testing.
  */
-function isPathUnder(child: string, parent: string): boolean {
-  const rel = relative(parent, child)
+export function isPathUnder(
+  child: string,
+  parent: string,
+  pathApi: Pick<
+    typeof nodePath,
+    'relative' | 'join' | 'normalize' | 'isAbsolute' | 'sep'
+  > = nodePath,
+): boolean {
+  const rel = pathApi.relative(parent, child)
   // Compare on segment boundaries, not a string prefix: a directory legitimately
   // named `..hello` yields the relative path `..hello`, which starts with `..`
   // without being an upward traversal.
+  if (
+    rel === '' ||
+    rel === '..' ||
+    rel.startsWith('..' + pathApi.sep) ||
+    pathApi.isAbsolute(rel)
+  ) {
+    return false
+  }
+  const stripTrailingSep = (value: string): string =>
+    value.length > 1 && value.endsWith(pathApi.sep)
+      ? value.slice(0, -pathApi.sep.length)
+      : value
   return (
-    rel !== '' &&
-    rel !== '..' &&
-    !rel.startsWith('..' + sep) &&
-    !isAbsolute(rel)
+    stripTrailingSep(pathApi.join(parent, rel)) ===
+    stripTrailingSep(pathApi.normalize(child))
   )
 }
 
