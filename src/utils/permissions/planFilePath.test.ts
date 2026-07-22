@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { join } from 'path'
 
 import { isPlanFilePath } from './filesystem.js'
+import { encodeAgentIdForPlanFile } from '../plans.js'
 
 // isPlanFilePath gates two permission carve-outs in checkEditableInternalPath /
 // checkReadableInternalPath: a plan file for the current session is auto-allowed
@@ -69,6 +70,35 @@ test('rejects a different session slug', () => {
 test('rejects non-.md paths', () => {
   expect(isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}.txt`))).toBe(false)
   expect(isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}`))).toBe(false)
+})
+
+// Producer-to-predicate: TeamCreateTool accepts any nonblank team name and
+// teammate spawning only strips `@` from the teammate name, so the agent id can
+// legitimately carry a path separator. Every id a producer can emit has to
+// survive the round trip, or that teammate loses access to its own plan file.
+test('accepts every plan path the producer can emit for a real agent id', () => {
+  for (const agentId of [
+    'abc123',
+    'writer@myteam',
+    'writer@a/b',
+    'writer@a\\b',
+    'writer@a/b/c',
+    'writer@100%',
+  ]) {
+    const emitted = join(
+      PLANS,
+      `${SLUG}-agent-${encodeAgentIdForPlanFile(agentId)}.md`,
+    )
+    expect(isPlanFilePath(PLANS, SLUG, emitted)).toBe(true)
+  }
+})
+
+test('distinct agent ids never collide on one plan file', () => {
+  // The escaping has to stay reversible: two teammates must not share a plan.
+  const encoded = ['a/b', 'a%2Fb', 'a\\b', 'a%5Cb', 'a%25b'].map(
+    encodeAgentIdForPlanFile,
+  )
+  expect(new Set(encoded).size).toBe(encoded.length)
 })
 
 test('normalizes traversal segments before matching', () => {

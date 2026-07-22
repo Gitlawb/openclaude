@@ -128,6 +128,26 @@ export const getPlansDirectory = memoize(function getPlansDirectory(): string {
 })
 
 /**
+ * Escape the path separators an agent ID may legitimately contain so it always
+ * lands in a single filename component.
+ *
+ * A teammate's ID is `{name}@{teamName}`, and neither producer strips
+ * separators from the team name, so a team called `a/b` would otherwise emit
+ * `{slug}-agent-writer@a/b.md` -- a path in a *subdirectory* of the plans dir,
+ * not a plan file. Percent-escaping is reversible and leaves every ordinary ID
+ * (which contains none of these characters) byte-identical, so existing plan
+ * files keep their paths.
+ *
+ * Exported for testing.
+ */
+export function encodeAgentIdForPlanFile(agentId: string): string {
+  return agentId
+    .replaceAll('%', '%25')
+    .replaceAll('/', '%2F')
+    .replaceAll('\\', '%5C')
+}
+
+/**
  * Get the file path for a session's plan
  * @param agentId Optional agent ID for subagents. If not provided, returns main session plan.
  * For main conversation (no agentId), returns {planSlug}.md
@@ -142,7 +162,10 @@ export function getPlanFilePath(agentId?: AgentId): string {
   }
 
   // Subagents: include agent ID
-  return join(getPlansDirectory(), `${planSlug}-agent-${agentId}.md`)
+  return join(
+    getPlansDirectory(),
+    `${planSlug}-agent-${encodeAgentIdForPlanFile(agentId)}.md`,
+  )
 }
 
 /**
