@@ -1338,6 +1338,34 @@ export function parseMcpConfig(params: {
   const errors: ValidationError[] = []
   const validatedServers: Record<string, McpServerConfig> = {}
 
+  // A hand-authored .mcp.json can contain a server named "__proto__".
+  // JSON.parse gives it a real own key, but it cannot survive being copied
+  // onto a plain object -- the assignment invokes the prototype setter instead
+  // of creating an own property -- so the schema's own rebuild already drops
+  // it before the loop below runs. The entry then simply does not exist, with
+  // no diagnostic, and the user cannot tell why their server never starts.
+  // addMcpConfig refuses this name outright; report the same rejection for
+  // file config instead of discarding it silently.
+  const rawServers = (configObject as { mcpServers?: unknown } | null)
+    ?.mcpServers
+  if (
+    rawServers !== null &&
+    typeof rawServers === 'object' &&
+    Object.hasOwn(rawServers, '__proto__')
+  ) {
+    errors.push({
+      ...(filePath && { file: filePath }),
+      path: 'mcpServers.__proto__',
+      message: 'Invalid MCP server name "__proto__": this name is reserved.',
+      suggestion: 'Rename the "__proto__" entry under mcpServers.',
+      mcpErrorMetadata: {
+        scope,
+        serverName: '__proto__',
+        severity: 'fatal',
+      },
+    })
+  }
+
   for (const [name, config] of Object.entries(schemaResult.data.mcpServers)) {
     let configToCheck = config
 
