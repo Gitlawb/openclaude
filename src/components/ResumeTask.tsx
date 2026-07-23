@@ -12,7 +12,10 @@ import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
-import { buildResumeTaskOptionLabel } from './resumeTaskLabel.js';
+import {
+  buildResumeTaskOptionLabel,
+  getResumeTaskOptionLabelColumns,
+} from './resumeTaskLabel.js';
 import { Spinner } from './Spinner.js';
 import { TeleportError } from './TeleportError.js';
 type Props = {
@@ -160,6 +163,10 @@ export function ResumeTask({
     ...session_0,
     timeString: formatRelativeTime(new Date(session_0.updated_at))
   }));
+  const optionLabelColumns = getResumeTaskOptionLabelColumns(
+    columns,
+    sessions.length,
+  );
   const maxTimeStringLength = Math.max(UPDATED_STRING.length, ...sessionMetadata.map(meta => meta.timeString.length));
   const options = sessionMetadata.map(({
     timeString,
@@ -168,7 +175,7 @@ export function ResumeTask({
     id
   }) => {
     return {
-      label: buildResumeTaskOptionLabel(timeString, title, repo, maxTimeStringLength, columns),
+      label: buildResumeTaskOptionLabel(timeString, title, repo, maxTimeStringLength, optionLabelColumns),
       value: id
     };
   });
