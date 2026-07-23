@@ -104,55 +104,38 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
           ? String(error.code)
           : undefined
       if (code !== 'EEXIST') throw error
-      let stale = false
+      // Read identity and age from the same observation, so staleness and the
+      // token refer to one instance of the lock.
+      let observedToken: string
+      let observedMtimeMs: number
       try {
-        const lock = statSync(lockPath)
-        stale = Date.now() - lock.mtimeMs > LOCK_STALE_MS
+        observedToken = readFileSync(lockPath, 'utf8')
+        observedMtimeMs = statSync(lockPath).mtimeMs
       } catch {
-        // Lock vanished between open and stat; retry the create immediately.
+        // Vanished between the failed create and the read; retry immediately.
         continue
       }
-      if (stale) {
-        // Record the token we observed as stale so recovery can prove it is
-        // discarding the SAME lock and not a live replacement written between
-        // the staleness check and the steal.
-        let observedToken: string | undefined
+      if (Date.now() - observedMtimeMs > LOCK_STALE_MS) {
+        // Recovery never renames the lock away and never puts one back. Moving a
+        // live lock — even briefly — empties the pathname so a third process can
+        // acquire it, and a crash mid-recovery would orphan the holder's lock;
+        // restoring by rename would then replace whatever it acquired. Instead,
+        // re-read the token immediately before unlinking so only the exact
+        // abandoned instance is removed: a lock created or refreshed meanwhile
+        // carries a different token and is left untouched.
+        let released = false
         try {
-          observedToken = readFileSync(lockPath, 'utf8')
+          if (readFileSync(lockPath, 'utf8') === observedToken) {
+            rmSync(lockPath, { force: true })
+            released = true
+          }
         } catch {
-          // Vanished already; retry the create immediately.
-          continue
+          // Already gone; the create below will race for it normally.
+          released = true
         }
-        const stealPath = `${lockPath}.${token}.stale`
-        let stolen = false
-        try {
-          // Atomic: only one racer can rename a given inode away.
-          renameSync(lockPath, stealPath)
-          stolen = true
-        } catch {
-          // Another racer already claimed it, or a live holder keeps it open
-          // (Windows cannot rename an open file); fall through to the wait.
-        }
-        if (stolen) {
-          let stolenToken: string | undefined
-          try {
-            stolenToken = readFileSync(stealPath, 'utf8')
-          } catch {
-            // Already gone; nothing to revalidate.
-          }
-          if (stolenToken === undefined || stolenToken === observedToken) {
-            // Exactly the stale lock we observed (or already gone): drop it.
-            rmSync(stealPath, { force: true })
-            continue
-          }
-          // A live replacement slipped in and we renamed it away. Fail closed:
-          // put it back and wait rather than remove a lock we do not own.
-          try {
-            renameSync(stealPath, lockPath)
-          } catch {
-            rmSync(stealPath, { force: true })
-          }
-        }
+        // Two racers may both unlink the same abandoned lock; that is harmless
+        // because only one can then win the exclusive create.
+        if (released) continue
       }
       if (Date.now() >= deadline) {
         throw new Error('Timed out waiting for the AI/ML API checkout state lock.')
@@ -164,9 +147,12 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   try {
     return operation()
   } finally {
-    // Only remove a lock this holder still owns. A stale-lock steal may have
-    // replaced ours with another process's lock; deleting that would admit a
-    // third process while the second still mutates the checkout state.
+    // Only remove a lock this holder still owns: if recovery replaced ours after
+    // it went stale, deleting the replacement would admit a third process while
+    // its owner is still mutating the checkout state. Node can only unlink by
+    // pathname, so the token re-read immediately before the unlink is what binds
+    // the removal to this holder; the remaining window is bounded by that pair
+    // of calls and cannot be closed without an inode-aware unlink.
     try {
       if (readFileSync(lockPath, 'utf8') === token) {
         rmSync(lockPath, { force: true })
