@@ -1,8 +1,20 @@
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 import { isPlanFilePath } from './filesystem.js'
-import { encodeAgentIdForPlanFile } from '../plans.js'
+import {
+  encodeAgentIdForPlanFile,
+  readAndMigrateLegacyPlan,
+} from '../plans.js'
 
 // isPlanFilePath gates two permission carve-outs in checkEditableInternalPath /
 // checkReadableInternalPath: a plan file for the current session is auto-allowed
@@ -106,4 +118,56 @@ test('normalizes traversal segments before matching', () => {
   expect(
     isPlanFilePath(PLANS, SLUG, join(PLANS, '..', 'evil', `${SLUG}.md`)),
   ).toBe(false)
+})
+
+describe('legacy plan file recovery', () => {
+  // Escaping changed the pathname for teammates whose id already contained a
+  // separator, and every reader now builds the escaped name. Without recovery
+  // an existing plan reads as missing on upgrade and a second file is created
+  // beside it, silently orphaning the teammate's work.
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'planmigrate-'))
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('reads a plan written under the unescaped name and moves it', () => {
+    const legacyDir = join(dir, `${SLUG}-agent-writer@a`)
+    mkdirSync(legacyDir, { recursive: true })
+    const legacy = join(legacyDir, 'b.md')
+    const escaped = join(
+      dir,
+      `${SLUG}-agent-${encodeAgentIdForPlanFile('writer@a/b')}.md`,
+    )
+    writeFileSync(legacy, 'the plan')
+
+    expect(readAndMigrateLegacyPlan(legacy, escaped)).toBe('the plan')
+    // Moved, not copied: the escaped name is the one the permission carve-out
+    // recognizes, so leaving it behind would keep prompting on every write.
+    expect(existsSync(escaped)).toBe(true)
+    expect(existsSync(legacy)).toBe(false)
+    expect(readFileSync(escaped, 'utf-8')).toBe('the plan')
+    // And the migrated path is one the predicate accepts.
+    expect(isPlanFilePath(dir, SLUG, escaped)).toBe(true)
+  })
+
+  test('returns null when there is no legacy file', () => {
+    const escaped = join(dir, `${SLUG}-agent-writer%2Fb.md`)
+    expect(
+      readAndMigrateLegacyPlan(join(dir, `${SLUG}-agent-nothing.md`), escaped),
+    ).toBeNull()
+  })
+
+  test('does nothing when the id needed no escaping', () => {
+    // The overwhelmingly common case: both names are identical, so there is no
+    // legacy file to look for and no move to make.
+    const path = join(dir, `${SLUG}-agent-abc123.md`)
+    writeFileSync(path, 'plan')
+    expect(readAndMigrateLegacyPlan(path, path)).toBeNull()
+    expect(existsSync(path)).toBe(true)
+  })
 })
