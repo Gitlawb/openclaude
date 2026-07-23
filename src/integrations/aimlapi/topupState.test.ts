@@ -300,6 +300,62 @@ test('top-up state is cleared only by its matching intent', () => {
   expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
+test('saving merges retained fields instead of dropping them', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  expect(
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'session',
+      apiKey: 'k_issued',
+      apiKeyId: 'id_issued',
+      model: 'gpt-4o',
+    }),
+  ).toBe(true)
+
+  // A later partial update carries no key fields. Overwriting verbatim would
+  // wipe the issued credential and make the next run mint a second key.
+  expect(
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'refreshed',
+    }),
+  ).toBe(true)
+
+  const stored = loadAimlapiTopupState(intent)
+  expect(stored?.resumeSessionToken).toBe('refreshed')
+  expect(stored?.apiKey).toBe('k_issued')
+  expect(stored?.apiKeyId).toBe('id_issued')
+  expect(stored?.model).toBe('gpt-4o')
+})
+
+test('claiming a different intent refuses to discard an issued key', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: '',
+    apiKey: 'k_issued',
+    apiKeyId: 'id_issued',
+  })
+
+  // A different amount is a different checkout; silently replacing the record
+  // would discard a provisioned - possibly already paid for - credential.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    'still holds an issued key',
+  )
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('k_issued')
+
+  // Clearing it explicitly is the documented way to start over.
+  clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
+  expect(
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }).paymentSessionId,
+  ).toBeTruthy()
+})
+
 test('claiming the same checkout intent reuses one payment id', () => {
   useTemporaryConfig()
   const first = claimAimlapiTopupState(intent)
