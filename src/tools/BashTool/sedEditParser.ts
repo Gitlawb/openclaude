@@ -186,11 +186,26 @@ function convertBrePatternToJs(pattern: string): string | null {
  * translate: `\1`-`\9` are backreferences, `&` is the whole match, `\n`/`\t`
  * are escapes, and `\U`/`\L` (GNU) case-fold. The simulator passes the
  * replacement to String.replace as-is, so `s/\(a\)\{2\}/\1/` writes the two
- * literal characters `\1` where sed writes `a`. Decline anything carrying a
- * backslash or an unescaped `&`.
+ * literal characters `\1` where sed writes `a`.
+ *
+ * `\/` and `\&` are the exceptions: both denote a literal character, and the
+ * translation below already handles them, so rejecting them would send
+ * ordinary commands like `s/foo/path\/to/` back to the generic bash approval
+ * for no reason. Every other backslash escape, and a bare `&` (sed's
+ * whole-match token), declines.
  */
 function isFaithfullyLiteralReplacement(replacement: string): boolean {
-  return !replacement.includes('\\') && !replacement.includes('&')
+  for (let i = 0; i < replacement.length; i++) {
+    const char = replacement[i]!
+    if (char === '\\') {
+      const escaped = replacement[i + 1]
+      if (escaped !== '/' && escaped !== '&') return false
+      i++
+      continue
+    }
+    if (char === '&') return false
+  }
+  return true
 }
 
 /**
@@ -449,6 +464,13 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
     return null
   }
 
+  // The emitted regex counts characters, which is only what sed does in a
+  // UTF-8 locale; under a byte locale it counts bytes and writes a different
+  // file.
+  if (!sedLocaleCountsCharacters()) {
+    return null
+  }
+
   // Only claim this is a renderable sed edit if we can reproduce it faithfully.
   // Declining falls back to ordinary bash rendering, which is far better than
   // showing the user a diff that does not match what sed will write.
@@ -584,7 +606,57 @@ function canSimulateFaithfully(
 
   if (flags.includes('g') && regex.test('')) return false
 
+  if (hasNestedQuantifier(jsPattern)) return false
+
   return true
+}
+
+/**
+ * Whether a quantifier is applied to a group that already contains one.
+ *
+ * Interval support means `\(a\{1,\}\)\{1,\}b` translates to `(a{1,}){1,}b` and
+ * otherwise passes this gate. On a run of `a`s with no `b`, matching that
+ * backtracks exponentially -- and applySedSubstitution runs synchronously while
+ * the permission request is being rendered, so a command plus a repository file
+ * can stall the approval UI before the user gets to decide. There is no useful
+ * preview to salvage here, so decline.
+ */
+function hasNestedQuantifier(jsSource: string): boolean {
+  const isQuantifierStart = (char: string | undefined): boolean =>
+    char === '*' || char === '+' || char === '?' || char === '{'
+
+  for (let i = 0; i < jsSource.length; i++) {
+    const char = jsSource[i]!
+    if (char === '\\') {
+      i++
+      continue
+    }
+    if (char !== ')' || !isQuantifierStart(jsSource[i + 1])) continue
+
+    // Walk back to this group's opening paren, then look for a quantifier
+    // inside it. Escaped parens are literals and do not open or close a group.
+    let depth = 0
+    for (let j = i; j >= 0; j--) {
+      if (j > 0 && jsSource[j - 1] === '\\') continue
+      const inner = jsSource[j]!
+      if (inner === ')') depth++
+      else if (inner === '(') {
+        depth--
+        if (depth === 0) {
+          const body = jsSource.slice(j + 1, i)
+          for (let k = 0; k < body.length; k++) {
+            if (body[k] === '\\') {
+              k++
+              continue
+            }
+            if (isQuantifierStart(body[k])) return true
+          }
+          break
+        }
+      }
+    }
+  }
+  return false
 }
 
 /**
@@ -607,6 +679,33 @@ function jsRegexFlags(sedFlags: string): string {
   let flags = 'us'
   if (sedFlags.includes('g')) flags += 'g'
   return flags
+}
+
+/**
+ * Whether the locale sed will inherit makes character-wise matching correct.
+ *
+ * The emitted regex always carries `u`, which is required for a quantifier to
+ * count characters the way sed does in a UTF-8 locale. But the command inherits
+ * the process locale, and in a byte locale (`LC_ALL=C`) sed counts bytes
+ * instead: `s/.\{2\}/X/` on "😀a" consumes two bytes of the emoji and leaves
+ * the rest of it in the file, where the simulation consumes the whole
+ * character. Since an approved preview is written directly, that is a different
+ * file.
+ *
+ * POSIX resolves the locale as LC_ALL, then LC_CTYPE, then LANG, and an unset
+ * or empty locale means the C locale -- so require an explicit UTF-8 codeset
+ * rather than assuming one. Declining costs only the specialized diff; the
+ * command still renders as an ordinary bash approval.
+ *
+ * Exported for testing.
+ */
+export function sedLocaleCountsCharacters(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || ''
+  // Either a codeset suffix ("en_US.UTF-8", "de_DE.utf8@euro") or the bare
+  // codeset, which is what macOS sets for LC_CTYPE.
+  return /(^|[.@])utf-?8($|@)/i.test(locale)
 }
 
 /**

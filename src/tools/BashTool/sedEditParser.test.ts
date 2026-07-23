@@ -1,10 +1,26 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
 import {
   applySedSubstitution,
   parseSedEditCommand,
+  sedLocaleCountsCharacters,
   type SedEditInfo,
 } from './sedEditParser.js'
+
+// Simulation is only claimed in a UTF-8 locale (see sedLocaleCountsCharacters),
+// and CI machines do not reliably set one. Pin it so these cases exercise the
+// translation rather than the locale gate; the gate has its own tests below.
+const savedLcAll = process.env.LC_ALL
+beforeAll(() => {
+  process.env.LC_ALL = 'en_US.UTF-8'
+})
+afterAll(() => {
+  if (savedLcAll === undefined) {
+    delete process.env.LC_ALL
+  } else {
+    process.env.LC_ALL = savedLcAll
+  }
+})
 
 function sedInfo(pattern: string, replacement: string, extendedRegex = false): SedEditInfo {
   return {
@@ -384,5 +400,100 @@ describe('case-insensitive matching is declined', () => {
     expect(
       parseSedEditCommand("sed -i '' 's/k/X/g' example.txt"),
     ).not.toBeNull()
+  })
+})
+
+describe('locale-sensitive matching is declined outside UTF-8', () => {
+  test('declines when sed would count bytes rather than characters', () => {
+    // The emitted regex carries `u` so a quantifier counts characters. That is
+    // sed's behavior in a UTF-8 locale only: under LC_ALL=C, `s/.\{2\}/X/` on
+    // "😀a" consumes two bytes of the emoji and leaves the rest in the file.
+    for (const locale of ['C', 'POSIX', 'en_US.ISO-8859-1']) {
+      expect(sedLocaleCountsCharacters({ LC_ALL: locale })).toBe(false)
+    }
+    // POSIX resolves an unset or empty locale to C.
+    expect(sedLocaleCountsCharacters({})).toBe(false)
+    expect(sedLocaleCountsCharacters({ LC_ALL: '' , LANG: ''})).toBe(false)
+  })
+
+  test('accepts the UTF-8 spellings that actually occur', () => {
+    expect(sedLocaleCountsCharacters({ LC_ALL: 'en_US.UTF-8' })).toBe(true)
+    expect(sedLocaleCountsCharacters({ LANG: 'de_DE.utf8' })).toBe(true)
+    // macOS sets the bare codeset for LC_CTYPE.
+    expect(sedLocaleCountsCharacters({ LC_CTYPE: 'UTF-8' })).toBe(true)
+    expect(sedLocaleCountsCharacters({ LANG: 'fr_FR.UTF-8@euro' })).toBe(true)
+  })
+
+  test('honours the POSIX precedence order', () => {
+    // LC_ALL overrides everything; LC_CTYPE overrides LANG.
+    expect(
+      sedLocaleCountsCharacters({ LC_ALL: 'C', LC_CTYPE: 'en_US.UTF-8' }),
+    ).toBe(false)
+    expect(sedLocaleCountsCharacters({ LC_CTYPE: 'C', LANG: 'en_US.UTF-8' })).toBe(
+      false,
+    )
+    expect(sedLocaleCountsCharacters({ LANG: 'en_US.UTF-8' })).toBe(true)
+  })
+
+  test('claims no sed edit at all under a byte locale', () => {
+    const saved = process.env.LC_ALL
+    process.env.LC_ALL = 'C'
+    try {
+      expect(
+        parseSedEditCommand("sed -i '' 's/a\\{2\\}/X/g' example.txt"),
+      ).toBeNull()
+    } finally {
+      process.env.LC_ALL = saved
+    }
+  })
+})
+
+describe('patterns that can stall the approval UI are declined', () => {
+  const cmd = (expr: string) => `sed -i '' '${expr}' example.txt`
+
+  test('declines a quantified group that already contains a quantifier', () => {
+    // `(a{1,}){1,}b` backtracks exponentially on a run of `a`s with no `b`, and
+    // applySedSubstitution runs synchronously while the permission request is
+    // rendered -- so this freezes the approval UI before the user can decide.
+    expect(parseSedEditCommand(cmd('s/\\(a\\{1,\\}\\)\\{1,\\}b/X/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/\\(a*\\)\\{2\\}b/X/'))).toBeNull()
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/(a+)+b/X/' example.txt"),
+    ).toBeNull()
+  })
+
+  test('still accepts a quantified group with no inner quantifier', () => {
+    const info = parseSedEditCommand(cmd('s/\\(ab\\)\\{2\\}/X/g'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('abab ab', info!)).toBe('X ab')
+  })
+
+  test('still accepts an inner quantifier when the group is not quantified', () => {
+    const info = parseSedEditCommand(cmd('s/\\(a\\{2\\}\\)b/X/g'))
+    expect(info).not.toBeNull()
+    expect(applySedSubstitution('aab ab', info!)).toBe('X ab')
+  })
+})
+
+describe('literal replacement escapes keep their preview', () => {
+  const cmd = (expr: string) => `sed -i '' '${expr}' example.txt`
+
+  test('accepts the two escapes the translation already handles', () => {
+    // Rejecting these sent ordinary commands back to the generic bash approval
+    // even though applySedSubstitution translates both faithfully.
+    const slash = parseSedEditCommand(cmd('s/foo/path\\/to/'))
+    expect(slash).not.toBeNull()
+    expect(applySedSubstitution('foo\n', slash!)).toBe('path/to\n')
+
+    const amp = parseSedEditCommand(cmd('s/foo/a\\&b/'))
+    expect(amp).not.toBeNull()
+    expect(applySedSubstitution('foo\n', amp!)).toBe('a&b\n')
+  })
+
+  test('still declines backreferences, case folding and a bare &', () => {
+    expect(parseSedEditCommand(cmd('s/\\(a\\)/\\1/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/\\U&/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/\\n/'))).toBeNull()
+    expect(parseSedEditCommand(cmd('s/a/x&y/'))).toBeNull()
   })
 })
