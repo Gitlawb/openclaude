@@ -1927,15 +1927,21 @@ export const fetchToolsForClient = memoizeWithLRU(
 
               // Emit progress when tool starts
               if (onProgress && toolUseId) {
-                onProgress({
-                  toolUseID: toolUseId,
-                  data: {
-                    type: 'mcp_progress',
-                    status: 'started',
-                    serverName: client.name,
-                    toolName: tool.name,
-                  },
-                })
+                try {
+                  onProgress({
+                    toolUseID: toolUseId,
+                    data: {
+                      type: 'mcp_progress',
+                      status: 'started',
+                      serverName: client.name,
+                      toolName: tool.name,
+                    },
+                  })
+                } catch (error) {
+                  // A throwing progress consumer must not prevent the MCP
+                  // request from starting.
+                  logMCPError(client.name, error)
+                }
               }
 
               const startTime = Date.now()

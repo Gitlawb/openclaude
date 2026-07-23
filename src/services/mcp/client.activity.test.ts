@@ -155,6 +155,62 @@ describe('MCP tool activity', () => {
     expect(onProgress).toHaveBeenCalledTimes(progressCountAfterCompletion)
   })
 
+  test('a throwing started callback does not prevent the tool call', async () => {
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(async () => ({
+        content: [{ type: 'text', text: 'done' }],
+      })),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'started-throw-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+    const [tool] = await fetchToolsForClient(connection)
+    expect(tool).toBeDefined()
+    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
+      if (data.status === 'started') {
+        throw new Error('progress consumer failure')
+      }
+    })
+    const parentMessage = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_started_throw',
+          name: tool!.name,
+          input: {},
+        },
+      ],
+    })
+
+    await expect(
+      tool!.call(
+        {},
+        {
+          abortController: new AbortController(),
+          setAppState: vi.fn(),
+        } as never,
+        undefined as never,
+        parentMessage,
+        onProgress,
+      ),
+    ).resolves.toMatchObject({
+      data: [{ type: 'text', text: 'done' }],
+    })
+    expect(sdkClient.callTool).toHaveBeenCalledTimes(1)
+  })
+
   test('a throwing progress callback does not break the tool call', async () => {
     vi.useFakeTimers()
     let resolveToolCall: ((result: unknown) => void) | undefined
