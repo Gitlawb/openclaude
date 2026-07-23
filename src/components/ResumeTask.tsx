@@ -30,6 +30,7 @@ export function ResumeTask({
   isEmbedded = false
 }: Props): React.ReactNode {
   const {
+    columns,
     rows
   } = useTerminalSize();
   const [sessions, setSessions] = useState<CodeSession[]>([]);
@@ -167,7 +168,7 @@ export function ResumeTask({
     id
   }) => {
     return {
-      label: buildResumeTaskOptionLabel(timeString, title, repo, maxTimeStringLength),
+      label: buildResumeTaskOptionLabel(timeString, title, repo, maxTimeStringLength, columns),
       value: id
     };
   });
@@ -194,7 +195,7 @@ export function ResumeTask({
           <Text bold>
             {UPDATED_STRING.padEnd(maxTimeStringLength, ' ')}
             {SPACE_BETWEEN_TABLE_COLUMNS}
-            {'Session Title'}
+            {'Session / Repository'}
           </Text>
         </Box>
         <Select visibleOptionCount={maxVisibleOptions} options={options} onChange={value => {
