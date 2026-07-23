@@ -1,14 +1,9 @@
-export type ResumeTaskRepo = {
-  name: string
-  owner: {
-    login: string
-  }
-} | null
+import type { CodeSession } from 'src/utils/teleport/api.js'
 
 export function buildResumeTaskOptionLabel(
   timeString: string,
   title: string,
-  repo: ResumeTaskRepo,
+  repo: CodeSession['repo'],
   maxTimeStringLength: number,
   terminalColumns?: number,
 ): string {
@@ -40,4 +35,14 @@ export function buildResumeTaskOptionLabel(
   }
 
   return `${baseLabel}${repoCharacters.slice(0, availableRepoLabelWidth - 1).join('')}…`
+}
+
+export function getResumeTaskOptionLabelColumns(
+  terminalColumns: number,
+  optionCount: number,
+): number {
+  const indexColumnWidth = String(optionCount).length + 2
+  const rowChromeWidth = 2 + indexColumnWidth + 2
+
+  return Math.max(0, terminalColumns - rowChromeWidth)
 }

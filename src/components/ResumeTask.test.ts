@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test'
 
-import { buildResumeTaskOptionLabel } from './resumeTaskLabel.js'
+import {
+  buildResumeTaskOptionLabel,
+  getResumeTaskOptionLabelColumns,
+} from './resumeTaskLabel.js'
 
 const repo = {
   name: 'openclaude',
@@ -21,4 +24,19 @@ test('buildResumeTaskOptionLabel truncates the repository suffix for narrow term
   expect(
     buildResumeTaskOptionLabel('Updated', 'Investigate OAuth callback', repo, 7, 41),
   ).toBe('Updated  Investigate OAuth callback  Git…')
+})
+
+test('getResumeTaskOptionLabelColumns reserves select chrome width', () => {
+  const labelColumns = getResumeTaskOptionLabelColumns(41, 10)
+
+  expect(labelColumns).toBe(33)
+  expect(
+    buildResumeTaskOptionLabel(
+      'Updated',
+      'Investigate OAuth callback',
+      repo,
+      7,
+      labelColumns,
+    ),
+  ).toBe('Updated  Investigate OAuth callback')
 })
