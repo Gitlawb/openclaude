@@ -177,10 +177,66 @@ export function getPlan(agentId?: AgentId): string | null {
   try {
     return getFsImplementation().readFileSync(filePath, { encoding: 'utf-8' })
   } catch (error) {
-    if (isENOENT(error)) return null
-    logError(error)
+    if (!isENOENT(error)) {
+      logError(error)
+      return null
+    }
+    return readLegacyUnescapedPlan(agentId, filePath)
+  }
+}
+
+/**
+ * Recover a plan written before agent IDs were escaped into the filename.
+ *
+ * Team names have always accepted arbitrary nonblank text, so plans for ids
+ * like `writer@a/b` or `writer@100%` are already on disk under the raw name.
+ * Every reader now builds the escaped name, so without this the teammate's plan
+ * reads as missing on upgrade and a second file is created beside it.
+ *
+ * Moving it is what makes the recovery stick: the escaped name is the one the
+ * permission carve-out recognizes, so a plan left at the old path would keep
+ * falling through to ordinary permission handling on every later write.
+ * A failed move is not fatal -- the content was already read.
+ *
+ * Exported for testing.
+ */
+export function readAndMigrateLegacyPlan(
+  legacyPath: string,
+  escapedPath: string,
+): string | null {
+  if (legacyPath === escapedPath) return null
+
+  let contents: string
+  try {
+    contents = getFsImplementation().readFileSync(legacyPath, {
+      encoding: 'utf-8',
+    })
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
     return null
   }
+
+  try {
+    getFsImplementation().renameSync(legacyPath, escapedPath)
+  } catch (error) {
+    logForDebugging(
+      `Could not move legacy plan file ${legacyPath} to ${escapedPath}: ${error instanceof Error ? error.message : error}`,
+      { level: 'warn' },
+    )
+  }
+  return contents
+}
+
+function readLegacyUnescapedPlan(
+  agentId: AgentId | undefined,
+  escapedPath: string,
+): string | null {
+  if (!agentId) return null
+  const legacyPath = join(
+    getPlansDirectory(),
+    `${getPlanSlug(getSessionId())}-agent-${agentId}.md`,
+  )
+  return readAndMigrateLegacyPlan(legacyPath, escapedPath)
 }
 
 /**
