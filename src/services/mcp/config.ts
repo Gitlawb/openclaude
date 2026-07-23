@@ -66,6 +66,13 @@ export function getEnterpriseMcpFilePath(): string {
 /**
  * Internal utility: Add scope to server configs
  */
+/**
+ * Server names that cannot survive a write/read round trip, so they are refused
+ * at every ingress rather than accepted and lost. See addMcpConfig and
+ * parseMcpConfig for what each one does.
+ */
+const RESERVED_MCP_SERVER_NAMES: readonly string[] = ['__proto__', 'constructor']
+
 function addScopeToServers(
   servers: Record<string, McpServerConfig> | undefined,
   scope: ConfigScope,
@@ -633,10 +640,13 @@ export async function addMcpConfig(
     )
   }
 
-  // "__proto__" passes the character check but cannot be stored: assigning it
-  // on a plain object invokes the prototype setter instead of creating an own
+  // These pass the character check but cannot be stored and read back.
+  // "__proto__" assigns through the prototype setter instead of creating an own
   // property, so the server would be reported as added and silently vanish.
-  if (name === '__proto__') {
+  // "constructor" persists, but the config schema then rejects the entire
+  // mcpServers object on the next read -- so adding it takes down every other
+  // server in that scope as well.
+  if (RESERVED_MCP_SERVER_NAMES.includes(name)) {
     throw new Error(`Cannot add MCP server "${name}": this name is reserved.`)
   }
 
@@ -1318,53 +1328,58 @@ export function parseMcpConfig(params: {
   errors: ValidationError[]
 } {
   const { configObject, expandVars, scope, filePath } = params
+
+  // A hand-authored .mcp.json can contain one of these names, and neither
+  // survives being read back. "__proto__" cannot be copied onto a plain object
+  // -- the assignment invokes the prototype setter instead of creating an own
+  // property -- so the schema's rebuild drops it silently. "constructor" is
+  // worse: the schema rejects the whole mcpServers object, so every other
+  // server in that scope stops loading too. Either way nothing said which
+  // entry was at fault. Name it.
+  const reservedNameErrors: ValidationError[] = []
+  const rawServers = (configObject as { mcpServers?: unknown } | null)
+    ?.mcpServers
+  if (rawServers !== null && typeof rawServers === 'object') {
+    for (const reserved of RESERVED_MCP_SERVER_NAMES) {
+      if (!Object.hasOwn(rawServers, reserved)) continue
+      reservedNameErrors.push({
+        ...(filePath && { file: filePath }),
+        path: `mcpServers.${reserved}`,
+        message: `Invalid MCP server name "${reserved}": this name is reserved.`,
+        suggestion: `Rename the "${reserved}" entry under mcpServers.`,
+        mcpErrorMetadata: {
+          scope,
+          serverName: reserved,
+          severity: 'fatal',
+        },
+      })
+    }
+  }
+
   const schemaResult = McpJsonConfigSchema().safeParse(configObject)
   if (!schemaResult.success) {
     return {
       config: null,
-      errors: schemaResult.error.issues.map(issue => ({
-        ...(filePath && { file: filePath }),
-        path: issue.path.join('.'),
-        message: 'Does not adhere to MCP server configuration schema',
-        mcpErrorMetadata: {
-          scope,
-          severity: 'fatal',
-        },
-      })),
+      errors: [
+        ...reservedNameErrors,
+        ...schemaResult.error.issues.map(
+          (issue): ValidationError => ({
+            ...(filePath && { file: filePath }),
+            path: issue.path.join('.'),
+            message: 'Does not adhere to MCP server configuration schema',
+            mcpErrorMetadata: {
+              scope,
+              severity: 'fatal',
+            },
+          }),
+        ),
+      ],
     }
   }
 
   // Validate each server and expand variables if requested
-  const errors: ValidationError[] = []
+  const errors: ValidationError[] = [...reservedNameErrors]
   const validatedServers: Record<string, McpServerConfig> = {}
-
-  // A hand-authored .mcp.json can contain a server named "__proto__".
-  // JSON.parse gives it a real own key, but it cannot survive being copied
-  // onto a plain object -- the assignment invokes the prototype setter instead
-  // of creating an own property -- so the schema's own rebuild already drops
-  // it before the loop below runs. The entry then simply does not exist, with
-  // no diagnostic, and the user cannot tell why their server never starts.
-  // addMcpConfig refuses this name outright; report the same rejection for
-  // file config instead of discarding it silently.
-  const rawServers = (configObject as { mcpServers?: unknown } | null)
-    ?.mcpServers
-  if (
-    rawServers !== null &&
-    typeof rawServers === 'object' &&
-    Object.hasOwn(rawServers, '__proto__')
-  ) {
-    errors.push({
-      ...(filePath && { file: filePath }),
-      path: 'mcpServers.__proto__',
-      message: 'Invalid MCP server name "__proto__": this name is reserved.',
-      suggestion: 'Rename the "__proto__" entry under mcpServers.',
-      mcpErrorMetadata: {
-        scope,
-        serverName: '__proto__',
-        severity: 'fatal',
-      },
-    })
-  }
 
   for (const [name, config] of Object.entries(schemaResult.data.mcpServers)) {
     let configToCheck = config

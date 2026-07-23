@@ -91,6 +91,15 @@ test('returns null for Object.prototype member names', () => {
   }
 })
 
+test('rejects adding a server under a reserved name', async () => {
+  // "constructor" persists, but the schema then rejects the whole mcpServers
+  // object on the next read -- so adding it takes down every other server in
+  // that scope too.
+  await expect(
+    addMcpConfig('constructor', { command: 'echo', args: [] }, 'user'),
+  ).rejects.toThrow('reserved')
+})
+
 test('rejects adding a server named __proto__', async () => {
   // "__proto__" passes the character check but assigning it on a plain object
   // hits the prototype setter, so the server would be reported as added and
@@ -142,4 +151,25 @@ test('still allows adding and removing a real server name', async () => {
   expect(getMcpConfigByName('addedserver')).not.toBeNull()
   await removeMcpConfig('addedserver', 'user')
   expect(getMcpConfigByName('addedserver')).toBeNull()
+})
+
+test('names a reserved constructor entry instead of failing the whole file', () => {
+  // The schema rejects the entire mcpServers object for this name, so every
+  // other server in the scope stops loading. Before, the only diagnostic was a
+  // generic "does not adhere to schema" against `mcpServers`, which does not
+  // say which entry is at fault.
+  const { errors } = parseMcpConfig({
+    configObject: JSON.parse(
+      '{"mcpServers":{"constructor":{"command":"echo","args":[]},' +
+        '"realone":{"command":"echo","args":[]}}}',
+    ),
+    expandVars: false,
+    scope: 'project',
+    filePath: '/tmp/.mcp.json',
+  })
+
+  const named = errors.find(e => e.path === 'mcpServers.constructor')
+  expect(named).toBeDefined()
+  expect(named?.message).toContain('reserved')
+  expect(named?.mcpErrorMetadata?.severity).toBe('fatal')
 })
