@@ -1,18 +1,16 @@
 import {
   chmodSync,
-  closeSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
+import * as lockfile from '../../utils/lockfile.js'
 
 export type AimlapiTopupIntent = {
   email: string
@@ -48,7 +46,7 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
   settled?: boolean
 }
 
-type AimlapiCheckoutState = Pick<
+export type AimlapiCheckoutState = Pick<
   AimlapiPersistedTopup,
   | 'paymentSessionId'
   | 'resumeSessionToken'
@@ -65,6 +63,9 @@ function statePath(): string {
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
 const LOCK_STALE_MS = 30_000
+/** Owner-only file/dir modes; these records hold API credentials. */
+const FILE_MODE = 0o600
+const DIR_MODE = 0o700
 const INTENT_KEYS: ReadonlyArray<keyof AimlapiTopupIntent> = [
   'email',
   'amountUsdMinor',
@@ -79,86 +80,63 @@ function waitForLock(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS)
 }
 
-function withStateLock<T>(operation: () => T, target: string = statePath()): T {
-  const lockPath = `${target}.lock`
-  mkdirSync(dirname(target), { recursive: true })
-  const deadline = Date.now() + LOCK_TIMEOUT_MS
-  // Ownership token written into the lock so recovery can tell this holder's
-  // lock apart from a replacement another process wrote after stealing a stale
-  // lock.
-  const token = `${process.pid}.${randomUUID()}`
-  let held = false
+function ensureOwnerOnlyDir(target: string): void {
+  const dir = dirname(target)
+  mkdirSync(dir, { recursive: true, mode: DIR_MODE })
+  // mkdir's mode is masked by umask, and the directory may already exist with a
+  // permissive mode, so tighten it explicitly. Best-effort: platforms without
+  // POSIX modes (Windows) simply ignore this.
+  try {
+    chmodSync(dir, DIR_MODE)
+  } catch {
+    // No POSIX permissions to enforce here.
+  }
+}
 
-  while (!held) {
+/**
+ * Serialize checkout-state mutations through the shared `proper-lockfile`
+ * wrapper rather than a bespoke advisory lock: its mkdir-based acquire is atomic
+ * and its release is ownership-aware, so a holder cannot delete a lock another
+ * process re-acquired after ours went stale. We keep a retry-until-deadline loop
+ * so contending callers converge on the single stored payment session instead of
+ * failing outright.
+ */
+function withStateLock<T>(operation: () => T, target: string = statePath()): T {
+  ensureOwnerOnlyDir(target)
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  let release: (() => void) | undefined
+  while (!release) {
     try {
-      const descriptor = openSync(lockPath, 'wx', 0o600)
-      try {
-        writeFileSync(descriptor, token, { encoding: 'utf8' })
-      } finally {
-        closeSync(descriptor)
-      }
-      held = true
+      release = lockfile.lockSync(target, {
+        lockfilePath: `${target}.lock`,
+        stale: LOCK_STALE_MS,
+        // The state file may not exist yet on the first claim, so skip realpath.
+        realpath: false,
+        // The default handler rethrows from a timer (an unhandled exception).
+        // Our critical sections are sub-millisecond, so a compromise only
+        // follows an extreme stall; the release below already tolerates it.
+        onCompromised: () => {},
+      })
     } catch (error) {
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? String(error.code)
           : undefined
-      if (code !== 'EEXIST') throw error
-      // Read identity and age from the same observation, so staleness and the
-      // token refer to one instance of the lock.
-      let observedToken: string
-      let observedMtimeMs: number
-      try {
-        observedToken = readFileSync(lockPath, 'utf8')
-        observedMtimeMs = statSync(lockPath).mtimeMs
-      } catch {
-        // Vanished between the failed create and the read; retry immediately.
-        continue
-      }
-      if (Date.now() - observedMtimeMs > LOCK_STALE_MS) {
-        // Recovery never renames the lock away and never puts one back. Moving a
-        // live lock — even briefly — empties the pathname so a third process can
-        // acquire it, and a crash mid-recovery would orphan the holder's lock;
-        // restoring by rename would then replace whatever it acquired. Instead,
-        // re-read the token immediately before unlinking so only the exact
-        // abandoned instance is removed: a lock created or refreshed meanwhile
-        // carries a different token and is left untouched.
-        let released = false
-        try {
-          if (readFileSync(lockPath, 'utf8') === observedToken) {
-            rmSync(lockPath, { force: true })
-            released = true
-          }
-        } catch {
-          // Already gone; the create below will race for it normally.
-          released = true
-        }
-        // Two racers may both unlink the same abandoned lock; that is harmless
-        // because only one can then win the exclusive create.
-        if (released) continue
-      }
+      if (code !== 'ELOCKED') throw error
       if (Date.now() >= deadline) {
         throw new Error('Timed out waiting for the AI/ML API checkout state lock.')
       }
       waitForLock()
     }
   }
-
   try {
     return operation()
   } finally {
-    // Only remove a lock this holder still owns: if recovery replaced ours after
-    // it went stale, deleting the replacement would admit a third process while
-    // its owner is still mutating the checkout state. Node can only unlink by
-    // pathname, so the token re-read immediately before the unlink is what binds
-    // the removal to this holder; the remaining window is bounded by that pair
-    // of calls and cannot be closed without an inode-aware unlink.
     try {
-      if (readFileSync(lockPath, 'utf8') === token) {
-        rmSync(lockPath, { force: true })
-      }
+      release()
     } catch {
-      // Lock already released or replaced by another owner.
+      // Already released, or the lock was compromised and re-acquired by another
+      // owner; proper-lockfile will not delete a lock that is no longer ours.
     }
   }
 }
@@ -167,38 +145,80 @@ function matchesIntent(
   state: AimlapiPersistedTopup,
   intent: AimlapiTopupIntent,
 ): boolean {
-  return INTENT_KEYS.every(key => state[key] === intent[key])
+  // Compare email case/whitespace-insensitively, matching the sign-in cache, so
+  // resuming with a differently-cased email reuses the same payment session
+  // instead of minting a duplicate one.
+  return INTENT_KEYS.every(key =>
+    key === 'email'
+      ? normalizeEmail(String(state[key])) === normalizeEmail(String(intent[key]))
+      : state[key] === intent[key],
+  )
 }
 
 function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   if (typeof value !== 'object' || value === null) return false
   const state = value as Record<string, unknown>
   return (
+    // Required strings are non-empty and the amount is a non-negative integer.
+    // Read-time and write-time invariants must match (writeAimlapiTopupState
+    // Unlocked enforces the same guard): a record that fails here would persist
+    // but load back as null, orphaning the state and forcing a duplicate
+    // checkout.
     typeof state.email === 'string' &&
+    Boolean(state.email.trim()) &&
     typeof state.amountUsdMinor === 'number' &&
     Number.isSafeInteger(state.amountUsdMinor) &&
+    state.amountUsdMinor >= 0 &&
     typeof state.autoTopUp === 'boolean' &&
     typeof state.partnerId === 'string' &&
+    Boolean(state.partnerId.trim()) &&
     typeof state.partnerName === 'string' &&
     typeof state.appBaseUrl === 'string' &&
+    Boolean(state.appBaseUrl.trim()) &&
     typeof state.inferenceBaseUrl === 'string' &&
+    Boolean(state.inferenceBaseUrl.trim()) &&
     typeof state.paymentSessionId === 'string' &&
     Boolean(state.paymentSessionId.trim()) &&
     typeof state.resumeSessionToken === 'string' &&
-    (state.apiKey === undefined || typeof state.apiKey === 'string') &&
-    (state.apiKeyId === undefined || typeof state.apiKeyId === 'string') &&
+    // Optional key fields, when present, must be non-empty to be usable.
+    (state.apiKey === undefined ||
+      (typeof state.apiKey === 'string' && Boolean(state.apiKey.trim()))) &&
+    (state.apiKeyId === undefined ||
+      (typeof state.apiKeyId === 'string' && Boolean(state.apiKeyId.trim()))) &&
     (state.model === undefined || typeof state.model === 'string') &&
     (state.settled === undefined || typeof state.settled === 'boolean')
   )
 }
 
-function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
+function readJsonFile(path: string): unknown {
+  let text: string
   try {
-    const state: unknown = JSON.parse(readFileSync(statePath(), 'utf8'))
-    return isPersistedTopup(state) ? state : null
+    text = readFileSync(path, 'utf8')
+  } catch (error) {
+    // A missing file is genuinely "no state". A real fs failure (EACCES, EPERM,
+    // ENOTDIR, ...) must NOT masquerade as absent state, or the flow could mint a
+    // duplicate session/key on top of state it simply could not read.
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    ) {
+      return null
+    }
+    throw error
+  }
+  try {
+    return JSON.parse(text)
   } catch {
+    // A corrupt file is unusable; treat it as no state rather than crashing.
     return null
   }
+}
+
+function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
+  const state = readJsonFile(statePath())
+  return isPersistedTopup(state) ? state : null
 }
 
 /**
@@ -206,30 +226,39 @@ function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
  * the temporary is removed even when the write or rename fails.
  */
 function writeJsonAtomic(target: string, data: unknown): void {
-  mkdirSync(dirname(target), { recursive: true })
+  ensureOwnerOnlyDir(target)
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
   try {
     writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, {
       encoding: 'utf8',
       flag: 'wx',
-      mode: 0o600,
+      mode: FILE_MODE,
     })
-    chmodSync(temporary, 0o600)
+    chmodSync(temporary, FILE_MODE)
     renameSync(temporary, target)
   } finally {
-    rmSync(temporary, { force: true })
+    // A cleanup failure must not replace the primary write/rename error
+    // (e.g. ENOSPC, EACCES), which would hide the root cause.
+    try {
+      rmSync(temporary, { force: true })
+    } catch {
+      // Temp file already gone or unremovable; keep the original error.
+    }
   }
 }
 
 function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
+  // Match write-time and read-time invariants: a record that isPersistedTopup
+  // would reject (empty email, negative amount, ...) must fail loudly here
+  // instead of persisting and later loading as null, which would orphan the
+  // state and force a duplicate checkout.
+  if (!isPersistedTopup(state)) {
+    throw new Error('Refusing to persist a malformed AI/ML API checkout state.')
+  }
   writeJsonAtomic(statePath(), state)
 }
 
-export function loadAimlapiTopupState(
-  intent: AimlapiTopupIntent,
-): AimlapiCheckoutState | null {
-  const state = readAimlapiTopupStateUnlocked()
-  if (!state || !matchesIntent(state, intent)) return null
+function toCheckoutState(state: AimlapiPersistedTopup): AimlapiCheckoutState {
   return {
     paymentSessionId: state.paymentSessionId,
     resumeSessionToken: state.resumeSessionToken,
@@ -241,6 +270,33 @@ export function loadAimlapiTopupState(
 }
 
 /**
+ * The stored record, but only while it still belongs to the caller's intent and
+ * payment session. This is the compare-and-swap precondition shared by save,
+ * reset and clear.
+ */
+function matchingStateOrNull(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): AimlapiPersistedTopup | null {
+  const current = readAimlapiTopupStateUnlocked()
+  if (
+    !current ||
+    !matchesIntent(current, expected) ||
+    current.paymentSessionId !== expected.paymentSessionId
+  ) {
+    return null
+  }
+  return current
+}
+
+export function loadAimlapiTopupState(
+  intent: AimlapiTopupIntent,
+): AimlapiCheckoutState | null {
+  const state = readAimlapiTopupStateUnlocked()
+  if (!state || !matchesIntent(state, intent)) return null
+  return toCheckoutState(state)
+}
+
+/**
  * Compare-and-swap: the write only lands while the stored record still belongs
  * to this intent and payment session. Returns whether it was persisted, so a
  * caller can tell an applied update from one dropped because another flow
@@ -248,14 +304,7 @@ export function loadAimlapiTopupState(
  */
 export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
   return withStateLock(() => {
-    const current = readAimlapiTopupStateUnlocked()
-    if (
-      !current ||
-      !matchesIntent(current, state) ||
-      current.paymentSessionId !== state.paymentSessionId
-    ) {
-      return false
-    }
+    if (!matchingStateOrNull(state)) return false
     writeAimlapiTopupStateUnlocked(state)
     return true
   })
@@ -267,14 +316,7 @@ export function claimAimlapiTopupState(
   return withStateLock(() => {
     const existing = readAimlapiTopupStateUnlocked()
     if (existing && matchesIntent(existing, intent)) {
-      return {
-        paymentSessionId: existing.paymentSessionId,
-        resumeSessionToken: existing.resumeSessionToken,
-        apiKey: existing.apiKey,
-        apiKeyId: existing.apiKeyId,
-        model: existing.model,
-        settled: existing.settled,
-      }
+      return toCheckoutState(existing)
     }
     const claimed: AimlapiCheckoutState = {
       paymentSessionId: randomUUID(),
@@ -297,32 +339,17 @@ export function resetAimlapiCheckoutSession(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): AimlapiCheckoutState | null {
   return withStateLock(() => {
-    const current = readAimlapiTopupStateUnlocked()
-    if (
-      !current ||
-      !matchesIntent(current, expected) ||
-      current.paymentSessionId !== expected.paymentSessionId ||
-      !current.apiKey?.trim()
-    ) {
-      return null
-    }
+    const current = matchingStateOrNull(expected)
+    if (!current || !current.apiKey?.trim()) return null
     const next: AimlapiPersistedTopup = {
       ...current,
       paymentSessionId: randomUUID(),
       resumeSessionToken: '',
     }
     writeAimlapiTopupStateUnlocked(next)
-    return {
-      paymentSessionId: next.paymentSessionId,
-      resumeSessionToken: next.resumeSessionToken,
-      apiKey: next.apiKey,
-      apiKeyId: next.apiKeyId,
-      // `next` keeps these on disk, so return them too: a caller that works from
-      // this result rather than re-reading must not lose the chosen model or the
-      // settled marker.
-      model: next.model,
-      settled: next.settled,
-    }
+    // `next` keeps model/settled on disk, so return them too: a caller working
+    // from this result rather than re-reading must not lose them.
+    return toCheckoutState(next)
   })
 }
 
@@ -330,12 +357,7 @@ export function clearAimlapiTopupState(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): void {
   withStateLock(() => {
-    const current = readAimlapiTopupStateUnlocked()
-    if (
-      current &&
-      matchesIntent(current, expected) &&
-      current.paymentSessionId === expected.paymentSessionId
-    ) {
+    if (matchingStateOrNull(expected)) {
       rmSync(statePath(), { force: true })
     }
   })
@@ -373,13 +395,8 @@ function isSignInKey(value: unknown): value is AimlapiSignInKey {
 }
 
 function readSignInKeyUnlocked(): AimlapiSignInKey | null {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(signInKeyPath(), 'utf8'))
-    return isSignInKey(raw) ? raw : null
-  } catch {
-    // Missing/corrupt cache: mint a fresh key.
-    return null
-  }
+  const raw = readJsonFile(signInKeyPath())
+  return isSignInKey(raw) ? raw : null
 }
 
 export function loadAimlapiSignInKey(
@@ -395,9 +412,10 @@ export function saveAimlapiSignInKey(
   apiKey: string,
   apiKeyId: string,
 ): void {
-  if (!apiKey.trim() || !apiKeyId.trim()) return
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail || !apiKey.trim() || !apiKeyId.trim()) return
   const target = signInKeyPath()
-  const record: AimlapiSignInKey = { email: normalizeEmail(email), apiKey, apiKeyId }
+  const record: AimlapiSignInKey = { email: normalizedEmail, apiKey, apiKeyId }
   withStateLock(() => writeJsonAtomic(target, record), target)
 }
 
