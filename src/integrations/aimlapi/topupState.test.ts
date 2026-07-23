@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
@@ -113,7 +114,10 @@ async function claimFromProcesses(
   count: number,
 ): Promise<string[]> {
   const script = join(directory, 'claim-worker.ts')
-  const modulePath = join(import.meta.dir, 'topupState.ts')
+  // A raw absolute path is not a valid ESM specifier (on Windows it is also
+  // backslash-separated), so hand the worker a file:// URL instead of relying on
+  // the runtime tolerating a bare path.
+  const modulePath = pathToFileURL(join(import.meta.dir, 'topupState.ts')).href
   writeFileSync(
     script,
     [
