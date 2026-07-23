@@ -88,8 +88,9 @@ test('a fresh lock held by another process times out instead of corrupting state
   const directory = useTemporaryConfig()
   holdLock(directory, { stale: false })
 
+  // The message names the condition it kept hitting, for diagnosis.
   expect(() => claimAimlapiTopupState(intent)).toThrow(
-    'Timed out waiting for the AI/ML API checkout state lock.',
+    /Timed out waiting for the AI\/ML API checkout state lock \(last: ELOCKED, \d+ retries\)/,
   )
   // Nothing was written behind the held lock.
   expect(existsSync(join(directory, 'aimlapi-topup.json'))).toBe(false)
