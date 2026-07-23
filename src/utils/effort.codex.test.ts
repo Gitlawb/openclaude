@@ -147,6 +147,115 @@ test('gpt-5.4 on the OpenAI provider still supports effort selection', async () 
   ])
 })
 
+test('gpt-5.6 on an Azure custom-route base carries its default high effort from metadata', async () => {
+  // Azure (and regional *.api.openai.com) bases resolve to route 'custom',
+  // whose catalog is empty; the openai-catalog fallback must supply gpt-5.6's
+  // advertised default 'high' instead of the legacy undefined. FAILS pre-fix
+  // (getDefaultEffortForModel returns undefined on route 'custom').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel, getAvailableEffortLevels } =
+      await importFreshEffortModule({
+        provider: 'openai',
+        supportsCodexReasoningEffort: true,
+      })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+    expect(getAvailableEffortLevels('gpt-5.6-sol')).toContain('xhigh')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('gpt-5.6 on a regional OpenAI base carries its default high effort from metadata', async () => {
+  // eu.api.openai.com is an OpenAI-controlled surface (endsWith '.api.openai.com')
+  // that still resolves to route 'custom'; the gated fallback must fire.
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://eu.api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('gpt-5.6 on an arbitrary OpenAI-compatible gateway does NOT get an injected default effort', async () => {
+  // A gateway base resolves to route 'custom' too, but is not a verified
+  // OpenAI/Azure surface — the fallback must NOT fire, so gpt-5.6 stays on
+  // legacy controls (no injected reasoning_effort default). FAILS pre-fix
+  // (the ungated round-3 fallback returned 'high').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).not.toBe('high')
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBeUndefined()
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
 test('gpt-5.3-codex-spark stays without effort controls', async () => {
   const { getAvailableEffortLevels, modelSupportsEffort } =
     await importFreshEffortModule({
@@ -473,6 +582,7 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
   const kimiCodeGateway = (await import('../integrations/gateways/kimi-code.js')).default
 
   expect(moonshotVendor.catalog?.models?.map(model => model.id)).toEqual([
+    'k3',
     'kimi-k2.7-code',
     'kimi-k2.6',
     'kimi-k2.5',
@@ -525,6 +635,37 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
     routeId: 'moonshot',
     catalogEntries: moonshotVendor.catalog?.models ?? [],
   })
+
+  expect(resolveModelReasoningControl('k3')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'high', 'max'],
+    defaultLevel: 'max',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('k3')).toEqual(['low', 'high', 'max'])
+  expect(resolveAppliedEffort('k3', undefined)).toBe('max')
+  expect(resolveAppliedEffort('k3', 'low')).toBe('low')
+  expect(resolveAppliedEffort('k3', 'xhigh')).toBe('max')
+
+  const { resolveAppliedEffort: resolveHicapAppliedEffort } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+      routeId: 'hicap',
+      catalogEntries: [{
+        id: 'hicap-claude-opus-4.8',
+        apiName: 'claude-opus-4.8',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+          wireFormat: 'reasoning_effort',
+        },
+      }],
+    })
+  expect(resolveHicapAppliedEffort('claude-opus-4.8', 'xhigh')).toBe('xhigh')
 
   expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,

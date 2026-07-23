@@ -35,22 +35,6 @@ export const PROVIDER_PRESET_MANIFEST = [
     }
   },
   {
-    "preset": "anthropic",
-    "routeKind": "vendor",
-    "routeId": "anthropic",
-    "vendorId": "anthropic",
-    "description": "Native Claude API (x-api-key auth)",
-    "apiKeyEnvVars": [
-      "ANTHROPIC_API_KEY"
-    ],
-    "baseUrlEnvVars": [
-      "ANTHROPIC_BASE_URL"
-    ],
-    "modelEnvVars": [
-      "ANTHROPIC_MODEL"
-    ]
-  },
-  {
     "preset": "aimlapi",
     "routeKind": "gateway",
     "routeId": "aimlapi",
@@ -67,6 +51,22 @@ export const PROVIDER_PRESET_MANIFEST = [
       "text": "Recommended",
       "color": "success"
     }
+  },
+  {
+    "preset": "anthropic",
+    "routeKind": "vendor",
+    "routeId": "anthropic",
+    "vendorId": "anthropic",
+    "description": "Native Claude API (x-api-key auth)",
+    "apiKeyEnvVars": [
+      "ANTHROPIC_API_KEY"
+    ],
+    "baseUrlEnvVars": [
+      "ANTHROPIC_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "ANTHROPIC_MODEL"
+    ]
   },
   {
     "preset": "dashscope-cn",
@@ -248,6 +248,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     "vendorId": "openai",
     "gatewayId": "ollama",
     "description": "Local or remote Ollama endpoint",
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
+    "preset": "longcat",
+    "routeKind": "vendor",
+    "routeId": "longcat",
+    "vendorId": "longcat",
+    "description": "LongCat OpenAI-compatible API (Meituan)",
+    "label": "LongCat",
+    "name": "LongCat",
+    "apiKeyEnvVars": [
+      "LONGCAT_API_KEY"
+    ],
     "modelEnvVars": [
       "OPENAI_MODEL"
     ]
@@ -508,8 +523,8 @@ export const PROVIDER_PRESET_MANIFEST = [
 export type ProviderPreset = (typeof PROVIDER_PRESET_MANIFEST)[number]['preset']
 export const ORDERED_PROVIDER_PRESETS = [
   "gitlawb-opengateway",
-  "anthropic",
   "aimlapi",
+  "anthropic",
   "dashscope-cn",
   "dashscope-intl",
   "atlas-cloud",
@@ -525,6 +540,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "lmstudio",
   "atomic-chat",
   "ollama",
+  "longcat",
   "minimax",
   "mistral",
   "moonshotai",

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -11,8 +11,10 @@ import {
   convertToolsToResponsesTools,
 } from './codexShim.js'
 import { __test as webSearchToolTest } from '../../tools/WebSearchTool/WebSearchTool.js'
+import { setToolHistoryCompressionEnabledOverrideForTest } from './compressToolHistory.js'
 
 const tempDirs: string[] = []
+const originalFetch = globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
@@ -26,6 +28,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    globalThis.fetch = originalFetch
     if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
     else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
 
@@ -751,6 +754,84 @@ describe('Codex request translation', () => {
         output: 'done',
       },
     ])
+  })
+
+  test('joins structured tool-result text with the Responses separator', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_123', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_123',
+          content: [
+            { type: 'text', text: 'first block' },
+            { type: 'text', text: 'second block' },
+          ],
+        }],
+      },
+    ])
+
+    const output = items.find(item => item.type === 'function_call_output') as
+      | { type: 'function_call_output'; output: string }
+      | undefined
+    expect(output?.output).toBe('first block\nsecond block')
+  })
+
+  test('compresses structured tool results with the Codex Responses separator', async () => {
+    setToolHistoryCompressionEnabledOverrideForTest(true)
+    try {
+      mock.restore()
+      const isolatedModulePath = './codexShim.ts?compression-test'
+      const { performCodexRequest } = await import(isolatedModulePath)
+      const messages = Array.from({ length: 30 }, (_, index) => [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `call_${index}`, name: 'Read', input: {} }],
+        },
+        {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: `call_${index}`,
+            content: index === 16
+              ? [
+                { type: 'text', text: 'a'.repeat(1_000) },
+                { type: 'text', text: 'b'.repeat(1_500) },
+              ]
+              : 'recent',
+          }],
+        },
+      ]).flat()
+      let body: Record<string, unknown> | undefined
+      globalThis.fetch = (async (_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return new Response('', { status: 200 })
+      }) as typeof globalThis.fetch
+
+      await performCodexRequest({
+        request: {
+          transport: 'codex_responses',
+          requestedModel: 'gpt-4o',
+          resolvedModel: 'gpt-4o',
+          baseUrl: 'https://api.openai.test/v1',
+        },
+        credentials: { apiKey: 'test-key', source: 'env' },
+        params: { model: 'gpt-4o', messages, max_tokens: 100 },
+        defaultHeaders: {},
+      })
+
+      const outputs = (body?.input as Array<{ type?: string; output?: string }>)
+        .filter(item => item.type === 'function_call_output')
+      expect(outputs[16]?.output).toBe(
+        `${'a'.repeat(1_000)}\n${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+      )
+    } finally {
+      setToolHistoryCompressionEnabledOverrideForTest(undefined)
+    }
   })
 
   test('renders tool_reference blocks from ToolSearch results as readable text', () => {

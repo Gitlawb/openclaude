@@ -12,7 +12,10 @@ import {
   resolveOpenAIShimRuntimeContext,
 } from '../integrations/runtimeMetadata'
 import { setCachedModels } from './discoveryCache'
-import { getDiscoveryCacheKey } from './discoveryService'
+import {
+  getDiscoveryCacheKey,
+  getRouteDiscoveryHeaders,
+} from './discoveryService'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
@@ -162,6 +165,80 @@ describe('resolveModelRuntimeLimits', () => {
   })
 })
 
+describe('AIMLAPI runtime attribution', () => {
+  it('uses the partner override only on the canonical endpoint', () => {
+    const previous = process.env.AIMLAPI_PARTNER_ID
+    process.env.AIMLAPI_PARTNER_ID = 'part_runtime_override'
+    try {
+      const canonical = resolveOpenAIShimRuntimeContext({
+        activeProfileProvider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+      })
+      expect(canonical.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_runtime_override',
+      )
+
+      const proxy = resolveOpenAIShimRuntimeContext({
+        activeProfileProvider: 'aimlapi',
+        baseUrl: 'https://proxy.example.test/v1',
+        model: 'gpt-4o',
+      })
+      // Every catalog attribution header must be stripped on a proxy endpoint,
+      // not just the partner id.
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Repo']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Version']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['HTTP-Referer']).toBeUndefined()
+      expect(proxy.openaiShimConfig.headers?.['X-Title']).toBeUndefined()
+    } finally {
+      if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
+      else process.env.AIMLAPI_PARTNER_ID = previous
+    }
+  })
+
+  it('strips attribution from model discovery on a proxy endpoint', () => {
+    // Startup discovery runs with the profile's own base URL while the route id
+    // stays `aimlapi`, so the `/models` request must be filtered on the same
+    // canonical predicate the inference shim uses — otherwise the proxy still
+    // receives the partner identity.
+    const proxy = getRouteDiscoveryHeaders('aimlapi', {
+      baseUrl: 'https://proxy.example.test/v1',
+    })
+    for (const name of [
+      'X-AIMLAPI-Partner-ID',
+      'X-AIMLAPI-Integration-Repo',
+      'X-AIMLAPI-Integration-Version',
+      'HTTP-Referer',
+      'X-Title',
+    ]) {
+      expect(proxy?.[name]).toBeUndefined()
+    }
+
+    // The canonical assertions below compare against the built-in partner id,
+    // so an ambient AIMLAPI_PARTNER_ID in the invoking shell would fail them.
+    const previous = process.env.AIMLAPI_PARTNER_ID
+    delete process.env.AIMLAPI_PARTNER_ID
+    try {
+      const canonical = getRouteDiscoveryHeaders('aimlapi', {
+        baseUrl: 'https://api.aimlapi.com/v1',
+      })
+      expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      )
+      expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
+
+      // A missing base URL falls back to the route default, which is canonical.
+      expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
+        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      )
+    } finally {
+      if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
+      else process.env.AIMLAPI_PARTNER_ID = previous
+    }
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
   it.each([
     'glm-5.2',
@@ -229,6 +306,14 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
   it('uses Moonshot direct catalog order, limits, and reasoning controls', () => {
     expect(
       resolveModelRuntimeLimits({
+        model: 'kimi-k3',
+        baseUrl: 'https://api.moonshot.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 1_048_576, maxOutputTokens: 32_768 })
+
+    expect(
+      resolveModelRuntimeLimits({
         model: 'kimi-k2.7-code',
         baseUrl: 'https://api.moonshot.ai/v1',
         processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
@@ -259,6 +344,7 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
 
     expect(result.routeId).toBe('moonshot')
     expect(result.descriptor?.catalog?.models?.map(model => model.id)).toEqual([
+      'k3',
       'kimi-k2.7-code',
       'kimi-k2.6',
       'kimi-k2.5',
@@ -297,9 +383,40 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
 
     expect(result.routeId).toBe('kimi-code')
     expect(result.descriptor?.catalog?.models?.map(model => model.id)).toEqual([
+      'k3',
+      'k3-256k',
       'kimi-k2.7-code',
       'kimi-for-coding',
+      'kimi-for-coding-highspeed',
     ])
+    const k3 = resolveOpenAIShimRuntimeContext({
+      model: 'k3',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(k3.catalogEntry).toMatchObject({
+      id: 'k3',
+      contextWindow: 1_048_576,
+      label: 'Kimi K3 (1M)',
+    })
+    expect(k3.catalogEntry?.reasoning?.levels).toEqual(['low', 'high', 'max'])
+    expect(resolveModelRuntimeLimits({
+      model: 'k3-256k',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
+    const highspeed = resolveOpenAIShimRuntimeContext({
+      model: 'kimi-for-coding-highspeed',
+      baseUrl: 'https://api.kimi.com/coding/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(highspeed.catalogEntry).toMatchObject({
+      id: 'kimi-for-coding-highspeed',
+      apiName: 'kimi-for-coding-highspeed',
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })
+    expect(highspeed.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.id).toBe('kimi-for-coding')
     expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')

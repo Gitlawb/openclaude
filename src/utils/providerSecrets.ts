@@ -266,6 +266,64 @@ export function redactSecretSubstringsForDisplay(
   return redacted
 }
 
+const MAX_SECRET_ENCODING_LAYERS = 4
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function encodedVariantPattern(value: string): string {
+  return Array.from(value, char => {
+    const lower = char.toLowerCase()
+    return lower >= 'a' && lower <= 'f'
+      ? `[${lower}${lower.toUpperCase()}]`
+      : escapeRegex(char)
+  }).join('')
+}
+
+function percentEncodeUtf8(value: string): string {
+  return Array.from(
+    new TextEncoder().encode(value),
+    byte => `%${byte.toString(16).padStart(2, '0').toUpperCase()}`,
+  ).join('')
+}
+
+function encodedSecretPattern(value: string): RegExp {
+  const characterPatterns = Array.from(value, char => {
+    const variants = [escapeRegex(char)]
+    let encoded = percentEncodeUtf8(char)
+    for (let layer = 0; layer < MAX_SECRET_ENCODING_LAYERS; layer++) {
+      variants.push(encodedVariantPattern(encoded))
+      encoded = encodeURIComponent(encoded)
+    }
+    return `(?:${variants.join('|')})`
+  })
+  return new RegExp(characterPatterns.join(''), 'g')
+}
+
+/**
+ * Redacts configured secrets when each character is literal or percent-encoded
+ * without decoding unrelated message text. Encoding depth is explicitly
+ * bounded to keep matching predictable on untrusted diagnostics.
+ */
+export function redactEncodedSecretSubstringsForDisplay(
+  value: string | null | undefined,
+  ...sources: Array<SecretValueSource | null | undefined>
+): string | undefined {
+  if (!value) return undefined
+
+  let redacted = value
+  const secretValues = collectSecretValues(sources).sort(
+    (a, b) => b.length - a.length,
+  )
+  for (const secretValue of secretValues) {
+    const mask = maskSecretForDisplay(secretValue) ?? 'configured'
+    redacted = redacted.replace(encodedSecretPattern(secretValue), mask)
+  }
+
+  return redacted
+}
+
 export function sanitizeProviderConfigValue(
   value: string | null | undefined,
   ...sources: Array<SecretValueSource | null | undefined>

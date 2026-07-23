@@ -42,10 +42,13 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { anthropicSsePassthrough as parseAnthropicSsePassthrough, createReaderCanceller, createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError, throwIfStreamAborted } from './openaiShim/streamControl.js'
+export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import {
   resolveModelReasoningControl,
   resolveOpenAIShimReasoningRequestPlan,
+  type OpenAIShimEffortLevel,
 } from '../../utils/effort.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
@@ -54,8 +57,13 @@ import {
   refreshCopilotTokenOn401,
 } from '../../utils/githubModelsCredentials.js'
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
-import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
+  resolveModelRuntimeLimits,
+  resolveOpenAIShimRuntimeContext,
+} from '../../integrations/runtimeMetadata.js'
+import {
+  getRouteDescriptor,
+  isLongcatBaseUrl,
   isXaiBaseUrl,
   resolveRouteCredentialValue,
 } from '../../integrations/routeMetadata.js'
@@ -77,14 +85,20 @@ import {
 } from './codexShim.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
-import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
+import {
+  fetchWithProxyRetry,
+  type ProxyRetryFetcher,
+} from './fetchWithProxyRetry.js'
 import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  baseUrlSupportsResponsesAutoRoute,
+  isAzureStyleBaseUrl,
   isDirectLocalOllamaEndpoint,
   isLikelyOllamaEndpoint,
   isLocalProviderUrl,
+  modelRequiresResponsesApi,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
@@ -94,9 +108,14 @@ import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
+  markOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
+import {
+  redactEncodedSecretSubstringsForDisplay,
+  redactSecretSubstringsForDisplay,
+} from '../../utils/providerSecrets.js'
 import {
   redactUrlForDisplay,
   shouldRedactUrlQueryParam,
@@ -119,12 +138,33 @@ import {
   hasInvalidCredentialPlaceholder,
   parseCredentialList,
 } from './credentialPool.js'
-import { MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS } from '../../utils/ollamaContext.js'
+import {
+  filterAnthropicHeaders,
+  geminiThoughtSignatureFromExtraContent,
+  hasCerebrasApiHost,
+  hasGeminiApiHost as matchesGeminiApiHost,
+  hasMistralApiHost,
+  isGithubModelsMode,
+  isGeminiModelName,
+  mergeGeminiThoughtSignature,
+  maybeSetNvidiaNimChatTemplateThinking,
+  shouldPreserveGeminiThoughtSignature as shouldPreserveGeminiThoughtSignatureForRoute,
+} from './openaiShim/providerCompatibility.js'
+
+export { hasMistralApiHost }
+import {
+  buildOllamaChatUrl,
+  convertOllamaNonStreamingResponse,
+  convertOllamaStreamingResponse,
+  getOllamaNumCtx,
+  normalizeOllamaNativeMessages,
+} from './openaiShim/ollamaAdapter.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
+const DEFAULT_API_TIMEOUT_MS = 600_000
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
@@ -140,269 +180,245 @@ function isCopilotTokenExpiredError(text: string): boolean {
   return lower.includes('token expired') || lower.includes('token has expired')
 }
 
-class StreamIdleTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Stream idle timeout - no chunks received for ${timeoutMs}ms`)
-    this.name = 'StreamIdleTimeoutError'
+class ResponseHeadersTimeoutError extends Error {
+  constructor(timeoutMs: number, url: string) {
+    super(
+      `OpenAI-compatible request received no response headers within ${timeoutMs}ms (API_TIMEOUT_MS) from ${url}`,
+    )
+    this.name = 'ResponseHeadersTimeoutError'
   }
 }
 
-function createStreamAbortError(): DOMException {
-  return new DOMException('Aborted', 'AbortError')
+function preserveCallerAbortError(
+  error: unknown,
+  callerSignal: AbortSignal,
+): unknown {
+  return error instanceof ResponseHeadersTimeoutError || isAbortError(error)
+    ? callerSignal.reason ?? error
+    : error
 }
 
-function throwIfStreamAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createStreamAbortError()
-  }
+function isAbortError(error: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError') ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'AbortError')
+  )
 }
 
-type StreamReadResult = Awaited<
-  ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>
->
-
-function createReaderCanceller(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal,
-): {
-    cancel: (error?: unknown) => void
-    cleanup: () => void
-  } {
-  let cancelled = false
-  const cancel = (error: unknown = createStreamAbortError()) => {
-    if (cancelled) return
-    cancelled = true
-    void reader.cancel(error).catch(() => {})
-  }
-  const onAbort = () => cancel(createStreamAbortError())
-
-  signal?.addEventListener('abort', onAbort, { once: true })
-  if (signal?.aborted) {
-    onAbort()
-  }
-
-  return {
-    cancel,
-    cleanup: () => signal?.removeEventListener('abort', onAbort),
-  }
-}
-
-export function getStreamIdleTimeoutMs(): number {
-  const raw = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_STREAM_IDLE_TIMEOUT_MS
+export function getApiTimeoutMs(): number {
+  const raw = process.env.API_TIMEOUT_MS?.trim()
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_API_TIMEOUT_MS
   const parsed = Number(raw)
   return Number.isSafeInteger(parsed) && parsed > 0
     ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
-    : DEFAULT_STREAM_IDLE_TIMEOUT_MS
+    : DEFAULT_API_TIMEOUT_MS
 }
 
-async function readWithIdleTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
-  options: {
-    signal?: AbortSignal
-    cancelReader?: (error?: unknown) => void
-    onTimeout?: () => void
-  } = {},
-): Promise<StreamReadResult> {
-  const signal = options.signal
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-
-  return new Promise<StreamReadResult>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId)
-        timeoutId = undefined
-      }
-      signal?.removeEventListener('abort', onAbort)
+function combineRequestSignals(
+  callerSignal: AbortSignal | undefined,
+  deadlineSignal: AbortSignal,
+): {
+  signal: AbortSignal
+  cleanupAfterHeaders: () => void
+  cleanup: () => void
+  cleanupAfterBody?: () => void
+} {
+  if (!callerSignal) {
+    return {
+      signal: deadlineSignal,
+      cleanupAfterHeaders: () => {},
+      cleanup: () => {},
     }
-    const finishResolve = (value: StreamReadResult) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve(value)
-    }
-    const finishReject = (error: unknown) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(error)
-    }
-    const cancelAndReject = (error: unknown) => {
-      if (options.cancelReader) {
-        options.cancelReader(error)
-      } else {
-        void reader.cancel(error).catch(() => {})
-      }
-      finishReject(error)
-    }
-    const onAbort = () => cancelAndReject(createStreamAbortError())
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-    if (signal?.aborted) {
-      onAbort()
-      return
-    }
-
-    timeoutId = setTimeout(() => {
-      const error = new StreamIdleTimeoutError(timeoutMs)
-      try {
-        options.onTimeout?.()
-      } catch {
-        // ignore diagnostic callback failures
-      }
-      cancelAndReject(error)
-    }, timeoutMs)
-
-    reader.read().then(finishResolve, finishReject)
-  })
-}
-
-function isGithubModelsMode(): boolean {
-  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-}
-
-function filterAnthropicHeaders(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  if (!headers) return {}
-
-  const filtered: Record<string, string> = {}
-  for (const [key, value] of Object.entries(headers)) {
-    const lower = key.toLowerCase()
-    if (
-      lower.startsWith('x-anthropic') ||
-      lower.startsWith('anthropic-') ||
-      lower.startsWith('x-claude') ||
-      lower === 'x-app' ||
-      lower === 'x-client-app' ||
-      lower === 'authorization' ||
-      lower === 'x-api-key' ||
-      lower === 'api-key'
-    ) {
-      continue
-    }
-    filtered[key] = value
   }
 
-  return filtered
+  if (typeof AbortSignal.any === 'function') {
+    return {
+      // The deadline controller is request-local and its timer is the only
+      // abort source, so clearing that timer after headers permanently disarms it.
+      signal: AbortSignal.any([callerSignal, deadlineSignal]),
+      cleanupAfterHeaders: () => {},
+      cleanup: () => {},
+    }
+  }
+
+  const combined = new AbortController()
+  const abortFromCaller = () => {
+    deadlineSignal.removeEventListener('abort', abortFromDeadline)
+    combined.abort(callerSignal.reason)
+  }
+  const abortFromDeadline = () => {
+    callerSignal.removeEventListener('abort', abortFromCaller)
+    combined.abort(deadlineSignal.reason)
+  }
+  const cleanupAfterHeaders = () => {
+    deadlineSignal.removeEventListener('abort', abortFromDeadline)
+  }
+  const cleanup = () => {
+    callerSignal.removeEventListener('abort', abortFromCaller)
+    cleanupAfterHeaders()
+  }
+
+  callerSignal.addEventListener('abort', abortFromCaller, { once: true })
+  deadlineSignal.addEventListener('abort', abortFromDeadline, { once: true })
+  if (callerSignal.aborted) {
+    abortFromCaller()
+  } else if (deadlineSignal.aborted) {
+    abortFromDeadline()
+  }
+
+  return {
+    signal: combined.signal,
+    cleanupAfterHeaders,
+    cleanup,
+    cleanupAfterBody: cleanup,
+  }
+}
+
+function wrapResponseBodyWithCleanup(
+  response: Response,
+  cleanup: () => void,
+): Response {
+  if (!response.body) {
+    cleanup()
+    return response
+  }
+
+  const reader = response.body.getReader()
+  let cleanedUp = false
+  const cleanupOnce = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    cleanup()
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          cleanupOnce()
+          controller.close()
+        } else {
+          controller.enqueue(result.value)
+        }
+      } catch (error) {
+        cleanupOnce()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        cleanupOnce()
+      }
+    },
+  })
+  const wrapped = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+  for (const property of ['url', 'type', 'redirected'] as const) {
+    try {
+      Object.defineProperty(wrapped, property, {
+        value: response[property],
+        configurable: true,
+      })
+    } catch {
+      /* non-fatal: standard response metadata remains available */
+    }
+  }
+  return wrapped
+}
+
+async function fetchWithHeadersDeadline(
+  url: string,
+  init: RequestInit,
+  options: {
+    callerSignal?: AbortSignal
+    timeoutMs: number
+  },
+): Promise<Response> {
+  const redactedUrl = redactUrlForDiagnostics(url)
+  const fetchWithAttemptDeadline: ProxyRetryFetcher = async (input, attemptInit) => {
+    const deadlineController = new AbortController()
+    const timeoutReason = new ResponseHeadersTimeoutError(
+      options.timeoutMs,
+      redactedUrl,
+    )
+    const {
+      signal,
+      cleanupAfterHeaders,
+      cleanup,
+      cleanupAfterBody,
+    } = combineRequestSignals(options.callerSignal, deadlineController.signal)
+    const timer = setTimeout(
+      () => deadlineController.abort(timeoutReason),
+      options.timeoutMs,
+    )
+    timer.unref?.()
+
+    let headersReceived = false
+    try {
+      const response = await fetch(input, { ...attemptInit, signal })
+      if (signal.aborted) {
+        void response.body?.cancel().catch(() => {})
+        throw (
+          signal.reason ??
+          new DOMException('The operation was aborted.', 'AbortError')
+        )
+      }
+      headersReceived = true
+      return cleanupAfterBody
+        ? wrapResponseBodyWithCleanup(response, cleanupAfterBody)
+        : response
+    } catch (error) {
+      if (options.callerSignal?.aborted) {
+        throw preserveCallerAbortError(error, options.callerSignal)
+      }
+      if (
+        deadlineController.signal.aborted &&
+        deadlineController.signal.reason === timeoutReason
+      ) {
+        throw timeoutReason
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      if (headersReceived) {
+        cleanupAfterHeaders()
+      } else {
+        cleanup()
+      }
+    }
+  }
+
+  return fetchWithProxyRetry(
+    url,
+    { ...init, signal: options.callerSignal },
+    { fetcher: fetchWithAttemptDeadline },
+  )
 }
 
 function hasGeminiApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === GEMINI_API_HOST
-  } catch {
-    return false
-  }
-}
-
-function isGeminiModelName(model: string | undefined): boolean {
-  const normalized = model?.trim().toLowerCase()
-  return (
-    normalized?.startsWith('google/gemini-') === true ||
-    normalized?.startsWith('gemini-') === true
-  )
+  return matchesGeminiApiHost(baseUrl, GEMINI_API_HOST)
 }
 
 function shouldPreserveGeminiThoughtSignature(
   model: string | undefined,
   baseUrl?: string,
 ): boolean {
-  return isGeminiMode() || hasGeminiApiHost(baseUrl) || isGeminiModelName(model)
-}
-
-function geminiThoughtSignatureFromExtraContent(
-  extraContent: unknown,
-): string | undefined {
-  if (!extraContent || typeof extraContent !== 'object') return undefined
-  const google = (extraContent as Record<string, unknown>).google
-  if (!google || typeof google !== 'object') return undefined
-  const signature = (google as Record<string, unknown>).thought_signature
-  return typeof signature === 'string' && signature.length > 0 ? signature : undefined
-}
-
-function mergeGeminiThoughtSignature(
-  extraContent: Record<string, unknown> | undefined,
-  signature: string | undefined,
-): Record<string, unknown> | undefined {
-  if (!signature) return extraContent
-  const existingGoogle =
-    extraContent?.google && typeof extraContent.google === 'object'
-      ? extraContent.google as Record<string, unknown>
-      : {}
-  return {
-    ...extraContent,
-    google: {
-      ...existingGoogle,
-      thought_signature: signature,
-    },
-  }
-}
-
-function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase()
-    return host === 'api.cerebras.ai' || host.endsWith('.cerebras.ai')
-  } catch {
-    return false
-  }
-}
-
-export function hasMistralApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase()
-    return host === 'api.mistral.ai' || host.endsWith('.mistral.ai')
-  } catch {
-    return false
-  }
-}
-
-function hasNvidiaNimApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === 'integrate.api.nvidia.com'
-  } catch {
-    return false
-  }
-}
-
-function setNvidiaNimChatTemplateThinking(body: Record<string, unknown>): void {
-  const existing = body.chat_template_kwargs
-  const kwargs =
-    existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
-      : {}
-
-  kwargs.thinking = true
-  kwargs.enable_thinking = true
-  body.chat_template_kwargs = kwargs
-}
-
-function maybeSetNvidiaNimChatTemplateThinking(
-  body: Record<string, unknown>,
-  baseUrl: string | undefined,
-  reasoningRequestPlan: {
-    thinkingType?: string
-    reasoningEffort?: string
-  },
-): void {
-  if (!hasNvidiaNimApiHost(baseUrl)) return
-  if (
-    reasoningRequestPlan.thinkingType !== 'enabled' &&
-    !reasoningRequestPlan.reasoningEffort
-  ) {
-    return
-  }
-
-  setNvidiaNimChatTemplateThinking(body)
+  return shouldPreserveGeminiThoughtSignatureForRoute(
+    model,
+    baseUrl,
+    isGeminiMode(),
+    GEMINI_API_HOST,
+  )
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -410,16 +426,148 @@ function formatRetryAfterHint(response: Response): string {
   return ra ? ` (Retry-After: ${ra})` : ''
 }
 
+function decodeValidPercentRun(encoded: string): string {
+  const escapes = encoded.match(/%[0-9A-Fa-f]{2}/g)
+  if (!escapes) return encoded
+
+  let decoded = ''
+  let offset = 0
+  while (offset < escapes.length) {
+    const firstByte = Number.parseInt(escapes[offset].slice(1), 16)
+    const sequenceLength =
+      firstByte <= 0x7f
+        ? 1
+        : firstByte >= 0xc2 && firstByte <= 0xdf
+          ? 2
+          : firstByte >= 0xe0 && firstByte <= 0xef
+            ? 3
+            : firstByte >= 0xf0 && firstByte <= 0xf4
+              ? 4
+              : 1
+    try {
+      decoded += decodeURIComponent(
+        escapes.slice(offset, offset + sequenceLength).join(''),
+      )
+      offset += sequenceLength
+    } catch {
+      decoded += escapes[offset]
+      offset++
+    }
+  }
+  return decoded
+}
+
+function decodeValidUrlEscapesOnce(value: string): string {
+  return value.replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeValidPercentRun)
+}
+
+const MAX_URL_SECRET_DECODING_LAYERS = 4
+
+function redactDecodedUrlComponentSecrets(value: string): string {
+  let decoded = value
+  let foundSecret = false
+  for (let layer = 0; layer <= MAX_URL_SECRET_DECODING_LAYERS; layer++) {
+    const redacted =
+      redactSecretSubstringsForDisplay(
+        decoded,
+        process.env as SecretValueSource,
+      ) ?? decoded
+    if (redacted !== decoded) foundSecret = true
+    if (layer === MAX_URL_SECRET_DECODING_LAYERS) {
+      decoded = redacted
+      break
+    }
+    const next = decodeValidUrlEscapesOnce(redacted)
+    if (next === redacted) {
+      decoded = redacted
+      break
+    }
+    decoded = next
+  }
+  return foundSecret ? decoded : value
+}
+
 function redactUrlForDiagnostics(url: string): string {
-  const redacted = redactUrlForDisplay(url)
+  let redacted = redactUrlForDisplay(url)
+  try {
+    const parsed = new URL(redacted)
+    const redactedPathname = redactDecodedUrlComponentSecrets(parsed.pathname)
+    const redactedSearch = redactDecodedUrlComponentSecrets(parsed.search)
+    let componentRedacted = false
+    if (redactedPathname !== parsed.pathname) {
+      parsed.pathname = redactedPathname
+      componentRedacted = true
+    }
+    if (redactedSearch !== parsed.search) {
+      parsed.search = redactedSearch
+      componentRedacted = true
+    }
+    if (componentRedacted) redacted = parsed.toString()
+  } catch {
+    // Keep the URL-level redaction when the URL cannot be parsed.
+  }
+  const redactedSubstrings =
+    redactSecretSubstringsForDisplay(
+      redacted,
+      process.env as SecretValueSource,
+    ) ?? redacted
   return (
-    redactSecretValueForDisplay(redacted, process.env as SecretValueSource) ??
-    redacted
+    redactSecretValueForDisplay(
+      redactedSubstrings,
+      process.env as SecretValueSource,
+    ) ?? redactedSubstrings
   )
 }
 
 function redactUrlsInMessage(message: string): string {
   return message.replace(/https?:\/\/\S+/g, match => redactUrlForDiagnostics(match))
+}
+
+function createClassifiedTransportError(
+  error: unknown,
+  requestUrl: string,
+  model: string,
+  preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
+) {
+  const failure =
+    preclassifiedFailure ??
+    classifyOpenAINetworkFailure(error, {
+      url: requestUrl,
+    })
+  const redactedUrl = redactUrlForDiagnostics(requestUrl)
+  const encodedSecretRedactedMessage =
+    redactEncodedSecretSubstringsForDisplay(
+      redactUrlsInMessage(failure.message),
+      process.env as SecretValueSource,
+    ) ?? 'Request failed'
+  const redactedMessage =
+    redactSecretSubstringsForDisplay(
+      encodedSecretRedactedMessage,
+      process.env as SecretValueSource,
+    ) ?? 'Request failed'
+  const safeMessage =
+    redactSecretValueForDisplay(
+      redactedMessage,
+      process.env as SecretValueSource,
+    ) || 'Request failed'
+
+  logForDebugging(
+    `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${model} message=${safeMessage}`,
+    { level: 'warn' },
+  )
+
+  const apiError = APIError.generate(
+    0,
+    undefined,
+    buildOpenAICompatibilityErrorMessage(
+      `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
+      failure,
+    ),
+    new Headers(),
+  )
+  return failure.retryable
+    ? apiError
+    : markOpenAIRequestNonReplayable(apiError)
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -469,399 +617,6 @@ interface OpenAITool {
   }
 }
 
-type OllamaChatResponse = {
-  model?: string
-  message?: {
-    role?: string
-    content?: string
-    tool_calls?: Array<{
-      function?: {
-        name?: string
-        arguments?: unknown
-      }
-    }>
-  }
-  done?: boolean
-  done_reason?: string
-  prompt_eval_count?: number
-  eval_count?: number
-}
-
-type OllamaChatMessage = Omit<OpenAIMessage, 'content' | 'tool_calls'> & {
-  content?: string
-  images?: string[]
-  tool_calls?: Array<{
-    function: {
-      name: string
-      arguments: Record<string, unknown>
-    }
-  }>
-}
-
-function parsePositiveIntegerEnv(value: string | undefined): number | null {
-  if (!value?.trim()) {
-    return null
-  }
-  const parsed = Number(value.trim())
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return null
-  }
-  return parsed
-}
-
-function getOllamaNumCtx(): number {
-  return (
-    parsePositiveIntegerEnv(process.env.OPENCLAUDE_OLLAMA_NUM_CTX) ??
-    parsePositiveIntegerEnv(process.env.OLLAMA_CONTEXT_LENGTH) ??
-    MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS
-  )
-}
-
-function buildOllamaChatUrl(baseUrl: string): string {
-  const parsed = new URL(baseUrl)
-  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/v1$/i, '')
-  parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/api/chat`
-  parsed.search = ''
-  parsed.hash = ''
-  return parsed.toString()
-}
-
-function extractOllamaImageData(url: string): string | null {
-  const match = url.match(/^data:[^;,]+;base64,(.+)$/i)
-  if (!match) {
-    return null
-  }
-  return match[1]
-}
-
-function normalizeOllamaNativeToolCalls(
-  toolCalls: OpenAIMessage['tool_calls'],
-): OllamaChatMessage['tool_calls'] {
-  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return undefined
-  }
-
-  const normalized = toolCalls
-    .map(toolCall => {
-      const name = toolCall.function?.name
-      if (!name) {
-        return null
-      }
-
-      let args: Record<string, unknown> = {}
-      try {
-        const parsed = JSON.parse(toolCall.function.arguments || '{}')
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          args = parsed as Record<string, unknown>
-        }
-      } catch {
-        args = {}
-      }
-
-      return {
-        function: {
-          name,
-          arguments: args,
-        },
-      }
-    })
-    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
-
-  return normalized.length > 0 ? normalized : undefined
-}
-
-function normalizeOllamaNativeMessages(messages: unknown): OllamaChatMessage[] {
-  if (!Array.isArray(messages)) {
-    return []
-  }
-
-  return messages.map(message => {
-    const openAIMessage = message as OpenAIMessage
-    const content = openAIMessage.content
-    const toolCalls = normalizeOllamaNativeToolCalls(openAIMessage.tool_calls)
-    if (!Array.isArray(content)) {
-      return {
-        ...openAIMessage,
-        content,
-        ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
-      }
-    }
-
-    const textParts: string[] = []
-    const images: string[] = []
-
-    for (const part of content) {
-      if (part.type === 'text') {
-        if (part.text) {
-          textParts.push(part.text)
-        }
-        continue
-      }
-
-      if (part.type === 'image_url') {
-        const imageUrl = part.image_url.url
-        const imageData = extractOllamaImageData(imageUrl)
-        if (imageData) {
-          images.push(imageData)
-        } else {
-          textParts.push(`[Image: ${imageUrl}]`)
-        }
-      }
-    }
-
-    return {
-      ...openAIMessage,
-      content: textParts.join('\n'),
-      ...(images.length > 0 ? { images } : {}),
-      ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
-    }
-  })
-}
-
-function mapOllamaDoneReason(doneReason: unknown): string | null {
-  if (doneReason === 'length') return 'length'
-  if (doneReason === 'stop') return 'stop'
-  if (typeof doneReason === 'string' && doneReason) return doneReason
-  return null
-}
-
-function normalizeOllamaToolCalls(
-  toolCalls: NonNullable<OllamaChatResponse['message']>['tool_calls'],
-): Array<{
-  id: string
-  type: 'function'
-  function: { name: string; arguments: string }
-}> | undefined {
-  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return undefined
-  }
-
-  const normalized = toolCalls
-    .map(toolCall => {
-      const name = toolCall.function?.name
-      if (!name) {
-        return null
-      }
-      const args = toolCall.function?.arguments
-      return {
-        id: `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
-        type: 'function' as const,
-        function: {
-          name,
-          arguments:
-            typeof args === 'string' ? args : JSON.stringify(args ?? {}),
-        },
-      }
-    })
-    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
-
-  return normalized.length > 0 ? normalized : undefined
-}
-
-function buildOpenAIUsageFromOllama(data: OllamaChatResponse) {
-  const promptTokens = data.prompt_eval_count ?? 0
-  const completionTokens = data.eval_count ?? 0
-  return {
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens: promptTokens + completionTokens,
-  }
-}
-
-function convertOllamaChatResponseToOpenAI(
-  data: OllamaChatResponse,
-  fallbackModel: string,
-): Record<string, unknown> {
-  const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
-  return {
-    id: makeMessageId(),
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model: data.model ?? fallbackModel,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: data.message?.content ?? '',
-          ...(toolCalls ? { tool_calls: toolCalls } : {}),
-        },
-        finish_reason: mapOllamaDoneReason(data.done_reason),
-      },
-    ],
-    usage: buildOpenAIUsageFromOllama(data),
-  }
-}
-
-function responseWithPreservedUrl(
-  body: BodyInit | null,
-  init: ResponseInit,
-  url: string,
-): Response {
-  const response = new Response(body, init)
-  try {
-    Object.defineProperty(response, 'url', {
-      value: url,
-      configurable: true,
-    })
-  } catch {
-    /* some runtimes lock the property; downstream has transport fallback */
-  }
-  return response
-}
-
-async function convertOllamaNonStreamingResponse(
-  response: Response,
-  fallbackModel: string,
-): Promise<Response> {
-  const data = await response.json() as OllamaChatResponse
-  return responseWithPreservedUrl(
-    JSON.stringify(convertOllamaChatResponseToOpenAI(data, fallbackModel)),
-    {
-      status: response.status,
-      statusText: response.statusText,
-      headers: { 'content-type': 'application/json' },
-    },
-    response.url,
-  )
-}
-
-function openAIStreamChunk(
-  id: string,
-  model: string,
-  delta: Record<string, unknown>,
-  finishReason: string | null = null,
-): string {
-  return `data: ${JSON.stringify({
-    id,
-    object: 'chat.completion.chunk',
-    created: Math.floor(Date.now() / 1000),
-    model,
-    choices: [{ index: 0, delta, finish_reason: finishReason }],
-  })}\n\n`
-}
-
-function convertOllamaStreamingResponse(
-  response: Response,
-  fallbackModel: string,
-): Response {
-  const body = response.body
-  if (!body) {
-    return response
-  }
-
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  const reader = body.getReader()
-  const streamId = makeMessageId()
-  let buffer = ''
-  let hasEmittedRole = false
-  let hasEmittedToolCall = false
-
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) {
-          if (buffer.trim()) {
-            enqueueOllamaLineAsOpenAI(buffer.trim(), controller)
-            buffer = ''
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-          controller.close()
-          return
-        }
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() ?? ''
-
-        let emittedLine = false
-        for (const line of lines) {
-          if (line.trim()) {
-            enqueueOllamaLineAsOpenAI(line.trim(), controller)
-            emittedLine = true
-          }
-        }
-        if (emittedLine) {
-          return
-        }
-      }
-    },
-    cancel(reason) {
-      return reader.cancel(reason)
-    },
-  })
-
-  function enqueueOllamaLineAsOpenAI(
-    line: string,
-    controller: ReadableStreamDefaultController<Uint8Array>,
-  ): void {
-    let data: OllamaChatResponse
-    try {
-      data = JSON.parse(line) as OllamaChatResponse
-    } catch {
-      return
-    }
-
-    const model = data.model ?? fallbackModel
-    const chunks: string[] = []
-    const delta: Record<string, unknown> = {}
-    if (!hasEmittedRole) {
-      delta.role = 'assistant'
-      hasEmittedRole = true
-    }
-    if (data.message?.content) {
-      delta.content = data.message.content
-    }
-    const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
-    if (toolCalls) {
-      hasEmittedToolCall = true
-      delta.tool_calls = toolCalls.map((toolCall, index) => ({
-        index,
-        id: toolCall.id,
-        type: toolCall.type,
-        function: toolCall.function,
-      }))
-    }
-    if (Object.keys(delta).length > 0) {
-      chunks.push(openAIStreamChunk(streamId, model, delta))
-    }
-    if (data.done) {
-      chunks.push(openAIStreamChunk(
-        streamId,
-        model,
-        {},
-        hasEmittedToolCall
-          ? 'tool_calls'
-          : mapOllamaDoneReason(data.done_reason),
-      ))
-      chunks.push(`data: ${JSON.stringify({
-        id: streamId,
-        object: 'chat.completion.chunk',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [],
-        usage: buildOpenAIUsageFromOllama(data),
-      })}\n\n`)
-    }
-
-    for (const chunk of chunks) {
-      controller.enqueue(encoder.encode(chunk))
-    }
-  }
-
-  return responseWithPreservedUrl(
-    stream,
-    {
-      status: response.status,
-      statusText: response.statusText,
-      headers: { 'content-type': 'text/event-stream' },
-    },
-    response.url,
-  )
-}
-
 function convertSystemPrompt(
   system: unknown,
 ): string {
@@ -900,6 +655,73 @@ function ensureTextPartForImageContent(
   return [{ type: 'text', text: 'Image attached.' }, ...parts]
 }
 
+function contentBlocksContainImages(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+
+  return content.some(block => {
+    if (!block || typeof block !== 'object') return false
+    const record = block as Record<string, unknown>
+    if (
+      record.type === 'image' ||
+      record.type === 'image_url' ||
+      record.type === 'input_image'
+    ) {
+      return true
+    }
+    return record.type === 'tool_result' && contentBlocksContainImages(record.content)
+  })
+}
+
+function requestBodyContainsImages(
+  payload: Record<string, unknown> | undefined,
+): boolean {
+  if (!payload) return false
+
+  const messages = payload.messages
+  if (
+    Array.isArray(messages) &&
+    messages.some(message => {
+      if (!message || typeof message !== 'object') return false
+      const record = message as Record<string, unknown>
+      return (
+        contentBlocksContainImages(record.content) ||
+        (Array.isArray(record.images) && record.images.length > 0)
+      )
+    })
+  ) {
+    return true
+  }
+
+  const input = payload.input
+  if (
+    Array.isArray(input) &&
+    input.some(item =>
+      item &&
+      typeof item === 'object' &&
+      contentBlocksContainImages((item as Record<string, unknown>).content),
+    )
+  ) {
+    return true
+  }
+
+  const contents = payload.contents
+  return Array.isArray(contents) && contents.some(item => {
+    if (!item || typeof item !== 'object') return false
+    const parts = (item as Record<string, unknown>).parts
+    return Array.isArray(parts) && parts.some(part => {
+      if (!part || typeof part !== 'object') return false
+      const record = part as Record<string, unknown>
+      return ['inlineData', 'fileData'].some(key => {
+        const data = record[key]
+        if (!data || typeof data !== 'object') return false
+        const mimeType = (data as Record<string, unknown>).mimeType
+        return typeof mimeType === 'string' &&
+          mimeType.trim().toLowerCase().startsWith('image/')
+      })
+    })
+  })
+}
+
 function joinTextContentParts(parts: OpenAIContentPart[]): string {
   return parts.map(part => part.type === 'text' ? part.text : '').join('')
 }
@@ -907,6 +729,7 @@ function joinTextContentParts(parts: OpenAIContentPart[]): string {
 function convertToolResultContent(
   content: unknown,
   isError?: boolean,
+  options?: { supportsImageInputs?: boolean },
 ): string | OpenAIContentPart[] {
   if (typeof content === 'string') {
     return isError ? `Error: ${content}` : content
@@ -935,6 +758,11 @@ function convertToolResultContent(
     }
 
     if (block?.type === 'image') {
+      if (options?.supportsImageInputs === false) {
+        throw new Error(
+          'The active provider accepts text-only messages and does not support image inputs.',
+        )
+      }
       const source = block.source
       if (source?.type === 'url' && source.url) {
         parts.push({ type: 'image_url', image_url: { url: source.url } })
@@ -984,6 +812,7 @@ function convertToolResultContent(
 
 function convertContentBlocks(
   content: unknown,
+  options?: { supportsImageInputs?: boolean },
 ): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
@@ -995,6 +824,11 @@ function convertContentBlocks(
         parts.push({ type: 'text', text: block.text ?? '' })
         break
       case 'image': {
+        if (options?.supportsImageInputs === false) {
+          throw new Error(
+            'The active provider accepts text-only messages and does not support image inputs.',
+          )
+        }
         const src = block.source
         if (src?.type === 'base64') {
           parts.push({
@@ -1108,11 +942,13 @@ function convertMessages(
     preserveReasoningContent?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
+    supportsImageInputs?: boolean
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const supportsImageInputs = options?.supportsImageInputs
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -1170,7 +1006,7 @@ function convertMessages(
               result.push({
                 role: 'tool',
                 tool_call_id: id,
-                content: convertToolResultContent(tr.content, tr.is_error),
+                content: convertToolResultContent(tr.content, tr.is_error, { supportsImageInputs }),
               })
             } else {
               logForDebugging(
@@ -1187,13 +1023,13 @@ function convertMessages(
         if (otherContent && otherContent.length > 0) {
           result.push({
             role: 'user',
-            content: convertContentBlocks(otherContent),
+            content: convertContentBlocks(otherContent, { supportsImageInputs }),
           })
         }
       } else {
         result.push({
           role: 'user',
-          content: convertContentBlocks(content),
+          content: convertContentBlocks(content, { supportsImageInputs }),
         })
       }
     } else if (role === 'assistant') {
@@ -1243,7 +1079,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(textContent ?? [])
+            const c = convertContentBlocks(textContent ?? [], { supportsImageInputs })
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -1344,7 +1180,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(content)
+            const c = convertContentBlocks(content, { supportsImageInputs })
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -1420,6 +1256,25 @@ function convertMessages(
   }
 
   return coalesced
+}
+
+function getChatMessagesForTransport<T>(
+  transport: string,
+  convert: () => T,
+): T | undefined {
+  return transport === 'chat_completions' ? convert() : undefined
+}
+
+function getCompressedMessagesForTransport<T>(
+  transport: string,
+  rawMessages: T,
+  compress: () => T,
+): T {
+  return transport === 'chat_completions' ||
+    transport === 'responses' ||
+    transport === 'responses_compat'
+    ? compress()
+    : rawMessages
 }
 
 /**
@@ -1675,9 +1530,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -1745,7 +1597,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -1812,6 +1664,13 @@ export function parseTextToolCalls(text: string): {
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -1954,7 +1813,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3
@@ -2067,74 +1926,13 @@ async function* anthropicSsePassthrough(
   _model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const readerOrNull = response.body?.getReader()
-  if (!readerOrNull) throw new Error('Response body is not readable')
-  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
-  const readerCanceller = createReaderCanceller(reader, signal)
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
-  let streamComplete = false
-
-  try {
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
-        signal,
-        cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-          logForDebugging(
-            `Anthropic-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
-            { level: 'error' },
-          )
-        },
-      })
-      if (done) {
-        streamComplete = true
-        break
-      }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-
-      for (const chunk of chunks) {
-        throwIfStreamAborted(signal)
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
-        if (lines.length === 0) continue
-
-        const dataLines = lines.filter(l => l.startsWith('data: '))
-        if (dataLines.length === 0) continue
-
-        const rawData = dataLines.map(l => l.slice(6)).join('\n')
-        if (rawData === '[DONE]') {
-          streamComplete = true
-          return
-        }
-
-        let parsed: AnthropicStreamEvent
-        try {
-          parsed = JSON.parse(rawData) as AnthropicStreamEvent
-        } catch {
-          // skip malformed frames
-          continue
-        }
-        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-          throwIfStreamAborted(signal)
-          yield parsed
-        }
-      }
-    }
-  } finally {
-    if (!streamComplete || signal?.aborted) {
-      readerCanceller.cancel(createStreamAbortError())
-    }
-    readerCanceller.cleanup()
-    reader.releaseLock()
-  }
+  yield* parseAnthropicSsePassthrough<AnthropicStreamEvent>(
+    response,
+    signal,
+    (message, options) => options?.level
+      ? logForDebugging(message, { level: options.level })
+      : logForDebugging(message),
+  )
 }
 
 /**
@@ -2343,6 +2141,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -2517,6 +2317,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -3435,6 +3237,8 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
@@ -3523,12 +3327,12 @@ class OpenAIShimStream {
 
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
-  private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  private reasoningEffort?: OpenAIShimEffortLevel
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
   private credentialPool?: CredentialPool
   private credentialPoolRaw?: string
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: OpenAIShimEffortLevel, providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
@@ -3559,8 +3363,21 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
-      const response = await self._doRequest(request, params, options)
+      // A provider override is a complete route, so it must not inherit an
+      // Azure-style escape hatch intended for the parent route.
+      const requestProcessEnv = self.providerOverride
+        ? {
+          ...process.env,
+          OPENAI_AZURE_STYLE: undefined,
+        }
+        : process.env
+      const request = resolveProviderRequest({
+        model: self.providerOverride?.model ?? params.model,
+        baseUrl: self.providerOverride?.baseURL,
+        reasoningEffortOverride: self.reasoningEffort,
+        processEnv: requestProcessEnv,
+      })
+      const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response
 
       if (params.stream) {
@@ -3672,6 +3489,7 @@ class OpenAIShimMessages {
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
@@ -3679,6 +3497,8 @@ class OpenAIShimMessages {
     const isGithubWithCodexTransport = isGithubCopilotEndpoint && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
+      const apiTimeoutMs = getApiTimeoutMs()
+      const responsesUrl = `${request.baseUrl}/responses`
       let didRefreshCopilotCodexToken = false
       let refreshedCopilotCodexToken: string | undefined
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -3690,20 +3510,53 @@ class OpenAIShimMessages {
         }
 
         try {
-          return await performCodexRequest({
-            request,
-            credentials: {
-              apiKey,
-              source: 'env',
-            },
-            params,
-            defaultHeaders: {
-              ...this.defaultHeaders,
-              ...filterAnthropicHeaders(options?.headers),
-              ...COPILOT_HEADERS,
-            },
-            signal: options?.signal,
-          })
+          try {
+            return await performCodexRequest({
+              request,
+              credentials: {
+                apiKey,
+                source: 'env',
+              },
+              params,
+              defaultHeaders: {
+                ...this.defaultHeaders,
+                ...filterAnthropicHeaders(options?.headers),
+                ...COPILOT_HEADERS,
+              },
+              signal: options?.signal,
+              fetcher: (input, init) => {
+                const url =
+                  typeof input === 'string'
+                    ? input
+                    : input instanceof URL
+                      ? input.toString()
+                      : input.url
+                return fetchWithHeadersDeadline(url, init ?? {}, {
+                  callerSignal: options?.signal,
+                  timeoutMs: apiTimeoutMs,
+                })
+              },
+            })
+          } catch (error) {
+            if (options?.signal?.aborted) {
+              throw preserveCallerAbortError(error, options.signal)
+            }
+            if (error instanceof ResponseHeadersTimeoutError) {
+              const failure = {
+                ...classifyOpenAINetworkFailure(error, {
+                  url: responsesUrl,
+                }),
+                retryable: false,
+              }
+              throw createClassifiedTransportError(
+                error,
+                responsesUrl,
+                request.resolvedModel,
+                failure,
+              )
+            }
+            throw error
+          }
         } catch (error) {
           if (
             !didRefreshCopilotCodexToken &&
@@ -3776,14 +3629,16 @@ class OpenAIShimMessages {
       })
     }
 
-    return this._doOpenAIRequest(request, params, options)
+    return this._doOpenAIRequest(request, params, options, requestProcessEnv)
   }
 
   private async _doOpenAIRequest(
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
+    const apiTimeoutMs = getApiTimeoutMs()
     // Local backends (llama.cpp, vLLM, Ollama, LM Studio, …) do not implement
     // the cloud-side caching/strict-validation behaviours that several of our
     // pre-send transforms target. Computing the fast-path config once here
@@ -3795,15 +3650,19 @@ class OpenAIShimMessages {
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>
-    const compressedMessages = fastPath.skipToolHistoryCompression
-      ? rawMessages
-      : compressToolHistory(rawMessages, request.resolvedModel)
+    const runtimeModel = request.requestedModel
     const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-      processEnv: process.env,
+      processEnv: requestProcessEnv,
       baseUrl: request.baseUrl,
-      model: request.resolvedModel,
+      model: runtimeModel,
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
       preferBaseUrlRoute: Boolean(this.providerOverride),
+    })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model: runtimeModel,
+      baseUrl: request.baseUrl,
+      processEnv: requestProcessEnv,
+      activeProfileProvider: runtimeShimContext.routeId ?? undefined,
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
@@ -3818,39 +3677,65 @@ class OpenAIShimMessages {
         : shimConfig.endpointPath?.startsWith('/models/gemini-')
           ? 'gemini'
           : request.transport
+    const compressedMessages = getCompressedMessagesForTransport(
+      effectiveTransport,
+      rawMessages,
+      () => fastPath.skipToolHistoryCompression
+        ? rawMessages
+        : compressToolHistory(rawMessages, runtimeModel, {
+          textBlockSeparator:
+            effectiveTransport === 'chat_completions' ? '\n\n' : '\n',
+          runtimeLimits,
+        }),
+    )
     const useNativeOllamaChat =
       effectiveTransport === 'chat_completions' &&
       !shimConfig.endpointPath &&
       isDirectLocalOllamaEndpoint(request.baseUrl) &&
       isLikelyOllamaEndpoint(request.baseUrl)
-    const openaiMessages = convertMessages(compressedMessages, params.system, {
-      preserveReasoningContent: shimConfig.preserveReasoningContent,
-      reasoningContentFallback: shimConfig.reasoningContentFallback,
-      preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
-        request.resolvedModel,
-        request.baseUrl,
-      ),
-    })
+    const openaiMessages = getChatMessagesForTransport(
+      effectiveTransport,
+      () => convertMessages(compressedMessages, params.system, {
+        preserveReasoningContent: shimConfig.preserveReasoningContent,
+        reasoningContentFallback: shimConfig.reasoningContentFallback,
+        preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
+          request.resolvedModel,
+          request.baseUrl,
+        ),
+        supportsImageInputs: shimConfig.supportsImageInputs,
+      }),
+    )
 
-    const reasoningControl = resolveModelReasoningControl(request.resolvedModel, {
+    const reasoningControl = resolveModelReasoningControl(runtimeModel, {
       routeId: runtimeShimContext.routeId,
       useRuntimeFallback: false,
       openaiShimConfig: shimConfig,
+      baseUrl: request.baseUrl,
+      processEnv: requestProcessEnv,
     })
+    // The explicit chat-completions escape hatch for GPT-5.4/5.5/5.6 must
+    // also omit reasoning effort: these models reject the tools + effort
+    // combination on that API surface.
+    const suppressReasoningForForcedChat =
+      effectiveTransport === 'chat_completions' &&
+      Array.isArray(params.tools) &&
+      params.tools.length > 0 &&
+      modelRequiresResponsesApi(request.resolvedModel) &&
+      baseUrlSupportsResponsesAutoRoute(request.baseUrl, requestProcessEnv)
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
-      model: request.resolvedModel,
-      requestedEffort: request.reasoning?.effort,
+      model: runtimeModel,
+      requestedEffort: suppressReasoningForForcedChat ? undefined : request.reasoning?.effort,
       requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
       defaultThinkingType: request.thinking?.type,
       thinkingRequestFormat: shimConfig.thinkingRequestFormat,
-      routeId: runtimeShimContext.routeId,
+      routeId: runtimeShimContext.routeId ?? 'custom',
       useRuntimeFallback: false,
       reasoningControl,
     })
 
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
-      messages: openaiMessages,
+      ...(openaiMessages ? { messages: openaiMessages } : {}),
       stream: params.stream ?? false,
       store: false,
     }
@@ -3860,6 +3745,13 @@ class OpenAIShimMessages {
      // most OpenAI-compatible endpoints read it from this top-level field.
     if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
       body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+    }
+    if (
+      reasoningRequestPlan.wireFormat === 'reasoning_effort' &&
+      reasoningRequestPlan.thinkingType === 'disabled'
+    ) {
+      body.thinking = { type: 'disabled' }
+      delete body.reasoning_effort
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -3877,7 +3769,7 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLikelyOllamaEndpoint(request.baseUrl)) {
+    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
       body.stream_options = { include_usage: true }
     }
 
@@ -3949,7 +3841,11 @@ class OpenAIShimMessages {
       delete body[field]
     }
 
-    if (params.tools && params.tools.length > 0) {
+    if (
+      !(shimConfig.removeBodyFields ?? []).includes('tools') &&
+      params.tools &&
+      params.tools.length > 0
+    ) {
       const converted = convertTools(
         params.tools as Array<{
           name: string
@@ -3985,18 +3881,37 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
+    let responsesInput: ReturnType<
+      typeof convertAnthropicMessagesToResponsesInput
+    > | undefined
+    let responsesMessages: typeof compressedMessages | undefined
+    const getResponsesInput = () => {
+      // GitHub can reject a Chat request and retry it through Responses. That
+      // retry must budget structured text with the Responses separator rather
+      // than reusing the Chat-compressed form (which uses a double newline).
+      responsesMessages ??= effectiveTransport === 'chat_completions'
+        ? fastPath.skipToolHistoryCompression
+          ? rawMessages
+          : compressToolHistory(rawMessages, request.resolvedModel, {
+            textBlockSeparator: '\n',
+          })
+        : compressedMessages
+      responsesInput ??= convertAnthropicMessagesToResponsesInput(
+        responsesMessages,
+        effectiveTransport === 'responses_compat',
+      )
+      return responsesInput
+    }
+
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
+    }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
         model: request.resolvedModel,
-        input: convertAnthropicMessagesToResponsesInput(
-          params.messages as Array<{
-            role?: string
-            message?: { role?: string; content?: unknown }
-            content?: unknown
-          }>,
-          effectiveTransport === 'responses_compat',
-        ),
+        input: getResponsesInput(),
         stream: params.stream ?? false,
         store: false,
       }
@@ -4036,7 +3951,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4061,7 +3976,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4082,7 +3996,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4119,7 +4033,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -4216,7 +4129,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -4234,6 +4147,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -4252,7 +4168,12 @@ class OpenAIShimMessages {
     // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
     const isXaiRoute =
       runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+    const routeAcceptsGenericOpenAICredentials =
+      runtimeShimContext.routeId === null ||
+      getRouteDescriptor(runtimeShimContext.routeId)?.setup
+        .dedicatedCredentialsOnly !== true
     const openAIApiKeysPoolRaw =
+      routeAcceptsGenericOpenAICredentials &&
       parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
         ? process.env.OPENAI_API_KEYS
         : undefined
@@ -4283,6 +4204,7 @@ class OpenAIShimMessages {
           process.env.ATLAS_CLOUD_API_KEY,
           process.env.NEARAI_API_KEY,
           process.env.FIREWORKS_API_KEY,
+          process.env.LONGCAT_API_KEY,
         ].some(value => value?.trim() === openAIApiKeyRawUsable),
       )
     const routeCredentialIsCopiedProviderKey =
@@ -4306,13 +4228,20 @@ class OpenAIShimMessages {
         openAIApiKeyRawUsable &&
         routeCredential === openAIApiKeyRawUsable,
       )
+    const copiedProviderCredential =
+      openAIApiKeyIsCopiedProviderKey &&
+      (routeAcceptsGenericOpenAICredentials || routeCredentialIsCopiedProviderKey)
+        ? openAIApiKeyRawUsable
+        : undefined
     const apiKeyRaw =
       this.providerOverride?.apiKey ??
-      (openAIApiKeyIsCopiedProviderKey ? openAIApiKeyRawUsable : undefined) ??
+      copiedProviderCredential ??
       (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
       openAIApiKeysPoolRaw ??
       routeCredential ??
-      (openAIApiKeyRawUsable || xaiOAuthToken || '')
+      (routeAcceptsGenericOpenAICredentials
+        ? openAIApiKeyRawUsable || xaiOAuthToken || ''
+        : '')
     // A catalog-level auth header is part of the selected model's transport
     // contract. Ignore global custom auth left behind by another route so it
     // cannot replace that model-specific header or credential.
@@ -4349,22 +4278,9 @@ class OpenAIShimMessages {
         new Headers(),
       )
     }
-    // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
-    // path segments like https://evil.com/cognitiveservices.azure.com/
-    let isAzure = isEnvTruthy(process.env.OPENAI_AZURE_STYLE)
-    if (!isAzure) {
-      try {
-        const { hostname } = new URL(request.baseUrl)
-        isAzure =
-          hostname.endsWith('.azure.com') &&
-          (hostname.includes('cognitiveservices') ||
-            hostname.includes('openai') ||
-            hostname.includes('services.ai') ||
-            hostname.includes('inference.ml'))
-      } catch {
-        /* malformed URL — not Azure */
-      }
-    }
+    // Reads live process.env by design; must agree with the responses
+    // auto-route gate's processEnv (both default to process.env today).
+    const isAzure = isAzureStyleBaseUrl(request.baseUrl, requestProcessEnv)
 
     let isBankr = false
     try {
@@ -4448,24 +4364,68 @@ class OpenAIShimMessages {
       // Azure Cognitive Services / Azure OpenAI require a deployment-specific
       // path and an api-version query parameter.
       if (isAzure) {
+        const normalizedBaseUrl = (baseUrl.split(/[?#]/, 1)[0] ?? baseUrl).replace(/\/+$/, '')
         const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
         const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
 
         // If base URL already contains /deployments/, use it as-is with api-version.
-        if (/\/deployments\//i.test(baseUrl)) {
-          const normalizedBase = baseUrl.replace(/\/+$/, '')
-          return `${normalizedBase}/chat/completions?api-version=${apiVersion}`
+        if (/\/deployments\//i.test(normalizedBaseUrl)) {
+          return `${normalizedBaseUrl}/chat/completions?api-version=${apiVersion}`
         }
 
         // Strip trailing /v1 or /openai/v1 if present, then build Azure path.
-        const normalizedBase = baseUrl
+        const normalizedBase = normalizedBaseUrl
           .replace(/\/(openai\/)?v1\/?$/, '')
           .replace(/\/+$/, '')
 
         return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
       }
 
-      return `${baseUrl}/chat/completions`
+      const normalizedBase = baseUrl.replace(/\/+$/, '')
+      // LongCat documents both `/openai/v1/chat/completions` and the
+      // CodeBuddy-specific `/openai/chat/completions` endpoint forms.
+      if (
+        runtimeShimContext.routeId === 'longcat' &&
+        isLongcatBaseUrl(normalizedBase) &&
+        /^\/openai\/?$/.test(new URL(normalizedBase).pathname)
+      ) {
+        return `${normalizedBase}/v1/chat/completions`
+      }
+      if (
+        runtimeShimContext.routeId === 'longcat' &&
+        isLongcatBaseUrl(normalizedBase) &&
+        /^\/openai(?:\/v1)?\/chat\/completions$/.test(
+          new URL(normalizedBase).pathname,
+        )
+      ) {
+        return normalizedBase
+      }
+      return `${normalizedBase}/chat/completions`
+    }
+
+    // Azure serves the Responses API only on the v1 surface
+    // ({resource}/openai/v1/responses — model in the request body, no
+    // api-version, no deployment-scoped form), so any Azure-style base is
+    // normalized to it: trailing /openai/v1, /v1, and
+    // /openai/deployments/<dep> segments are stripped until stable (bases
+    // can carry several, e.g. /openai/deployments/<dep>/openai/v1), then
+    // /openai/v1/responses is appended.
+    // https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
+    const buildResponsesUrl = (baseUrl: string): string => {
+      const trimmedBase = baseUrl.replace(/\/+$/, '')
+      if (!isAzure) {
+        return `${trimmedBase}/responses`
+      }
+      let normalizedBase = (trimmedBase.split(/[?#]/, 1)[0] ?? trimmedBase).replace(/\/+$/, '')
+      for (;;) {
+        const stripped = normalizedBase
+          .replace(/\/(openai\/)?v1$/i, '')
+          .replace(/\/openai\/deployments\/[^/]+$/i, '')
+          .replace(/\/+$/, '')
+        if (stripped === normalizedBase) break
+        normalizedBase = stripped
+      }
+      return `${normalizedBase}/openai/v1/responses`
     }
 
     const localRetryBaseUrls = isLocal
@@ -4480,13 +4440,14 @@ class OpenAIShimMessages {
         return buildOllamaChatUrl(baseUrl)
       }
       return request.transport === 'responses' || request.transport === 'responses_compat'
-        ? `${baseUrl}/responses`
+        ? buildResponsesUrl(baseUrl)
         : buildChatCompletionsUrl(baseUrl)
     }
 
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
+    const attemptedLocalRequestUrls = new Set<string>([requestUrl])
     let didRetryWithoutTools = false
     let didRetryWithoutToolStream = false
     let retryCredentialLease: CredentialLease | null = null
@@ -4501,10 +4462,16 @@ class OpenAIShimMessages {
           continue
         }
 
-        const previousUrl = requestUrl
         attemptedLocalBaseUrls.add(candidateBaseUrl)
+        const candidateRequestUrl = buildRequestUrl(candidateBaseUrl)
+        if (attemptedLocalRequestUrls.has(candidateRequestUrl)) {
+          continue
+        }
+
+        const previousUrl = requestUrl
+        attemptedLocalRequestUrls.add(candidateRequestUrl)
         activeBaseUrl = candidateBaseUrl
-        requestUrl = buildRequestUrl(activeBaseUrl)
+        requestUrl = candidateRequestUrl
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
@@ -4517,25 +4484,44 @@ class OpenAIShimMessages {
       return false
     }
 
-    const bodyContainsImages = (): boolean => {
-      if (request.transport === 'responses') {
-        const responsesBody = buildResponsesBody()
-        const input = responsesBody.input as Array<Record<string, unknown>> | undefined
-        if (!Array.isArray(input)) return false
-        return input.some(item => {
-          const content = item.content as Array<Record<string, unknown>> | undefined
-          return Array.isArray(content) && content.some(part => part.type === 'input_image')
-        })
+    let serializedBody = ''
+    let imageClassificationCache:
+      | { serializedBody: string; hasImages: boolean }
+      | undefined
+    const bodyContainsImages = (
+      bodyToInspect = serializedBody,
+    ): boolean => {
+      if (imageClassificationCache?.serializedBody === bodyToInspect) {
+        return imageClassificationCache.hasImages
       }
-      const messages = body.messages as Array<Record<string, unknown>> | undefined
-      if (!Array.isArray(messages)) return false
-      return messages.some(msg => {
-        const content = msg.content
-        if (!Array.isArray(content)) return false
-        return content.some((part: Record<string, unknown>) => part.type === 'image_url')
-      })
+
+      let hasImages = false
+      try {
+        const payload = JSON.parse(bodyToInspect)
+        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+          hasImages = requestBodyContainsImages(
+            payload as Record<string, unknown>,
+          )
+        }
+      } catch (error) {
+        // Request serialization already succeeded before this error path, so
+        // parsing should only fail if a future caller passes a different body.
+        logForDebugging(
+          `[OpenAIShim] failed to inspect serialized request body for images: ${error instanceof Error ? error.message : String(error)}`,
+          { level: 'warn' },
+        )
+      }
+
+      imageClassificationCache = {
+        serializedBody: bodyToInspect,
+        hasImages,
+      }
+      return hasImages
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -4577,7 +4563,10 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
-    let serializedBody = serializeBody()
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
+    serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
       serializedBody = serializeBody()
@@ -4587,16 +4576,26 @@ class OpenAIShimMessages {
       method: 'POST' as const,
       headers,
       body: serializedBody,
-      signal: options?.signal,
     })
+
+    const fetchAttemptWithHeadersDeadline = (
+      url: string,
+      init: RequestInit,
+    ): Promise<Response> =>
+      fetchWithHeadersDeadline(url, init, {
+        callerSignal: options?.signal,
+        timeoutMs: apiTimeoutMs,
+      })
 
     const maxSelfHealAttempts = isLocal
       ? localRetryBaseUrls.length + 1
       : 0
     const credentialPoolAttempts = credentialPool?.size ?? 1
-    let maxAttempts =
+    let maxAttempts = Math.max(
+      2,
       Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
-      maxSelfHealAttempts
+        maxSelfHealAttempts,
+    )
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -4604,34 +4603,14 @@ class OpenAIShimMessages {
       preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
     ): never => {
       if (options?.signal?.aborted) {
-        throw error
+        throw preserveCallerAbortError(error, options.signal)
       }
 
-      const failure =
-        preclassifiedFailure ??
-        classifyOpenAINetworkFailure(error, {
-          url: requestUrl,
-        })
-      const redactedUrl = redactUrlForDiagnostics(requestUrl)
-      const safeMessage =
-        redactSecretValueForDisplay(
-          redactUrlsInMessage(failure.message),
-          process.env as SecretValueSource,
-        ) || 'Request failed'
-
-      logForDebugging(
-        `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${safeMessage}`,
-        { level: 'warn' },
-      )
-
-      throw APIError.generate(
-        0,
-        undefined,
-        buildOpenAICompatibilityErrorMessage(
-          `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
-          failure,
-        ),
-        new Headers(),
+      throw createClassifiedTransportError(
+        error,
+        requestUrl,
+        request.resolvedModel,
+        preclassifiedFailure,
       )
     }
 
@@ -4698,38 +4677,40 @@ class OpenAIShimMessages {
       }
       const headers = await buildHeadersForAttempt(credentialLease)
       try {
-        response = await fetchWithProxyRetry(
+        response = await fetchAttemptWithHeadersDeadline(
           requestUrl,
           buildFetchInit(headers),
         )
       } catch (error) {
-        const isAbortError =
-          options?.signal?.aborted === true ||
-          (typeof DOMException !== 'undefined' &&
-            error instanceof DOMException &&
-            error.name === 'AbortError') ||
-          (typeof error === 'object' &&
-            error !== null &&
-            'name' in error &&
-            error.name === 'AbortError')
-
-        if (isAbortError) {
+        if (options?.signal?.aborted) {
+          throw preserveCallerAbortError(error, options.signal)
+        }
+        const isResponseHeadersTimeout =
+          error instanceof ResponseHeadersTimeoutError
+        if (!isResponseHeadersTimeout && isAbortError(error)) {
           throw error
         }
 
-        const failure = classifyOpenAINetworkFailure(error, {
+        const classifiedFailure = classifyOpenAINetworkFailure(error, {
           url: requestUrl,
         })
 
+        if (isResponseHeadersTimeout) {
+          throwClassifiedTransportError(error, requestUrl, {
+            ...classifiedFailure,
+            retryable: false,
+          })
+        }
+
         if (
           isLocal &&
-          failure.category === 'localhost_resolution_failed' &&
+          classifiedFailure.category === 'localhost_resolution_failed' &&
           promoteNextLocalBaseUrl('localhost_resolution_failed')
         ) {
           continue
         }
 
-        throwClassifiedTransportError(error, requestUrl, failure)
+        throwClassifiedTransportError(error, requestUrl, classifiedFailure)
       }
 
       // After the try/catch, response is guaranteed to be defined — the catch
@@ -4822,17 +4803,42 @@ class OpenAIShimMessages {
         if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
           const responsesUrl = `${request.baseUrl}/responses`
           const responsesBody = buildResponsesBody()
+          const responsesSerializedBody = stableStringifyJson(responsesBody)
 
           let responsesResponse!: Response
           try {
-            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
-              method: 'POST',
-              headers,
-              body: stableStringifyJson(responsesBody),
-              signal: options?.signal,
-            })
+            responsesResponse = await fetchAttemptWithHeadersDeadline(
+              responsesUrl,
+              {
+                method: 'POST',
+                headers,
+                body: responsesSerializedBody,
+              },
+            )
           } catch (error) {
-            throwClassifiedTransportError(error, responsesUrl)
+            if (options?.signal?.aborted) {
+              throw preserveCallerAbortError(error, options.signal)
+            }
+            if (
+              !(error instanceof ResponseHeadersTimeoutError) &&
+              isAbortError(error)
+            ) {
+              throw error
+            }
+            const classifiedFailure = classifyOpenAINetworkFailure(error, {
+              url: responsesUrl,
+            })
+            if (error instanceof ResponseHeadersTimeoutError) {
+              throwClassifiedTransportError(error, responsesUrl, {
+                ...classifiedFailure,
+                retryable: false,
+              })
+            }
+            throwClassifiedTransportError(
+              error,
+              responsesUrl,
+              classifiedFailure,
+            )
           }
 
           if (responsesResponse.ok) {
@@ -4842,7 +4848,7 @@ class OpenAIShimMessages {
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
-            hasImages: bodyContainsImages(),
+            hasImages: bodyContainsImages(responsesSerializedBody),
           })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
@@ -4911,9 +4917,15 @@ class OpenAIShimMessages {
         }
       }
 
+      const shouldRetryLocalEndpoint404 =
+        failure.category === 'endpoint_not_found' ||
+        (
+          response.status === 404 &&
+          failure.category === 'vision_not_supported'
+        )
       if (
         isLocal &&
-        failure.category === 'endpoint_not_found' &&
+        shouldRetryLocalEndpoint404 &&
         promoteNextLocalBaseUrl('endpoint_not_found')
       ) {
         continue
@@ -4936,9 +4948,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -4995,6 +5007,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(
@@ -5061,9 +5076,9 @@ class OpenAIShimMessages {
 
 class OpenAIShimBeta {
   messages: OpenAIShimMessages
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  reasoningEffort?: OpenAIShimEffortLevel
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: OpenAIShimEffortLevel, providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
     this.reasoningEffort = reasoningEffort
   }
@@ -5073,7 +5088,7 @@ export function createOpenAIShimClient(options: {
   defaultHeaders?: Record<string, string>
   maxRetries?: number
   timeout?: number
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  reasoningEffort?: OpenAIShimEffortLevel
   providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
   hydrateGeminiAccessTokenFromSecureStorage()
@@ -5093,6 +5108,10 @@ export function createOpenAIShimClient(options: {
 // Test-only surface (same pattern as WebSearchTool's __test export).
 export const __test = {
   convertMessages,
+  getApiTimeoutMs,
+  getChatMessagesForTransport,
+  getCompressedMessagesForTransport,
+  requestBodyContainsImages,
   getStreamIdleTimeoutMs,
   readWithIdleTimeout,
   StreamIdleTimeoutError,

@@ -50,6 +50,7 @@ const EXPECTED_PRESETS = [
   'gitlawb-opengateway',
   'nearai',
   'fireworks',
+  'longcat',
   'opencode',
   'opencode-go',
   'clinepass',

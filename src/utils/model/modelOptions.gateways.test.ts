@@ -105,6 +105,17 @@ test('OpenRouter keeps static catalog entries and the active custom model', asyn
   expect(values).toContain('deepseek/deepseek-chat')
 })
 
+test('Kimi Code keeps context variants distinct in the active route picker', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_MODEL = 'k3-256k'
+  process.env.OPENAI_API_KEY = 'sk-kimi-test'
+
+  const options = await getOpenAIModelOptions()
+  expect(options.find(option => option.value === 'k3')?.label).toBe('Kimi K3 (1M)')
+  expect(options.find(option => option.value === 'k3-256k')?.label).toBe('Kimi K3 (256K)')
+})
+
 test('custom Anthropic endpoints use the third-party default description', async () => {
   process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
   process.env.ANTHROPIC_MODEL = 'proxy-model'

@@ -13,10 +13,11 @@ import {
   convertEffortValueToLevel,
   type EffortValue,
   resolveAppliedEffort,
+  resolveModelReasoningControl,
   modelSupportsShimReasoningEffort,
   modelSupportsWireEffort,
   standardEffortToOpenAI,
-  type OpenAIEffortLevel,
+  type OpenAIShimEffortLevel,
 } from 'src/utils/effort.js'
 import { getUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
@@ -39,6 +40,7 @@ import {
 } from '../../utils/envUtils.js'
 import {
   getFireworksBaseUrlOverride,
+  getLongcatBaseUrlOverride,
   getMiniMaxBaseUrlOverride,
   getNearaiBaseUrlOverride,
   getRouteDefaultBaseUrl,
@@ -198,6 +200,7 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
     getRouteDefaultModel('minimax')
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -226,6 +229,7 @@ function applyXiaomiMimoEnvOnlyDefaults(): void {
     getRouteDefaultModel('xiaomi-mimo')
   process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -246,6 +250,7 @@ function applyXaiEnvOnlyDefaults(): void {
     getRouteDefaultModel('xai')
   process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -281,6 +286,7 @@ function applyNearaiEnvOnlyDefaults(): void {
     getRouteDefaultModel('nearai')
   process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -317,6 +323,33 @@ function applyFireworksEnvOnlyDefaults(): void {
     getRouteDefaultModel('fireworks')
   process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function isLongcatModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(normalized && normalized.startsWith('longcat'))
+}
+
+function applyLongcatEnvOnlyDefaults(): void {
+  const baseUrlOverride = getLongcatBaseUrlOverride()
+  const hasLongcatBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('longcat')
+  process.env.OPENAI_MODEL =
+    (hasLongcatBaseOverride || isLongcatModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('longcat')
+  process.env.OPENAI_API_KEY = process.env.LONGCAT_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -335,6 +368,7 @@ function applyAimlapiEnvOnlyDefaults(): void {
   process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('aimlapi')
   process.env.OPENAI_API_KEY = process.env.AIMLAPI_API_KEY
   delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -359,48 +393,76 @@ export async function getAnthropicClient({
 }): Promise<Anthropic> {
   // Convert the runtime effort value to the OpenAI-shaped enum the shim
   // expects. Undefined → shim falls back to descriptor/alias defaults.
+  const effortProcessEnv = providerOverride
+    ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+    : process.env
   const effortModel = providerOverride?.model ?? model
-  const providerOverrideRuntimeContext = providerOverride && effortModel
+  const effortBaseUrl =
+    providerOverride?.baseURL ??
+    process.env.OPENAI_BASE_URL ??
+    process.env.OPENAI_API_BASE
+  const effortRuntimeContext = effortModel
     ? resolveOpenAIShimRuntimeContext({
-      processEnv: process.env,
-      baseUrl: providerOverride.baseURL,
+      processEnv: effortProcessEnv,
+      baseUrl: effortBaseUrl,
       model: effortModel,
-      preferBaseUrlRoute: true,
+      preferBaseUrlRoute:
+        providerOverride !== undefined || isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI),
     })
     : undefined
-  const providerOverrideShimConfig = providerOverrideRuntimeContext?.openaiShimConfig
-  const providerOverrideEffortContext = providerOverrideRuntimeContext
-    ? {
-        routeId: providerOverrideRuntimeContext.routeId,
+  const effortShimConfig = effortRuntimeContext?.openaiShimConfig
+  const effortContext = effortRuntimeContext
+      ? {
+        routeId: effortRuntimeContext.routeId ?? 'custom',
         useRuntimeFallback: false,
-        openaiShimConfig: providerOverrideShimConfig,
-        apiProvider: providerOverrideRuntimeContext.routeId === 'openai'
+        openaiShimConfig: effortShimConfig,
+        baseUrl: effortBaseUrl,
+        processEnv: effortProcessEnv,
+        apiProvider: effortRuntimeContext.routeId === 'openai'
           ? 'openai' as const
-          : providerOverrideRuntimeContext.routeId === 'codex'
+          : effortRuntimeContext.routeId === 'codex'
             ? 'codex' as const
             : undefined,
       }
     : undefined
   const supportsShimReasoningEffort = effortModel
-    ? providerOverrideShimConfig
+    ? effortShimConfig
       ? modelSupportsShimReasoningEffort(
         effortModel,
-        providerOverrideShimConfig.thinkingRequestFormat,
-        providerOverrideShimConfig.removeBodyFields,
-        providerOverrideEffortContext,
+        effortShimConfig.thinkingRequestFormat,
+        effortShimConfig.removeBodyFields,
+        effortContext,
       )
       : modelSupportsWireEffort(effortModel)
     : false
-  const appliedProviderOverrideEffort = effortModel && effortValue !== undefined
+  const reasoningControl = effortModel
+    ? resolveModelReasoningControl(effortModel, effortContext)
+    : undefined
+  const k3ReasoningControl =
+    reasoningControl?.source === 'metadata' &&
+    reasoningControl.wireFormat === 'reasoning_effort' &&
+    reasoningControl.levels.length === 3 &&
+    reasoningControl.levels.includes('low') &&
+    reasoningControl.levels.includes('high') &&
+    reasoningControl.levels.includes('max')
+  const appliedEffort = effortModel && effortValue !== undefined
     ? resolveAppliedEffort(
       effortModel,
       effortValue,
-      providerOverrideEffortContext,
+      effortContext,
     )
     : undefined
-  const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    appliedProviderOverrideEffort !== undefined && supportsShimReasoningEffort
-      ? standardEffortToOpenAI(convertEffortValueToLevel(appliedProviderOverrideEffort))
+  const appliedEffortLevel = appliedEffort === undefined
+    ? undefined
+    : convertEffortValueToLevel(appliedEffort)
+  const shimReasoningEffort: OpenAIShimEffortLevel | undefined =
+    appliedEffortLevel !== undefined && supportsShimReasoningEffort
+      ? (reasoningControl?.source === 'metadata' &&
+          reasoningControl.wireFormat === 'reasoning_effort' &&
+          appliedEffortLevel === 'max' &&
+          k3ReasoningControl
+            ? 'max'
+          : standardEffortToOpenAI(appliedEffortLevel))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
@@ -445,6 +507,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
   const useFireworksEnvOnlyProvider =
     envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
+  const useLongcatEnvOnlyProvider =
+    envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
   const useAimlapiEnvOnlyProvider =
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
@@ -461,6 +525,9 @@ export async function getAnthropicClient({
   }
   if (useFireworksEnvOnlyProvider) {
     applyFireworksEnvOnlyDefaults()
+  }
+  if (useLongcatEnvOnlyProvider) {
+    applyLongcatEnvOnlyDefaults()
   }
   if (useAimlapiEnvOnlyProvider) {
     applyAimlapiEnvOnlyDefaults()

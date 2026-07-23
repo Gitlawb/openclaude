@@ -143,7 +143,7 @@ test('buildAPIProviderProperties uses the resolved route label for AI/ML API ses
   process.env.OPENAI_BASE_URL = 'https://api.aimlapi.com/v1'
   process.env.OPENAI_MODEL = 'gpt-4o'
 
-  expect(await readPropertyValue('Provider route', 'openai')).toBe('AI/ML API')
+  expect(await readPropertyValue('Provider route', 'openai')).toBe('aimlapi.com')
   expect(await readPropertyValue('OpenAI base URL', 'openai')).toBe(
     'https://api.aimlapi.com/v1',
   )

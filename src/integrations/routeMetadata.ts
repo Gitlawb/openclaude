@@ -63,7 +63,7 @@ export function matchHostnameAgainstRouteHosts(
   })
 }
 
-function normalizeComparableBaseUrl(
+export function normalizeComparableBaseUrl(
   baseUrl?: string,
 ): string | null {
   if (!baseUrl?.trim()) {
@@ -368,6 +368,27 @@ export function isFireworksBaseUrl(value: string | undefined): boolean {
   }
 }
 
+export function isLongcatBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const url = new URL(trimmed)
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'api.longcat.chat' &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      /^\/openai(?:\/v1)?(?:\/chat\/completions)?\/?$/.test(url.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
 export function isClinePassBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -486,6 +507,23 @@ export function getFireworksBaseUrlOverride(
 
   return undefined
 }
+
+export function getLongcatBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isLongcatBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isLongcatBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -664,6 +702,7 @@ export function hasNearaiEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
@@ -685,8 +724,27 @@ export function hasFireworksEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isFireworksBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function hasLongcatEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
+    !hasAnyUsableOpenAICredential(processEnv) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLongcatBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
 }
@@ -716,6 +774,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'xiaomi-mimo'
   | 'nearai'
   | 'fireworks'
+  | 'longcat'
   | 'clinepass'
   | null {
   if (
@@ -751,6 +810,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasFireworksEnvOnlyProviderIntent(processEnv)) {
     return 'fireworks'
+  }
+
+  if (hasLongcatEnvOnlyProviderIntent(processEnv)) {
+    return 'longcat'
   }
 
   if (hasClinePassEnvOnlyProviderIntent(processEnv)) {
@@ -939,7 +1002,10 @@ export function resolveRouteIdFromBaseUrl(
         // bare hostname match isn't enough for the Workers AI route — require
         // the Workers AI path (/client/v4/accounts/<id>/ai/v1). Otherwise an
         // unrelated Cloudflare API URL would inherit Workers-AI routing.
-        if (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) {
+        if (
+          (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
+          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl))
+        ) {
           continue
         }
         return route.id
@@ -971,6 +1037,9 @@ function profileRouteHonorsBaseUrlBoundary(
 ): boolean {
   if (routeId === 'cloudflare') {
     return isCloudflareBaseUrl(baseUrl)
+  }
+  if (routeId === 'longcat') {
+    return isLongcatBaseUrl(baseUrl)
   }
   return true
 }

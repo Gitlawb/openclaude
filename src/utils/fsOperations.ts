@@ -456,7 +456,18 @@ export const NodeFsOperations: FsOperations = {
       // permissions, systemd private tmp namespaces). If the directory
       // already exists via a prior mkdir call, treat it as a no-op. This
       // prevents the error from propagating to callers that don't catch it.
-      if (code === 'EACCES' && fs.existsSync(dirPath)) return
+      // EPERM gets the same treatment: on Windows, mkdir on a drive root
+      // ('D:\') maps the kernel's "cannot create a root that already exists"
+      // to EPERM rather than EEXIST — not an actual permissions failure.
+      // The existsSync guard keeps genuine "cannot create this directory"
+      // failures (dir absent, or dir present but not writable — the
+      // subsequent file write surfaces the real EACCES) propagating.
+      if (
+        (code === 'EACCES' || code === 'EPERM') &&
+        fs.existsSync(dirPath)
+      ) {
+        return
+      }
       throw e
     }
   },
@@ -596,7 +607,17 @@ export const NodeFsOperations: FsOperations = {
       // refuse writes (e.g. /tmp in container environments with restricted
       // permissions, systemd private tmp namespaces). If the directory
       // already exists via a prior mkdir call, treat it as a no-op.
-      if (code === 'EACCES' && fs.existsSync(dirPath)) return
+      // EPERM gets the same treatment: on Windows, mkdir on a drive root
+      // ('D:\') maps the kernel's "cannot create a root that already exists"
+      // to EPERM rather than EEXIST — not an actual permissions failure.
+      // The existsSync guard keeps genuine "cannot create this directory"
+      // failures propagating.
+      if (
+        (code === 'EACCES' || code === 'EPERM') &&
+        fs.existsSync(dirPath)
+      ) {
+        return
+      }
       throw e
     }
   },

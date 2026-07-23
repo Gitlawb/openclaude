@@ -41,6 +41,7 @@ import type {
   UserMessage,
   TombstoneMessage,
 } from './types/message.js'
+import { isHumanTurn } from './utils/messagePredicates.js'
 import { logError } from './utils/log.js'
 import {
   getProviderMaxTokensCapFromMessage,
@@ -426,6 +427,14 @@ function isWithheldProviderMaxTokensCap(
 
 export type QueryParams = {
   messages: Message[]
+  /**
+   * Model-visible context for this query call only. Never compacted, yielded,
+   * exposed to tools, or written to transcript state.
+   */
+  requestOnlyMessages?: Message[]
+  /** Called around each outbound model request, including retries. */
+  onModelRequestStart?: () => void
+  onModelRequestEnd?: () => void
   systemPrompt: SystemPrompt
   userContext: { [k: string]: string }
   systemContext: { [k: string]: string }
@@ -447,6 +456,22 @@ export type QueryParams = {
   taskBudget?: { total: number }
   agentStepLimit?: AgentStepLimitConfig
   deps?: QueryDeps
+}
+
+function injectRequestOnlyMessages(
+  messages: readonly Message[],
+  requestOnlyMessages: readonly Message[] | undefined,
+): Message[] {
+  if (!requestOnlyMessages?.length) return [...messages]
+  const latestUserIndex = messages.findLastIndex(isHumanTurn)
+  const insertionIndex = latestUserIndex === -1
+    ? messages.length
+    : latestUserIndex
+  return [
+    ...messages.slice(0, insertionIndex),
+    ...requestOnlyMessages,
+    ...messages.slice(insertionIndex),
+  ]
 }
 
 // -- query loop state
@@ -512,6 +537,12 @@ async function* queryLoop(
   | ToolUseSummaryMessage,
   Terminal
 > {
+  // Reset this agent's doom loop detection at the start of each query turn.
+  // Keyed by agentId so a subagent starting mid-turn doesn't wipe the main
+  // thread's counter (or a sibling agent's).
+  const { resetDoomLoop } = await import('./utils/doomLoop.js')
+  resetDoomLoop(params.toolUseContext.agentId)
+
   // Start a new turn for multi-turn context tracking
   if (
     feature('MULTI_TURN_CONTEXT') &&
@@ -572,6 +603,9 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  // Request-only context can be invalidated by a full conversation rewrite.
+  // Keep it outside the loop so that invalidation survives every retry state.
+  let requestOnlyMessages = params.requestOnlyMessages
   let pendingToolFailureAdvisories: {
     message: ReturnType<typeof createUserMessage>
     threshold: number
@@ -889,6 +923,9 @@ async function* queryLoop(
     queryCheckpoint('query_autocompact_end')
 
     if (compactionResult) {
+      // A full rewrite removes the interrupted turn this correction context
+      // refers to, so it cannot be valid for the compacted request.
+      requestOnlyMessages = undefined
       const {
         preCompactTokenCount,
         postCompactTokenCount,
@@ -1294,8 +1331,16 @@ async function* queryLoop(
         try {
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
-          for await (const message of deps.callModel({
-            messages: prependUserContext(messagesForQuery, userContext),
+          params.onModelRequestStart?.()
+          try {
+            for await (const message of deps.callModel({
+            messages: prependUserContext(
+              injectRequestOnlyMessages(
+                messagesForQuery,
+                requestOnlyMessages,
+              ),
+              userContext,
+            ),
             systemPrompt: fullSystemPrompt,
             thinkingConfig: toolUseContext.options.thinkingConfig,
             tools: toolsForModel,
@@ -1348,7 +1393,7 @@ async function* queryLoop(
                 },
               }),
             },
-          })) {
+            })) {
             // We won't use the tool_calls from the first attempt
             // We could.. but then we'd have to merge assistant messages
             // with different ids and double up on full the tool_results
@@ -1534,6 +1579,9 @@ async function* queryLoop(
                 }
               }
             }
+            }
+          } finally {
+            params.onModelRequestEnd?.()
           }
           queryCheckpoint('query_api_streaming_end')
 
@@ -1829,6 +1877,9 @@ async function* queryLoop(
             querySource,
           )
           if (drained.committed > 0) {
+            // Draining replaces archived history with a summary, so a reminder
+            // about the pre-collapse interrupted turn is no longer valid.
+            requestOnlyMessages = undefined
             const next: State = {
               messages: drained.messages,
               toolUseContext,
@@ -1870,6 +1921,9 @@ async function* queryLoop(
         })
 
         if (compacted) {
+          // The reactive path also replaces the complete conversation; do not
+          // re-inject request-only context whose referent was compacted away.
+          requestOnlyMessages = undefined
           // task_budget: same carryover as the proactive path above.
           // messagesForQuery still holds the pre-compact array here (the
           // 413-failed attempt's input).
@@ -1950,7 +2004,7 @@ async function* queryLoop(
         )
         const nextTracking: AutoCompactTrackingState = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
-          forceReason: 'memory-pressure',
+          forceReason: 'context-overflow',
         }
         const next: State = {
           messages: messagesForQuery,

@@ -31,6 +31,7 @@ const RESTORED_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -289,6 +290,22 @@ function buildCloudflareProfile(overrides: Partial<ProviderProfile> = {}): Provi
 }
 
 describe('applyProviderProfileToProcessEnv', () => {
+  test('applies Azure-style routing from a saved OpenAI-compatible profile', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        baseUrl: 'https://apim.contoso.example/azure-openai',
+        model: 'gpt-5.6-sol',
+        apiKey: 'azure-key',
+        azureStyle: true,
+      }),
+    )
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
+  })
+
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -697,6 +714,7 @@ describe('applyProviderProfileToProcessEnv', () => {
   test('minimax profile ignores advanced OpenAI-compatible auth settings', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
+    process.env.OPENAI_AZURE_STYLE = '1'
 
     applyProviderProfileToProcessEnv(
       buildProfile({
@@ -720,6 +738,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
     expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
@@ -1010,7 +1029,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   }, 20_000)
 
-  test('keyless custom AIMLAPI profile preserves route identity with ambient OpenAI key', async () => {
+  test('keyless custom AIMLAPI profile preserves route identity without forwarding the ambient key', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
     process.env.OPENAI_API_KEY = 'ambient-openai-key'
@@ -1026,8 +1045,52 @@ describe('applyProviderProfileToProcessEnv', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
-    expect(process.env.OPENAI_API_KEY).toBe('ambient-openai-key')
-    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-openai-key')
+    // The base URL is a user-controlled proxy, not the canonical inference
+    // host, so the canonical AIMLAPI credential must not be forwarded to it.
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.AIMLAPI_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+  }, 20_000)
+
+  test('keyless AIMLAPI profile resolves AIMLAPI_API_KEY without persisting it', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'ambient-aimlapi-key'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: undefined,
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+  }, 20_000)
+
+  test('keyless AIMLAPI profile without a base URL resolves the ambient key as canonical', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'ambient-aimlapi-key'
+
+    // A missing base URL resolves to the canonical aimlapi default; the guard
+    // must treat it as canonical rather than crash on undefined.trim().
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: undefined,
+        model: 'gpt-4o',
+        apiKey: undefined,
+      }),
+    )
+
+    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-aimlapi-key')
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
   }, 20_000)
 
@@ -2038,6 +2101,115 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(saved?.model).toBe('glm-5.2')
   })
 
+  test('uses saved Codex /model choice when rehydrating the Codex OAuth profile', async () => {
+    // Regression: the Codex OAuth profile is created with a single
+    // `codexplan` model entry, so profileSupportsModel rejected any other
+    // Codex model saved via /model (e.g. gpt-5.6-terra) and the next startup
+    // silently reverted to codexplan → gpt-5.5. Codex-backend profiles must
+    // accept every Codex alias model and gpt-5.x free-text picks.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+      getProviderProfiles,
+    } = await importFreshProviderProfileModules()
+    _setSavedModelOverrideForTesting('gpt-5.6-terra')
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(applied?.id).toBe(activeProfile.id)
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://chatgpt.com/backend-api/codex',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.6-terra')
+    // The profile's configured model list is never mutated by /model.
+    const saved = getProviderProfiles({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
+    expect(saved?.model).toBe('codexplan')
+  })
+
+  test('accepts a non-alias gpt-5.x free-text pick on a Codex profile, but not a foreign model', async () => {
+    // gpt-5.1-codex is served by the Codex backend but is not a
+    // CODEX_ALIAS_MODELS key (only its -max/-mini variants are), so it is
+    // only reachable via free-text /model — which live-validates against
+    // the backend before persisting. It must survive restart. A stale
+    // non-GPT model from another provider must NOT leak in.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+    const config = {
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any
+
+    _setSavedModelOverrideForTesting('gpt-5.1-codex')
+    applyActiveProviderProfileFromConfig(config)
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.1-codex')
+
+    // Simulate a cold start for the second scenario — leftover provider env
+    // from the first application counts as explicit startup intent and would
+    // short-circuit applyActiveProviderProfileFromConfig.
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    _setSavedModelOverrideForTesting('kimi-k2.6')
+    applyActiveProviderProfileFromConfig(config)
+    expect(String(process.env.OPENAI_MODEL)).toBe('codexplan')
+
+    // gpt-5-mini/-nano are API-only tiers the Codex backend does not serve;
+    // a stale pick from a direct-OpenAI profile must fall back too, not 400.
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    _setSavedModelOverrideForTesting('gpt-5-mini')
+    applyActiveProviderProfileFromConfig(config)
+    expect(String(process.env.OPENAI_MODEL)).toBe('codexplan')
+  })
+
+  test('a [1m]-tagged saved Codex pick survives restart', async () => {
+    // The [1m] tag is a client-side context opt-in, not part of the model
+    // identity: profileSupportsModel must match the tagged value against the
+    // untagged alias/profile entry instead of dropping the override.
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_codex',
+      provider: 'openai',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      model: 'codexplan',
+    })
+
+    _setSavedModelOverrideForTesting('codexplan[1m]')
+    applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+    expect(process.env.OPENAI_MODEL).toBe('codexplan[1m]')
+  })
+
   test('cold start on the Anthropic sentinel stays on built-in Anthropic and does not fall back to the OpenGateway default (#1429)', async () => {
     // Regression: after clearActiveProviderProfile() records the Anthropic
     // sentinel and deletes the startup profile mirror, a restart must keep the
@@ -2403,7 +2575,7 @@ describe('getProviderPresetDefaults', () => {
     const defaults = getProviderPresetDefaults('aimlapi')
 
     expect(defaults.provider).toBe('aimlapi')
-    expect(defaults.name).toBe('AI/ML API')
+    expect(defaults.name).toBe('aimlapi.com')
     expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
     expect(defaults.model).toBe('gpt-4o')
     expect(defaults.apiKey).toBe('aimlapi-live-key')
@@ -3110,7 +3282,7 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
-  test('keyless custom (proxy) AI/ML API profiles preserve AIMLAPI route identity', async () => {
+  test('keyless custom (proxy) AI/ML API profiles keep route identity but withhold the ambient key', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
@@ -3156,7 +3328,9 @@ describe('setActiveProviderProfile', () => {
         },
       })
 
-      expect(startupEnv.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+      // Route identity is preserved, but the ambient canonical AIMLAPI key must
+      // NOT be forwarded to a user-controlled proxy host.
+      expect(startupEnv.AIMLAPI_API_KEY).toBeUndefined()
       expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
     } finally {
       process.chdir(originalCwd)

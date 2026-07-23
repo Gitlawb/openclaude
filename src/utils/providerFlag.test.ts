@@ -27,6 +27,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -39,6 +40,7 @@ const ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -74,6 +76,7 @@ const RESET_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -86,6 +89,7 @@ const RESET_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
@@ -265,6 +269,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('venice')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
+    expect(VALID_PROVIDERS).toContain('longcat')
     expect(VALID_PROVIDERS).toContain('custom-anthropic')
   })
 })
@@ -448,6 +453,14 @@ describe('applyProviderFlag - ollama', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('ollama', ['--model', 'llama3.2'])
     expect(process.env.OPENAI_MODEL).toBe('llama3.2')
+  })
+
+  test('clears Azure-only routing mode', () => {
+    process.env.OPENAI_AZURE_STYLE = '1'
+
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
   })
 
   test('does not override existing OPENAI_BASE_URL when user set a custom one', () => {
@@ -747,6 +760,68 @@ describe('applyProviderFlag - zai', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(process.env.OPENAI_MODEL).toBe('glm-5.2')
+  })
+})
+
+describe('applyProviderFlag - longcat', () => {
+  test('sets LongCat OpenAI-compatible defaults and mirrors LONGCAT_API_KEY', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.longcat.chat/openai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
+    expect(process.env.OPENAI_API_KEY).toBe('longcat-secret-key')
+  })
+
+  test('sets LongCat OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('longcat', ['--model', 'LongCat-2.0'])
+
+    expect(process.env.OPENAI_MODEL).toBe('LongCat-2.0')
+  })
+
+  test('clears incompatible OpenAI transport and auth overrides', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'token'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-secret'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+  })
+
+  test('does not mirror LONGCAT_API_KEY to a preserved custom base URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://untrusted.example/v1'
+    process.env.LONGCAT_API_KEY = 'longcat-secret-key'
+
+    const result = applyProviderFlag('longcat', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://untrusted.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('clears LONGCAT_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.LONGCAT_API_KEY = 'longcat-live-key'
+
+    const longcatResult = applyProviderFlag('longcat', [])
+    expect(longcatResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('longcat-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 })
 

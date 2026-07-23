@@ -13,7 +13,7 @@ None. You don't need to visit <https://aimlapi.com> first — the guided top-up 
 ## Option 1 — Interactive (`/provider`)
 
 1. Start OpenClaude and run `/provider`.
-2. Choose **AI/ML API**, then confirm the default model (Step 1 of 2).
+2. Choose **aimlapi.com**, then confirm the default model (Step 1 of 2).
 3. Step 2 of 2 — choose how to get an API key:
    - **Top up and get API key** — enter your AI/ML API email and password (an account is created automatically if you don't have one yet), pick a top-up amount ($20–$10,000) and payment method (card or crypto), complete payment in the browser, and OpenClaude saves the issued key for you.
    - **Enter existing API key** — paste a key you already have from the AI/ML API dashboard.
@@ -59,7 +59,7 @@ export OPENAI_MODEL="gpt-4o"
 
 ## Verify
 
-- `/status` shows **AI/ML API** as the active provider with the `https://api.aimlapi.com/v1` base URL.
+- `/status` shows **aimlapi.com** as the active provider with the `https://api.aimlapi.com/v1` base URL.
 - `/model` lists chat-capable models discovered from the catalog.
 - Send any prompt to confirm responses come back from the selected model.
 

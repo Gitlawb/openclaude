@@ -6,7 +6,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
-import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
+import { baseUrlSupportsResponsesAutoRoute, supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import {
   ensureIntegrationsLoaded,
   getCatalogEntriesForRoute,
@@ -44,6 +44,9 @@ export const OPENAI_EFFORT_LEVELS = [
 ] as const
 
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
+// OpenAI-compatible shims also serve providers such as Kimi that accept the
+// provider-specific `max` value in the same `reasoning_effort` wire field.
+export type OpenAIShimEffortLevel = OpenAIEffortLevel | 'max'
 export type EffortValue = EffortLevel | number
 
 export type ReasoningControlResolution = {
@@ -53,6 +56,7 @@ export type ReasoningControlResolution = {
   levels: EffortLevel[]
   defaultLevel?: EffortValue
   wireFormat?: ReasoningWireFormat
+  disableFormat?: ReasoningControlMetadata['disableFormat']
   source: 'metadata' | 'capability' | 'compat' | 'legacy' | 'none'
 }
 
@@ -77,6 +81,8 @@ export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
   catalogEntries?: readonly ModelCatalogEntry[]
   modelDescriptors?: Readonly<Record<string, Pick<ModelDescriptor, 'capabilities' | 'reasoning'>>>
   openaiShimConfig?: Partial<OpenAIShimTransportConfig>
+  baseUrl?: string
+  processEnv?: NodeJS.ProcessEnv
 }
 
 const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
@@ -195,15 +201,15 @@ function normalizeReasoningThinkingType(
 }
 
 function normalizeDeepSeekReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function normalizeZaiReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function resolveCompatibilityWireFormat(
@@ -319,14 +325,33 @@ function resolveCatalogReasoningMetadata(
 
   ensureIntegrationsLoaded()
   const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
-  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
-  const entry = entries.find(catalogEntry =>
+  const matchesModel = (catalogEntry: ModelCatalogEntry): boolean =>
     catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
     catalogEntry.id.trim().toLowerCase() === normalizedModel ||
     (catalogEntry.aliases ?? []).some(alias =>
       alias.trim().split('?', 1)[0]?.trim().toLowerCase() === normalizedModel,
-    ),
-  )
+    )
+
+  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
+  let entry = entries.find(matchesModel)
+  const fallbackBaseUrl =
+    context?.baseUrl ?? context?.processEnv?.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+  if (
+    !entry &&
+    routeId === 'custom' &&
+    baseUrlSupportsResponsesAutoRoute(fallbackBaseUrl, context?.processEnv ?? process.env)
+  ) {
+    // Azure and regional/first-party OpenAI surfaces resolve to route 'custom'
+    // (their host is not a registered route; see resolveActiveRouteIdFromEnv),
+    // whose catalog is empty. Consult the openai vendor catalog by model name so
+    // reasoning models (gpt-5.6) carry their advertised metadata (default 'high',
+    // xhigh). Gate on baseUrlSupportsResponsesAutoRoute so this only fires on the
+    // same verified OpenAI/Azure surfaces the Responses auto-route uses, NOT
+    // arbitrary OpenAI-compatible gateways that also resolve to route 'custom' —
+    // those keep their pre-PR chat_completions behavior with no injected
+    // reasoning_effort default.
+    entry = getCatalogEntriesForRoute('openai').find(matchesModel)
+  }
 
   if (!entry) {
     return undefined
@@ -384,6 +409,7 @@ function resolveMetadataReasoningControl(
     levels,
     defaultLevel: normalizeReasoningDefaultLevel(reasoning.defaultLevel, levels),
     wireFormat,
+    disableFormat: reasoning.disableFormat,
     source: 'metadata',
   }
 }
@@ -559,13 +585,13 @@ export function modelSupportsWireEffort(model: string, context?: ReasoningContro
 
 export function resolveOpenAIShimReasoningRequestPlan(options: {
   model: string
-  requestedEffort?: OpenAIEffortLevel
+  requestedEffort?: OpenAIShimEffortLevel
   requestThinkingType?: string
   defaultThinkingType?: string
   thinkingRequestFormat?: OpenAIShimThinkingRequestFormat
   routeId?: string | null
   useRuntimeFallback?: boolean
-  reasoningControl?: Pick<ReasoningControlResolution, 'source' | 'wireFormat' | 'levels'>
+  reasoningControl?: Pick<ReasoningControlResolution, 'source' | 'wireFormat' | 'levels' | 'disableFormat'>
 }): OpenAIShimReasoningRequestPlan {
   const metadataWireFormat = options.reasoningControl?.source === 'metadata'
     ? options.reasoningControl.wireFormat
@@ -636,9 +662,27 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   }
 
   return {
-    reasoningEffort: options.requestedEffort,
-    wireFormat: options.requestedEffort ? 'reasoning_effort' : undefined,
-    source: options.requestedEffort ? 'legacy' : 'none',
+    thinkingType:
+      (requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+      options.reasoningControl?.disableFormat === 'thinking_type_disabled'
+        ? 'disabled'
+        : undefined,
+    reasoningEffort:
+      (requestedThinkingType ?? defaultThinkingType) === 'disabled'
+        ? undefined
+        : options.requestedEffort,
+    wireFormat:
+      options.requestedEffort ||
+      ((requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+        options.reasoningControl?.disableFormat === 'thinking_type_disabled')
+        ? 'reasoning_effort'
+        : undefined,
+    source:
+      options.requestedEffort ||
+      ((requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+        options.reasoningControl?.disableFormat === 'thinking_type_disabled')
+        ? 'metadata'
+        : 'none',
   }
 }
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
@@ -941,6 +985,17 @@ export function resolveAppliedEffort(
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model, context)
   const control = resolveModelReasoningControl(model, context)
+  if (
+    resolved === 'xhigh' &&
+    control.source === 'metadata' &&
+    control.wireFormat === 'reasoning_effort' &&
+    control.levels.length === 3 &&
+    control.levels.includes('low') &&
+    control.levels.includes('high') &&
+    control.levels.includes('max')
+  ) {
+    return 'max'
+  }
   if (
     typeof resolved === 'string' &&
     (control.source === 'metadata' || control.source === 'capability' || control.source === 'compat') &&

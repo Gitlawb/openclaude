@@ -34,6 +34,7 @@ const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
 let hasSharedMutationLock = false
 
 type ImportAutoCompactOptions = {
+  autoCompactEnabled?: boolean
   compactConversation?: ReturnType<typeof mock>
   trySessionMemoryCompaction?: ReturnType<typeof mock>
 }
@@ -46,7 +47,9 @@ async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
   mock.module('../../utils/tokens.js', () => ({ ...realTokens }))
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
-    getGlobalConfig: () => ({ autoCompactEnabled: true }),
+    getGlobalConfig: () => ({
+      autoCompactEnabled: options.autoCompactEnabled ?? true,
+    }),
   }))
   if (options.compactConversation) {
     mock.module('./compact.js', () => ({
@@ -263,6 +266,43 @@ describe('getEffectiveContextWindowSize', () => {
       )
     } finally {
       restoreEnv()
+    }
+  })
+
+  test('uses explicit route runtime limits instead of ambient provider state', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+
+    expect(getEffectiveContextWindowSize('k3-256k', {
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })).toBe(242_144)
+  })
+
+  test('keeps internal context caps above explicit route runtime limits', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+    process.env.USER_TYPE = 'ant'
+    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = '100000'
+
+    expect(getEffectiveContextWindowSize('k3-256k', {
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+    })).toBe(80_000)
+  })
+
+  test('keeps session context caps above explicit route runtime limits', async () => {
+    const { getEffectiveContextWindowSize } = await importAutoCompact()
+    realContext.setSessionContextWindowOverride('k3-256k', 150_000)
+
+    try {
+      expect(getEffectiveContextWindowSize('k3-256k', {
+        contextWindow: 262_144,
+        maxOutputTokens: 32_768,
+      })).toBe(130_000)
+    } finally {
+      realContext.clearSessionContextWindowOverride('k3-256k')
     }
   })
 })
@@ -677,6 +717,61 @@ describe('autoCompactIfNeeded circuit breaker', () => {
     expect(compactConversation).toHaveBeenCalledTimes(1)
     expect(result.wasCompacted).toBe(true)
     expect(result.consecutiveFailures).toBe(0)
+  })
+
+  test('memory-pressure signals honor disabled auto-compact', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      autoCompactEnabled: false,
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = underThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        forceReason: 'memory-pressure',
+      },
+    )
+
+    expect(compactConversation).not.toHaveBeenCalled()
+    expect(result.wasCompacted).toBe(false)
+  })
+
+  test('provider context-overflow recovery bypasses disabled auto-compact', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    process.env.DISABLE_AUTO_COMPACT = '1'
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = underThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        forceReason: 'context-overflow',
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
   })
 
   test('expired cooldown allows a half-open compaction attempt', async () => {

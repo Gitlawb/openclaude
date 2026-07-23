@@ -27,6 +27,28 @@ export type OpenAICompatibilityFailure = {
   requestUrl?: string
 }
 
+const NON_REPLAYABLE_OPENAI_REQUEST = Symbol.for(
+  'openclaude.openai.nonReplayableRequest',
+)
+
+export function markOpenAIRequestNonReplayable<T extends object>(error: T): T {
+  Object.defineProperty(error, NON_REPLAYABLE_OPENAI_REQUEST, {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  })
+  return error
+}
+
+export function isOpenAIRequestNonReplayable(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    Reflect.get(error, NON_REPLAYABLE_OPENAI_REQUEST) === true
+  )
+}
+
 const OPENAI_CATEGORY_MARKER_PREFIX = '[openai_category='
 
 const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])

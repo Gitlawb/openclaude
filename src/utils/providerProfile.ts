@@ -10,6 +10,7 @@ import {
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
 import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
+import { isCanonicalAimlapiInferenceBaseUrl } from '../integrations/aimlapi/config.js'
 import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getGoalDefaultOpenAIModel,
@@ -24,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
@@ -72,6 +74,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -110,6 +113,7 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
+  'LONGCAT_API_KEY',
   'CLINE_API_KEY',
   'OPENCODE_API_KEY',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
@@ -157,6 +161,7 @@ export type ProfileEnv = {
   OPENAI_API_BASE?: string
   OPENAI_MODEL?: string
   OPENAI_API_FORMAT?: 'chat_completions' | 'responses' | 'responses_compat'
+  OPENAI_AZURE_STYLE?: string
   OPENAI_AUTH_HEADER?: string
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
@@ -194,6 +199,7 @@ export type ProfileEnv = {
   CLINE_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
+  LONGCAT_API_KEY?: string
   OPENCODE_API_KEY?: string
   CLOUDFLARE_API_TOKEN?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
@@ -786,6 +792,7 @@ export function buildOpenAIProfileEnv(options: {
   baseUrl?: string | null
   apiKey?: string | null
   apiFormat?: 'chat_completions' | 'responses' | 'responses_compat' | null
+  azureStyle?: string | null
   authHeader?: string | null
   authScheme?: 'bearer' | 'raw' | null
   authHeaderValue?: string | null
@@ -871,6 +878,9 @@ export function buildOpenAIProfileEnv(options: {
     OPENAI_BASE_URL: resolvedBaseUrl,
     OPENAI_MODEL: normalizedModel,
     ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
+    ...(isEnvTruthy(options.azureStyle ?? processEnv.OPENAI_AZURE_STYLE)
+      ? { OPENAI_AZURE_STYLE: '1' }
+      : {}),
     ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
     ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
     ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
@@ -1339,7 +1349,8 @@ function hasConcreteProviderSelection(
   // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
   )
 }
 
@@ -1381,6 +1392,37 @@ export function selectAutoProfile(
   return recommendedOllamaModel ? 'ollama' : 'openai'
 }
 
+/**
+ * Endpoint equivalence for deciding whether a launch may inherit a saved
+ * profile's route identity — and with it that profile's dedicated credential.
+ *
+ * Scheme and host case, plus a single trailing slash, are pure spelling of the
+ * same endpoint. Path case and query parameters are NOT: `/tenantA` and
+ * `/tenanta`, or `?tenant=a` and `?tenant=b`, are distinct targets on the same
+ * host, and letting one inherit the other's identity would hand it a credential
+ * configured for somewhere else. Deliberately stricter than
+ * `normalizeComparableBaseUrl`, which lowercases paths and drops queries for
+ * route *lookup*, where a false match is harmless.
+ */
+function isSameConfiguredEndpoint(
+  left: string | undefined,
+  right: string | undefined,
+): boolean {
+  const normalize = (value: string | undefined): string | null => {
+    if (!value?.trim()) return null
+    try {
+      // `origin` lowercases scheme and host; pathname and search keep their case.
+      const url = new URL(value.trim())
+      return `${url.origin}${url.pathname.replace(/\/$/, '')}${url.search}`
+    } catch {
+      return null
+    }
+  }
+
+  const normalizedLeft = normalize(left)
+  return normalizedLeft !== null && normalizedLeft === normalize(right)
+}
+
 export async function buildLaunchEnv(options: {
   profile: ProviderProfile
   persisted: ProfileFile | null
@@ -1409,6 +1451,7 @@ export async function buildLaunchEnv(options: {
     persistedEnv,
   )
   const persistedOpenAIApiFormat = persistedEnv.OPENAI_API_FORMAT
+  const persistedOpenAIAzureStyle = persistedEnv.OPENAI_AZURE_STYLE
   const persistedOpenAIAuthHeader = persistedEnv.OPENAI_AUTH_HEADER
   const persistedOpenAIAuthScheme = persistedEnv.OPENAI_AUTH_SCHEME
   const persistedOpenAIAuthHeaderValue = sanitizeApiKey(
@@ -1882,6 +1925,18 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_API_FORMAT
   }
+  const usePersistedAzureStyle =
+    processEnv.OPENAI_AZURE_STYLE === undefined &&
+    usePersistedOpenAIConfig &&
+    env.OPENAI_BASE_URL === persistedOpenAIBaseUrl
+  if (
+    isEnvTruthy(processEnv.OPENAI_AZURE_STYLE) ||
+    (usePersistedAzureStyle && isEnvTruthy(persistedOpenAIAzureStyle))
+  ) {
+    env.OPENAI_AZURE_STYLE = '1'
+  } else {
+    delete env.OPENAI_AZURE_STYLE
+  }
   const openAIAuthHeader =
     processEnv.OPENAI_AUTH_HEADER ||
     (usePersistedOpenAIConfig ? persistedOpenAIAuthHeader : undefined)
@@ -1924,11 +1979,18 @@ export async function buildLaunchEnv(options: {
   // unauthenticated.
   const resolvedOpenAIRouteId = resolveRouteIdFromBaseUrl(env.OPENAI_BASE_URL)
   const persistedOpenAIRouteId = persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+  // Compare on endpoint equivalence, not the raw string: a shell
+  // `OPENAI_BASE_URL` that differs from the saved one only by a trailing slash
+  // (or scheme/host casing) still names the same endpoint. A literal comparison
+  // would drop the saved route identity there, and with it the aimlapi proxy
+  // guard below. Path case and query parameters are NOT spelling, though — a
+  // different tenant path or query is a distinct target and must not inherit
+  // the profile's identity, which is what carries its dedicated credential.
   const shouldUsePersistedOpenAIRouteId =
     !resolvedOpenAIRouteId &&
     !!persistedOpenAIRouteId &&
     !!persistedOpenAIBaseUrl &&
-    env.OPENAI_BASE_URL === persistedOpenAIBaseUrl
+    isSameConfiguredEndpoint(env.OPENAI_BASE_URL, persistedOpenAIBaseUrl)
   const effectiveOpenAIRouteId =
     resolvedOpenAIRouteId ||
     (shouldUsePersistedOpenAIRouteId ? persistedOpenAIRouteId : undefined)
@@ -1939,10 +2001,55 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   }
+  // A keyless retained aimlapi profile on a non-canonical (proxy) base URL must
+  // not receive the ambient canonical credential via the generic OPENAI_API_KEY
+  // /OPENAI_API_KEYS alias either (the generic selection above prefers the live
+  // shell value). Re-source the generic credential from the profile's OWN
+  // persisted env and drop a purely ambient one.
+  // Scoped to a launch that actually carries the aimlapi identity. A profile
+  // retargeted to an endpoint it was not saved for keeps no identity, so it is
+  // handled by the route-agnostic precedence above rather than here: forcing the
+  // profile's own credential in would both hand a key to an endpoint it was not
+  // configured for and discard a credential the user supplied for that endpoint.
+  const isNoncanonicalAimlapiLaunch =
+    effectiveOpenAIRouteId === 'aimlapi' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
+  if (isNoncanonicalAimlapiLaunch) {
+    delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_KEYS
+    const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
+    if (persistedCredential) {
+      env[persistedCredential.envVar] = persistedCredential.value
+    }
+    // Custom authentication is a second credential channel, not just transport
+    // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
+    // credential whenever OPENAI_AUTH_HEADER names a header. The selections
+    // above prefer the live shell value, so without this an ambient canonical
+    // secret would still reach the proxy through custom auth. Re-source the
+    // whole trio from the profile's OWN persisted env and drop ambient values;
+    // the three are applied as a unit so a shell header name can never activate
+    // a value the profile did not configure.
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
+    if (usePersistedOpenAIConfig) {
+      if (persistedOpenAIAuthHeader) {
+        env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
+      }
+      if (persistedOpenAIAuthScheme) {
+        env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
+      }
+      if (persistedOpenAIAuthHeaderValue) {
+        env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+      }
+    }
+  }
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
+    'LONGCAT_API_KEY',
     'AIMLAPI_API_KEY',
     'MIMO_API_KEY',
     'NVIDIA_API_KEY',
@@ -1958,12 +2065,28 @@ export async function buildLaunchEnv(options: {
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
       continue
     }
-    const dedicatedValue =
-      (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
-        ? sanitizeApiKey(openAICredential.value)
-        : undefined) ||
-      sanitizeApiKey(processEnv[dedicatedKey]) ||
-      sanitizeApiKey(persistedEnv[dedicatedKey])
+    if (
+      dedicatedKey === 'LONGCAT_API_KEY' &&
+      (effectiveOpenAIRouteId !== 'longcat' || !isLongcatBaseUrl(env.OPENAI_BASE_URL))
+    ) {
+      continue
+    }
+    // On a non-canonical (proxy) aimlapi base URL, never source AIMLAPI_API_KEY
+    // from ambient/session credentials — that would leak the canonical AIMLAPI
+    // key to a user-controlled proxy on restart. The profile's OWN persisted key
+    // is still applied, since the user configured that key for that proxy.
+    const aimlapiBaseUrl = env.OPENAI_BASE_URL?.trim()
+    const withholdAmbientAimlapiKey =
+      dedicatedKey === 'AIMLAPI_API_KEY' &&
+      !!aimlapiBaseUrl &&
+      !isCanonicalAimlapiInferenceBaseUrl(aimlapiBaseUrl)
+    const dedicatedValue = withholdAmbientAimlapiKey
+      ? sanitizeApiKey(persistedEnv[dedicatedKey])
+      : (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
+          ? sanitizeApiKey(openAICredential.value)
+          : undefined) ||
+        sanitizeApiKey(processEnv[dedicatedKey]) ||
+        sanitizeApiKey(persistedEnv[dedicatedKey])
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }
@@ -1974,9 +2097,20 @@ export async function buildLaunchEnv(options: {
       env.NVIDIA_NIM = nvidiaNimFlag
     }
   }
-  const customHeaders = shellCustomHeaders || persistedCustomHeaders
+  // ANTHROPIC_CUSTOM_HEADERS is a third credential channel: client.ts parses it
+  // and merges the result into the defaultHeaders it hands to the OpenAI shim
+  // client, and its own filter only drops `authorization`, `x-api-key` and
+  // `api-key` — a custom-named header such as `X-Proxy-Auth: <secret>` survives
+  // and is sent on every request. So an ambient value must be withheld from a
+  // non-canonical aimlapi launch exactly like the API key and the custom-auth
+  // trio; only headers the profile itself persisted are restored.
+  const customHeaders = isNoncanonicalAimlapiLaunch
+    ? persistedCustomHeaders
+    : shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {
     env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+  } else {
+    delete env.ANTHROPIC_CUSTOM_HEADERS
   }
   const contextWindows =
     processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS ||
@@ -2107,8 +2241,18 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
 }): Promise<string | null> {
   const processEnv = options?.processEnv ?? process.env
   const { onValidationError, ...startupOptions } = options ?? {}
+  // Resolve the persisted profile HERE (once) so the warning gate below has
+  // explicit provenance. Sniffing the DEFAULT_STARTUP_PROVIDER_ENV_VAR marker
+  // alone is not enough: a persisted profile's launch env spreads processEnv,
+  // so a marker inherited from a parent CLI process (pane/teammate children)
+  // could make a genuinely saved profile look like the injected default.
+  const persisted =
+    startupOptions && 'persisted' in startupOptions
+      ? startupOptions.persisted
+      : loadProfileFile()
   const startupEnv = await buildStartupEnvFromProfile({
     ...startupOptions,
+    persisted,
     processEnv,
   })
   if (startupEnv === processEnv) {
@@ -2117,9 +2261,20 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
 
   const validationError = await getProviderValidationError(startupEnv)
   if (validationError) {
-    onValidationError?.(
-      `Warning: ignoring saved provider profile. ${validationError}`,
-    )
+    // The injected fresh-install Opengateway default failing validation is the
+    // EXPECTED state for a brand-new machine with no OPENGATEWAY_API_KEY —
+    // nothing was "saved", so warning on every command (even --help) is
+    // first-boot noise, not signal (#1651 chose ignore+warn; the warn half
+    // broke the zero-warning install contract). Onboarding surfaces provider
+    // setup instead. Genuinely persisted profiles that fail validation still
+    // warn: the user configured something that no longer works. Both checks
+    // are required — `!persisted` is the provenance, the marker check keeps
+    // non-default fallback envs (e.g. the nvidia-nim rescue path) warning.
+    if (persisted || !isDefaultStartupProviderEnv(startupEnv)) {
+      onValidationError?.(
+        `Warning: ignoring saved provider profile. ${validationError}`,
+      )
+    }
     return validationError
   }
 

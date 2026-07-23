@@ -627,6 +627,9 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
   ) {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {
+      'gpt-5.6-sol': 'GPT-5.6 Sol',
+      'gpt-5.6-terra': 'GPT-5.6 Terra',
+      'gpt-5.6-luna': 'GPT-5.6 Luna',
       'gpt-5.5': 'GPT-5.5',
       'gpt-5.5-mini': 'GPT-5.5 mini',
       'gpt-5.4': 'GPT-5.4',
@@ -659,6 +662,12 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     return null
   }
   switch (model) {
+    case 'gpt-5.6-sol':
+      return 'GPT-5.6 Sol'
+    case 'gpt-5.6-terra':
+      return 'GPT-5.6 Terra'
+    case 'gpt-5.6-luna':
+      return 'GPT-5.6 Luna'
     case 'gpt-5.5':
       return 'GPT-5.5'
     case 'gpt-5.4':
@@ -830,6 +839,19 @@ export function parseUserSpecifiedModel(
   }
   if (modelString === 'codexspark') {
     return 'gpt-5.3-codex-spark' + (has1mTag ? '[1m]' : '')
+  }
+  // Bare gpt-5.6 resolves to the flagship tier (Sol), like the Codex CLI.
+  // Resolving here — not just in the request-time alias map — keeps the
+  // runtime model id on the tier that has real descriptor metadata, so
+  // context-window sizing and display names don't fall back to defaults.
+  // Match on the base name so a ?reasoning=/?thinking= query suffix does not
+  // defeat the rewrite; the query is preserved on the resolved tier id and a
+  // [1m] tag stays TRAILING (after the query, mirroring the input form) so
+  // downstream query parsing sees `?reasoning=...` intact — request-time
+  // parsing (parseModelDescriptor) strips the trailing tag itself.
+  if (modelString === 'gpt-5.6' || modelString.startsWith('gpt-5.6?')) {
+    const query = modelString.slice('gpt-5.6'.length)
+    return 'gpt-5.6-sol' + query + (has1mTag ? '[1m]' : '')
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as

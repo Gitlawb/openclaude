@@ -3,6 +3,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { APIError, APIUserAbortError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import * as debugNs from '../../utils/debug.js'
+import { markOpenAIRequestNonReplayable } from './openaiErrorClassification.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
@@ -299,6 +300,45 @@ describe('abort retry classification', () => {
 })
 
 describe('OpenAI-compatible retry classification', () => {
+  test('does not retry request timeouts marked as non-replayable', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = markOpenAIRequestNonReplayable(
+      APIError.generate(
+        0,
+        undefined,
+        'OpenAI API transport error: no response headers [openai_category=request_timeout,host=slow.example.test]',
+        new Headers(),
+      ),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'gpt-4o-mini',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
+    expect(attempts).toBe(1)
+  })
+
   test('does not retry marked non-retryable auth failures', async () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
     const { CannotRetryError, withRetry } =

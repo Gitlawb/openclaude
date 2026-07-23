@@ -17,11 +17,9 @@ import { useStalledAnimation } from './useStalledAnimation.js';
 import { interpolateColor, toRGBColor } from './utils.js';
 const SEP_WIDTH = stringWidth(' · ');
 const THINKING_BARE_WIDTH = stringWidth('thinking');
-// Show the elapsed-time counter early (reassurance that work is in flight,
-// especially during long tool calls where no tokens stream) but hold the token
-// count back until the turn is clearly long-running.
+// Show the elapsed-time counter after a short delay so long tool calls still
+// provide reassurance even when no tokens stream.
 const SHOW_TIMER_AFTER_MS = 5_000;
-const SHOW_TOKENS_AFTER_MS = 30_000;
 
 // Thinking shimmer constants. Previously lived in a separate ThinkingShimmerText
 // component with its own useAnimationFrame(50) — inlined here to reuse our
@@ -38,12 +36,19 @@ const THINKING_INACTIVE_SHIMMER = {
 };
 const THINKING_DELAY_MS = 3000;
 const THINKING_GLOW_PERIOD_S = 2;
+
+export function getCurrentResponseTokenCount(responseLength: number): number {
+  return Math.round(responseLength / 4);
+}
+
 export type SpinnerAnimationRowProps = {
   // Animation inputs
   mode: SpinnerMode;
   reducedMotion: boolean;
   hasActiveTools: boolean;
   responseLengthRef: React.RefObject<number>;
+  /** Throttled live response length for reduced-motion rendering. */
+  responseLength?: number;
 
   // Message (stable within a turn)
   message: string;
@@ -75,8 +80,8 @@ export type SpinnerAnimationRowProps = {
 
 /**
  * The 50ms-animated portion of SpinnerWithVerb. Owns useAnimationFrame(50)
- * and all values derived from the animation clock (frame, glimmer, token
- * counter animation, elapsed-time, stalled intensity, thinking shimmer).
+ * and all values derived from the animation clock (frame, glimmer,
+ * elapsed-time, stalled intensity, thinking shimmer).
  *
  * The parent SpinnerWithVerb is freed from the 50ms render loop and only
  * re-renders when its props/app state change (~25x/turn instead of ~383x).
@@ -88,6 +93,7 @@ export function SpinnerAnimationRow({
   reducedMotion,
   hasActiveTools,
   responseLengthRef,
+  responseLength,
   message,
   messageColor,
   shimmerColor,
@@ -123,7 +129,7 @@ export function SpinnerAnimationRow({
   }
 
   // === Animation derivations from `time` ===
-  const currentResponseLength = responseLengthRef.current;
+  const currentResponseLength = responseLength ?? responseLengthRef.current;
 
   // Suppress stall detection when leader is idle — responseLengthRef and
   // hasActiveTools both track leader state. When viewing an active teammate
@@ -143,32 +149,16 @@ export function SpinnerAnimationRow({
   const glimmerIndex = reducedMotion ? -100 : isStalled ? -100 : mode === 'requesting' ? cyclePosition % cycleLength - 10 : glimmerMessageWidth + 10 - cyclePosition % cycleLength;
   const flashOpacity = reducedMotion ? 0 : mode === 'tool-use' ? (Math.sin(time / 1000 * Math.PI) + 1) / 2 : 0;
 
-  // === Token counter animation (smooth increment, driven by 50ms clock) ===
-  const tokenCounterRef = useRef(currentResponseLength);
-  if (reducedMotion) {
-    tokenCounterRef.current = currentResponseLength;
-  } else {
-    const gap = currentResponseLength - tokenCounterRef.current;
-    if (gap > 0) {
-      let increment;
-      if (gap < 70) {
-        increment = 3;
-      } else if (gap < 200) {
-        increment = Math.max(8, Math.ceil(gap * 0.15));
-      } else {
-        increment = 50;
-      }
-      tokenCounterRef.current = Math.min(tokenCounterRef.current + increment, currentResponseLength);
-    }
-  }
-  const displayedResponseLength = tokenCounterRef.current;
-  const leaderTokens = Math.round(displayedResponseLength / 4);
+  // Display the latest observed response length without smoothing so the token
+  // count is current as soon as the model starts streaming.
+  const leaderTokens = getCurrentResponseTokenCount(currentResponseLength);
   const effectiveElapsedMs = hasRunningTeammates ? Math.max(elapsedTimeMs, now - turnStartRef.current) : elapsedTimeMs;
   const timerText = formatDuration(effectiveElapsedMs);
   const timerWidth = stringWidth(timerText);
 
   // === Token count (leader + teammates, or foregrounded teammate) ===
   const totalTokens = foregroundedTeammate && !foregroundedTeammate.isIdle ? foregroundedTeammate.progress?.tokenCount ?? 0 : leaderTokens + teammateTokens;
+  const hasTokenContent = foregroundedTeammate && !foregroundedTeammate.isIdle ? totalTokens > 0 : currentResponseLength > 0 || teammateTokens > 0;
   const tokenCount = formatNumber(totalTokens);
   const tokensText = `${tokenCount} tokens`;
   const tokensWidth = stringWidth(tokensText);
@@ -186,22 +176,23 @@ export function SpinnerAnimationRow({
   // Non-teammate spins prepend the ↑/↓ mode glyph (width 2) + separator to
   // the status parts, so reserve that space in the gating math too.
   const parensWidth = hasRunningTeammates ? 4 : 4 + 2 + SEP_WIDTH;
+  const suffixWidth = spinnerSuffix ? stringWidth(spinnerSuffix) + sep : 0;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimer = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS;
-  const wantsTokens = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TOKENS_AFTER_MS;
+  const wantsTokens = true;
   const availableSpace = columns - messageWidth - parensWidth;
-  let showThinking = wantsThinking && availableSpace > thinkingWidthValue;
+  let showThinking = wantsThinking && availableSpace > suffixWidth + thinkingWidthValue;
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
-    if (availableSpace > THINKING_BARE_WIDTH) {
+    if (availableSpace > suffixWidth + THINKING_BARE_WIDTH) {
       thinkingText = 'thinking';
       thinkingWidthValue = THINKING_BARE_WIDTH;
       showThinking = true;
     }
   }
-  const usedAfterThinking = showThinking ? thinkingWidthValue + sep : 0;
+  const usedAfterThinking = suffixWidth + (showThinking ? thinkingWidthValue + sep : 0);
   const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
-  const showTokens = wantsTokens && totalTokens > 0 && availableSpace > usedAfterTimer + tokensWidth;
+  const showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
   // Second chance for narrow terminals: the gating above reserves space for
   // the mode glyph + separator, but a would-be thinking-only spin renders
   // neither the glyph nor the wrapping parens beyond "( )". When nothing

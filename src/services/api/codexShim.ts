@@ -600,6 +600,7 @@ export async function performCodexRequest(options: {
   params: ShimCreateParams
   defaultHeaders: Record<string, string>
   signal?: AbortSignal
+  fetcher?: typeof fetchWithProxyRetry
 }): Promise<Response> {
   const compressedMessages = compressToolHistory(
     options.params.messages as Array<{
@@ -608,6 +609,9 @@ export async function performCodexRequest(options: {
       content?: unknown
     }>,
     options.request.resolvedModel,
+    // Codex Responses flattens structured tool-result text with a single
+    // newline, unlike Chat's double-newline message serialization.
+    { textBlockSeparator: '\n' },
   )
   const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {
@@ -678,7 +682,7 @@ export async function performCodexRequest(options: {
   }
   headers.originator ??= 'openclaude'
 
-  const response = await fetchWithProxyRetry(
+  const response = await (options.fetcher ?? fetchWithProxyRetry)(
     `${options.request.baseUrl}/responses`,
     {
       method: 'POST',

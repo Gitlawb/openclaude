@@ -227,6 +227,7 @@ export type ProviderProfile = {
   model: string
   apiKey?: string
   apiFormat?: OpenAICompatibleApiFormat
+  azureStyle?: boolean
   authHeader?: string
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
@@ -291,7 +292,8 @@ export type GlobalConfig = {
   hasUsedBackslashReturn?: boolean
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
   contextCollapseEnabled: boolean // Opt-in: collapse old transcript spans into summaries (lossy; off by default)
-  toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
+  toolHistoryCompressionEnabled: boolean // Compress old tool_result content (shim providers; Anthropic-native only while prompt caching is inactive)
+  compactTailTurns?: number // Recent messages preserved verbatim by auto-compact's relevance pruning (default: 3)
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
   // 'off'     — no display
@@ -768,6 +770,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'editorMode',
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
+  'compactTailTurns',
   'contextCollapseEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',

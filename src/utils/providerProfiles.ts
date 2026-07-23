@@ -1,7 +1,9 @@
 import { randomBytes } from 'crypto'
 import {
   getAdditionalModelOptionsCacheScope,
+  isCodexAlias,
   isCodexBaseUrl,
+  isCodexEligibleGpt5Model,
   parseOpenAICompatibleApiFormat,
 } from '../services/api/providerConfig.js'
 import {
@@ -33,6 +35,7 @@ import {
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
+import { isCanonicalAimlapiInferenceBaseUrl } from '../integrations/aimlapi/config.js'
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getCatalogEntriesForRoute,
@@ -50,6 +53,7 @@ import {
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isFireworksBaseUrl,
+  isLongcatBaseUrl,
   isNearaiBaseUrl,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
@@ -71,6 +75,7 @@ export type ProviderProfileInput = {
   model: string
   apiKey?: string
   apiFormat?: ProviderProfile['apiFormat']
+  azureStyle?: ProviderProfile['azureStyle']
   authHeader?: ProviderProfile['authHeader']
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
@@ -222,18 +227,15 @@ function resolveProfileCapabilityRouteId(
     return routeIdFromBaseUrl
   }
 
-  // A cloudflare profile retargeted away from the real Workers AI endpoint
-  // (e.g. to gateway.ai.cloudflare.com or another OpenAI-compatible host) is
-  // run generically at runtime — resolveActiveRouteIdFromEnv no longer resolves
-  // it to the cloudflare route. Mirror that boundary here so capability-driven
-  // surfaces (apiFormat, custom auth headers, custom request headers) are not
-  // stripped based on the stale cloudflare route id. Keep the cloudflare route
-  // only when the base URL is the real Workers AI URL (already handled above) or
-  // unset (the descriptor default); any other base URL falls back to generic.
+  // Cloudflare and LongCat profiles retargeted away from their dedicated
+  // endpoints run generically at runtime. Mirror that boundary here so
+  // capability-driven surfaces are not stripped based on stale route ids.
   if (
-    providerRouteId === 'cloudflare' &&
+    (providerRouteId === 'cloudflare' || providerRouteId === 'longcat') &&
     baseUrl &&
-    !isCloudflareBaseUrl(baseUrl)
+    !(providerRouteId === 'cloudflare'
+      ? isCloudflareBaseUrl(baseUrl)
+      : isLongcatBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
@@ -242,7 +244,13 @@ function resolveProfileCapabilityRouteId(
 }
 
 function normalizeProfileModelLookupKey(model: string | undefined): string {
-  return model?.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+  // Strip a trailing [1m] tag along with any ?query suffix: the tag is a
+  // client-side context opt-in, not part of the model's identity, so a saved
+  // `codexplan[1m]` must still match a profile/catalog entry of `codexplan`.
+  return (
+    model?.trim().split('?', 1)[0]?.trim().toLowerCase().replace(/\[1m]$/, '') ??
+    ''
+  )
 }
 
 function profileSupportsModel(profile: ProviderProfile, model: string): boolean {
@@ -257,6 +265,26 @@ function profileSupportsModel(profile: ProviderProfile, model: string): boolean 
     )
   ) {
     return true
+  }
+
+  // Codex-backend profiles (ChatGPT OAuth) are created with a single
+  // `codexplan` entry, but the backend accepts every Codex alias model and
+  // the wider gpt-5.x family (free-text /model picks like `gpt-5.1-codex`
+  // pass live validation before being persisted). Without this, a saved
+  // pick like `gpt-5.6-terra` is rejected here at the next startup, so the
+  // profile's default silently wins and the choice appears to not stick.
+  // Deliberately NOT a blanket allow: a stale non-GPT model saved under a
+  // different provider (e.g. `kimi-k2.6`) — or an API-only gpt-5-mini/-nano
+  // tier the Codex backend does not serve — must still fall back to the
+  // profile default rather than 400 against the Codex backend. The gate is
+  // authoritative for Codex profiles: falling through to the catalog check
+  // would consult the `openai` route catalog (the profile's provider is
+  // 'openai'), which describes api.openai.com's model set, not the ChatGPT
+  // Codex backend's.
+  if (isCodexBaseUrl(profile.baseUrl)) {
+    return (
+      isCodexAlias(normalizedModel) || isCodexEligibleGpt5Model(normalizedModel)
+    )
   }
 
   const routeId = resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl)
@@ -296,6 +324,7 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
   const apiFormat = parseOpenAICompatibleApiFormat(profile.apiFormat)
+  const azureStyle = profile.azureStyle === true
   const authHeader = sanitizeAuthHeader(profile.authHeader)
   const authScheme = sanitizeAuthScheme(profile.authScheme)
   const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
@@ -328,6 +357,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
+  }
+  if (azureStyle) {
+    sanitized.azureStyle = true
   }
   if (supportsAuthHeaders && authHeader) {
     sanitized.authHeader = authHeader
@@ -377,6 +409,7 @@ function toProfile(
     model: input.model,
     apiKey: input.apiKey,
     apiFormat: input.apiFormat,
+    azureStyle: input.azureStyle,
     authHeader: input.authHeader,
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
@@ -726,6 +759,10 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
     sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_AZURE_STYLE,
+      profile.azureStyle ? '1' : undefined,
+    ) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
@@ -771,6 +808,10 @@ function isProcessEnvAlignedWithProfile(
     (isFireworksBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
+      : true) &&
+    (isLongcatBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.LONGCAT_API_KEY, profile.apiKey)
       : true) &&
     (isCloudflareBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
@@ -924,6 +965,9 @@ export function applyProviderProfileToProcessEnv(
     if (supportsApiFormat && profile.apiFormat) {
       openAIProfileEnv.OPENAI_API_FORMAT = profile.apiFormat
     }
+    if (profile.azureStyle) {
+      openAIProfileEnv.OPENAI_AZURE_STYLE = '1'
+    }
     if (supportsAuthHeaders && profile.authHeader) {
       openAIProfileEnv.OPENAI_AUTH_HEADER = profile.authHeader
       openAIProfileEnv.OPENAI_AUTH_SCHEME =
@@ -979,6 +1023,9 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
+      if (isLongcatBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.LONGCAT_API_KEY = profile.apiKey
+      }
       // Gate on the Workers AI path predicate (isCloudflareBaseUrl: exact
       // api.cloudflare.com host AND the `/client/v4/accounts/<id>/ai/v1` path),
       // not the saved route id and not the host alone. A cloudflare profile
@@ -994,12 +1041,23 @@ export function applyProviderProfileToProcessEnv(
       }
     }
     if (isAimlapiProfile) {
-      const ambientOpenAIKey = trimOrUndefined(process.env.OPENAI_API_KEY)
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
-      openAIProfileEnv.OPENAI_API_KEY =
-        openAIProfileEnv.OPENAI_API_KEY ?? ambientOpenAIKey
-      openAIProfileEnv.AIMLAPI_API_KEY =
-        openAIProfileEnv.AIMLAPI_API_KEY ?? ambientOpenAIKey
+      // The ambient AIMLAPI_API_KEY is the canonical aimlapi.com credential.
+      // Only forward it when the profile targets the canonical inference host;
+      // a keyless `aimlapi` profile can point at a user-controlled proxy, and
+      // injecting the credential there would leak it. This mirrors the
+      // guided-flow validation, which also gates on the canonical URL. A missing
+      // base URL resolves to the aimlapi default (which is canonical), so treat
+      // it as canonical rather than passing undefined into the string helper.
+      if (!profile.baseUrl || isCanonicalAimlapiInferenceBaseUrl(profile.baseUrl)) {
+        const ambientAimlapiKey =
+          trimOrUndefined(process.env.AIMLAPI_API_KEY) ??
+          trimOrUndefined(process.env.OPENAI_API_KEY)
+        openAIProfileEnv.OPENAI_API_KEY =
+          openAIProfileEnv.OPENAI_API_KEY ?? ambientAimlapiKey
+        openAIProfileEnv.AIMLAPI_API_KEY =
+          openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
+      }
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
@@ -1293,6 +1351,7 @@ function buildOpenAICompatibleStartupEnv(
       baseUrl: activeProfile.baseUrl,
       apiKey: activeProfile.apiKey,
       apiFormat: activeProfile.apiFormat,
+      azureStyle: activeProfile.azureStyle ? '1' : undefined,
       authHeader: activeProfile.authHeader,
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,
@@ -1319,6 +1378,9 @@ function buildOpenAICompatibleStartupEnv(
       if (isFireworksBaseUrl(activeProfile.baseUrl)) {
         strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
       }
+      if (isLongcatBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.LONGCAT_API_KEY = activeProfile.apiKey
+      }
       // Cloudflare's transport reads the dedicated CLOUDFLARE_API_TOKEN; mirror
       // it like nearai/fireworks, but only when the base URL is a real Workers
       // AI endpoint per the isCloudflareBaseUrl path predicate (exact
@@ -1337,6 +1399,7 @@ function buildOpenAICompatibleStartupEnv(
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
     ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
+    ...(activeProfile.azureStyle ? { OPENAI_AZURE_STYLE: '1' } : {}),
     ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
     ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
     ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),
@@ -1383,6 +1446,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isFireworksBaseUrl(activeProfile.baseUrl)) {
       env.FIREWORKS_API_KEY = activeProfile.apiKey
+    }
+    if (isLongcatBaseUrl(activeProfile.baseUrl)) {
+      env.LONGCAT_API_KEY = activeProfile.apiKey
     }
     // Cloudflare Workers AI authenticates over the generic OpenAI-compatible
     // header, so mirror the saved key into CLOUDFLARE_API_TOKEN only when the

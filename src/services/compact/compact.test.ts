@@ -293,6 +293,7 @@ const PROVIDER_ENV_KEYS = [
   // key is interpreted as 'firstParty' by getAPIProvider because the
   // 'fireworks' route has no switch case in that function.
   'FIREWORKS_API_KEY',
+  'LONGCAT_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',

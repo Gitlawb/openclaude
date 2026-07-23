@@ -323,6 +323,11 @@ export type QueuedCommand = {
   skipSlashCommands?: boolean
   slashCommandOverride?: Command
   /**
+   * False for programmatic submissions that should not arm or consume local
+   * interruption-correction context. Undefined preserves keyboard behavior.
+   */
+  allowInterruptionCorrection?: boolean
+  /**
    * When true, slash commands are dispatched but filtered through
    * isBridgeSafeCommand() — 'local-jsx' and terminal-only commands return
    * a helpful error instead of executing. Set by the Remote Control bridge

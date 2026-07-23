@@ -31,6 +31,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_SIMPLE',
   'MISTRAL_API_KEY',
   'MINIMAX_API_KEY',
+  'LONGCAT_API_KEY',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
@@ -174,6 +175,14 @@ test('non-Workers Cloudflare path falls back to generic OpenAI validation', asyn
   expect(message!).toContain(
     'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1',
   )
+})
+
+test('non-OpenAI LongCat path falls back to generic OpenAI validation', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/anthropic/v1'
+  process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {

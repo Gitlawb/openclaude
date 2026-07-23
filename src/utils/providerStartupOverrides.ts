@@ -41,6 +41,7 @@ export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'VENICE_API_KEY',
+  'LONGCAT_API_KEY',
 ] as const
 
 type GlobalConfigWithEnv = {
