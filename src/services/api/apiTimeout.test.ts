@@ -1,18 +1,32 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+
 import { MAX_API_TIMEOUT_MS, parseApiTimeoutMsEnv } from './apiTimeout.js'
 
 let saved: string | undefined
 
-beforeEach(() => {
+// This suite mutates the process-global API_TIMEOUT_MS, and the nearby API
+// suites (openaiShim.test.ts) read the same variable under this lock. Without
+// it, bun can delete or replace the value while one of those has a request in
+// flight.
+beforeEach(async () => {
+  await acquireSharedMutationLock('services/api/apiTimeout.test.ts')
   saved = process.env.API_TIMEOUT_MS
 })
 
 afterEach(() => {
-  if (saved === undefined) {
-    delete process.env.API_TIMEOUT_MS
-  } else {
-    process.env.API_TIMEOUT_MS = saved
+  try {
+    if (saved === undefined) {
+      delete process.env.API_TIMEOUT_MS
+    } else {
+      process.env.API_TIMEOUT_MS = saved
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
