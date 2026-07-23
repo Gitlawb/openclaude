@@ -353,10 +353,17 @@ export function mergeCacheWithNewStats(
     }
   }
 
-  // Find first session date
+  // Find first session date. Compared chronologically, not lexically: an
+  // offset-qualified timestamp does not sort by the instant it denotes, and
+  // this value is what a later cached run reads back. There is no session list
+  // to correct it at that point, so a wrong first date here reports one total
+  // day for activity that spans two UTC dates.
   let firstSessionDate = existingCache.firstSessionDate
   for (const session of newStats.sessionStats) {
-    if (!firstSessionDate || session.timestamp < firstSessionDate) {
+    if (
+      !firstSessionDate ||
+      comparePersistedDates(session.timestamp, firstSessionDate) < 0
+    ) {
       firstSessionDate = session.timestamp
     }
   }
@@ -431,4 +438,86 @@ export function getYesterdayDateString(): string {
  */
 export function isDateBefore(date1: string, date2: string): boolean {
   return date1 < date2
+}
+
+/**
+ * The two shapes this pipeline actually persists: a bare `dailyActivity` date
+ * key, or a complete timezone-qualified ISO instant (from `session.timestamp`).
+ * Anything else is corruption. `Date.parse` alone is far too lenient to detect
+ * it — "2026-07", "2026", "123" and "01/01/2026" all parse to real dates, so a
+ * truncated or foreign-format value would silently yield a
+ * plausible-but-wrong span instead of being rejected.
+ *
+ * The match is anchored at both ends and the zone designator is required. A
+ * space-delimited "2026-07-13 23:30:00" is neither shape, and `Date.parse`
+ * would read it as a host-local time — making the computed span depend on the
+ * machine's timezone (2 under UTC, 1 under America/Los_Angeles) rather than
+ * falling back to 0 for corrupt input.
+ */
+const PERSISTED_DATE_PATTERN =
+  /^\d{4}-\d{2}-\d{2}(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2})))?$/
+
+export function parsePersistedDateMs(value: string): number {
+  const match = PERSISTED_DATE_PATTERN.exec(value)
+  if (!match) {
+    return NaN
+  }
+  // The clock components need the same treatment as the calendar ones below.
+  // `Date.parse` normalizes an out-of-range time instead of rejecting it, so
+  // "2026-07-13T24:00:00.000Z" becomes midnight on July 14 -- a corrupt
+  // persisted timestamp silently shifting the span by a day rather than
+  // falling back to 0.
+  const [, hour, minute, second, offsetHour, offsetMinute] = match
+  if (hour !== undefined) {
+    if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) {
+      return NaN
+    }
+  }
+  if (offsetHour !== undefined) {
+    if (Number(offsetHour) > 23 || Number(offsetMinute) > 59) {
+      return NaN
+    }
+  }
+  // A date-shaped prefix is not enough: Date.parse silently normalizes
+  // impossible calendar values (2026-02-30 parses as March 2), which would turn
+  // a corrupt persisted date into a fabricated span instead of the 0 fallback.
+  // Validate the spelled components against the real calendar, leap years
+  // included.
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  if (month < 1 || month > 12) {
+    return NaN
+  }
+  // With a 1-based month, day 0 of the next month is this month's last day.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day < 1 || day > daysInMonth) {
+    return NaN
+  }
+  return Date.parse(value)
+}
+
+/**
+ * Chronological ordering for the persisted date shapes, for picking the first
+ * and last session out of a set.
+ *
+ * These endpoints cannot be compared as strings. An offset-qualified instant
+ * does not sort lexicographically by the moment it denotes:
+ * "2026-07-13T23:30:00-10:00" is later than "2026-07-14T00:00:00+14:00", but
+ * sorts earlier, so it would be picked as the first endpoint and the span would
+ * come out as 0 for two sessions that occupy different UTC days.
+ *
+ * Falls back to string order only when a value is not parseable, which keeps
+ * the selection deterministic for a corrupt cache -- the span helper rejects it
+ * separately.
+ *
+ * Exported for testing.
+ */
+export function comparePersistedDates(a: string, b: string): number {
+  const aMs = parsePersistedDateMs(a)
+  const bMs = parsePersistedDateMs(b)
+  if (Number.isNaN(aMs) || Number.isNaN(bMs)) {
+    return a < b ? -1 : a > b ? 1 : 0
+  }
+  return aMs - bMs
 }
