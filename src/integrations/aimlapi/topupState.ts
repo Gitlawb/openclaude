@@ -93,6 +93,13 @@ const RETRYABLE_LOCK_CODES: ReadonlySet<string> = new Set([
   'EBUSY',
 ])
 
+/**
+ * `ELOCKED` is ordinary contention. The rest are also produced by a genuine
+ * permission or disk problem, which must not hide behind five seconds of quiet
+ * retries followed by a generic timeout, so they are surfaced louder.
+ */
+const EXPECTED_CONTENTION_CODES: ReadonlySet<string> = new Set(['ELOCKED'])
+
 function waitForLock(): void {
   // Jitter so racing acquirers do not retry in lockstep and collide again on the
   // same steal window.
@@ -130,8 +137,12 @@ function ensureOwnerOnlyDir(target: string): void {
  */
 function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   ensureOwnerOnlyDir(target)
-  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  const startedAt = Date.now()
+  const deadline = startedAt + LOCK_TIMEOUT_MS
   let release: (() => void) | undefined
+  let retries = 0
+  let lastCode: string | undefined
+  const seenCodes = new Set<string>()
   while (!release) {
     try {
       release = lockfile.lockSync(target, {
@@ -157,11 +168,37 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
           ? String(error.code)
           : undefined
       if (!code || !RETRYABLE_LOCK_CODES.has(code)) throw error
+      lastCode = code
+      retries += 1
+      if (!seenCodes.has(code)) {
+        seenCodes.add(code)
+        // Report each distinct condition the first time it is swallowed, so a
+        // real permission/disk failure is visible immediately instead of looking
+        // like plain contention. Logging every pass would emit ~100 duplicate
+        // lines per contended acquire and bury exactly this signal.
+        logForDebugging(
+          `AI/ML API checkout state lock retrying after ${code} on ${target}`,
+          { level: EXPECTED_CONTENTION_CODES.has(code) ? 'debug' : 'warn' },
+        )
+      }
       if (Date.now() >= deadline) {
-        throw new Error('Timed out waiting for the AI/ML API checkout state lock.')
+        // Name the condition we kept hitting: a timeout after ELOCKED is a busy
+        // peer, while EPERM/EEXIST points at a stale-steal race worth chasing.
+        throw new Error(
+          `Timed out waiting for the AI/ML API checkout state lock (last: ${code}, ${retries} retries).`,
+        )
       }
       waitForLock()
     }
+  }
+  if (retries > 0) {
+    // One line per contended acquire, not per retry: a fully contended wait
+    // loops ~100 times within the deadline, and logging each pass would bury the
+    // signal it is meant to surface.
+    logForDebugging(
+      `AI/ML API checkout state lock contended: acquired after ${retries} retries in ${Date.now() - startedAt}ms (last: ${lastCode})`,
+      { level: 'debug' },
+    )
   }
   try {
     return operation()
