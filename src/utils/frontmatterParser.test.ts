@@ -111,6 +111,11 @@ test('parses the ordinary shapes exactly as before', () => {
   expect(padded.frontmatter).toEqual({ name: 'a' })
   expect(padded.content).toBe('Body\n')
 
+  // Tabs too: the trailing run is [ \t]* on both delimiters.
+  const tabbed = parseFrontmatter('---\t\nname: a\n---\t\nBody\n')
+  expect(tabbed.frontmatter).toEqual({ name: 'a' })
+  expect(tabbed.content).toBe('Body\n')
+
   // Frontmatter that ends at EOF with no trailing newline.
   const atEof = parseFrontmatter('---\nname: a\n---')
   expect(atEof.frontmatter).toEqual({ name: 'a' })
