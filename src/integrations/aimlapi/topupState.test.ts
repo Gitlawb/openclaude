@@ -5,6 +5,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,6 +48,58 @@ const intent: AimlapiTopupIntent = {
   appBaseUrl: 'https://app.example.test',
   inferenceBaseUrl: 'https://api.example.test/v1',
 }
+
+const LOCK_STALE_MS = 30_000
+
+function lockPathFor(directory: string): string {
+  return join(directory, 'aimlapi-topup.json.lock')
+}
+
+/** Pre-create the lock file, optionally back-dating it past the stale window. */
+function holdLock(directory: string, options: { stale: boolean; token?: string }): string {
+  const lock = lockPathFor(directory)
+  writeFileSync(lock, options.token ?? '9999.other-process-token', {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+  if (options.stale) {
+    const past = new Date(Date.now() - LOCK_STALE_MS * 2)
+    utimesSync(lock, past, past)
+  }
+  return lock
+}
+
+test('a stale lock is stolen so the operation still completes', () => {
+  const directory = useTemporaryConfig()
+  holdLock(directory, { stale: true })
+
+  // The abandoned lock must not wedge the flow: claiming proceeds and the state
+  // is written normally.
+  const claimed = claimAimlapiTopupState(intent)
+  expect(claimed.paymentSessionId).toBeTruthy()
+  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(claimed.paymentSessionId)
+  // The stolen lock is released, not left behind as a fresh blocker.
+  expect(existsSync(lockPathFor(directory))).toBe(false)
+})
+
+// The put-back branch (a live lock written between the staleness check and the
+// steal) is not reachable in-process: read -> rename -> read run synchronously
+// in one tick, so no timer callback can interleave. Only a second process could
+// hit it, which is out of scope for a unit test; the ownership token is what
+// makes that path fail closed.
+
+test('a fresh lock held by another process times out instead of corrupting state', () => {
+  const directory = useTemporaryConfig()
+  holdLock(directory, { stale: false })
+
+  expect(() => claimAimlapiTopupState(intent)).toThrow(
+    'Timed out waiting for the AI/ML API checkout state lock.',
+  )
+  // Nothing was written behind the held lock.
+  expect(existsSync(join(directory, 'aimlapi-topup.json'))).toBe(false)
+  // The other holder's lock is intact.
+  expect(existsSync(lockPathFor(directory))).toBe(true)
+}, 20_000)
 
 test('top-up state round-trips only for the same checkout intent', () => {
   const directory = useTemporaryConfig()
