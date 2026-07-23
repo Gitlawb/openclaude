@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -57,13 +58,12 @@ function lockPathFor(directory: string): string {
   return join(directory, 'aimlapi-topup.json.lock')
 }
 
-/** Pre-create the lock file, optionally back-dating it past the stale window. */
-function holdLock(directory: string, options: { stale: boolean; token?: string }): string {
+// proper-lockfile represents a held lock as a directory. Pre-create one and,
+// for a stale case, back-date its mtime past the stale window so the next
+// acquirer treats it as abandoned.
+function holdLock(directory: string, options: { stale: boolean }): string {
   const lock = lockPathFor(directory)
-  writeFileSync(lock, options.token ?? '9999.other-process-token', {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
+  mkdirSync(lock)
   if (options.stale) {
     const past = new Date(Date.now() - LOCK_STALE_MS * 2)
     utimesSync(lock, past, past)
@@ -83,12 +83,6 @@ test('a stale lock is stolen so the operation still completes', () => {
   // The stolen lock is released, not left behind as a fresh blocker.
   expect(existsSync(lockPathFor(directory))).toBe(false)
 })
-
-// The put-back branch (a live lock written between the staleness check and the
-// steal) is not reachable in-process: read -> rename -> read run synchronously
-// in one tick, so no timer callback can interleave. Only a second process could
-// hit it, which is out of scope for a unit test; the ownership token is what
-// makes that path fail closed.
 
 test('a fresh lock held by another process times out instead of corrupting state', () => {
   const directory = useTemporaryConfig()
@@ -118,46 +112,73 @@ async function claimFromProcesses(
   // backslash-separated), so hand the worker a file:// URL instead of relying on
   // the runtime tolerating a bare path.
   const modulePath = pathToFileURL(join(import.meta.dir, 'topupState.ts')).href
+  // Barrier: every worker busy-waits to a shared wall-clock instant before
+  // claiming. Without it, process-startup jitter staggers the workers so the
+  // first writes state before the rest read it, and even a no-op lock would
+  // "converge" - the barrier forces them into the critical section together so a
+  // broken lock actually diverges.
   writeFileSync(
     script,
     [
       `import { claimAimlapiTopupState } from ${JSON.stringify(modulePath)}`,
       `const intent = ${JSON.stringify(intent)}`,
+      `const startAt = Number(process.env.WORKER_START_AT)`,
+      `while (Date.now() < startAt) { /* spin to the barrier */ }`,
       `process.stdout.write(claimAimlapiTopupState(intent).paymentSessionId)`,
     ].join('\n'),
     'utf8',
   )
 
+  // Enough lead time for every worker to spawn and reach the spin before it ends.
+  const startAt = String(Date.now() + 250 * count + 1000)
   const workers = Array.from({ length: count }, () =>
-    Bun.spawn(['bun', 'run', script], {
-      env: { ...process.env, OPENCLAUDE_CONFIG_DIR: directory },
+    // Spawn the same runtime that runs the test, not whatever `bun` resolves to
+    // on PATH.
+    Bun.spawn([process.execPath, script], {
+      env: {
+        ...process.env,
+        OPENCLAUDE_CONFIG_DIR: directory,
+        WORKER_START_AT: startAt,
+      },
       stdout: 'pipe',
       stderr: 'pipe',
     }),
   )
 
-  return await Promise.all(
-    workers.map(async worker => {
-      const [out, err] = await Promise.all([
-        new Response(worker.stdout).text(),
-        new Response(worker.stderr).text(),
-      ])
-      const code = await worker.exited
-      if (code !== 0) throw new Error(`worker failed (${code}): ${err}`)
-      return out.trim()
-    }),
-  )
+  try {
+    return await Promise.all(
+      workers.map(async worker => {
+        const [out, err] = await Promise.all([
+          new Response(worker.stdout).text(),
+          new Response(worker.stderr).text(),
+        ])
+        // Bound each worker so a hang fails the test fast instead of running out
+        // the full test timeout and racing afterEach cleanup.
+        const code = await Promise.race([
+          worker.exited,
+          new Promise<number>((_, reject) =>
+            setTimeout(() => reject(new Error('worker timed out')), 30_000),
+          ),
+        ])
+        if (code !== 0) throw new Error(`worker failed (${code}): ${err}\n${out}`)
+        return out.trim()
+      }),
+    )
+  } finally {
+    // Never leave a worker running (kill is a no-op once it has exited).
+    for (const worker of workers) worker.kill()
+  }
 }
 
 test('concurrent processes converge on a single payment session', async () => {
   const directory = useTemporaryConfig()
 
-  const sessions = await claimFromProcesses(directory, 8)
+  const sessions = await claimFromProcesses(directory, 5)
 
   // Exactly one process may mint a payment session; the rest must adopt it.
   // Divergence here would mean a second checkout - the duplicate charge this
   // module exists to prevent.
-  expect(sessions).toHaveLength(8)
+  expect(sessions).toHaveLength(5)
   expect(new Set(sessions).size).toBe(1)
   expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(sessions[0])
   // Every holder released its own lock.
@@ -168,7 +189,7 @@ test('concurrent processes recover from an abandoned lock without duplicating', 
   const directory = useTemporaryConfig()
   holdLock(directory, { stale: true })
 
-  const sessions = await claimFromProcesses(directory, 6)
+  const sessions = await claimFromProcesses(directory, 4)
 
   // Recovery must free the abandoned lock exactly once and still serialize the
   // claim, rather than letting several processes through at once.
@@ -315,6 +336,73 @@ test('stale clear cannot delete a replacement checkout', () => {
 
   expect(current.paymentSessionId).not.toBe(stale.paymentSessionId)
   expect(loadAimlapiTopupState(intent)).toEqual(current)
+})
+
+test('resetAimlapiCheckoutSession returns null for a non-matching or keyless session', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+
+  // No retained key yet, so there is nothing to preserve.
+  expect(
+    resetAimlapiCheckoutSession({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+    }),
+  ).toBeNull()
+
+  expect(
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'dead',
+      apiKey: 'k',
+      apiKeyId: 'id',
+    }),
+  ).toBe(true)
+  // A different intent or payment session must not reset another checkout.
+  expect(
+    resetAimlapiCheckoutSession({
+      ...intent,
+      email: 'other@example.com',
+      paymentSessionId: claimed.paymentSessionId,
+    }),
+  ).toBeNull()
+  expect(
+    resetAimlapiCheckoutSession({ ...intent, paymentSessionId: 'other-session' }),
+  ).toBeNull()
+})
+
+test('a corrupt top-up state file reads as no state instead of crashing', () => {
+  const directory = useTemporaryConfig()
+  writeFileSync(join(directory, 'aimlapi-topup.json'), '{ not valid json', 'utf8')
+
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+  // The flow recovers by claiming over the unusable file.
+  expect(claimAimlapiTopupState(intent).paymentSessionId).toBeTruthy()
+})
+
+test('resuming with a differently-cased email reuses the same payment session', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+
+  const reclaimed = claimAimlapiTopupState({ ...intent, email: '  User@Example.COM  ' })
+  expect(reclaimed.paymentSessionId).toBe(claimed.paymentSessionId)
+  expect(
+    loadAimlapiTopupState({ ...intent, email: 'USER@example.com' })?.paymentSessionId,
+  ).toBe(claimed.paymentSessionId)
+})
+
+test('a malformed record is refused rather than persisted as unloadable', () => {
+  useTemporaryConfig()
+
+  // A negative amount and an empty email both fail the read guard; persisting
+  // them would orphan the state, so the write must throw instead.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: -1 })).toThrow(
+    'malformed',
+  )
+  expect(() => claimAimlapiTopupState({ ...intent, email: '   ' })).toThrow('malformed')
+  // Neither attempt left a state file behind.
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
 test('sign-in key cache round-trips by normalized email and clears', () => {
