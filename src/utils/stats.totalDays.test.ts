@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { comparePersistedDates, inclusiveCalendarDaySpan } from './stats.js'
+import type { SessionStats } from './stats.js'
+import {
+  mergeCacheWithNewStats,
+  type PersistedStatsCache,
+  STATS_CACHE_VERSION,
+} from './statsCache.js'
 
 describe('inclusiveCalendarDaySpan', () => {
   test('is 1 when both timestamps fall on the same UTC calendar day', () => {
@@ -136,12 +142,15 @@ describe('inclusiveCalendarDaySpan', () => {
   })
 
   test('accepts a UTC offset instant as well as Z', () => {
+    // 2026-07-13T23:30+05:30 is 2026-07-13T18:00Z, so these endpoints span
+    // exactly two UTC calendar days. Asserting the value rather than just
+    // "positive" means a regression back to 1 is caught.
     expect(
       inclusiveCalendarDaySpan(
         '2026-07-13T23:30:00+05:30',
         '2026-07-14T00:30:00.000Z',
       ),
-    ).toBeGreaterThan(0)
+    ).toBe(2)
   })
 
   test('returns 0 for out-of-range clock components', () => {
@@ -202,5 +211,77 @@ describe('comparePersistedDates', () => {
     expect(comparePersistedDates('not-a-date', '2026-07-13')).toBeGreaterThan(0)
     expect(comparePersistedDates('2026-07-13', 'not-a-date')).toBeLessThan(0)
     expect(comparePersistedDates('not-a-date', 'not-a-date')).toBe(0)
+  })
+})
+describe('mergeCacheWithNewStats first-session selection', () => {
+  // The cache writer is the companion to the endpoint selection above: what it
+  // stores is what a later cached /stats run reads back, and at that point
+  // there is no session list left to correct it.
+  function emptyCache(): PersistedStatsCache {
+    return {
+      version: STATS_CACHE_VERSION,
+      lastComputedDate: '2026-07-12',
+      dailyActivity: [],
+      dailyModelTokens: [],
+      modelUsage: {},
+      totalSessions: 0,
+      totalMessages: 0,
+      longestSession: null,
+      firstSessionDate: null,
+      hourCounts: {},
+      totalSpeculationTimeSavedMs: 0,
+    } as PersistedStatsCache
+  }
+
+  function session(timestamp: string): SessionStats {
+    return { sessionId: timestamp, duration: 1, messageCount: 1, timestamp }
+  }
+
+  function mergeSessions(timestamps: string[]): string | null {
+    return mergeCacheWithNewStats(
+      emptyCache(),
+      {
+        dailyActivity: [],
+        dailyModelTokens: [],
+        modelUsage: {},
+        sessionStats: timestamps.map(session),
+        hourCounts: {},
+        totalSpeculationTimeSavedMs: 0,
+      },
+      '2026-07-14',
+    ).firstSessionDate
+  }
+
+  test('stores the chronologically first session across mixed offsets', () => {
+    // +14:00 is UTC July 13, -10:00 is UTC July 14, but string order ranks them
+    // the other way round -- so the lexical pick stored the later instant and a
+    // later cached run reported one day for two UTC dates.
+    const utcJuly13 = '2026-07-14T00:00:00+14:00'
+    const utcJuly14 = '2026-07-13T23:30:00-10:00'
+    expect(mergeSessions([utcJuly14, utcJuly13])).toBe(utcJuly13)
+    expect(mergeSessions([utcJuly13, utcJuly14])).toBe(utcJuly13)
+  })
+
+  test('keeps an existing cached first date when it is genuinely earlier', () => {
+    const cache = { ...emptyCache(), firstSessionDate: '2026-07-01T00:00:00Z' }
+    const merged = mergeCacheWithNewStats(
+      cache,
+      {
+        dailyActivity: [],
+        dailyModelTokens: [],
+        modelUsage: {},
+        sessionStats: [session('2026-07-13T12:00:00.000Z')],
+        hourCounts: {},
+        totalSpeculationTimeSavedMs: 0,
+      },
+      '2026-07-14',
+    )
+    expect(merged.firstSessionDate).toBe('2026-07-01T00:00:00Z')
+  })
+
+  test('same-zone timestamps are unaffected', () => {
+    expect(
+      mergeSessions(['2026-07-13T20:00:00.000Z', '2026-07-13T01:00:00.000Z']),
+    ).toBe('2026-07-13T01:00:00.000Z')
   })
 })
