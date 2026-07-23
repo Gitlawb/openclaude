@@ -102,6 +102,77 @@ test('a fresh lock held by another process times out instead of corrupting state
   expect(existsSync(lockPathFor(directory))).toBe(true)
 }, 20_000)
 
+/**
+ * Run `claimAimlapiTopupState` for the same intent in N separate processes and
+ * return the payment session each one ended up with. Real processes are the only
+ * way to exercise the lock's cross-process ownership: in-process calls never
+ * interleave inside the synchronous acquire/release sequence.
+ */
+async function claimFromProcesses(
+  directory: string,
+  count: number,
+): Promise<string[]> {
+  const script = join(directory, 'claim-worker.ts')
+  const modulePath = join(import.meta.dir, 'topupState.ts')
+  writeFileSync(
+    script,
+    [
+      `import { claimAimlapiTopupState } from ${JSON.stringify(modulePath)}`,
+      `const intent = ${JSON.stringify(intent)}`,
+      `process.stdout.write(claimAimlapiTopupState(intent).paymentSessionId)`,
+    ].join('\n'),
+    'utf8',
+  )
+
+  const workers = Array.from({ length: count }, () =>
+    Bun.spawn(['bun', 'run', script], {
+      env: { ...process.env, OPENCLAUDE_CONFIG_DIR: directory },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    }),
+  )
+
+  return await Promise.all(
+    workers.map(async worker => {
+      const [out, err] = await Promise.all([
+        new Response(worker.stdout).text(),
+        new Response(worker.stderr).text(),
+      ])
+      const code = await worker.exited
+      if (code !== 0) throw new Error(`worker failed (${code}): ${err}`)
+      return out.trim()
+    }),
+  )
+}
+
+test('concurrent processes converge on a single payment session', async () => {
+  const directory = useTemporaryConfig()
+
+  const sessions = await claimFromProcesses(directory, 8)
+
+  // Exactly one process may mint a payment session; the rest must adopt it.
+  // Divergence here would mean a second checkout - the duplicate charge this
+  // module exists to prevent.
+  expect(sessions).toHaveLength(8)
+  expect(new Set(sessions).size).toBe(1)
+  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(sessions[0])
+  // Every holder released its own lock.
+  expect(existsSync(lockPathFor(directory))).toBe(false)
+}, 60_000)
+
+test('concurrent processes recover from an abandoned lock without duplicating', async () => {
+  const directory = useTemporaryConfig()
+  holdLock(directory, { stale: true })
+
+  const sessions = await claimFromProcesses(directory, 6)
+
+  // Recovery must free the abandoned lock exactly once and still serialize the
+  // claim, rather than letting several processes through at once.
+  expect(new Set(sessions).size).toBe(1)
+  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(sessions[0])
+  expect(existsSync(lockPathFor(directory))).toBe(false)
+}, 60_000)
+
 test('top-up state round-trips only for the same checkout intent', () => {
   const directory = useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
