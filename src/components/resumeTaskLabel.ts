@@ -1,5 +1,9 @@
 import type { CodeSession } from 'src/utils/teleport/api.js'
 
+export type ResumeTaskSessionMetadata = CodeSession & {
+  timeString: string
+}
+
 export function buildResumeTaskOptionLabel(
   timeString: string,
   title: string,
@@ -45,4 +49,29 @@ export function getResumeTaskOptionLabelColumns(
   const rowChromeWidth = 2 + indexColumnWidth + 2
 
   return Math.max(0, terminalColumns - rowChromeWidth)
+}
+
+export function buildResumeTaskOptionsFromMetadata(
+  sessionMetadata: ResumeTaskSessionMetadata[],
+  terminalColumns: number,
+): Array<{ label: string; value: string }> {
+  const optionLabelColumns = getResumeTaskOptionLabelColumns(
+    terminalColumns,
+    sessionMetadata.length,
+  )
+  const maxTimeStringLength = Math.max(
+    'Updated'.length,
+    ...sessionMetadata.map(meta => meta.timeString.length),
+  )
+
+  return sessionMetadata.map(({ timeString, title, repo, id }) => ({
+    label: buildResumeTaskOptionLabel(
+      timeString,
+      title,
+      repo,
+      maxTimeStringLength,
+      optionLabelColumns,
+    ),
+    value: id,
+  }))
 }
