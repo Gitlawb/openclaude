@@ -18,6 +18,7 @@ import {
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
+  resetAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -123,6 +124,67 @@ test('top-up state round-trips only for the same checkout intent', () => {
   }
 })
 
+test('saving reports whether the compare-and-swap write landed', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const record = {
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'session-token',
+  }
+
+  // Matching intent and payment session: the write lands.
+  expect(saveAimlapiTopupState(record)).toBe(true)
+
+  // A different intent must not overwrite another checkout's record.
+  expect(
+    saveAimlapiTopupState({ ...record, email: 'other@example.com' }),
+  ).toBe(false)
+  // A stale payment session (another flow re-claimed) is rejected too.
+  expect(
+    saveAimlapiTopupState({ ...record, paymentSessionId: 'other-session' }),
+  ).toBe(false)
+  // The rejected writes left the stored record untouched.
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('session-token')
+
+  // With no state at all there is nothing to swap against.
+  clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
+  expect(saveAimlapiTopupState(record)).toBe(false)
+})
+
+test('resetting a terminal session keeps the retained key, model and settled flag', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  expect(
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'dead-session',
+      apiKey: 'k_retained',
+      apiKeyId: 'id_retained',
+      model: 'gpt-4o',
+      settled: false,
+    }),
+  ).toBe(true)
+
+  const reset = resetAimlapiCheckoutSession({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+  })
+
+  // A fresh payment session, but the issued key and provisioning choices survive
+  // in the returned receipt - not only on disk.
+  expect(reset?.paymentSessionId).toBeTruthy()
+  expect(reset?.paymentSessionId).not.toBe(claimed.paymentSessionId)
+  expect(reset?.resumeSessionToken).toBe('')
+  expect(reset?.apiKey).toBe('k_retained')
+  expect(reset?.apiKeyId).toBe('id_retained')
+  expect(reset?.model).toBe('gpt-4o')
+  expect(reset?.settled).toBe(false)
+  // The returned receipt matches what a re-read from disk reports.
+  expect(loadAimlapiTopupState(intent)).toEqual(reset!)
+})
+
 test('top-up state is cleared only by its matching intent', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -181,11 +243,16 @@ test('stale clear cannot delete a replacement checkout', () => {
 })
 
 test('sign-in key cache round-trips by normalized email and clears', () => {
-  useTemporaryConfig()
+  const directory = useTemporaryConfig()
 
   expect(loadAimlapiSignInKey('User@Example.com')).toBeNull()
 
   saveAimlapiSignInKey('User@Example.com', 'k_signin', 'id_signin')
+  // The cached key is a credential, so it must be owner-only like the top-up
+  // state file.
+  if (process.platform !== 'win32') {
+    expect(statSync(join(directory, 'aimlapi-signin-key.json')).mode & 0o777).toBe(0o600)
+  }
   // Lookup is case/whitespace-insensitive on the email.
   expect(loadAimlapiSignInKey('user@example.com')).toEqual({
     apiKey: 'k_signin',
