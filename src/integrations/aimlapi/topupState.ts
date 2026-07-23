@@ -9,6 +9,7 @@ import {
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
+import { logForDebugging } from '../../utils/debug.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import * as lockfile from '../../utils/lockfile.js'
 
@@ -76,8 +77,27 @@ const INTENT_KEYS: ReadonlyArray<keyof AimlapiTopupIntent> = [
   'inferenceBaseUrl',
 ]
 
+/**
+ * proper-lockfile clears a stale lock with `rmdir` + `mkdir` and does not
+ * re-check ownership in between, so two processes reclaiming the same abandoned
+ * lock can surface a transient filesystem error instead of `ELOCKED` (observed:
+ * `EPERM` on `rmdir` under Windows). Those mean contention, not failure - retry
+ * until the deadline so exactly one winner emerges instead of killing the caller.
+ */
+const RETRYABLE_LOCK_CODES: ReadonlySet<string> = new Set([
+  'ELOCKED',
+  'EPERM',
+  'EEXIST',
+  'ENOENT',
+  'ENOTEMPTY',
+  'EBUSY',
+])
+
 function waitForLock(): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS)
+  // Jitter so racing acquirers do not retry in lockstep and collide again on the
+  // same steal window.
+  const delay = LOCK_RETRY_MS + Math.floor(Math.random() * LOCK_RETRY_MS)
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay)
 }
 
 function ensureOwnerOnlyDir(target: string): void {
@@ -100,6 +120,13 @@ function ensureOwnerOnlyDir(target: string): void {
  * process re-acquired after ours went stale. We keep a retry-until-deadline loop
  * so contending callers converge on the single stored payment session instead of
  * failing outright.
+ *
+ * BLOCKING: every exported mutator is synchronous, so under contention this
+ * parks the calling thread (up to `LOCK_TIMEOUT_MS`) via `Atomics.wait`. On the
+ * main thread that freezes timers, the Ink UI and SIGINT handling for that long.
+ * Contention only happens with a concurrent OpenClaude process, but an
+ * interactive caller should either run these off the UI path or switch to the
+ * async `lockfile.lock` API before awaiting them inline.
  */
 function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   ensureOwnerOnlyDir(target)
@@ -113,16 +140,23 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
         // The state file may not exist yet on the first claim, so skip realpath.
         realpath: false,
         // The default handler rethrows from a timer (an unhandled exception).
-        // Our critical sections are sub-millisecond, so a compromise only
-        // follows an extreme stall; the release below already tolerates it.
-        onCompromised: () => {},
+        // A compromise means another process stole this lock as stale while we
+        // still believed we held it, so two critical sections could have
+        // overlapped: record it rather than swallowing it silently. Our sections
+        // are sub-millisecond, so this needs a stall longer than LOCK_STALE_MS.
+        onCompromised: error => {
+          logForDebugging(
+            `AI/ML API checkout state lock compromised: ${error}`,
+            { level: 'error' },
+          )
+        },
       })
     } catch (error) {
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? String(error.code)
           : undefined
-      if (code !== 'ELOCKED') throw error
+      if (!code || !RETRYABLE_LOCK_CODES.has(code)) throw error
       if (Date.now() >= deadline) {
         throw new Error('Timed out waiting for the AI/ML API checkout state lock.')
       }
@@ -301,15 +335,37 @@ export function loadAimlapiTopupState(
  * to this intent and payment session. Returns whether it was persisted, so a
  * caller can tell an applied update from one dropped because another flow
  * claimed or reset the state first.
+ *
+ * Retained fields (`apiKey`, `apiKeyId`, `model`, `settled`) are MERGED, not
+ * replaced: omitting them preserves what is already stored. A partial update
+ * would otherwise wipe an already-issued credential and make the next run mint a
+ * second key — the duplicate this module exists to prevent. Pass an explicit
+ * value to change one.
  */
 export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
   return withStateLock(() => {
-    if (!matchingStateOrNull(state)) return false
-    writeAimlapiTopupStateUnlocked(state)
+    const current = matchingStateOrNull(state)
+    if (!current) return false
+    writeAimlapiTopupStateUnlocked({
+      ...state,
+      apiKey: state.apiKey ?? current.apiKey,
+      apiKeyId: state.apiKeyId ?? current.apiKeyId,
+      model: state.model ?? current.model,
+      settled: state.settled ?? current.settled,
+    })
     return true
   })
 }
 
+/**
+ * Adopt the stored checkout for this intent, or start a new one.
+ *
+ * This is a single slot: claiming a different intent replaces the stored record.
+ * It refuses to do so while that record still carries an issued key, because
+ * silently discarding a provisioned (possibly already paid for) credential is
+ * worse than making the caller decide — clear it explicitly with
+ * `clearAimlapiTopupState` to start over.
+ */
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
 ): AimlapiCheckoutState {
@@ -318,12 +374,25 @@ export function claimAimlapiTopupState(
     if (existing && matchesIntent(existing, intent)) {
       return toCheckoutState(existing)
     }
+    if (existing?.apiKey?.trim()) {
+      throw new Error(
+        'An unfinished AI/ML API checkout still holds an issued key. Finish or clear it before starting a different one.',
+      )
+    }
     const claimed: AimlapiCheckoutState = {
       paymentSessionId: randomUUID(),
       resumeSessionToken: '',
     }
     writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
-    return claimed
+    // Backstop for a racing claimer: if the lock was stolen as stale by two
+    // processes at once (upstream proper-lockfile removes a stale lock without
+    // re-checking ownership), the last write wins. Return what is actually
+    // persisted so both callers converge on one payment session instead of each
+    // trusting the id it minted.
+    const persisted = readAimlapiTopupStateUnlocked()
+    return persisted && matchesIntent(persisted, intent)
+      ? toCheckoutState(persisted)
+      : claimed
   })
 }
 
