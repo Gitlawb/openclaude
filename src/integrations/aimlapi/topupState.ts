@@ -215,12 +215,15 @@ function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
   }
 }
 
-function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
-  const target = statePath()
+/**
+ * Write owner-only JSON atomically: a reader never observes a partial file, and
+ * the temporary is removed even when the write or rename fails.
+ */
+function writeJsonAtomic(target: string, data: unknown): void {
   mkdirSync(dirname(target), { recursive: true })
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
   try {
-    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, {
+    writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, {
       encoding: 'utf8',
       flag: 'wx',
       mode: 0o600,
@@ -230,6 +233,10 @@ function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
   } finally {
     rmSync(temporary, { force: true })
   }
+}
+
+function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
+  writeJsonAtomic(statePath(), state)
 }
 
 export function loadAimlapiTopupState(
@@ -247,17 +254,24 @@ export function loadAimlapiTopupState(
   }
 }
 
-export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
-  withStateLock(() => {
+/**
+ * Compare-and-swap: the write only lands while the stored record still belongs
+ * to this intent and payment session. Returns whether it was persisted, so a
+ * caller can tell an applied update from one dropped because another flow
+ * claimed or reset the state first.
+ */
+export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
+  return withStateLock(() => {
     const current = readAimlapiTopupStateUnlocked()
     if (
       !current ||
       !matchesIntent(current, state) ||
       current.paymentSessionId !== state.paymentSessionId
     ) {
-      return
+      return false
     }
     writeAimlapiTopupStateUnlocked(state)
+    return true
   })
 }
 
@@ -317,6 +331,11 @@ export function resetAimlapiCheckoutSession(
       resumeSessionToken: next.resumeSessionToken,
       apiKey: next.apiKey,
       apiKeyId: next.apiKeyId,
+      // `next` keeps these on disk, so return them too: a caller that works from
+      // this result rather than re-reading must not lose the chosen model or the
+      // settled marker.
+      model: next.model,
+      settled: next.settled,
     }
   })
 }
@@ -393,20 +412,7 @@ export function saveAimlapiSignInKey(
   if (!apiKey.trim() || !apiKeyId.trim()) return
   const target = signInKeyPath()
   const record: AimlapiSignInKey = { email: normalizeEmail(email), apiKey, apiKeyId }
-  withStateLock(() => {
-    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
-    try {
-      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, {
-        encoding: 'utf8',
-        flag: 'wx',
-        mode: 0o600,
-      })
-      chmodSync(temporary, 0o600)
-      renameSync(temporary, target)
-    } finally {
-      rmSync(temporary, { force: true })
-    }
-  }, target)
+  withStateLock(() => writeJsonAtomic(target, record), target)
 }
 
 // Delete the cache only when it still holds the record this flow saved. A stale
