@@ -16,3 +16,9 @@ test('buildResumeTaskOptionLabel keeps time alignment and appends repo when avai
   )
   expect(buildResumeTaskOptionLabel('2h ago', 'Untitled', null, 7)).toBe('2h ago   Untitled')
 })
+
+test('buildResumeTaskOptionLabel truncates the repository suffix for narrow terminals', () => {
+  expect(
+    buildResumeTaskOptionLabel('Updated', 'Investigate OAuth callback', repo, 7, 41),
+  ).toBe('Updated  Investigate OAuth callback  Git…')
+})
