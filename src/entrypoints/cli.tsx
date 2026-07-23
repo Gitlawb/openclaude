@@ -42,6 +42,7 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
+  '--yolo', // alias for --dangerously-skip-permissions
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--disable-slash-commands',
@@ -311,6 +312,24 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
+  // --yolo is registered as a native commander alias of
+  // --dangerously-skip-permissions on the commands that support it (see
+  // main.tsx), so commander resolves it and all opts().dangerouslySkipPermissions
+  // reads work unchanged — cc://, the ssh line, and the bypass safety notice are
+  // all commander-authoritative, so there are no raw-argv bypass scanners. The
+  // only place that still lists both spellings is the skills fast-path pre-parse
+  // below, and that is purely for `skills` routing (skipping leading flags), not
+  // bypass detection.
+  //
+  // main() does NOT mirror the caller's `args` array onto process.argv for the
+  // general cliMain flow: cliMain() parses the global process.argv, and the sole
+  // production entry (the auto-run at the tail of this file) calls main() with no
+  // args, so `args` already equals process.argv.slice(2). Keeping a caller's args
+  // out of the process-global argv avoids leaking a programmatic invocation's
+  // arguments (including a permission-bypass flag) into an overlapping call or
+  // the host process. (The `skills` and `--update` fast-paths below do rewrite
+  // process.argv, but only to re-route to their own subcommand, not to inject the
+  // caller's args.)
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}

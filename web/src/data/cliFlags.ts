@@ -81,7 +81,7 @@ export const flagGroups: FlagGroup[] = [
       { flag: '--allowed-tools', arg: '<tools...>', description: 'Comma or space-separated list of tool rules to allow (e.g. "Bash(git:*) Edit").' },
       { flag: '--disallowed-tools', arg: '<tools...>', description: 'Comma or space-separated list of tool rules to deny.' },
       { flag: '--tools', arg: '<tools...>', description: 'Restrict the built-in tool set: "" disables all tools, "default" enables all, or list names like "Bash,Edit,Read".' },
-      { flag: '--dangerously-skip-permissions', description: 'Bypass all permission checks. Recommended only for sandboxes with no internet access.' },
+      { flag: '--yolo, --dangerously-skip-permissions', description: 'Bypass all permission checks. Recommended only for sandboxes with no internet access.' },
       { flag: '--allow-dangerously-skip-permissions', description: 'Make permission bypass available as an option without enabling it by default.' },
       { flag: '--add-dir', arg: '<dirs...>', description: 'Additional directories to allow tool access to.' },
     ],

@@ -39,9 +39,14 @@ const SAVED_ARGV = process.argv
 const SAVED_API_KEY = process.env.ANTHROPIC_API_KEY
 
 beforeEach(() => {
-  // Reset argv each test so the dangerously-skip-permissions detector starts
-  // from a known baseline.
-  process.argv = [...SAVED_ARGV.filter(a => a !== '--dangerously-skip-permissions')]
+  // Test isolation: normalize argv to a clean baseline so a stray bypass flag
+  // in the test runner's argv can't leak into any test. (The notice itself is
+  // keyed off permissionMode, not argv.)
+  process.argv = [
+    ...SAVED_ARGV.filter(
+      a => a !== '--dangerously-skip-permissions' && a !== '--yolo',
+    ),
+  ]
   // Other status notices read auth state via getAnthropicApiKeyWithSource,
   // which throws when no key/token is present. Seed a dummy so getActiveNotices
   // can iterate every notice without unrelated failures crashing the test.
@@ -136,15 +141,23 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
 })
 
 describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
-  test('fires when --dangerously-skip-permissions is in argv', () => {
-    process.argv = [...process.argv, '--dangerously-skip-permissions']
-    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
-  })
-
-  test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
+  // The notice is Commander-authoritative: both --dangerously-skip-permissions
+  // and its --yolo alias are resolved into permissionMode === 'bypassPermissions'
+  // during startup, so the notice keys off the resolved mode, not raw argv.
+  test('fires when permission mode is bypassPermissions (either spelling, or settings defaultMode)', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',
     )
+  })
+
+  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'bypassPermissions' }),
+    )
+    // Fires for either spelling, so its text must name both.
+    expect(notice).toContain('--yolo')
+    expect(notice).toContain('--dangerously-skip-permissions')
   })
 
   test('does not fire in default mode without the flag', () => {
