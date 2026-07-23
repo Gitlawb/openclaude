@@ -1477,8 +1477,8 @@ async function runGit(
       maxBuffer: 1_000_000,
     })
     return {
-      stdout: result.stdout,
-      stderr: result.stderr,
+      stdout: typeof result.stdout === 'string' ? result.stdout : '',
+      stderr: typeof result.stderr === 'string' ? result.stderr : '',
       code: result.exitCode ?? 0,
     }
   } catch (error) {
