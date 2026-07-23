@@ -1555,11 +1555,34 @@ export function REPL({
     startupChecksStartedRef.current = true;
     void performStartupChecks(setAppState);
   }, [setAppState, isRemoteSession, hasHadFirstSubmission]);
+  const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   // Ref instead of state to avoid triggering React re-renders on every
-  // streaming text_delta. The spinner reads this via its animation timer.
+  // streaming text_delta. In reduced-motion mode we publish an initial update
+  // and then throttle subsequent token-display refreshes.
   const responseLengthRef = useRef(0);
+  const [reducedMotionResponseLength, setReducedMotionResponseLength] = useState(0);
+  const reducedMotionRef = useRef(reducedMotion);
+  const reducedMotionResponseLengthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    reducedMotionRef.current = reducedMotion;
+    if (reducedMotion) {
+      setReducedMotionResponseLength(responseLengthRef.current);
+    }
+  }, [reducedMotion]);
+  useEffect(() => () => {
+    if (reducedMotionResponseLengthTimerRef.current) {
+      clearTimeout(reducedMotionResponseLengthTimerRef.current);
+    }
+  }, []);
   const setResponseLength = useCallback((f: (prev: number) => number) => {
-    responseLengthRef.current = f(responseLengthRef.current);
+    const next = f(responseLengthRef.current);
+    responseLengthRef.current = next;
+    if (!reducedMotionRef.current || reducedMotionResponseLengthTimerRef.current) return;
+    setReducedMotionResponseLength(next);
+    reducedMotionResponseLengthTimerRef.current = setTimeout(() => {
+      reducedMotionResponseLengthTimerRef.current = null;
+      setReducedMotionResponseLength(responseLengthRef.current);
+    }, 200);
   }, []);
 
   // Streaming text display. streamingTextRef holds the full accumulated text
@@ -1575,7 +1598,6 @@ export function REPL({
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const lastFlushedStreamingVisibleRef = useRef<string | null>(null);
-  const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   const showStreamingText = !reducedMotion && !hasCursorUpViewportYankBug();
   const onStreamingText = useCallback((f: (current: string | null) => string | null) => {
     // decideStreamingTextUpdate keeps the ref current even when the live preview
@@ -1716,6 +1738,11 @@ export function REPL({
     // does not leave the progress bar rendered in the idle UI.
     setCompactProgressRatio(null);
     responseLengthRef.current = 0;
+    setReducedMotionResponseLength(0);
+    if (reducedMotionResponseLengthTimerRef.current) {
+      clearTimeout(reducedMotionResponseLengthTimerRef.current);
+      reducedMotionResponseLengthTimerRef.current = null;
+    }
     streamingTextRef.current = null;
     lastFlushedStreamingVisibleRef.current = null;
     setStreamingText(null);
@@ -3180,6 +3207,11 @@ export function REPL({
       hasInterruptionCorrectionRequestOnlyMessage = requestOnlyMessages.length > 0;
       setMessages(persistentMessages);
       responseLengthRef.current = 0;
+      setReducedMotionResponseLength(0);
+      if (reducedMotionResponseLengthTimerRef.current) {
+        clearTimeout(reducedMotionResponseLengthTimerRef.current);
+        reducedMotionResponseLengthTimerRef.current = null;
+      }
       if (feature('TOKEN_BUDGET')) {
         const parsedBudget = input ? parseTokenBudget(input) : null;
         snapshotOutputTokensForTurn(parsedBudget ?? getCurrentTurnTokenBudget());
@@ -4906,7 +4938,7 @@ export function REPL({
         </Box>}
         {feature('WEB_BROWSER_TOOL') ? WebBrowserPanelModule && <WebBrowserPanelModule.WebBrowserPanel /> : null}
         <Box flexGrow={1} />
-        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix ?? activeToolSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
+        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} responseLength={reducedMotion ? reducedMotionResponseLength : undefined} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix ?? activeToolSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {/* Permanently mounted: it observes the isLoading transition to flash
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}
