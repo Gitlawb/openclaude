@@ -15,7 +15,8 @@ describe('SpinnerAnimationRow', () => {
         mode="responding"
         reducedMotion
         hasActiveTools={false}
-        responseLengthRef={{ current: 4_000 }}
+        responseLengthRef={{ current: 0 }}
+        responseLength={4_000}
         message="Thinking"
         messageColor="text"
         shimmerColor="text"
@@ -43,7 +44,8 @@ describe('SpinnerAnimationRow', () => {
         mode="responding"
         reducedMotion
         hasActiveTools={false}
-        responseLengthRef={{ current: 1 }}
+        responseLengthRef={{ current: 0 }}
+        responseLength={1}
         message="Thinking"
         messageColor="text"
         shimmerColor="text"
