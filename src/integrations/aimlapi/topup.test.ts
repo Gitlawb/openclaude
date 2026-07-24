@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   claimAimlapiTopupState,
+  clearAimlapiTopupState,
   loadAimlapiTopupState,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -72,6 +73,7 @@ type Calls = { createSession: number; getSession: number; pay: number; exchange:
 async function importTopupWithClient(stub: {
   getSession?: (token: string) => Promise<unknown>
   createSession?: () => Promise<unknown>
+  onExchange?: () => void
 }): Promise<{
   provisionAimlapiKey: (options: unknown) => Promise<{ apiKey: string; apiKeyId: string; model: string }>
   calls: Calls
@@ -107,6 +109,9 @@ async function importTopupWithClient(stub: {
     }
     async exchange(): Promise<{ apiKey: string; apiKeyId: string }> {
       calls.exchange += 1
+      // Lets a test steal the state slot at exactly the point where the settled
+      // receipt is about to be written.
+      stub.onExchange?.()
       return { apiKey: 'k_issued', apiKeyId: 'id_issued' }
     }
   }
@@ -216,6 +221,35 @@ test('a fresh run records its checkout and leaves a settled receipt for the call
     apiKeyId: 'id_issued',
     settled: true,
   })
+})
+
+test('a lost receipt write is surfaced instead of returning as if recoverable', async () => {
+  useTemporaryConfig()
+
+  const statuses: Array<[string, string | undefined]> = []
+  const { provisionAimlapiKey } = await importTopupWithClient({
+    // Another run claims the slot while the key is being exchanged, so the
+    // settled receipt can no longer be written for this attempt.
+    onExchange: () => {
+      clearAimlapiTopupState({
+        ...intent,
+        paymentSessionId: loadAimlapiTopupState(intent)!.paymentSessionId,
+      })
+      claimAimlapiTopupState(intent)
+    },
+  })
+
+  const provisioned = await provisionAimlapiKey({
+    ...provisionOptions,
+    onStatus: (status: string, detail?: string) => statuses.push([status, detail]),
+  })
+
+  // The key still comes back - throwing here would strand it - but the failure
+  // to record recovery is reported rather than swallowed.
+  expect(provisioned.apiKey).toBe('k_issued')
+  expect(
+    statuses.some(([, detail]) => detail?.includes('Could not record the recovery receipt')),
+  ).toBe(true)
 })
 
 test('a transient getSession failure preserves the recorded checkout', async () => {
