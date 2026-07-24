@@ -200,6 +200,19 @@ export function getPlan(agentId?: AgentId): string | null {
  *
  * Exported for testing.
  */
+/**
+ * Whether a legacy plan path (built from an unescaped, attacker-influenced
+ * agent id) still resolves inside the plans directory after `..` collapse.
+ *
+ * Exported for testing.
+ */
+export function isPathWithinPlansDir(
+  candidatePath: string,
+  plansDir: string,
+): boolean {
+  return candidatePath === plansDir || candidatePath.startsWith(plansDir + sep)
+}
+
 export function readAndMigrateLegacyPlan(
   legacyPath: string,
   escapedPath: string,
@@ -232,10 +245,16 @@ function readLegacyUnescapedPlan(
   escapedPath: string,
 ): string | null {
   if (!agentId) return null
+  const plansDir = getPlansDirectory()
   const legacyPath = join(
-    getPlansDirectory(),
+    plansDir,
     `${getPlanSlug(getSessionId())}-agent-${agentId}.md`,
   )
+  // SECURITY: agentId is intentionally left unescaped here so the pre-escape
+  // filename can be recovered, so it can still carry `/`, `\`, or `..`. Once
+  // join() collapses those the path can land outside plansDir, and the migrate
+  // step reads then renames it -- moving an arbitrary file.
+  if (!isPathWithinPlansDir(legacyPath, plansDir)) return null
   return readAndMigrateLegacyPlan(legacyPath, escapedPath)
 }
 
