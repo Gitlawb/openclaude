@@ -554,12 +554,17 @@ function cacheToStats(
   }
 
   // Find first/last session dates
+  // Seeded from the persisted cache, which can hold a corrupt firstSessionDate.
+  // An unparseable seed that sorts lexically before real timestamps would never
+  // be displaced by comparePersistedDates, locking in a wrong totalDays. Treat
+  // it as absent so a valid session date takes over.
   let firstSessionDate = cache.firstSessionDate
   let lastSessionDate: string | null = null
   if (todayStats) {
     for (const session of todayStats.sessionStats) {
       if (
         !firstSessionDate ||
+        Number.isNaN(parsePersistedDateMs(firstSessionDate)) ||
         comparePersistedDates(session.timestamp, firstSessionDate) < 0
       ) {
         firstSessionDate = session.timestamp

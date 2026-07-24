@@ -284,4 +284,27 @@ describe('mergeCacheWithNewStats first-session selection', () => {
       mergeSessions(['2026-07-13T20:00:00.000Z', '2026-07-13T01:00:00.000Z']),
     ).toBe('2026-07-13T01:00:00.000Z')
   })
+
+  test('replaces a corrupt cached first date that lexical order never heals', () => {
+    // A persisted seed like "1" is unparseable and sorts lexically BEFORE every
+    // real timestamp, so comparePersistedDates alone never displaces it -- the
+    // corruption (and the wrong totalDays it drives) survives every later run.
+    // The NaN guard treats it as absent so the first valid session date wins.
+    for (const corrupt of ['1', '0000', 'not-a-date']) {
+      const cache = { ...emptyCache(), firstSessionDate: corrupt }
+      const merged = mergeCacheWithNewStats(
+        cache,
+        {
+          dailyActivity: [],
+          dailyModelTokens: [],
+          modelUsage: {},
+          sessionStats: [session('2026-07-13T12:00:00.000Z')],
+          hourCounts: {},
+          totalSpeculationTimeSavedMs: 0,
+        },
+        '2026-07-14',
+      )
+      expect(merged.firstSessionDate).toBe('2026-07-13T12:00:00.000Z')
+    }
+  })
 })

@@ -358,10 +358,16 @@ export function mergeCacheWithNewStats(
   // this value is what a later cached run reads back. There is no session list
   // to correct it at that point, so a wrong first date here reports one total
   // day for activity that spans two UTC dates.
+  // The seed comes from a previously persisted cache and may itself be corrupt.
+  // A garbage seed that sorts lexically before every real timestamp (e.g. "1")
+  // is never displaced by comparePersistedDates alone, so the corruption -- and
+  // the wrong totalDays it produces -- persists across every later run. Treat an
+  // unparseable seed as absent so the first valid session date replaces it.
   let firstSessionDate = existingCache.firstSessionDate
   for (const session of newStats.sessionStats) {
     if (
       !firstSessionDate ||
+      Number.isNaN(parsePersistedDateMs(firstSessionDate)) ||
       comparePersistedDates(session.timestamp, firstSessionDate) < 0
     ) {
       firstSessionDate = session.timestamp
