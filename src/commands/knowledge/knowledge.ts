@@ -1,5 +1,6 @@
 import type { LocalCommandCall } from '../../types/command.js';
-import { getArcSummary, resetArc, getArcStats } from '../../utils/conversationArc.js';
+import { getArcSummary, resetArc, getArcStats, clearArcArtifacts } from '../../utils/conversationArc.js';
+import { getAutoMemPath } from '../../memdir/paths.js';
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import chalk from 'chalk';
@@ -11,17 +12,21 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (!subCommand || subCommand === 'status') {
     const config = getGlobalConfig();
-    const stats = getArcStats();
-    const graph = getGlobalGraph();
-    const entityCount = Object.keys(graph.entities).length;
     
     const statusText = (config.knowledgeGraphEnabled !== false)
       ? chalk.green('ENABLED') 
       : chalk.red('DISABLED');
       
     let output = `${chalk.bold('Knowledge Graph Engine')}: ${statusText}\n`;
-    if (stats) {
-      output += `• Stats: ${stats.goalCount} goals, ${stats.milestoneCount} milestones, ${entityCount} technical facts learned`;
+    
+    // Do not initialize or migrate when disabled (P2).
+    if (config.knowledgeGraphEnabled !== false) {
+      const stats = getArcStats();
+      const graph = getGlobalGraph();
+      const entityCount = Object.keys(graph.entities).length;
+      if (stats) {
+        output += `• Stats: ${stats.goalCount} goals, ${stats.milestoneCount} milestones, ${entityCount} technical facts learned`;
+      }
     }
     
     return { type: 'text', value: output };
@@ -46,9 +51,13 @@ export const call: LocalCommandCall = async (args, _context) => {
   if (subCommand === 'clear') {
     resetArc();
     resetGlobalGraph();
+    const memDir = getAutoMemPath();
+    if (memDir) {
+      clearArcArtifacts(memDir);
+    }
     return { 
       type: 'text', 
-      value: '🗑️ Knowledge graph memory has been cleared for this session.' 
+      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, and legacy JSON/SQLite stores removed; backups archived alongside originals).' 
     };
   }
 
