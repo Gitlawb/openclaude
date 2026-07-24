@@ -165,6 +165,9 @@ import {
 import {
   convertMessages as convertAnthropicMessages,
   convertSystemPrompt as convertSystemPromptImpl,
+  convertContentBlocks,
+  convertToolResultContent,
+  joinTextContentParts,
 } from './openaiShim/messageConversion.js'
 
 const GITHUB_429_MAX_RETRIES = 3
@@ -1692,7 +1695,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return false
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++_textToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
     // Keep toolCallRanges 1:1 with emitted (unique) calls.
     ranges.push(range)
     return true
@@ -2869,8 +2872,7 @@ async function* openaiStreamToAnthropic(
                 accumulatedText,
                 allowHy3ToolCalls,
               )
-              // Drop names not in the allowlist; strip every matching block
-              // (including duplicates) via stripToolCallRanges.
+              // Drop names not in the allowlist; strip only blocks for accepted calls.
               const allow =
                 allowedToolNames instanceof Set
                   ? allowedToolNames
@@ -2878,6 +2880,10 @@ async function* openaiStreamToAnthropic(
                     ? new Set(allowedToolNames)
                     : undefined
               const filteredCalls: typeof recoveredCalls = []
+              const filteredStripRanges: typeof xmlParsed.stripToolCallRanges = []
+              const usedStripRangeIndices = new Set<number>()
+
+              // Map each unique call to its first occurrence range in stripToolCallRanges.
               for (let i = 0; i < xmlParsed.calls.length; i++) {
                 const call = xmlParsed.calls[i]!
                 if (
@@ -2888,12 +2894,34 @@ async function* openaiStreamToAnthropic(
                   continue
                 }
                 filteredCalls.push(call)
+
+                // Find the first stripToolCallRanges entry that matches this call's range.
+                // toolCallRanges[i] is the canonical range for this unique call; find the
+                // closest matching entry in stripToolCallRanges that hasn't been used yet.
+                const canonicalRange = xmlParsed.toolCallRanges[i]!
+                let matchedIdx = xmlParsed.stripToolCallRanges.findIndex(
+                  (r, idx) =>
+                    !usedStripRangeIndices.has(idx) &&
+                    r[0] === canonicalRange[0] &&
+                    r[1] === canonicalRange[1],
+                )
+                if (matchedIdx === -1) {
+                  // Fallback: find any range that contains the same call name at same position.
+                  matchedIdx = xmlParsed.stripToolCallRanges.findIndex(
+                    (r, idx) =>
+                      !usedStripRangeIndices.has(idx) &&
+                      r[0] === canonicalRange[0],
+                  )
+                }
+                if (matchedIdx !== -1) {
+                  usedStripRangeIndices.add(matchedIdx)
+                  filteredStripRanges.push(xmlParsed.stripToolCallRanges[matchedIdx]!)
+                }
               }
+
               if (filteredCalls.length > 0) {
                 recoveredCalls = filteredCalls
-                // When allowlist is active, still strip all recognized XML
-                // blocks so duplicate copies of accepted tools vanish from text.
-                recoveredRanges = xmlParsed.stripToolCallRanges
+                recoveredRanges = filteredStripRanges
               }
             }
             if (recoveredCalls.length > 0) {
@@ -3391,6 +3419,7 @@ class OpenAIShimMessages {
           OPENAI_AZURE_STYLE: undefined,
           OPENAI_SELF_HOSTED_TOOLS: undefined,
           OPENAI_PARSE_TEXT_TOOL_CALLS: undefined,
+          CLAUDE_CODE_USE_MISTRAL: undefined,
         }
         : process.env
       const request = resolveProviderRequest({
@@ -3405,8 +3434,7 @@ class OpenAIShimMessages {
       // Use requestProcessEnv so parent profile flags do not leak into overrides.
       const enableTextToolCallFallback =
         Boolean(params.tools?.length) &&
-        (isLikelyOllamaEndpoint(request.baseUrl) ||
-          shouldUseSelfHostedToolCompat(request.baseUrl, requestProcessEnv))
+        shouldUseSelfHostedToolCompat(request.baseUrl, requestProcessEnv)
       const allowedToolNames = toolNamesFromShimParams(params.tools)
       const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response

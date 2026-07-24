@@ -1702,7 +1702,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1728,7 +1728,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1741,7 +1741,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1754,7 +1754,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
