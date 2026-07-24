@@ -269,10 +269,10 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       if (arc.decisions.length > 50) {
         arc.decisions = arc.decisions.slice(-50)
       }
-    }
 
-    if (await extractFactsAutomatically(content)) {
-      factsChanged = true
+      if (await extractFactsAutomatically(content)) {
+        factsChanged = true
+      }
     }
   }
 
@@ -556,22 +556,22 @@ export async function appendArcToSystemPrompt(
           + `Total Tokens: ${stats.totalTokens}\n`
           + `Average Tokens Per Turn: ${stats.avgTokensPerTurn}\n`
         const recent = getRecentTurns(3)
-        const MAX_TOOL_INPUT_CHARS = 2000
+        const MAX_TOOL_INPUT_BYTES = 2000
         const MAX_AGGREGATE_BYTES = 10000
         let trimmedTurns = 0
         for (const turn of recent) {
           const toolCallsStr = turn.toolCalls.map(tc => {
             const input = JSON.stringify(tc.input)
             const redacted = redactLikelySecrets(input)
-            const truncated = redacted.length > MAX_TOOL_INPUT_CHARS
-              ? redacted.slice(0, MAX_TOOL_INPUT_CHARS) + '...[truncated]'
+            const truncated = Buffer.byteLength(redacted, 'utf8') > MAX_TOOL_INPUT_BYTES
+              ? Buffer.from(redacted, 'utf8').subarray(0, MAX_TOOL_INPUT_BYTES).toString('utf8').replace(/\uFFFD/g, '') + '...[truncated]'
               : redacted
             return `${tc.name}(${truncated})`
           }).join(', ') || 'None'
           const turnStr = `- Turn ID: ${turn.turnId}\n`
             + `  Duration: ${Math.round((Date.now() - turn.startTime) / 1000)}s ago\n`
             + `  Tool Calls: ${toolCallsStr}\n`
-          if (multiTurnContent.length + turnStr.length > MAX_AGGREGATE_BYTES) {
+          if (Buffer.byteLength(multiTurnContent, 'utf8') + Buffer.byteLength(turnStr, 'utf8') > MAX_AGGREGATE_BYTES) {
             trimmedTurns++
             continue
           }
