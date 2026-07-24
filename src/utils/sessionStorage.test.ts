@@ -14,6 +14,7 @@ import {
   adoptResumedSessionFile,
   buildConversationChain,
   getProjectDir,
+  isEphemeralToolProgress,
   loadSameRepoMessageLogsProgressive,
   loadTranscriptFile,
   loadTranscriptFromFile,
@@ -888,4 +889,13 @@ test('convertToLogOption throws for empty transcript', async () => {
   await expect(loadTranscriptFromFile(filePath)).rejects.toThrow(
     'convertToLogOption: cannot convert empty transcript',
   )
+})
+
+test('recurring heartbeat progress types are ephemeral', () => {
+  expect(isEphemeralToolProgress('bash_progress')).toBe(true)
+  expect(isEphemeralToolProgress('powershell_progress')).toBe(true)
+  expect(isEphemeralToolProgress('mcp_progress')).toBe(true)
+  expect(isEphemeralToolProgress('waiting_for_task')).toBe(true)
+  expect(isEphemeralToolProgress('agent_progress')).toBe(false)
+  expect(isEphemeralToolProgress(undefined)).toBe(false)
 })

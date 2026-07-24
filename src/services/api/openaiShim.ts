@@ -42,6 +42,8 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { anthropicSsePassthrough as parseAnthropicSsePassthrough, createReaderCanceller, createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError, throwIfStreamAborted } from './openaiShim/streamControl.js'
+export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import {
   resolveModelReasoningControl,
@@ -139,7 +141,31 @@ import {
   hasInvalidCredentialPlaceholder,
   parseCredentialList,
 } from './credentialPool.js'
-import { MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS } from '../../utils/ollamaContext.js'
+import {
+  filterAnthropicHeaders,
+  geminiThoughtSignatureFromExtraContent,
+  hasCerebrasApiHost,
+  hasGeminiApiHost as matchesGeminiApiHost,
+  hasMistralApiHost,
+  isGithubModelsMode,
+  isGeminiModelName,
+  mergeGeminiThoughtSignature,
+  maybeSetNvidiaNimChatTemplateThinking,
+  shouldPreserveGeminiThoughtSignature as shouldPreserveGeminiThoughtSignatureForRoute,
+} from './openaiShim/providerCompatibility.js'
+
+export { hasMistralApiHost }
+import {
+  buildOllamaChatUrl,
+  convertOllamaNonStreamingResponse,
+  convertOllamaStreamingResponse,
+  getOllamaNumCtx,
+  normalizeOllamaNativeMessages,
+} from './openaiShim/ollamaAdapter.js'
+import {
+  convertMessages as convertAnthropicMessages,
+  convertSystemPrompt as convertSystemPromptImpl,
+} from './openaiShim/messageConversion.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -159,13 +185,6 @@ const COPILOT_HEADERS: Record<string, string> = {
 function isCopilotTokenExpiredError(text: string): boolean {
   const lower = text.toLowerCase()
   return lower.includes('token expired') || lower.includes('token has expired')
-}
-
-class StreamIdleTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Stream idle timeout - no chunks received for ${timeoutMs}ms`)
-    this.name = 'StreamIdleTimeoutError'
-  }
 }
 
 class ResponseHeadersTimeoutError extends Error {
@@ -196,55 +215,6 @@ function isAbortError(error: unknown): boolean {
       'name' in error &&
       error.name === 'AbortError')
   )
-}
-
-function createStreamAbortError(): DOMException {
-  return new DOMException('Aborted', 'AbortError')
-}
-
-function throwIfStreamAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createStreamAbortError()
-  }
-}
-
-type StreamReadResult = Awaited<
-  ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>
->
-
-function createReaderCanceller(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal,
-): {
-    cancel: (error?: unknown) => void
-    cleanup: () => void
-  } {
-  let cancelled = false
-  const cancel = (error: unknown = createStreamAbortError()) => {
-    if (cancelled) return
-    cancelled = true
-    void reader.cancel(error).catch(() => {})
-  }
-  const onAbort = () => cancel(createStreamAbortError())
-
-  signal?.addEventListener('abort', onAbort, { once: true })
-  if (signal?.aborted) {
-    onAbort()
-  }
-
-  return {
-    cancel,
-    cleanup: () => signal?.removeEventListener('abort', onAbort),
-  }
-}
-
-export function getStreamIdleTimeoutMs(): number {
-  const raw = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_STREAM_IDLE_TIMEOUT_MS
-  const parsed = Number(raw)
-  return Number.isSafeInteger(parsed) && parsed > 0
-    ? Math.min(parsed, MAX_STREAM_IDLE_TIMEOUT_MS)
-    : DEFAULT_STREAM_IDLE_TIMEOUT_MS
 }
 
 export function getApiTimeoutMs(): number {
@@ -442,213 +412,20 @@ async function fetchWithHeadersDeadline(
   )
 }
 
-async function readWithIdleTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
-  options: {
-    signal?: AbortSignal
-    cancelReader?: (error?: unknown) => void
-    onTimeout?: () => void
-  } = {},
-): Promise<StreamReadResult> {
-  const signal = options.signal
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-
-  return new Promise<StreamReadResult>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId)
-        timeoutId = undefined
-      }
-      signal?.removeEventListener('abort', onAbort)
-    }
-    const finishResolve = (value: StreamReadResult) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve(value)
-    }
-    const finishReject = (error: unknown) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(error)
-    }
-    const cancelAndReject = (error: unknown) => {
-      if (options.cancelReader) {
-        options.cancelReader(error)
-      } else {
-        void reader.cancel(error).catch(() => {})
-      }
-      finishReject(error)
-    }
-    const onAbort = () => cancelAndReject(createStreamAbortError())
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-    if (signal?.aborted) {
-      onAbort()
-      return
-    }
-
-    timeoutId = setTimeout(() => {
-      const error = new StreamIdleTimeoutError(timeoutMs)
-      try {
-        options.onTimeout?.()
-      } catch {
-        // ignore diagnostic callback failures
-      }
-      cancelAndReject(error)
-    }, timeoutMs)
-
-    reader.read().then(finishResolve, finishReject)
-  })
-}
-
-function isGithubModelsMode(): boolean {
-  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-}
-
-function filterAnthropicHeaders(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  if (!headers) return {}
-
-  const filtered: Record<string, string> = {}
-  for (const [key, value] of Object.entries(headers)) {
-    const lower = key.toLowerCase()
-    if (
-      lower.startsWith('x-anthropic') ||
-      lower.startsWith('anthropic-') ||
-      lower.startsWith('x-claude') ||
-      lower === 'x-app' ||
-      lower === 'x-client-app' ||
-      lower === 'authorization' ||
-      lower === 'x-api-key' ||
-      lower === 'api-key'
-    ) {
-      continue
-    }
-    filtered[key] = value
-  }
-
-  return filtered
-}
-
 function hasGeminiApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === GEMINI_API_HOST
-  } catch {
-    return false
-  }
-}
-
-function isGeminiModelName(model: string | undefined): boolean {
-  const normalized = model?.trim().toLowerCase()
-  return (
-    normalized?.startsWith('google/gemini-') === true ||
-    normalized?.startsWith('gemini-') === true
-  )
+  return matchesGeminiApiHost(baseUrl, GEMINI_API_HOST)
 }
 
 function shouldPreserveGeminiThoughtSignature(
   model: string | undefined,
   baseUrl?: string,
 ): boolean {
-  return isGeminiMode() || hasGeminiApiHost(baseUrl) || isGeminiModelName(model)
-}
-
-function geminiThoughtSignatureFromExtraContent(
-  extraContent: unknown,
-): string | undefined {
-  if (!extraContent || typeof extraContent !== 'object') return undefined
-  const google = (extraContent as Record<string, unknown>).google
-  if (!google || typeof google !== 'object') return undefined
-  const signature = (google as Record<string, unknown>).thought_signature
-  return typeof signature === 'string' && signature.length > 0 ? signature : undefined
-}
-
-function mergeGeminiThoughtSignature(
-  extraContent: Record<string, unknown> | undefined,
-  signature: string | undefined,
-): Record<string, unknown> | undefined {
-  if (!signature) return extraContent
-  const existingGoogle =
-    extraContent?.google && typeof extraContent.google === 'object'
-      ? extraContent.google as Record<string, unknown>
-      : {}
-  return {
-    ...extraContent,
-    google: {
-      ...existingGoogle,
-      thought_signature: signature,
-    },
-  }
-}
-
-function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase()
-    return host === 'api.cerebras.ai' || host.endsWith('.cerebras.ai')
-  } catch {
-    return false
-  }
-}
-
-export function hasMistralApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase()
-    return host === 'api.mistral.ai' || host.endsWith('.mistral.ai')
-  } catch {
-    return false
-  }
-}
-
-function hasNvidiaNimApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === 'integrate.api.nvidia.com'
-  } catch {
-    return false
-  }
-}
-
-function setNvidiaNimChatTemplateThinking(body: Record<string, unknown>): void {
-  const existing = body.chat_template_kwargs
-  const kwargs =
-    existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
-      : {}
-
-  kwargs.thinking = true
-  kwargs.enable_thinking = true
-  body.chat_template_kwargs = kwargs
-}
-
-function maybeSetNvidiaNimChatTemplateThinking(
-  body: Record<string, unknown>,
-  baseUrl: string | undefined,
-  reasoningRequestPlan: {
-    thinkingType?: string
-    reasoningEffort?: string
-  },
-): void {
-  if (!hasNvidiaNimApiHost(baseUrl)) return
-  if (
-    reasoningRequestPlan.thinkingType !== 'enabled' &&
-    !reasoningRequestPlan.reasoningEffort
-  ) {
-    return
-  }
-
-  setNvidiaNimChatTemplateThinking(body)
+  return shouldPreserveGeminiThoughtSignatureForRoute(
+    model,
+    baseUrl,
+    isGeminiMode(),
+    GEMINI_API_HOST,
+  )
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -847,440 +624,12 @@ interface OpenAITool {
   }
 }
 
-type OllamaChatResponse = {
-  model?: string
-  message?: {
-    role?: string
-    content?: string
-    tool_calls?: Array<{
-      function?: {
-        name?: string
-        arguments?: unknown
-      }
-    }>
-  }
-  done?: boolean
-  done_reason?: string
-  prompt_eval_count?: number
-  eval_count?: number
-}
-
-type OllamaChatMessage = Omit<OpenAIMessage, 'content' | 'tool_calls'> & {
-  content?: string
-  images?: string[]
-  tool_calls?: Array<{
-    function: {
-      name: string
-      arguments: Record<string, unknown>
-    }
-  }>
-}
-
-function parsePositiveIntegerEnv(value: string | undefined): number | null {
-  if (!value?.trim()) {
-    return null
-  }
-  const parsed = Number(value.trim())
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return null
-  }
-  return parsed
-}
-
-function getOllamaNumCtx(): number {
-  return (
-    parsePositiveIntegerEnv(process.env.OPENCLAUDE_OLLAMA_NUM_CTX) ??
-    parsePositiveIntegerEnv(process.env.OLLAMA_CONTEXT_LENGTH) ??
-    MIN_RECOMMENDED_OLLAMA_CONTEXT_TOKENS
-  )
-}
-
-function buildOllamaChatUrl(baseUrl: string): string {
-  const parsed = new URL(baseUrl)
-  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/v1$/i, '')
-  parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/api/chat`
-  parsed.search = ''
-  parsed.hash = ''
-  return parsed.toString()
-}
-
-function extractOllamaImageData(url: string): string | null {
-  const match = url.match(/^data:[^;,]+;base64,(.+)$/i)
-  if (!match) {
-    return null
-  }
-  return match[1]
-}
-
-function normalizeOllamaNativeToolCalls(
-  toolCalls: OpenAIMessage['tool_calls'],
-): OllamaChatMessage['tool_calls'] {
-  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return undefined
-  }
-
-  const normalized = toolCalls
-    .map(toolCall => {
-      const name = toolCall.function?.name
-      if (!name) {
-        return null
-      }
-
-      let args: Record<string, unknown> = {}
-      try {
-        const parsed = JSON.parse(toolCall.function.arguments || '{}')
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          args = parsed as Record<string, unknown>
-        }
-      } catch {
-        args = {}
-      }
-
-      return {
-        function: {
-          name,
-          arguments: args,
-        },
-      }
-    })
-    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
-
-  return normalized.length > 0 ? normalized : undefined
-}
-
-function normalizeOllamaNativeMessages(messages: unknown): OllamaChatMessage[] {
-  if (!Array.isArray(messages)) {
-    return []
-  }
-
-  return messages.map(message => {
-    const openAIMessage = message as OpenAIMessage
-    const content = openAIMessage.content
-    const toolCalls = normalizeOllamaNativeToolCalls(openAIMessage.tool_calls)
-    if (!Array.isArray(content)) {
-      return {
-        ...openAIMessage,
-        content,
-        ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
-      }
-    }
-
-    const textParts: string[] = []
-    const images: string[] = []
-
-    for (const part of content) {
-      if (part.type === 'text') {
-        if (part.text) {
-          textParts.push(part.text)
-        }
-        continue
-      }
-
-      if (part.type === 'image_url') {
-        const imageUrl = part.image_url.url
-        const imageData = extractOllamaImageData(imageUrl)
-        if (imageData) {
-          images.push(imageData)
-        } else {
-          textParts.push(`[Image: ${imageUrl}]`)
-        }
-      }
-    }
-
-    return {
-      ...openAIMessage,
-      content: textParts.join('\n'),
-      ...(images.length > 0 ? { images } : {}),
-      ...(toolCalls ? { tool_calls: toolCalls } : { tool_calls: undefined }),
-    }
-  })
-}
-
-function mapOllamaDoneReason(doneReason: unknown): string | null {
-  if (doneReason === 'length') return 'length'
-  if (doneReason === 'stop') return 'stop'
-  if (typeof doneReason === 'string' && doneReason) return doneReason
-  return null
-}
-
-function normalizeOllamaToolCalls(
-  toolCalls: NonNullable<OllamaChatResponse['message']>['tool_calls'],
-): Array<{
-  id: string
-  type: 'function'
-  function: { name: string; arguments: string }
-}> | undefined {
-  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return undefined
-  }
-
-  const normalized = toolCalls
-    .map(toolCall => {
-      const name = toolCall.function?.name
-      if (!name) {
-        return null
-      }
-      const args = toolCall.function?.arguments
-      return {
-        id: `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
-        type: 'function' as const,
-        function: {
-          name,
-          arguments:
-            typeof args === 'string' ? args : JSON.stringify(args ?? {}),
-        },
-      }
-    })
-    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
-
-  return normalized.length > 0 ? normalized : undefined
-}
-
-function buildOpenAIUsageFromOllama(data: OllamaChatResponse) {
-  const promptTokens = data.prompt_eval_count ?? 0
-  const completionTokens = data.eval_count ?? 0
-  return {
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens: promptTokens + completionTokens,
-  }
-}
-
-function convertOllamaChatResponseToOpenAI(
-  data: OllamaChatResponse,
-  fallbackModel: string,
-): Record<string, unknown> {
-  const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
-  return {
-    id: makeMessageId(),
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model: data.model ?? fallbackModel,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: data.message?.content ?? '',
-          ...(toolCalls ? { tool_calls: toolCalls } : {}),
-        },
-        finish_reason: mapOllamaDoneReason(data.done_reason),
-      },
-    ],
-    usage: buildOpenAIUsageFromOllama(data),
-  }
-}
-
-function responseWithPreservedUrl(
-  body: BodyInit | null,
-  init: ResponseInit,
-  url: string,
-): Response {
-  const response = new Response(body, init)
-  try {
-    Object.defineProperty(response, 'url', {
-      value: url,
-      configurable: true,
-    })
-  } catch {
-    /* some runtimes lock the property; downstream has transport fallback */
-  }
-  return response
-}
-
-async function convertOllamaNonStreamingResponse(
-  response: Response,
-  fallbackModel: string,
-): Promise<Response> {
-  const data = await response.json() as OllamaChatResponse
-  return responseWithPreservedUrl(
-    JSON.stringify(convertOllamaChatResponseToOpenAI(data, fallbackModel)),
-    {
-      status: response.status,
-      statusText: response.statusText,
-      headers: { 'content-type': 'application/json' },
-    },
-    response.url,
-  )
-}
-
-function openAIStreamChunk(
-  id: string,
-  model: string,
-  delta: Record<string, unknown>,
-  finishReason: string | null = null,
-): string {
-  return `data: ${JSON.stringify({
-    id,
-    object: 'chat.completion.chunk',
-    created: Math.floor(Date.now() / 1000),
-    model,
-    choices: [{ index: 0, delta, finish_reason: finishReason }],
-  })}\n\n`
-}
-
-function convertOllamaStreamingResponse(
-  response: Response,
-  fallbackModel: string,
-): Response {
-  const body = response.body
-  if (!body) {
-    return response
-  }
-
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  const reader = body.getReader()
-  const streamId = makeMessageId()
-  let buffer = ''
-  let hasEmittedRole = false
-  let hasEmittedToolCall = false
-
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) {
-          if (buffer.trim()) {
-            enqueueOllamaLineAsOpenAI(buffer.trim(), controller)
-            buffer = ''
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-          controller.close()
-          return
-        }
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() ?? ''
-
-        let emittedLine = false
-        for (const line of lines) {
-          if (line.trim()) {
-            enqueueOllamaLineAsOpenAI(line.trim(), controller)
-            emittedLine = true
-          }
-        }
-        if (emittedLine) {
-          return
-        }
-      }
-    },
-    cancel(reason) {
-      return reader.cancel(reason)
-    },
-  })
-
-  function enqueueOllamaLineAsOpenAI(
-    line: string,
-    controller: ReadableStreamDefaultController<Uint8Array>,
-  ): void {
-    let data: OllamaChatResponse
-    try {
-      data = JSON.parse(line) as OllamaChatResponse
-    } catch {
-      return
-    }
-
-    const model = data.model ?? fallbackModel
-    const chunks: string[] = []
-    const delta: Record<string, unknown> = {}
-    if (!hasEmittedRole) {
-      delta.role = 'assistant'
-      hasEmittedRole = true
-    }
-    if (data.message?.content) {
-      delta.content = data.message.content
-    }
-    const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
-    if (toolCalls) {
-      hasEmittedToolCall = true
-      delta.tool_calls = toolCalls.map((toolCall, index) => ({
-        index,
-        id: toolCall.id,
-        type: toolCall.type,
-        function: toolCall.function,
-      }))
-    }
-    if (Object.keys(delta).length > 0) {
-      chunks.push(openAIStreamChunk(streamId, model, delta))
-    }
-    if (data.done) {
-      chunks.push(openAIStreamChunk(
-        streamId,
-        model,
-        {},
-        hasEmittedToolCall
-          ? 'tool_calls'
-          : mapOllamaDoneReason(data.done_reason),
-      ))
-      chunks.push(`data: ${JSON.stringify({
-        id: streamId,
-        object: 'chat.completion.chunk',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [],
-        usage: buildOpenAIUsageFromOllama(data),
-      })}\n\n`)
-    }
-
-    for (const chunk of chunks) {
-      controller.enqueue(encoder.encode(chunk))
-    }
-  }
-
-  return responseWithPreservedUrl(
-    stream,
-    {
-      status: response.status,
-      statusText: response.statusText,
-      headers: { 'content-type': 'text/event-stream' },
-    },
-    response.url,
-  )
-}
-
-function convertSystemPrompt(
-  system: unknown,
-): string {
-  if (!system) return ''
-  if (typeof system === 'string') return system
-  if (Array.isArray(system)) {
-    return system
-      .map((block: { type?: string; text?: string }) =>
-        block.type === 'text' ? block.text ?? '' : '',
-      )
-      // Drop the Anthropic billing/attribution block — it's only meaningful to
-      // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
-      // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
-      // providers like local Ollama / llama.cpp / Codex pass-throughs.
-      .filter(text => !text.startsWith('x-anthropic-billing-header'))
-      .join('\n\n')
-  }
-  return String(system)
-}
-
-function ensureTextPartForImageContent(
-  parts: OpenAIContentPart[],
-): OpenAIContentPart[] {
-  const hasImage = parts.some(part => part.type === 'image_url')
-  if (!hasImage) {
-    return parts
-  }
-
-  const hasText = parts.some(
-    part => part.type === 'text' && (part.text ?? '').trim().length > 0,
-  )
-  if (hasText) {
-    return parts
-  }
-
-  return [{ type: 'text', text: 'Image attached.' }, ...parts]
+function convertSystemPrompt(system: unknown): string {
+  return convertSystemPromptImpl(system)
 }
 
 function contentBlocksContainImages(content: unknown): boolean {
   if (!Array.isArray(content)) return false
-
   return content.some(block => {
     if (!block || typeof block !== 'object') return false
     const record = block as Record<string, unknown>
@@ -1288,9 +637,7 @@ function contentBlocksContainImages(content: unknown): boolean {
       record.type === 'image' ||
       record.type === 'image_url' ||
       record.type === 'input_image'
-    ) {
-      return true
-    }
+    ) return true
     return record.type === 'tool_result' && contentBlocksContainImages(record.content)
   })
 }
@@ -1299,34 +646,18 @@ function requestBodyContainsImages(
   payload: Record<string, unknown> | undefined,
 ): boolean {
   if (!payload) return false
-
   const messages = payload.messages
-  if (
-    Array.isArray(messages) &&
-    messages.some(message => {
-      if (!message || typeof message !== 'object') return false
-      const record = message as Record<string, unknown>
-      return (
-        contentBlocksContainImages(record.content) ||
-        (Array.isArray(record.images) && record.images.length > 0)
-      )
-    })
-  ) {
-    return true
-  }
-
+  if (Array.isArray(messages) && messages.some(message => {
+    if (!message || typeof message !== 'object') return false
+    const record = message as Record<string, unknown>
+    return contentBlocksContainImages(record.content) ||
+      (Array.isArray(record.images) && record.images.length > 0)
+  })) return true
   const input = payload.input
-  if (
-    Array.isArray(input) &&
-    input.some(item =>
-      item &&
-      typeof item === 'object' &&
-      contentBlocksContainImages((item as Record<string, unknown>).content),
-    )
-  ) {
-    return true
-  }
-
+  if (Array.isArray(input) && input.some(item =>
+    item && typeof item === 'object' &&
+    contentBlocksContainImages((item as Record<string, unknown>).content),
+  )) return true
   const contents = payload.contents
   return Array.isArray(contents) && contents.some(item => {
     if (!item || typeof item !== 'object') return false
@@ -1343,160 +674,6 @@ function requestBodyContainsImages(
       })
     })
   })
-}
-
-function joinTextContentParts(parts: OpenAIContentPart[]): string {
-  return parts.map(part => part.type === 'text' ? part.text : '').join('')
-}
-
-function convertToolResultContent(
-  content: unknown,
-  isError?: boolean,
-  options?: { supportsImageInputs?: boolean },
-): string | OpenAIContentPart[] {
-  if (typeof content === 'string') {
-    return isError ? `Error: ${content}` : content
-  }
-  if (!Array.isArray(content)) {
-    const text = JSON.stringify(content ?? '')
-    return isError ? `Error: ${text}` : text
-  }
-
-  const parts: OpenAIContentPart[] = []
-  for (const block of content) {
-    if (block?.type === 'text' && typeof block.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
-      continue
-    }
-
-    // ToolSearch results are tool_reference blocks with no text payload —
-    // render them so the model learns which deferred tools were loaded
-    // (their schemas arrive in the next request's tools array).
-    if (block?.type === 'tool_reference' && typeof block.tool_name === 'string') {
-      parts.push({
-        type: 'text',
-        text: `Tool "${block.tool_name}" is now loaded and available to call.`,
-      })
-      continue
-    }
-
-    if (block?.type === 'image') {
-      if (options?.supportsImageInputs === false) {
-        throw new Error(
-          'The active provider accepts text-only messages and does not support image inputs.',
-        )
-      }
-      const source = block.source
-      if (source?.type === 'url' && source.url) {
-        parts.push({ type: 'image_url', image_url: { url: source.url } })
-      } else if (source?.type === 'base64' && source.media_type && source.data) {
-        parts.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:${source.media_type};base64,${source.data}`,
-          },
-        })
-      }
-      continue
-    }
-
-    if (typeof block?.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
-    }
-  }
-
-  if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') {
-    const text = parts[0].text ?? ''
-    return isError ? `Error: ${text}` : text
-  }
-
-  // Collapse arrays of only text blocks into a single string for DeepSeek
-  // compatibility (issue #774). DeepSeek rejects arrays in role: "tool" messages.
-  const allText = parts.every(p => p.type === 'text')
-  if (allText) {
-    const text = parts.map(p => p.text ?? '').join('\n\n')
-    return isError ? `Error: ${text}` : text
-  }
-
-  if (isError && parts[0]?.type === 'text') {
-    parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
-  } else if (isError) {
-    parts.unshift({ type: 'text', text: 'Error:' })
-  }
-
-  // Defense in depth (issue #1421): some OpenAI-compatible providers (e.g.
-  // Xiaomi Mimo) reject `role: "tool"` messages whose `content` is image-only
-  // with a 400 "text is not set". Prepend a placeholder text part so the
-  // payload always carries a text component alongside any images, mirroring
-  // the existing behavior for user-role messages.
-  return ensureTextPartForImageContent(parts)
-}
-
-function convertContentBlocks(
-  content: unknown,
-  options?: { supportsImageInputs?: boolean },
-): string | OpenAIContentPart[] {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return String(content ?? '')
-
-  const parts: OpenAIContentPart[] = []
-  for (const block of content) {
-    switch (block.type) {
-      case 'text':
-        parts.push({ type: 'text', text: block.text ?? '' })
-        break
-      case 'image': {
-        if (options?.supportsImageInputs === false) {
-          throw new Error(
-            'The active provider accepts text-only messages and does not support image inputs.',
-          )
-        }
-        const src = block.source
-        if (src?.type === 'base64') {
-          parts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${src.media_type};base64,${src.data}`,
-            },
-          })
-        } else if (src?.type === 'url') {
-          parts.push({ type: 'image_url', image_url: { url: src.url } })
-        }
-        break
-      }
-      case 'tool_use':
-        // handled separately
-        break
-      case 'tool_result':
-        // handled separately
-        break
-      case 'thinking':
-      case 'redacted_thinking':
-        // Strip thinking blocks for OpenAI-compatible providers.
-        // These are Anthropic-specific content types that 3P providers
-        // don't understand. Serializing them as <thinking> text corrupts
-        // multi-turn context: the model sees the tags as part of its
-        // previous reply and may mimic or misattribute them.
-        break
-      default:
-        if (block.text) {
-          parts.push({ type: 'text', text: block.text })
-        }
-    }
-  }
-
-  if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text ?? ''
-
-  // Collapse arrays of only text blocks into a single string for DeepSeek
-  // compatibility (issue #774).
-  const allText = parts.every(p => p.type === 'text')
-  if (allText) {
-    return parts.map(p => p.text ?? '').join('\n\n')
-  }
-
-  return ensureTextPartForImageContent(parts)
 }
 
 function isGeminiMode(): boolean {
@@ -1555,11 +732,7 @@ function hydrateOpenAIShimCompatibilityEnv(
 }
 
 function convertMessages(
-  messages: Array<{
-    role: string
-    message?: { role?: string; content?: unknown }
-    content?: unknown
-  }>,
+  messages: Array<{ role: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
   system: unknown,
   options?: {
     preserveReasoningContent?: boolean
@@ -1887,7 +1060,6 @@ function convertMessages(
 
   return coalesced
 }
-
 function getChatMessagesForTransport<T>(
   transport: string,
   convert: () => T,
@@ -2160,9 +1332,6 @@ interface ParsedTextToolCall {
   arguments: Record<string, unknown>
 }
 
-// Module-level counter ensures unique IDs across calls within a session.
-let _textToolCallCounter = 0
-
 // Walks forward from `start` (which must be `{`) tracking string/escape/brace
 // state and returns the substring up to and including the matching `}`, or
 // null if the braces are never balanced (truncated input).
@@ -2268,7 +1437,7 @@ function parseAndAdd(
   if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
-  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  results.push({ id: `ollama_tc_${nextTextToolCallSequence()}`, name, arguments: args })
   return true
 }
 
@@ -2361,6 +1530,13 @@ export function parseTextToolCalls(
   }
 
   return { calls: results, toolCallRanges: acceptedRanges }
+}
+
+// Shared façade state keeps raw-text and XML fallback IDs unique per session.
+let textToolCallSequence = 0
+
+function nextTextToolCallSequence(): number {
+  return ++textToolCallSequence
 }
 
 // ---------------------------------------------------------------------------
@@ -2634,74 +1810,13 @@ async function* anthropicSsePassthrough(
   _model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const readerOrNull = response.body?.getReader()
-  if (!readerOrNull) throw new Error('Response body is not readable')
-  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
-  const readerCanceller = createReaderCanceller(reader, signal)
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
-  let streamComplete = false
-
-  try {
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
-        signal,
-        cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-          logForDebugging(
-            `Anthropic-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
-            { level: 'error' },
-          )
-        },
-      })
-      if (done) {
-        streamComplete = true
-        break
-      }
-      if (value) lastDataTime = Date.now()
-
-      throwIfStreamAborted(signal)
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-
-      for (const chunk of chunks) {
-        throwIfStreamAborted(signal)
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
-        if (lines.length === 0) continue
-
-        const dataLines = lines.filter(l => l.startsWith('data: '))
-        if (dataLines.length === 0) continue
-
-        const rawData = dataLines.map(l => l.slice(6)).join('\n')
-        if (rawData === '[DONE]') {
-          streamComplete = true
-          return
-        }
-
-        let parsed: AnthropicStreamEvent
-        try {
-          parsed = JSON.parse(rawData) as AnthropicStreamEvent
-        } catch {
-          // skip malformed frames
-          continue
-        }
-        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-          throwIfStreamAborted(signal)
-          yield parsed
-        }
-      }
-    }
-  } finally {
-    if (!streamComplete || signal?.aborted) {
-      readerCanceller.cancel(createStreamAbortError())
-    }
-    readerCanceller.cleanup()
-    reader.releaseLock()
-  }
+  yield* parseAnthropicSsePassthrough<AnthropicStreamEvent>(
+    response,
+    signal,
+    (message, options) => options?.level
+      ? logForDebugging(message, { level: options.level })
+      : logForDebugging(message),
+  )
 }
 
 /**
@@ -2910,6 +2025,8 @@ async function* geminiSseToAnthropic(
   }
 }
 
+// Extraction seam: Gemini streaming | completed response conversion.
+
 type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -3116,6 +2233,8 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
   }
   return next
 }
+
+// Extraction seam: response metadata | generic stream conversion.
 
 async function* openaiStreamToAnthropic(
   response: Response,
@@ -4137,6 +3256,8 @@ async function* openaiStreamToAnthropic(
   yield { type: 'message_stop' }
 }
 
+// Extraction seam: stream conversion | stream lifecycle façade.
+
 // ---------------------------------------------------------------------------
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
@@ -4813,7 +3934,6 @@ class OpenAIShimMessages {
       }
     }
 
-    let omitResponsesTools = false
     let responsesInput: ReturnType<
       typeof convertAnthropicMessagesToResponsesInput
     > | undefined
@@ -4834,6 +3954,12 @@ class OpenAIShimMessages {
         effectiveTransport === 'responses_compat',
       )
       return responsesInput
+    }
+
+    const omitTools = {
+      responses: false,
+      anthropic: false,
+      gemini: false,
     }
     const buildResponsesBody = (): Record<string, unknown> => {
       const responsesBody: Record<string, unknown> = {
@@ -4878,7 +4004,7 @@ class OpenAIShimMessages {
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.responses && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -4903,7 +4029,6 @@ class OpenAIShimMessages {
     // (they originate from the Anthropic SDK). We pass them through directly,
     // only adding the top-level system (as string or content-block array)
     // and max_tokens.
-    let omitAnthropicTools = false
     const buildAnthropicMessagesBody = (): Record<string, unknown> => {
       const anthropicBody: Record<string, unknown> = {
         model: request.resolvedModel,
@@ -4924,7 +4049,7 @@ class OpenAIShimMessages {
         if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
       }
 
-      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
       if (params.tool_choice) {
@@ -4961,7 +4086,6 @@ class OpenAIShimMessages {
 
     // Google AI SDK body — used when endpointPath is /models/gemini-*.
     // Converts Anthropic-format params to Google AI SDK format.
-    let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
       const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
 
@@ -5058,7 +4182,7 @@ class OpenAIShimMessages {
       }
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
-      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+      if (!omitTools.gemini && params.tools && params.tools.length > 0) {
         const functionDeclarations = (params.tools as Array<{
           name?: string
           description?: string
@@ -5076,6 +4200,9 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
+    // Extraction boundary: request planning | request execution.
+    // The prepared body builders above are executor inputs, not executor-owned logic.
+    // Keep this marker stable so either extraction can merge independently.
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -5445,6 +4572,9 @@ class OpenAIShimMessages {
       return hasImages
     }
 
+    // Extraction boundary: executor preparation | request serialization.
+    // Native Ollama/body serialization remains request-planner-owned.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     // WHY: byte-identity required for implicit prefix caching in
     // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
     // depth so spurious insertion-order differences across rebuilds of
@@ -5486,6 +4616,9 @@ class OpenAIShimMessages {
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
     }
+    // Extraction boundary: request serialization | executor attempt loop.
+    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Keep this marker stable so executor and planner extractions stay disjoint.
     serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
@@ -5868,9 +5001,9 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         delete body.tool_stream
-        omitResponsesTools = true
-        omitAnthropicTools = true
-        omitGeminiTools = true
+        omitTools.responses = true
+        omitTools.anthropic = true
+        omitTools.gemini = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -5927,6 +5060,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+    // Extraction boundary: request execution | response conversion façade.
+    // Response conversion methods below remain façade-owned until their own extraction.
+    // Keep this marker stable so adjacent independent deletions do not overlap.
   }
 
   private _convertNonStreamingResponse(

@@ -213,6 +213,7 @@ export function isMcpSessionExpiredError(error: Error): boolean {
  * tools to hang indefinitely on unresponsive servers.
  */
 const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000
+const MCP_TOOL_ACTIVITY_INTERVAL_MS = 30_000
 
 /**
  * Cap on MCP tool descriptions and server instructions sent to the model.
@@ -1926,18 +1927,62 @@ export const fetchToolsForClient = memoizeWithLRU(
 
               // Emit progress when tool starts
               if (onProgress && toolUseId) {
-                onProgress({
-                  toolUseID: toolUseId,
-                  data: {
-                    type: 'mcp_progress',
-                    status: 'started',
-                    serverName: client.name,
-                    toolName: tool.name,
-                  },
-                })
+                try {
+                  onProgress({
+                    toolUseID: toolUseId,
+                    data: {
+                      type: 'mcp_progress',
+                      status: 'started',
+                      serverName: client.name,
+                      toolName: tool.name,
+                    },
+                  })
+                } catch (error) {
+                  // A throwing progress consumer must not prevent the MCP
+                  // request from starting.
+                  logMCPError(client.name, error)
+                }
               }
 
               const startTime = Date.now()
+              // Cover connection setup, retries, and elicitation waits, not only
+              // the individual protocol request inside callMCPTool.
+              let latestServerProgress:
+                | {
+                    progress: number
+                    total?: number
+                    progressMessage?: string
+                  }
+                | undefined
+              let activityInterval =
+                onProgress && toolUseId
+                  ? setInterval(() => {
+                      try {
+                        onProgress({
+                          toolUseID: toolUseId,
+                          data: {
+                            type: 'mcp_progress',
+                            status: 'progress',
+                            serverName: client.name,
+                            toolName: tool.name,
+                            ...latestServerProgress,
+                            elapsedTimeMs: Date.now() - startTime,
+                          },
+                        })
+                      } catch (error) {
+                        // Timer callbacks escape the surrounding try/finally;
+                        // an uncaught throw here would crash the process.
+                        logMCPError(client.name, error)
+                      }
+                    }, MCP_TOOL_ACTIVITY_INTERVAL_MS)
+                  : undefined
+              const stopActivityHeartbeat = () => {
+                if (activityInterval !== undefined) {
+                  clearInterval(activityInterval)
+                  activityInterval = undefined
+                }
+              }
+
               const MAX_SESSION_RETRIES = 1
               for (let attempt = 0; ; attempt++) {
                 try {
@@ -1950,30 +1995,71 @@ export const fetchToolsForClient = memoizeWithLRU(
                     meta,
                     signal: context.abortController.signal,
                     setAppState: context.setAppState,
+                    onUrlElicitationRequired: () => {
+                      // The protocol attempt has ended before elicitation
+                      // handling begins, so its cached progress is stale.
+                      latestServerProgress = undefined
+                    },
                     onProgress:
                       onProgress && toolUseId
                         ? progressData => {
-                          onProgress({
-                            toolUseID: toolUseId,
-                            data: progressData,
-                          })
+                          let dataToEmit = progressData
+                          if (
+                            progressData.status === 'progress' &&
+                            typeof progressData.progress === 'number'
+                          ) {
+                            // Merge partial updates so a notification carrying
+                            // only progress does not drop the previously
+                            // reported total/progressMessage.
+                            latestServerProgress = {
+                              ...latestServerProgress,
+                              progress: progressData.progress,
+                              ...(progressData.total !== undefined && {
+                                total: progressData.total,
+                              }),
+                              ...(progressData.progressMessage !== undefined && {
+                                progressMessage: progressData.progressMessage,
+                              }),
+                            }
+                            dataToEmit = {
+                              ...progressData,
+                              ...latestServerProgress,
+                            }
+                          }
+                          try {
+                            onProgress({
+                              toolUseID: toolUseId,
+                              data: dataToEmit,
+                            })
+                          } catch (error) {
+                            // A throwing consumer must not propagate into
+                            // the MCP SDK's notification handler.
+                            logMCPError(client.name, error)
+                          }
                         }
                         : undefined,
                     handleElicitation: context.handleElicitation,
                   })
 
+                  stopActivityHeartbeat()
                   // Emit progress when tool completes successfully
                   if (onProgress && toolUseId) {
-                    onProgress({
-                      toolUseID: toolUseId,
-                      data: {
-                        type: 'mcp_progress',
-                        status: 'completed',
-                        serverName: client.name,
-                        toolName: tool.name,
-                        elapsedTimeMs: Date.now() - startTime,
-                      },
-                    })
+                    try {
+                      onProgress({
+                        toolUseID: toolUseId,
+                        data: {
+                          type: 'mcp_progress',
+                          status: 'completed',
+                          serverName: client.name,
+                          toolName: tool.name,
+                          elapsedTimeMs: Date.now() - startTime,
+                        },
+                      })
+                    } catch (error) {
+                      // A throwing progress consumer must not turn a
+                      // completed tool call into a failure.
+                      logMCPError(client.name, error)
+                    }
                   }
 
                   return {
@@ -2000,21 +2086,31 @@ export const fetchToolsForClient = memoizeWithLRU(
                       client.name,
                       `Retrying tool '${tool.name}' after session recovery`,
                     )
+                    // The retried call starts over, so cached progress from
+                    // the previous attempt is no longer truthful.
+                    latestServerProgress = undefined
                     continue
                   }
 
+                  stopActivityHeartbeat()
                   // Emit progress when tool fails
                   if (onProgress && toolUseId) {
-                    onProgress({
-                      toolUseID: toolUseId,
-                      data: {
-                        type: 'mcp_progress',
-                        status: 'failed',
-                        serverName: client.name,
-                        toolName: tool.name,
-                        elapsedTimeMs: Date.now() - startTime,
-                      },
-                    })
+                    try {
+                      onProgress({
+                        toolUseID: toolUseId,
+                        data: {
+                          type: 'mcp_progress',
+                          status: 'failed',
+                          serverName: client.name,
+                          toolName: tool.name,
+                          elapsedTimeMs: Date.now() - startTime,
+                        },
+                      })
+                    } catch (progressError) {
+                      // Preserve the original tool error; the progress
+                      // consumer failure is only logged.
+                      logMCPError(client.name, progressError)
+                    }
                   }
                   // Wrap MCP SDK errors so telemetry gets useful context
                   // instead of just "Error" or "McpError" (the constructor
@@ -2907,6 +3003,7 @@ export async function callMCPToolWithUrlElicitationRetry({
   onProgress,
   callToolFn = callMCPTool,
   handleElicitation,
+  onUrlElicitationRequired,
 }: {
   client: ConnectedMCPServer
   clientConnection: MCPServerConnection
@@ -2932,6 +3029,8 @@ export async function callMCPToolWithUrlElicitationRetry({
     params: ElicitRequestURLParams,
     signal: AbortSignal,
   ) => Promise<ElicitResult>
+  /** Called after validating a URL-elicitation error, before awaiting handling. */
+  onUrlElicitationRequired?: () => void
 }): Promise<MCPToolCallResult> {
   const MAX_URL_ELICITATION_RETRIES = 3
   for (let attempt = 0; ; attempt++) {
@@ -3000,6 +3099,7 @@ export async function callMCPToolWithUrlElicitationRetry({
         throw error
       }
 
+      onUrlElicitationRequired?.()
       logMCPDebug(
         serverName,
         `Tool '${tool}' requires URL elicitation (error -32042, attempt ${attempt + 1}), processing ${elicitations.length} elicitation(s)`,

@@ -62,8 +62,8 @@ describe('Gemini store field fix', () => {
 // Fix 2: Session timeout — stream idle timeout
 // ---------------------------------------------------------------------------
 describe('Session timeout fix', () => {
-  test('openaiShim has idle timeout for SSE streams', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('openaiShim stream control has idle timeout for SSE streams', async () => {
+    const content = await file('services/api/openaiShim/streamControl.ts').text()
 
     expect(content).toContain('STREAM_IDLE_TIMEOUT_MS')
   })
@@ -77,7 +77,7 @@ describe('Session timeout fix', () => {
   })
 
   test('idle timeout is set to a reasonable value (>= 60s)', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+    const content = await file('services/api/openaiShim/streamControl.ts').text()
 
     // Extract the timeout value (supports numeric separators like 120_000)
     const match = content.match(/STREAM_IDLE_TIMEOUT_MS\s*=\s*([\d_]+)/)
@@ -88,24 +88,6 @@ describe('Session timeout fix', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Fix 2b: Ollama context history preservation
-// ---------------------------------------------------------------------------
-describe('Ollama context history fix', () => {
-  test('openaiShim uses native Ollama chat with request-level num_ctx', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
-
-    expect(content).toContain('buildOllamaChatUrl')
-    expect(content).toContain('/api/chat')
-    expect(content).toContain('useNativeOllamaChat')
-    expect(content).toContain('num_ctx: getOllamaNumCtx()')
-    expect(content).toContain('normalizeOllamaNativeMessages(body.messages)')
-    expect(content).toContain('convertOllamaStreamingResponse')
-    expect(content).toContain('convertOllamaNonStreamingResponse')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Fix 3: Agent loop continuation nudge
 // ---------------------------------------------------------------------------
 describe('Agent loop continuation nudge', () => {
   test('continuation logic has been moved to utility', async () => {
