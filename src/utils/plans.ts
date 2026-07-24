@@ -128,6 +128,26 @@ export const getPlansDirectory = memoize(function getPlansDirectory(): string {
 })
 
 /**
+ * Escape the path separators an agent ID may legitimately contain so it always
+ * lands in a single filename component.
+ *
+ * A teammate's ID is `{name}@{teamName}`, and neither producer strips
+ * separators from the team name, so a team called `a/b` would otherwise emit
+ * `{slug}-agent-writer@a/b.md` -- a path in a *subdirectory* of the plans dir,
+ * not a plan file. Percent-escaping is reversible and leaves every ordinary ID
+ * (which contains none of these characters) byte-identical, so existing plan
+ * files keep their paths.
+ *
+ * Exported for testing.
+ */
+export function encodeAgentIdForPlanFile(agentId: string): string {
+  return agentId
+    .replaceAll('%', '%25')
+    .replaceAll('/', '%2F')
+    .replaceAll('\\', '%5C')
+}
+
+/**
  * Get the file path for a session's plan
  * @param agentId Optional agent ID for subagents. If not provided, returns main session plan.
  * For main conversation (no agentId), returns {planSlug}.md
@@ -142,7 +162,10 @@ export function getPlanFilePath(agentId?: AgentId): string {
   }
 
   // Subagents: include agent ID
-  return join(getPlansDirectory(), `${planSlug}-agent-${agentId}.md`)
+  return join(
+    getPlansDirectory(),
+    `${planSlug}-agent-${encodeAgentIdForPlanFile(agentId)}.md`,
+  )
 }
 
 /**
@@ -154,10 +177,85 @@ export function getPlan(agentId?: AgentId): string | null {
   try {
     return getFsImplementation().readFileSync(filePath, { encoding: 'utf-8' })
   } catch (error) {
-    if (isENOENT(error)) return null
-    logError(error)
+    if (!isENOENT(error)) {
+      logError(error)
+      return null
+    }
+    return readLegacyUnescapedPlan(agentId, filePath)
+  }
+}
+
+/**
+ * Recover a plan written before agent IDs were escaped into the filename.
+ *
+ * Team names have always accepted arbitrary nonblank text, so plans for ids
+ * like `writer@a/b` or `writer@100%` are already on disk under the raw name.
+ * Every reader now builds the escaped name, so without this the teammate's plan
+ * reads as missing on upgrade and a second file is created beside it.
+ *
+ * Moving it is what makes the recovery stick: the escaped name is the one the
+ * permission carve-out recognizes, so a plan left at the old path would keep
+ * falling through to ordinary permission handling on every later write.
+ * A failed move is not fatal -- the content was already read.
+ *
+ * Exported for testing.
+ */
+/**
+ * Whether a legacy plan path (built from an unescaped, attacker-influenced
+ * agent id) still resolves inside the plans directory after `..` collapse.
+ *
+ * Exported for testing.
+ */
+export function isPathWithinPlansDir(
+  candidatePath: string,
+  plansDir: string,
+): boolean {
+  return candidatePath === plansDir || candidatePath.startsWith(plansDir + sep)
+}
+
+export function readAndMigrateLegacyPlan(
+  legacyPath: string,
+  escapedPath: string,
+): string | null {
+  if (legacyPath === escapedPath) return null
+
+  let contents: string
+  try {
+    contents = getFsImplementation().readFileSync(legacyPath, {
+      encoding: 'utf-8',
+    })
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
     return null
   }
+
+  try {
+    getFsImplementation().renameSync(legacyPath, escapedPath)
+  } catch (error) {
+    logForDebugging(
+      `Could not move legacy plan file ${legacyPath} to ${escapedPath}: ${error instanceof Error ? error.message : error}`,
+      { level: 'warn' },
+    )
+  }
+  return contents
+}
+
+function readLegacyUnescapedPlan(
+  agentId: AgentId | undefined,
+  escapedPath: string,
+): string | null {
+  if (!agentId) return null
+  const plansDir = getPlansDirectory()
+  const legacyPath = join(
+    plansDir,
+    `${getPlanSlug(getSessionId())}-agent-${agentId}.md`,
+  )
+  // SECURITY: agentId is intentionally left unescaped here so the pre-escape
+  // filename can be recovered, so it can still carry `/`, `\`, or `..`. Once
+  // join() collapses those the path can land outside plansDir, and the migrate
+  // step reads then renames it -- moving an arbitrary file.
+  if (!isPathWithinPlansDir(legacyPath, plansDir)) return null
+  return readAndMigrateLegacyPlan(legacyPath, escapedPath)
 }
 
 /**

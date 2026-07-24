@@ -258,17 +258,50 @@ function isClaudeConfigFilePath(filePath: string): boolean {
   )
 }
 
-// Check if file is the plan file for the current session
-function isSessionPlanFile(absolutePath: string): boolean {
-  // Check if path is a plan file for this session (main or agent-specific)
-  // Main plan file: {plansDir}/{planSlug}.md
-  // Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
-  const expectedPrefix = join(getPlansDirectory(), getPlanSlug())
+// Pure predicate for the two legitimate plan-file shapes getPlanFilePath emits:
+//   Main plan file:  {plansDir}/{planSlug}.md
+//   Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
+// Anchored on those exact delimiters. A bare startsWith on {plansDir}/{slug}
+// also matches any sibling whose name merely begins with the slug
+// ({slug}nova.md, {slug}-other.md, {slug}dir/x.md), which would silently
+// auto-allow reads and un-prompted writes to files that are not this session's
+// plan. Exported for testing.
+export function isPlanFilePath(
+  plansDir: string,
+  planSlug: string,
+  absolutePath: string,
+): boolean {
+  const expectedPrefix = join(plansDir, planSlug)
   // SECURITY: Normalize to prevent path traversal bypasses via .. segments
   const normalizedPath = normalize(absolutePath)
+  if (!normalizedPath.endsWith('.md')) {
+    return false
+  }
+  if (normalizedPath === expectedPrefix + '.md') {
+    return true
+  }
+  const agentPrefix = expectedPrefix + '-agent-'
+  if (!normalizedPath.startsWith(agentPrefix)) {
+    return false
+  }
+  // SECURITY: The remainder must be exactly one nonempty agent id followed by
+  // `.md`. Accepting the bare prefix would also allow a lookalike sibling
+  // *directory* ({slug}-agent-evil/anything.md), granting unprompted read and
+  // write to arbitrary files beneath it, as well as the malformed
+  // {slug}-agent-.md that getPlanFilePath never emits.
+  //
+  // This stays compatible with every path getPlanFilePath produces because it
+  // percent-escapes separators in the agent id (encodeAgentIdForPlanFile), so
+  // a teammate on a team named `a/b` still gets a single-component filename.
+  const agentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
   return (
-    normalizedPath.startsWith(expectedPrefix) && normalizedPath.endsWith('.md')
+    agentId.length > 0 && !agentId.includes('/') && !agentId.includes('\\')
   )
+}
+
+// Check if file is the plan file for the current session
+function isSessionPlanFile(absolutePath: string): boolean {
+  return isPlanFilePath(getPlansDirectory(), getPlanSlug(), absolutePath)
 }
 
 /**
