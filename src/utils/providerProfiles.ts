@@ -68,6 +68,48 @@ import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
+
+/**
+ * Shell-origin overrides for self-hosted tool flags. Captured once from the
+ * pre-managed environment (before PROFILE_ENV_APPLIED) so a prior profile's
+ * OPENAI_SELF_HOSTED_TOOLS=1 is never mistaken for a shell export on the next
+ * activation. Direct selfHostedTools true→false must apply false.
+ */
+let shellSelfHostedToolsOverride: string | undefined
+let shellParseTextToolCallsOverride: string | undefined
+let shellSelfHostedOverridesCaptured = false
+
+function captureShellSelfHostedOverridesIfNeeded(): void {
+  // Only sample process.env when no managed profile has been applied yet.
+  if (shellSelfHostedOverridesCaptured) {
+    return
+  }
+  if (process.env[PROFILE_ENV_APPLIED_FLAG] === '1') {
+    // Session already managed — do not treat current values as shell.
+    shellSelfHostedOverridesCaptured = true
+    return
+  }
+  // Startup may have applied OPENAI_SELF_HOSTED_TOOLS from the persisted
+  // profile file without PROFILE_ENV_APPLIED. Those values are marked with
+  // OPENCLAUDE_STARTUP_* and must not be captured as shell overrides.
+  if (process.env.OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS !== '1') {
+    shellSelfHostedToolsOverride = process.env.OPENAI_SELF_HOSTED_TOOLS
+  }
+  if (process.env.OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS !== '1') {
+    shellParseTextToolCallsOverride = process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  }
+  shellSelfHostedOverridesCaptured = true
+}
+
+/** Test helper: reset shell-override provenance between tests. */
+export function _resetShellSelfHostedOverridesForTests(): void {
+  shellSelfHostedToolsOverride = undefined
+  shellParseTextToolCallsOverride = undefined
+  shellSelfHostedOverridesCaptured = false
+}
+
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
   name: string
@@ -81,15 +123,60 @@ export type ProviderProfileInput = {
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
   maxContextLength?: ProviderProfile['maxContextLength']
+  selfHostedTools?: boolean
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
   provider: ProviderProfile['provider']
   requiresApiKey: boolean
+  selfHostedTools?: boolean
 }
 
-const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
-const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
+/** OpenAI-compatible profiles can toggle per-profile self-hosted tool compat. */
+export function providerProfileSupportsSelfHostedTools(
+  provider: string,
+): boolean {
+  return resolveProfileCompatibility(provider).compatibilityMode === 'openai'
+}
+
+/**
+ * Profile UI toggle → managed env value.
+ * - true  → '1' (force recovery on any host)
+ * - false → '0' (force recovery off, including local URLs)
+ * - undefined → unset (local/Ollama auto-detect still applies)
+ */
+function selfHostedToolsEnvValue(
+  selfHostedTools?: boolean,
+): '1' | '0' | undefined {
+  if (selfHostedTools === true) return '1'
+  if (selfHostedTools === false) return '0'
+  return undefined
+}
+
+/** Attach OPENAI_SELF_HOSTED_TOOLS from the profile UI toggle. */
+export function applySelfHostedToolsProfileEnv(
+  env: ProfileEnv,
+  selfHostedTools?: boolean,
+): ProfileEnv {
+  const value = selfHostedToolsEnvValue(selfHostedTools)
+  if (value === undefined) {
+    return env
+  }
+  return { ...env, OPENAI_SELF_HOSTED_TOOLS: value }
+}
+
+/** Re-apply shell-origin self-hosted flags after managed profile env cleanup. */
+export function restoreShellSelfHostedOverrides(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  // Use !== undefined so an explicit empty shell value still wins.
+  if (shellSelfHostedToolsOverride !== undefined) {
+    processEnv.OPENAI_SELF_HOSTED_TOOLS = shellSelfHostedToolsOverride
+  }
+  if (shellParseTextToolCallsOverride !== undefined) {
+    processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS = shellParseTextToolCallsOverride
+  }
+}
 
 type ProfileCompatibilityMode =
   | 'anthropic'
@@ -374,6 +461,14 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   if (maxContextLength !== undefined) {
     sanitized.maxContextLength = maxContextLength
   }
+  if (
+    providerProfileSupportsSelfHostedTools(provider) &&
+    typeof profile.selfHostedTools === 'boolean'
+  ) {
+    // Persist both true and false so UI "Disabled" survives reload and can
+    // force recovery off for local URLs (auto-detect otherwise re-enables it).
+    sanitized.selfHostedTools = profile.selfHostedTools
+  }
   return sanitized
 }
 
@@ -415,6 +510,7 @@ function toProfile(
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
     maxContextLength: input.maxContextLength,
+    selfHostedTools: input.selfHostedTools,
   })
 }
 
@@ -506,6 +602,8 @@ export function getProviderPresetDefaults(
         ? process.env.ANTHROPIC_AUTH_TOKEN?.trim() || undefined
         : metadata.apiKey,
     requiresApiKey: metadata.requiresApiKey,
+    // Ollama is always self-hosted; enable tool-text recovery by default.
+    selfHostedTools: preset === 'ollama' ? true : undefined,
   }
 }
 
@@ -770,6 +868,13 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
       expectedContextWindows,
     ) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_SELF_HOSTED_TOOLS,
+      // Match applyProviderProfileToProcessEnv: shell override wins when present.
+      shellSelfHostedToolsOverride !== undefined
+        ? shellSelfHostedToolsOverride
+        : selfHostedToolsEnvValue(profile.selfHostedTools),
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
@@ -873,7 +978,16 @@ export function clearActiveProviderProfile(
 export function clearProviderProfileEnvFromProcessEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
+  // Capture shell-origin values before managed cleanup deletes PROFILE_ENV_KEYS
+  // (includes OPENAI_SELF_HOSTED_TOOLS). clearActiveProviderProfile / Anthropic
+  // selection use this path and do not re-run applyProviderProfileToProcessEnv.
+  if (processEnv === process.env) {
+    captureShellSelfHostedOverridesIfNeeded()
+  }
   clearManagedProfileEnv(processEnv)
+  if (processEnv === process.env) {
+    restoreShellSelfHostedOverrides(processEnv)
+  }
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
@@ -882,6 +996,10 @@ export function applyProviderProfileToProcessEnv(
   profile: ProviderProfile,
   options?: { primaryModel?: string },
 ): void {
+  // Capture real shell overrides once (pre-managed only). Do not treat values
+  // left by a previous profile as shell overrides.
+  captureShellSelfHostedOverridesIfNeeded()
+
   const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
   const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   let profileEnv: ProfileEnv
@@ -954,10 +1072,14 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
         : profile.baseUrl
-    const openAIProfileEnv: ProfileEnv = {
+    let openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
       OPENAI_MODEL: primaryModel,
     }
+    openAIProfileEnv = applySelfHostedToolsProfileEnv(
+      openAIProfileEnv,
+      profile.selfHostedTools,
+    )
     const isAimlapiProfile =
       profile.provider === 'aimlapi' ||
       route.routeId === 'aimlapi' ||
@@ -1081,6 +1203,11 @@ export function applyProviderProfileToProcessEnv(
 
   clearProviderProfileEnvFromProcessEnv()
   Object.assign(process.env, nextEnv)
+  // Re-apply shell-origin overrides only (not prior profile-managed values).
+  // clearProviderProfileEnvFromProcessEnv already restores shell flags after
+  // cleanup; re-apply again after Object.assign so profile-managed values do
+  // not override a genuine shell export.
+  restoreShellSelfHostedOverrides()
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 }
@@ -1391,11 +1518,14 @@ function buildOpenAICompatibleStartupEnv(
       if (isCloudflareBaseUrl(activeProfile.baseUrl)) {
         strictEnv.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
       }
-      return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
+      return applySupportedProfileCustomHeaders(
+        activeProfile,
+        applySelfHostedToolsProfileEnv(strictEnv, activeProfile.selfHostedTools),
+      )
     }
   }
 
-  const env: ProfileEnv = {
+  let env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
     ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
@@ -1411,6 +1541,7 @@ function buildOpenAICompatibleStartupEnv(
         }
       : {}),
   }
+  env = applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)
 
   if (isAimlapiProfile) {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
@@ -1571,7 +1702,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1597,7 +1728,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1610,7 +1741,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 
@@ -1623,7 +1754,7 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, applySelfHostedToolsProfileEnv(env, activeProfile.selfHostedTools)) }
           : null
       }
 

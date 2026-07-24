@@ -2654,6 +2654,43 @@ test('openai launch preserves invalid live pooled credentials for launch validat
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(hasInvalidOpenAICredentialPool(env.OPENAI_API_KEYS), true)
 })
+
+test('openai launch preserves persisted self-hosted tools flags on relaunch', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'http://172.16.30.12:8081/v1',
+      OPENAI_MODEL: 'qwen3.6:35b',
+      OPENAI_SELF_HOSTED_TOOLS: '1',
+      OPENAI_PARSE_TEXT_TOOL_CALLS: '1',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_SELF_HOSTED_TOOLS, '1')
+  assert.equal(env.OPENAI_PARSE_TEXT_TOOL_CALLS, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'http://172.16.30.12:8081/v1')
+})
+
+test('openai launch prefers shell self-hosted tools flags over persisted', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'http://172.16.30.12:8081/v1',
+      OPENAI_MODEL: 'qwen3.6:35b',
+      OPENAI_SELF_HOSTED_TOOLS: '1',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_SELF_HOSTED_TOOLS: 'true',
+      OPENAI_PARSE_TEXT_TOOL_CALLS: '1',
+    },
+  })
+
+  assert.equal(env.OPENAI_SELF_HOSTED_TOOLS, 'true')
+  assert.equal(env.OPENAI_PARSE_TEXT_TOOL_CALLS, '1')
+})
 test('openai launch lets a live singular key override a saved pool', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

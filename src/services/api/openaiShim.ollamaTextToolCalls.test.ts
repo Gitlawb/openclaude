@@ -26,6 +26,21 @@ type OpenAIShimClient = {
   }
 }
 
+
+const SAMPLE_TOOLS = [
+  {
+    name: 'Bash',
+    description: 'run shell',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'Read',
+    description: 'read file',
+    input_schema: { type: 'object', properties: {} },
+  },
+] as const
+
+
 function makeOllamaNativeStreamingResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
   return new Response(
@@ -115,6 +130,107 @@ describe('parseTextToolCalls', () => {
   test('ignores JSON objects without name or type:function', () => {
     const { calls } = parseTextToolCalls('{"foo":"bar","baz":42}')
     expect(calls).toHaveLength(0)
+  })
+
+  test('ignores person/package-style {"name":...} without arguments field', () => {
+    const { calls } = parseTextToolCalls(
+      'Here is an example person object:\n{"name":"Alice","age":30}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  test('rejects malformed JSON string arguments (no silent {})', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":"{not-json"}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  test('rejects array arguments value', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":["ls","-la"]}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  test('rejects arguments string "null" (not empty object)', () => {
+    const { calls } = parseTextToolCalls(
+      '{"name":"Bash","arguments":"null"}',
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  test('without advertised tools, Ollama path does not recover JSON as tool_use', async () => {
+    // Gate requires tools — a normal Ollama JSON-looking answer must stay text.
+    const previousFetch = globalThis.fetch
+    const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
+    const originalOpenAIApiKey = process.env.OPENAI_API_KEY
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    globalThis.fetch = (async () =>
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
+          ollamaChunk('{"name":"status","arguments":{"ok":true}}'),
+          ollamaChunk('', 'stop'),
+        ]),
+      )) as unknown as FetchType
+    try {
+      const client = createOpenAIShimClient({}) as OpenAIShimClient
+      const result = await client.beta.messages
+        .create({
+          model: 'qwen2.5:7b',
+          messages: [{ role: 'user', content: 'status?' }],
+          max_tokens: 64,
+          stream: true,
+        })
+        .withResponse()
+      const events: Record<string, unknown>[] = []
+      for await (const event of result.data) events.push(event)
+      const toolStarts = events.filter(
+        e =>
+          e.type === 'content_block_start' &&
+          (e.content_block as Record<string, string>)?.type === 'tool_use',
+      )
+      expect(toolStarts).toHaveLength(0)
+      const text = events
+        .filter(
+          e =>
+            e.type === 'content_block_delta' &&
+            (e.delta as Record<string, string>)?.type === 'text_delta',
+        )
+        .map(e => (e.delta as Record<string, string>).text)
+        .join('')
+      expect(text).toContain('"name":"status"')
+    } finally {
+      globalThis.fetch = previousFetch
+      if (originalOpenAIBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalOpenAIBaseUrl
+      }
+      if (originalOpenAIApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAIApiKey
+      }
+    }
+  })
+
+  test('rejects name not in allowedToolNames allowlist', () => {
+    const text = '{"name":"Bash","arguments":{"command":"ls"}}'
+    const { calls } = parseTextToolCalls(text, {
+      allowedToolNames: new Set(['Read', 'Write']),
+    })
+    expect(calls).toHaveLength(0)
+  })
+
+  test('accepts name present in allowedToolNames allowlist', () => {
+    const text = '{"name":"Bash","arguments":{"command":"ls"}}'
+    const { calls } = parseTextToolCalls(text, {
+      allowedToolNames: new Set(['Bash', 'Read']),
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('Bash')
   })
 
   // P1 context guard — bare JSON followed by explanatory prose must not be extracted
@@ -252,6 +368,7 @@ describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', 
       .create({
         model: 'qwen2.5:7b',
         messages: [{ role: 'user', content: 'run ls' }],
+        tools: [...SAMPLE_TOOLS],
         max_tokens: 64,
         stream: true,
       })
@@ -416,6 +533,7 @@ describe('Ollama streaming — visible text before real structured tool_calls (P
       .create({
         model: 'qwen2.5:7b',
         messages: [{ role: 'user', content: 'run ls' }],
+        tools: [...SAMPLE_TOOLS],
         max_tokens: 64,
         stream: true,
       })
@@ -471,6 +589,7 @@ describe('Ollama streaming — visible prose before text-based tool-call fallbac
       .create({
         model: 'qwen2.5:7b',
         messages: [{ role: 'user', content: 'read the file' }],
+        tools: [...SAMPLE_TOOLS],
         max_tokens: 64,
         stream: true,
       })
@@ -568,6 +687,7 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
       .create({
         model: 'qwen2.5:7b',
         messages: [{ role: 'user', content: 'run ls' }],
+        tools: [...SAMPLE_TOOLS],
         max_tokens: 8,
         stream: true,
       })
@@ -652,5 +772,59 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
     const messageDelta = events.find(e => e.type === 'message_delta') as Record<string, unknown> | undefined
     const delta = messageDelta?.delta as Record<string, unknown> | undefined
     expect(delta?.stop_reason).not.toBe('tool_use')
+  })
+
+  test('text-form tool recovered when finish_reason is tool_calls without delta.tool_calls', async () => {
+    // Compat servers may mark text-form tools with finish_reason tool_calls
+    // without ever emitting structured delta.tool_calls. Recovery must still
+    // run before the terminal delta, or stop_reason becomes tool_use with no
+    // tool block and the buffer flushes as plain text at EOF.
+    globalThis.fetch = (async () =>
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
+          ollamaChunk('{"name":"Bash","arguments":{"command":"pwd"}}'),
+          ollamaChunk('', 'tool_calls'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'run pwd' }],
+        tools: [...SAMPLE_TOOLS],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const toolStarts = events.filter(
+      e =>
+        e.type === 'content_block_start' &&
+        (e.content_block as Record<string, string>)?.type === 'tool_use',
+    )
+    expect(toolStarts).toHaveLength(1)
+    expect((toolStarts[0].content_block as Record<string, string>).name).toBe(
+      'Bash',
+    )
+
+    const allText = events
+      .filter(
+        e =>
+          e.type === 'content_block_delta' &&
+          (e.delta as Record<string, string>)?.type === 'text_delta',
+      )
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).not.toContain('{"name":"Bash"')
+
+    const messageDelta = events.find(e => e.type === 'message_delta') as
+      | Record<string, unknown>
+      | undefined
+    const delta = messageDelta?.delta as Record<string, unknown> | undefined
+    expect(delta?.stop_reason).toBe('tool_use')
   })
 })

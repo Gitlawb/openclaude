@@ -8616,11 +8616,264 @@ test('injects semantic assistant message when tool result is followed by user me
 })
 // openaiShim test extraction seam 136 end
 
+test('injects semantic boundary for Mistral models', async () => {
+  // Mistral API requires tool → assistant placeholder → user pattern with
+  // "[Tool results received]" assistant message before user content.
+  process.env.OPENAI_BASE_URL = 'https://api.mistral.ai/v1'
+  process.env.OPENAI_API_KEY = 'sk-mistral-test'
 
-// Extraction boundary: executor tool self-healing | message/provider shaping.
-// Provider request shaping below is not owned by the executor.
-// Keep this marker stable for independent adjacent test migrations.
-// openaiShim test extraction seam 137 start: Moonshot: uses max_tokens (not max_completion_tokens) and strips store
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mistral',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'mistral-large-latest',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'ls' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file.txt' }],
+      },
+      { role: 'user', content: 'What is in the directory?' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const roles = messages.map(m => m.role)
+  // Mistral path should inject assistant placeholder between tool_result and user
+  expect(roles).toEqual(['assistant', 'tool', 'assistant', 'user'])
+  const assistantPlaceholder = messages.find(
+    m => m.role === 'assistant' && m.content === '[Tool results received]',
+  )
+  expect(assistantPlaceholder).toBeDefined()
+})
+
+test('does not inject semantic boundary for llama-server / non-Mistral models', async () => {
+  // llama-server + Qwen (or any non-Mistral OpenAI-compat): tool → user must
+  // stay intact. Injecting "[Tool results received]" makes the model echo it
+  // and stall after tools.
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
+  process.env.OPENAI_API_KEY = 'none'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-llama',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'qwen3.6:35b',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'ls' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file.txt' }],
+      },
+      { role: 'user', content: 'What is in the directory?' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const roles = messages.map(m => m.role)
+  expect(roles).toEqual(['assistant', 'tool', 'user'])
+  expect(
+    messages.some(
+      m =>
+        m.role === 'assistant' && m.content === '[Tool results received]',
+    ),
+  ).toBe(false)
+})
+
+test('does not inject semantic boundary for public OpenAI-compatible models', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-oai',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }],
+      },
+      { role: 'user', content: 'Next' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const roles = (requestBody?.messages as Array<Record<string, unknown>>).map(
+    m => m.role,
+  )
+  expect(roles).toEqual(['assistant', 'tool', 'user'])
+})
+
+test('non-stream recovers JSON-in-text tool calls (llama-server style)', async () => {
+  process.env.OPENAI_BASE_URL = 'http://192.168.1.10:8080/v1'
+  process.env.OPENAI_API_KEY = 'none'
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: 'chatcmpl-text-tools',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'qwen3.6:35b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Checking.\n{"name":"Bash","arguments":{"command":"pwd"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    // Tools must be advertised — recovery is gated like the stream path.
+    tools: [
+      {
+        name: 'Bash',
+        description: 'run shell',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })) as {
+    content: Array<{ type: string; name?: string; text?: string; input?: unknown }>
+    stop_reason: string
+  }
+
+  expect(result.stop_reason).toBe('tool_use')
+  const tool = result.content.find(b => b.type === 'tool_use')
+  expect(tool?.name).toBe('Bash')
+  expect(tool?.input).toEqual({ command: 'pwd' })
+  const text = result.content.find(b => b.type === 'text')
+  expect(text?.text).toContain('Checking')
+  expect(text?.text).not.toContain('"name":"Bash"')
+})
+
+test('non-stream does not treat cloud prose ending in {"name":...} as tool_use', async () => {
+  // Regression: ungated parseTextToolCalls converted example JSON objects
+  // (person records, package.json fragments) into phantom tool_use on cloud.
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: 'chatcmpl-cloud-prose',
+        object: 'chat.completion',
+        created: 123456789,
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Here is an example person object:\n\n```json\n{"name": "Alice", "age": 30}\n```',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'show an example' }],
+    max_tokens: 64,
+    stream: false,
+  })) as {
+    content: Array<{ type: string; name?: string; text?: string; input?: unknown }>
+    stop_reason: string
+  }
+
+  expect(result.stop_reason).toBe('end_turn')
+  expect(result.content).toHaveLength(1)
+  expect(result.content[0]?.type).toBe('text')
+  expect(result.content[0]?.text).toContain('"name": "Alice"')
+  expect(result.content.some(b => b.type === 'tool_use')).toBe(false)
+})
+
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.OPENAI_API_KEY = 'sk-moonshot-test'

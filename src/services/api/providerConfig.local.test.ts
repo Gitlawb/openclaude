@@ -9,6 +9,9 @@ import {
   modelRequiresResponsesApi,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  shouldUseSelfHostedToolCompat,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -88,6 +91,120 @@ test('treats public hosts as remote', () => {
   expect(isLocalProviderUrl('http://203.0.113.1:11434/v1')).toBe(false)
   expect(isLocalProviderUrl('https://example.com/v1')).toBe(false)
   expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(false)
+})
+
+test('semantic tool-result boundary is Mistral-only', () => {
+  expect(TOOL_RESULT_SEMANTIC_PLACEHOLDER).toBe('[Tool results received]')
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'mistral-large-latest',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  // Substring must not match — only hostname mistral.ai / *.mistral.ai
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://mistral.ai-proxy.example/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  // Codestral is Mistral-class even behind a non-mistral.ai proxy hostname.
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://llm-proxy.example.com/v1',
+      model: 'codestral-latest',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'qwen3',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
+    }),
+  ).toBe(true)
+})
+
+test('self-hosted tool compat is env- or local/Ollama-gated (any host when env set)', () => {
+  expect(
+    shouldUseSelfHostedToolCompat('https://llama.example.com:8443/v1', {}),
+  ).toBe(false)
+
+  expect(
+    shouldUseSelfHostedToolCompat('https://llama.example.com:8443/v1', {
+      OPENAI_SELF_HOSTED_TOOLS: '1',
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldUseSelfHostedToolCompat('https://proxy.example.com/v1', {
+      OPENAI_PARSE_TEXT_TOOL_CALLS: '1',
+    }),
+  ).toBe(true)
+
+  // llama-server on arbitrary local port
+  expect(
+    shouldUseSelfHostedToolCompat('http://127.0.0.1:8080/v1', {}),
+  ).toBe(true)
+  expect(
+    shouldUseSelfHostedToolCompat('http://192.168.1.50:9000/v1', {}),
+  ).toBe(true)
+
+  expect(
+    shouldUseSelfHostedToolCompat('http://gpu.local:8080/v1', {}),
+  ).toBe(true)
+
+  expect(
+    shouldUseSelfHostedToolCompat('http://remote.example.com:11434/v1', {}),
+  ).toBe(true)
+
+  // Explicit Disabled (OPENAI_SELF_HOSTED_TOOLS=0) must force recovery off even
+  // for loopback / RFC1918 / .local URLs.
+  expect(
+    shouldUseSelfHostedToolCompat('http://127.0.0.1:8080/v1', {
+      OPENAI_SELF_HOSTED_TOOLS: '0',
+    }),
+  ).toBe(false)
+  expect(
+    shouldUseSelfHostedToolCompat('http://192.168.1.50:9000/v1', {
+      OPENAI_SELF_HOSTED_TOOLS: 'false',
+    }),
+  ).toBe(false)
+  expect(
+    shouldUseSelfHostedToolCompat('http://gpu.local:8080/v1', {
+      OPENAI_PARSE_TEXT_TOOL_CALLS: 'off',
+    }),
+  ).toBe(false)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

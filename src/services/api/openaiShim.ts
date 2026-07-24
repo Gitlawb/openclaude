@@ -102,6 +102,9 @@ import {
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  shouldUseSelfHostedToolCompat,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
   type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
@@ -162,6 +165,9 @@ import {
 import {
   convertMessages as convertAnthropicMessages,
   convertSystemPrompt as convertSystemPromptImpl,
+  convertContentBlocks,
+  convertToolResultContent,
+  joinTextContentParts,
 } from './openaiShim/messageConversion.js'
 
 const GITHUB_429_MAX_RETRIES = 3
@@ -736,14 +742,326 @@ function convertMessages(
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
     supportsImageInputs?: boolean
+    injectToolResultSemanticBoundary?: boolean
   },
 ): OpenAIMessage[] {
-  return convertAnthropicMessages(messages, system, {
-    ...options,
-    getGeminiThoughtSignature: geminiThoughtSignatureFromExtraContent,
-    mergeGeminiThoughtSignature,
-    log: message => logForDebugging(message),
-  })
+  const preserveReasoningContent = options?.preserveReasoningContent === true
+  const reasoningContentFallback = options?.reasoningContentFallback
+  const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const supportsImageInputs = options?.supportsImageInputs
+  const injectToolResultSemanticBoundary =
+    options?.injectToolResultSemanticBoundary === true
+  const result: OpenAIMessage[] = []
+  const knownToolCallIds = new Set<string>()
+
+  // Pre-scan for all tool results in the history to identify valid tool calls
+  const toolResultIds = new Set<string>()
+  for (const msg of messages) {
+    const inner = msg.message ?? msg
+    const content = (inner as { content?: unknown }).content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (
+          (block as { type?: string }).type === 'tool_result' &&
+          (block as { tool_use_id?: string }).tool_use_id
+        ) {
+          toolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+        }
+      }
+    }
+  }
+
+  // System message first
+  const sysText = convertSystemPrompt(system)
+  if (sysText) {
+    result.push({ role: 'system', content: sysText })
+  }
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    const isLastInHistory = i === messages.length - 1
+
+    // Claude Code wraps messages in { role, message: { role, content } }
+    const inner = msg.message ?? msg
+    const role = (inner as { role?: string }).role ?? msg.role
+    const content = (inner as { content?: unknown }).content
+
+    if (role === 'user') {
+      // Check for tool_result blocks in user messages
+      if (Array.isArray(content)) {
+        let otherContent: unknown[] | undefined
+
+        // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
+        // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
+        // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
+        // emitting it here would cause a "role must alternate" or "unexpected role" error.
+        for (const block of content) {
+          const blockType = (block as { type?: string }).type
+          if (blockType === 'tool_result') {
+            const tr = block as {
+              tool_use_id?: string
+              content?: unknown
+              is_error?: boolean
+            }
+            const id = tr.tool_use_id ?? 'unknown'
+            if (knownToolCallIds.has(id)) {
+              result.push({
+                role: 'tool',
+                tool_call_id: id,
+                content: convertToolResultContent(tr.content, tr.is_error, { supportsImageInputs }),
+              })
+            } else {
+              logForDebugging(
+                `Dropping orphan tool_result for ID: ${id} to prevent API error`,
+              )
+            }
+          } else {
+            otherContent ??= []
+            otherContent.push(block)
+          }
+        }
+
+        // Emit remaining user content
+        if (otherContent && otherContent.length > 0) {
+          result.push({
+            role: 'user',
+            content: convertContentBlocks(otherContent, { supportsImageInputs }),
+          })
+        }
+      } else {
+        result.push({
+          role: 'user',
+          content: convertContentBlocks(content, { supportsImageInputs }),
+        })
+      }
+    } else if (role === 'assistant') {
+      // Check for tool_use blocks
+      if (Array.isArray(content)) {
+        let toolUses: Array<{
+          id?: string
+          name?: string
+          input?: unknown
+          extra_content?: Record<string, unknown>
+          signature?: string
+        }> | undefined
+        let thinkingBlock:
+          | { type?: string; thinking?: string; data?: string; signature?: string }
+          | undefined
+        let textContent: unknown[] | undefined
+
+        for (const block of content) {
+          const blockType = (block as { type?: string }).type
+          if (blockType === 'tool_use') {
+            toolUses ??= []
+            toolUses.push(
+              block as {
+                id?: string
+                name?: string
+                input?: unknown
+                extra_content?: Record<string, unknown>
+                signature?: string
+              },
+            )
+          } else if (
+            blockType === 'thinking' ||
+            blockType === 'redacted_thinking'
+          ) {
+            thinkingBlock ??= block as {
+              type?: string
+              thinking?: string
+              data?: string
+              signature?: string
+            }
+          } else {
+            textContent ??= []
+            textContent.push(block)
+          }
+        }
+
+        const assistantMsg: OpenAIMessage = {
+          role: 'assistant',
+          content: (() => {
+            const c = convertContentBlocks(textContent ?? [], { supportsImageInputs })
+            return typeof c === 'string'
+              ? c
+              : Array.isArray(c)
+                ? joinTextContentParts(c)
+                : ''
+          })(),
+        }
+
+        // Providers that validate reasoning continuity (Moonshot/Kimi Code: "thinking
+        // is enabled but reasoning_content is missing in assistant tool call
+        // message at index N" 400) need the original chain-of-thought echoed
+        // back on each assistant message that carries a tool_call. We kept
+        // the thinking block on the Anthropic side; re-attach it here as the
+        // `reasoning_content` field on the outgoing OpenAI-shaped message.
+        // Gated per-provider because other endpoints either ignore the field
+        // (harmless) or strict-reject unknown fields (harmful).
+        if (preserveReasoningContent) {
+          // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
+          // blocks carry it in `.data` (see token estimation and message-size
+          // accounting). Read the right field per type so a real redacted block
+          // with non-empty content is not silently dropped to "".
+          const thinkingText =
+            thinkingBlock?.type === 'redacted_thinking'
+              ? thinkingBlock?.data
+              : thinkingBlock?.thinking
+          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
+            assistantMsg.reasoning_content = thinkingText
+          } else if (
+            (toolUses?.length ?? 0) > 0 &&
+            reasoningContentFallback === ''
+          ) {
+            assistantMsg.reasoning_content = ''
+          }
+        }
+
+        if (toolUses && toolUses.length > 0) {
+          const mappedToolCalls: NonNullable<OpenAIMessage['tool_calls']> = []
+          for (const tu of toolUses) {
+            const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+
+            // Only keep tool calls that have a corresponding result in the history,
+            // or if it's the last message (prefill scenario).
+            // Orphaned tool calls (e.g. from user interruption) cause 400 errors.
+            if (!toolResultIds.has(id) && !isLastInHistory) {
+              continue
+            }
+
+            knownToolCallIds.add(id)
+            const toolCall: NonNullable<
+              OpenAIMessage['tool_calls']
+            >[number] = {
+              id,
+              type: 'function' as const,
+              function: {
+                name: tu.name ?? 'unknown',
+                arguments:
+                  typeof tu.input === 'string'
+                    ? tu.input
+                    : JSON.stringify(tu.input ?? {}),
+              },
+            }
+
+            // Preserve existing extra_content if present
+            if (tu.extra_content) {
+              toolCall.extra_content = { ...tu.extra_content }
+            }
+
+            // Gemini OpenAI-compatible endpoints require Google's
+            // thought_signature to be replayed with prior function-call
+            // parts. Preserve only real signatures received from the
+            // provider; synthetic placeholders are rejected by GMI.
+            if (preserveGeminiThoughtSignature) {
+              const signature =
+                tu.signature ??
+                geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
+                thinkingBlock?.signature
+
+              toolCall.extra_content = mergeGeminiThoughtSignature(
+                toolCall.extra_content,
+                signature,
+              )
+            }
+
+            mappedToolCalls.push(toolCall)
+          }
+
+          if (mappedToolCalls.length > 0) {
+            assistantMsg.tool_calls = mappedToolCalls
+          }
+        }
+
+        // Only push assistant message if it has content or tool calls.
+        // Stripped thinking-only blocks from user interruptions are empty and cause 400s.
+        if (assistantMsg.content || assistantMsg.tool_calls?.length) {
+          result.push(assistantMsg)
+        }
+      } else {
+        const assistantMsg: OpenAIMessage = {
+          role: 'assistant',
+          content: (() => {
+            const c = convertContentBlocks(content, { supportsImageInputs })
+            return typeof c === 'string'
+              ? c
+              : Array.isArray(c)
+                ? joinTextContentParts(c)
+                : ''
+          })(),
+        }
+
+        if (assistantMsg.content) {
+          result.push(assistantMsg)
+        }
+      }
+    }
+  }
+
+  // Coalescing pass: merge consecutive messages of the same role.
+  // OpenAI/vLLM/Ollama require strict user↔assistant alternation.
+  // Multiple consecutive tool messages are allowed (assistant → tool* → user).
+  // Consecutive user or assistant messages must be merged to avoid Jinja
+  // template errors like "roles must alternate" (Devstral, Mistral models).
+  const coalesced: OpenAIMessage[] = []
+  for (const msg of result) {
+    const prev = coalesced[coalesced.length - 1]
+
+    // Mistral/Devstral only: 'tool' must be followed by 'assistant' before
+    // 'user'. llama-server / Qwen / Ollama / OpenAI must NOT get this —
+    // the synthetic assistant content is echoed as a real reply and stalls
+    // the tool loop (visible "[Tool results received]" in the UI).
+    if (
+      injectToolResultSemanticBoundary &&
+      prev &&
+      prev.role === 'tool' &&
+      msg.role === 'user'
+    ) {
+      coalesced.push({
+        role: 'assistant',
+        content: TOOL_RESULT_SEMANTIC_PLACEHOLDER,
+      })
+    }
+
+    const lastAfterPossibleInjection = coalesced[coalesced.length - 1]
+    if (
+      lastAfterPossibleInjection &&
+      lastAfterPossibleInjection.role === msg.role &&
+      msg.role !== 'tool' &&
+      msg.role !== 'system'
+    ) {
+      const prevContent = lastAfterPossibleInjection.content
+      const curContent = msg.content
+
+      if (typeof prevContent === 'string' && typeof curContent === 'string') {
+        lastAfterPossibleInjection.content =
+          prevContent + (prevContent && curContent ? '\n' : '') + curContent
+      } else {
+        const toArray = (
+          c: string | OpenAIContentPart[] | undefined,
+        ): OpenAIContentPart[] => {
+          if (!c) return []
+          if (typeof c === 'string') return c ? [{ type: 'text', text: c }] : []
+          return c
+        }
+        lastAfterPossibleInjection.content = [
+          ...toArray(prevContent),
+          ...toArray(curContent),
+        ]
+      }
+
+      if (msg.tool_calls?.length) {
+        lastAfterPossibleInjection.tool_calls = [
+          ...(lastAfterPossibleInjection.tool_calls ?? []),
+          ...msg.tool_calls,
+        ]
+      }
+    } else {
+      coalesced.push(msg)
+    }
+  }
+
+  return coalesced
 }
 function getChatMessagesForTransport<T>(
   transport: string,
@@ -1039,46 +1357,84 @@ function extractBalancedJson(text: string, start: number): string | null {
   return null
 }
 
+/**
+ * Decode a tool-call `arguments` value to a plain object.
+ * Rejects arrays, primitives, and malformed JSON strings (no silent `{}`).
+ * `null` / `undefined` → empty object (explicit empty args).
+ */
+function decodeToolCallArguments(
+  rawArgs: unknown,
+): Record<string, unknown> | null {
+  if (rawArgs === undefined || rawArgs === null) {
+    return {}
+  }
+  if (typeof rawArgs === 'string') {
+    try {
+      rawArgs = JSON.parse(rawArgs)
+    } catch {
+      return null
+    }
+  }
+  if (
+    rawArgs &&
+    typeof rawArgs === 'object' &&
+    !Array.isArray(rawArgs)
+  ) {
+    return rawArgs as Record<string, unknown>
+  }
+  return null
+}
+
 function parseAndAdd(
   raw: string,
   results: ParsedTextToolCall[],
   seen: Set<string>,
+  allowedToolNames?: ReadonlySet<string>,
 ): boolean {
-  let obj: Record<string, unknown>
+  let parsed: unknown
   try {
-    obj = JSON.parse(raw)
+    parsed = JSON.parse(raw)
   } catch {
     return false
   }
+  // Reject null / primitives / arrays — only plain objects are tool envelopes.
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed)
+  ) {
+    return false
+  }
+  const obj = parsed as Record<string, unknown>
 
   let name: string | undefined
-  let args: Record<string, unknown> = {}
+  let args: Record<string, unknown> | null = null
 
   if (typeof obj['name'] === 'string') {
-    // {"name": "X", "arguments": {...}}
+    // Require a real tool-call shape: {"name":"X","arguments":...}.
+    // Person records / package.json {"name":"Alice"} must not match.
+    if (!('arguments' in obj)) {
+      return false
+    }
     name = obj['name'] as string
-    args = (obj['arguments'] as Record<string, unknown>) ?? {}
+    args = decodeToolCallArguments(obj['arguments'])
   } else if (
     obj['type'] === 'function' &&
-    typeof (obj['function'] as any)?.name === 'string'
+    typeof (obj['function'] as { name?: unknown } | undefined)?.name === 'string'
   ) {
     // {"type":"function","function":{"name":"X","arguments":{...}}}
     const fn = obj['function'] as { name: string; arguments?: unknown }
+    if (!('arguments' in fn)) {
+      return false
+    }
     name = fn.name
-    const rawArgs = fn.arguments
-    args =
-      typeof rawArgs === 'string'
-        ? (() => {
-            try {
-              return JSON.parse(rawArgs)
-            } catch {
-              return {}
-            }
-          })()
-        : (rawArgs as Record<string, unknown>) ?? {}
+    args = decodeToolCallArguments(fn.arguments)
   }
 
-  if (!name) return false
+  if (!name || args === null) return false
+  if (allowedToolNames && allowedToolNames.size > 0 && !allowedToolNames.has(name)) {
+    return false
+  }
 
   const dedupKey = `${name}:${JSON.stringify(args)}`
   if (seen.has(dedupKey)) return false
@@ -1100,11 +1456,37 @@ function stripRanges(text: string, ranges: Array<[number, number]>): string {
   return result + text.slice(pos)
 }
 
+/** Collect advertised tool names from Anthropic-shaped `tools` on shim create. */
+function toolNamesFromShimParams(tools: unknown): Set<string> | undefined {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return undefined
+  }
+  const names = new Set<string>()
+  for (const tool of tools) {
+    if (
+      tool &&
+      typeof tool === 'object' &&
+      typeof (tool as { name?: unknown }).name === 'string'
+    ) {
+      names.add((tool as { name: string }).name)
+    }
+  }
+  return names.size > 0 ? names : undefined
+}
+
 /** Exported for unit testing only. */
-export function parseTextToolCalls(text: string): {
+export function parseTextToolCalls(
+  text: string,
+  options?: { allowedToolNames?: ReadonlySet<string> | readonly string[] },
+): {
   calls: ParsedTextToolCall[]
   toolCallRanges: Array<[number, number]>
 } {
+  const allowedToolNames = options?.allowedToolNames
+    ? options.allowedToolNames instanceof Set
+      ? options.allowedToolNames
+      : new Set(options.allowedToolNames)
+    : undefined
   const results: ParsedTextToolCall[] = []
   const seen = new Set<string>()
   const fencedRanges: Array<[number, number]> = []
@@ -1124,7 +1506,7 @@ export function parseTextToolCalls(text: string): {
     if (after.length > 0 && !after.startsWith('{')) continue
     const range: [number, number] = [match.index!, match.index! + match[0].length]
     fencedRanges.push(range)
-    if (raw && parseAndAdd(raw, results, seen)) {
+    if (raw && parseAndAdd(raw, results, seen, allowedToolNames)) {
       acceptedRanges.push(range)
     }
   }
@@ -1144,7 +1526,7 @@ export function parseTextToolCalls(text: string): {
       if (after.length > 0 && !after.startsWith('{')) continue
       const range: [number, number] = [start, start + raw.length]
       processedRanges.push(range)
-      if (parseAndAdd(raw, results, seen)) {
+      if (parseAndAdd(raw, results, seen, allowedToolNames)) {
         acceptedRanges.push(range)
       }
     }
@@ -1158,6 +1540,20 @@ let textToolCallSequence = 0
 
 function nextTextToolCallSequence(): number {
   return ++textToolCallSequence
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for text tool call parsing
+// ---------------------------------------------------------------------------
+
+/** Normalize allowedToolNames to a Set or undefined. */
+function normalizeAllowedToolNames(
+  allowedToolNames?: ReadonlySet<string> | readonly string[],
+): ReadonlySet<string> | undefined {
+  if (!allowedToolNames) return undefined
+  return allowedToolNames instanceof Set
+    ? allowedToolNames
+    : new Set(allowedToolNames)
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,17 +1686,46 @@ function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
 /** Exported for unit testing only. */
 export function parseXmlToolCalls(text: string, allowHy3 = false): {
   calls: ParsedTextToolCall[]
+  /** 1:1 with `calls` (unique tool invocations only). */
   toolCallRanges: Array<[number, number]>
+  /**
+   * Every matching XML block range, including duplicates of the same call.
+   * Use for stripRanges so repeated identical tool XML does not remain visible.
+   */
+  stripToolCallRanges: Array<[number, number]>
+  /**
+   * Parallel to `stripToolCallRanges`. Each entry is the index into `toolCallRanges`
+   * (and `calls`) that owns the corresponding strip range. Duplicates of the same
+   * unique call share the same owner index.
+   */
+  stripRangeOwnerIndex: Array<number>
 } {
   const results: ParsedTextToolCall[] = []
-  const seen = new Set<string>()
+  const seen = new Map<string, number>()
   const ranges: Array<[number, number]> = []
+  const stripRangesAll: Array<[number, number]> = []
+  const stripRangeOwners: Array<number> = []
 
-  const addCall = (name: string, args: Record<string, unknown>) => {
+  const addCall = (
+    name: string,
+    args: Record<string, unknown>,
+    range: [number, number],
+  ): boolean => {
+    // Always retain the block for stripping, even when the call is deduped.
+    stripRangesAll.push(range)
     const dedupKey = `${name}:${JSON.stringify(args)}`
-    if (seen.has(dedupKey)) return
-    seen.add(dedupKey)
+    if (seen.has(dedupKey)) {
+      // Duplicate — owner is the existing call index.
+      stripRangeOwners.push(seen.get(dedupKey)!)
+      return false
+    }
+    // New unique call — owner is the current results length.
+    stripRangeOwners.push(results.length)
+    seen.set(dedupKey, results.length)
     results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
+    // Keep toolCallRanges 1:1 with emitted (unique) calls.
+    ranges.push(range)
+    return true
   }
 
   const hy3Blocks = allowHy3
@@ -1330,13 +1755,12 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const { name, args } = block.parsed
     if (!name) continue
     const range = block.range
-    if (!hy3WrapperRanges.some(wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1])) {
-      ranges.push(range)
-    }
-    addCall(name, args)
+    // Prefer outer wrapper range for strip when present; keep 1:1 with calls.
+    const outer = hy3WrapperRanges.find(
+      wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1],
+    )
+    addCall(name, args, outer ?? range)
   }
-
-  ranges.push(...hy3WrapperRanges)
 
   for (const block of text.matchAll(XML_TOOL_CALL_BLOCK_RE)) {
     const inner = block[1] ?? ''
@@ -1392,11 +1816,15 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     }
 
     if (!name) continue
-    ranges.push(range)
-    addCall(name, args)
+    addCall(name, args, range)
   }
 
-  return { calls: results, toolCallRanges: ranges }
+  return {
+    calls: results,
+    toolCallRanges: ranges,
+    stripToolCallRanges: stripRangesAll,
+    stripRangeOwnerIndex: stripRangeOwners,
+  }
 }
 
 /**
@@ -1662,11 +2090,22 @@ type NonStreamingOpenAIResponse = {
  * and the `application/json` fallback inside `openaiStreamToAnthropic` so both
  * apply the same tool-call extraction, stop-reason mapping, array-content
  * normalization, <think>-tag stripping, and raw text tool-call recovery.
+ *
+ * `enableTextToolCallFallback` must match the streaming gate: Ollama always,
+ * or self-hosted compat only when tools were advertised. Cloud backends leave
+ * it false so benign `{"name": ...}` JSON in assistant prose is not converted
+ * into phantom tool_use blocks.
  */
 function convertNonStreamingResponseToAnthropicMessage(
   data: NonStreamingOpenAIResponse,
   model: string,
+  options?: {
+    enableTextToolCallFallback?: boolean
+    allowedToolNames?: ReadonlySet<string> | readonly string[]
+  },
 ) {
+  const enableTextToolCallFallback = options?.enableTextToolCallFallback === true
+  const allowedToolNames = options?.allowedToolNames
   const choice = data.choices?.[0]
   const content: Array<Record<string, unknown>> = []
   // An empty tool_calls array is still truthy; treat it as "no structured tool
@@ -1688,12 +2127,12 @@ function convertNonStreamingResponseToAnthropicMessage(
   const appendTextOrRecoveredToolCalls = (rawText: string) => {
     const strippedContent = stripThinkTags(rawText)
     if (!hasStructuredToolCalls) {
-      const { calls: xmlToolCalls, toolCallRanges } = parseXmlToolCalls(
-        strippedContent,
-        isHy3Model(model),
-      )
+      const {
+        calls: xmlToolCalls,
+        stripToolCallRanges: xmlStripRanges,
+      } = parseXmlToolCalls(strippedContent, isHy3Model(model))
       if (xmlToolCalls.length > 0) {
-        const visibleText = stripRanges(strippedContent, toolCallRanges).trim()
+        const visibleText = stripRanges(strippedContent, xmlStripRanges).trim()
         if (visibleText) content.push({ type: 'text', text: visibleText })
         for (const toolCall of xmlToolCalls) {
           content.push({
@@ -1704,6 +2143,27 @@ function convertNonStreamingResponseToAnthropicMessage(
           })
         }
         return
+      }
+
+      // JSON-in-text tool calls (llama-server / Ollama / self-hosted). Gated
+      // the same way as the streaming path — never for cloud prose that
+      // happens to end with {"name": ...}.
+      if (enableTextToolCallFallback) {
+        const { calls: textToolCalls, toolCallRanges: textRanges } =
+          parseTextToolCalls(strippedContent, { allowedToolNames })
+        if (textToolCalls.length > 0) {
+          const visibleText = stripRanges(strippedContent, textRanges).trim()
+          if (visibleText) content.push({ type: 'text', text: visibleText })
+          for (const toolCall of textToolCalls) {
+            content.push({
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.name,
+              input: toolCall.arguments,
+            })
+          }
+          return
+        }
       }
     }
 
@@ -1811,8 +2271,15 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  /**
+   * When true, buffer text until finish and recover JSON-in-text tool calls
+   * (self-hosted llama-server / Ollama / local OpenAI-compat with tools).
+   * Parameter name is historical (`isOllama`); any self-hosted tool path
+   * may set it.
+   */
   isOllama = false,
   requestUrl?: string,
+  allowedToolNames?: ReadonlySet<string> | readonly string[],
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   const allowHy3ToolCalls = isHy3Model(model)
@@ -1834,13 +2301,11 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
-  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
+  // Accumulated text for self-hosted text-based tool call fallback parsing
   let accumulatedText = ''
-  // Use the resolved value threaded from the call site (resolveProviderRequest)
-  // rather than re-reading env vars inside the generator.
+  // Self-hosted / Ollama: buffer text so raw tool-call JSON is not shown
+  // before extraction at finish_reason=stop.
   const isOllamaStream = isOllama
-  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
-  // before extraction at finish_reason=stop (P2 fix for #1053).
   let ollamaTextBuffer = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
@@ -1892,7 +2357,12 @@ async function* openaiStreamToAnthropic(
     // fallback preserves tool_calls, Anthropic stop-reason mapping, array
     // content normalization, <think>-tag stripping, and raw text tool-call
     // recovery — then re-emit the resulting message as stream events.
-    const message = convertNonStreamingResponseToAnthropicMessage(parsed, model)
+    // `isOllama` is the same enable flag the live stream path uses for
+    // JSON-in-text recovery (Ollama / self-hosted tools).
+    const message = convertNonStreamingResponseToAnthropicMessage(parsed, model, {
+      enableTextToolCallFallback: isOllamaStream,
+      allowedToolNames,
+    })
 
     yield {
       type: 'message_start',
@@ -2387,13 +2857,21 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
-          // Ollama text-based tool call fallback (#1053):
+          // Self-hosted / Ollama text-based tool call fallback (#1053):
           // Must run before closeActiveContentBlock so the text buffer can be flushed
-          // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
-          // JSON text; scan accumulated text on any terminal finish reason with no
-          // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
-          // so the JSON fallback remains scoped to normal completions.
-          const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
+          // with tool-call JSON stripped (P2). Local models often emit tool calls as
+          // raw JSON text; scan accumulated text on any terminal finish reason with no
+          // API tool calls. Include finish_reason "tool_calls" so servers that mark
+          // text-form tools that way (without delta.tool_calls) still recover.
+          // finish_reason is mutated to 'tool_calls' only for 'stop' so the JSON
+          // fallback remains scoped to normal completions for other reasons.
+          const OLLAMA_TERMINAL_REASONS = new Set([
+            'stop',
+            'length',
+            'content_filter',
+            'safety',
+            'tool_calls',
+          ])
           const isTerminalOllamaFinish =
             OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
             activeToolCalls.size === 0 &&
@@ -2401,12 +2879,69 @@ async function* openaiStreamToAnthropic(
           const originalFinishReason = choice.finish_reason
           let ollamaClosedContentBlock = false
           if (isTerminalOllamaFinish) {
-            const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
+            // Prefer JSON-in-text; if none, recover Qwen/GLM XML tool calls from
+            // the buffered stream (non-Ollama path uses live XML holdback, but
+            // self-hosted buffering skips that detector).
+            let recoveredCalls: Array<{
+              id: string
+              name: string
+              arguments: Record<string, unknown>
+            }> = []
+            let recoveredRanges: Array<[number, number]> = []
+            const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(
+              accumulatedText,
+              { allowedToolNames },
+            )
             if (textToolCalls.length > 0) {
+              recoveredCalls = textToolCalls
+              recoveredRanges = toolCallRanges
+            } else {
+              const xmlParsed = parseXmlToolCalls(
+                accumulatedText,
+                allowHy3ToolCalls,
+              )
+              // Drop names not in the allowlist; strip only blocks for accepted calls.
+              const allow = normalizeAllowedToolNames(allowedToolNames)
+
+              // Build a set of unique call indices that pass the allowlist.
+              const acceptedCallIndices = new Set<number>()
+              for (let i = 0; i < xmlParsed.calls.length; i++) {
+                const call = xmlParsed.calls[i]!
+                if (allow && allow.size > 0 && !allow.has(call.name)) {
+                  continue
+                }
+                acceptedCallIndices.add(i)
+              }
+
+              if (acceptedCallIndices.size > 0) {
+                // Include only accepted unique calls.
+                const filteredCalls: typeof recoveredCalls = []
+                for (let i = 0; i < xmlParsed.calls.length; i++) {
+                  if (acceptedCallIndices.has(i)) {
+                    filteredCalls.push(xmlParsed.calls[i]!)
+                  }
+                }
+
+                // Include all strip ranges whose owner is an accepted call.
+                const filteredStripRanges: typeof xmlParsed.stripToolCallRanges = []
+                for (let i = 0; i < xmlParsed.stripRangeOwnerIndex.length; i++) {
+                  if (acceptedCallIndices.has(xmlParsed.stripRangeOwnerIndex[i]!)) {
+                    filteredStripRanges.push(xmlParsed.stripToolCallRanges[i]!)
+                  }
+                }
+
+                recoveredCalls = filteredCalls
+                recoveredRanges = filteredStripRanges
+              }
+            }
+            if (recoveredCalls.length > 0) {
               ollamaClosedContentBlock = true
-              // Compute visible prose (tool-call JSON stripped, think-tags removed).
-              // Use accumulatedText (raw) as source because toolCallRanges are relative to it.
-              const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
+              // Buffer is consumed via accumulatedText recovery — clear so EOF
+              // flush does not re-emit raw JSON/XML as visible text.
+              ollamaTextBuffer = ''
+              // Compute visible prose (tool-call payload stripped, think-tags removed).
+              // Use accumulatedText (raw) as source because ranges are relative to it.
+              const stripped = stripRanges(accumulatedText, recoveredRanges).trim()
               const strippedVisible = stripThinkTags(stripped).trim()
               if (hasEmittedContentStart) {
                 // Text block was already open — emit stripped prose then close it.
@@ -2420,7 +2955,7 @@ async function* openaiStreamToAnthropic(
                 }
                 yield* closeActiveContentBlock()
               } else if (strippedVisible) {
-                // Text was buffered (Ollama path, hasEmittedContentStart === false).
+                // Text was buffered (self-hosted path, hasEmittedContentStart === false).
                 // Open a text block, emit the visible prose before the tool call, close it.
                 throwIfStreamAborted(signal)
                 yield {
@@ -2437,7 +2972,7 @@ async function* openaiStreamToAnthropic(
                 }
                 yield* closeActiveContentBlock()
               }
-              for (const tc of textToolCalls) {
+              for (const tc of recoveredCalls) {
                 throwIfStreamAborted(signal)
                 const toolBlockIndex = contentBlockIndex
                 yield {
@@ -2479,22 +3014,24 @@ async function* openaiStreamToAnthropic(
                 index: contentBlockIndex,
                 delta: { type: 'text_delta', text: ollamaTextBuffer },
               }
+              ollamaTextBuffer = ''
             }
           }
 
-          // XML tool-call fallback for non-Ollama OpenAI-compatible providers
-          // (GLM/Qwen emit `<tool_call><function=…>` as text). Mirror the Ollama
-          // path: convert buffered XML to tool_use blocks and strip the raw XML.
+          // XML tool-call fallback for cloud OpenAI-compatible providers
+          // (GLM/Qwen emit `<tool_call><function=…>` as text). Self-hosted
+          // buffering path above already handles JSON; XML still runs here
+          // when text was streamed live (non-self-hosted).
           let xmlClosedContentBlock = false
           if (!isOllamaStream && xmlToolCallText !== null) {
             const buffered = xmlToolCallText
             xmlToolCallText = null
-            const { calls, toolCallRanges } = parseXmlToolCalls(
+            const { calls, stripToolCallRanges } = parseXmlToolCalls(
               buffered,
               allowHy3ToolCalls,
             )
             if (calls.length > 0) {
-              const stripped = stripRanges(buffered, toolCallRanges).trim()
+              const stripped = stripRanges(buffered, stripToolCallRanges).trim()
               const strippedVisible = stripThinkTags(stripped).trim()
               if (strippedVisible) {
                 // emitTextDelta opens a text block if one is not already open;
@@ -2720,6 +3257,39 @@ async function* openaiStreamToAnthropic(
     )
   }
 
+  // Truncated streams may end after text deltas without finish_reason.
+  // Flush any self-hosted buffer so assistant text is not lost at message_stop.
+  if (isOllamaStream && ollamaTextBuffer) {
+    throwIfStreamAborted(signal)
+    if (!hasEmittedContentStart) {
+      yield {
+        type: 'content_block_start',
+        index: contentBlockIndex,
+        content_block: { type: 'text', text: '' },
+      }
+      hasEmittedContentStart = true
+    }
+    throwIfStreamAborted(signal)
+    yield {
+      type: 'content_block_delta',
+      index: contentBlockIndex,
+      delta: { type: 'text_delta', text: ollamaTextBuffer },
+    }
+    ollamaTextBuffer = ''
+    if (!hasProcessedFinishReason) {
+      throwIfStreamAborted(signal)
+      yield { type: 'content_block_stop', index: contentBlockIndex }
+      contentBlockIndex++
+      hasEmittedContentStart = false
+      lastStopReason = lastStopReason ?? 'end_turn'
+      throwIfStreamAborted(signal)
+      yield {
+        type: 'message_delta',
+        delta: { stop_reason: lastStopReason, stop_sequence: null },
+      }
+    }
+  }
+
   throwIfStreamAborted(signal)
   yield { type: 'message_stop' }
 }
@@ -2851,11 +3421,15 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       // A provider override is a complete route, so it must not inherit an
-      // Azure-style escape hatch intended for the parent route.
+      // Azure-style escape hatch or parent self-hosted recovery flags intended
+      // for the active profile. Evaluate recovery against this route only.
       const requestProcessEnv = self.providerOverride
         ? {
           ...process.env,
           OPENAI_AZURE_STYLE: undefined,
+          OPENAI_SELF_HOSTED_TOOLS: undefined,
+          OPENAI_PARSE_TEXT_TOOL_CALLS: undefined,
+          CLAUDE_CODE_USE_MISTRAL: undefined,
         }
         : process.env
       const request = resolveProviderRequest({
@@ -2864,6 +3438,14 @@ class OpenAIShimMessages {
         reasoningEffortOverride: self.reasoningEffort,
         processEnv: requestProcessEnv,
       })
+      // JSON/XML-in-text tool recovery: only when tools are advertised and the
+      // endpoint is Ollama or other self-hosted compat. Never when tools are
+      // absent — otherwise benign {"name":...} prose becomes phantom tool_use.
+      // Use requestProcessEnv so parent profile flags do not leak into overrides.
+      const enableTextToolCallFallback =
+        Boolean(params.tools?.length) &&
+        shouldUseSelfHostedToolCompat(request.baseUrl, requestProcessEnv)
+      const allowedToolNames = toolNamesFromShimParams(params.tools)
       const response = await self._doRequest(request, params, options, requestProcessEnv)
       httpResponse = response
 
@@ -2886,7 +3468,14 @@ class OpenAIShimMessages {
                 ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
                 : isGeminiStream
                   ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
-                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl), response.url || undefined),
+                  : openaiStreamToAnthropic(
+                      response,
+                      request.resolvedModel,
+                      streamSignal,
+                      enableTextToolCallFallback,
+                      response.url || undefined,
+                      allowedToolNames,
+                    ),
           options?.signal,
           cancelBeforeIteration,
         )
@@ -2921,7 +3510,12 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(
+            parsed,
+            request.resolvedModel,
+            enableTextToolCallFallback,
+            allowedToolNames,
+          )
         }
       }
 
@@ -2946,7 +3540,12 @@ class OpenAIShimMessages {
       const contentType = response.headers.get('content-type') ?? ''
       if (contentType.includes('application/json')) {
         const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
+        return self._convertNonStreamingResponse(
+          data,
+          request.resolvedModel,
+          enableTextToolCallFallback,
+          allowedToolNames,
+        )
       }
 
       const textBody = await response.text().catch(() => '')
@@ -3190,6 +3789,11 @@ class OpenAIShimMessages {
           request.baseUrl,
         ),
         supportsImageInputs: shimConfig.supportsImageInputs,
+        injectToolResultSemanticBoundary: shouldInjectToolResultSemanticBoundary({
+          baseUrl: request.baseUrl,
+          model: request.resolvedModel,
+          processEnv: requestProcessEnv,
+        }),
       }),
     )
 
@@ -4502,8 +5106,13 @@ class OpenAIShimMessages {
   private _convertNonStreamingResponse(
     data: NonStreamingOpenAIResponse,
     model: string,
+    enableTextToolCallFallback = false,
+    allowedToolNames?: ReadonlySet<string>,
   ) {
-    return convertNonStreamingResponseToAnthropicMessage(data, model)
+    return convertNonStreamingResponseToAnthropicMessage(data, model, {
+      enableTextToolCallFallback,
+      allowedToolNames,
+    })
   }
 
   private _convertGeminiToAnthropicResponse(
