@@ -170,17 +170,22 @@ function looksLikeOpaqueToken(value: string): boolean {
   const hasDigit = /[0-9]/.test(value)
   const hasSep = /[-_.]/.test(value)
   const len = value.length
+  const segments = value.split(/[-_.]+/)
 
   // Check for common credential keywords using word boundaries on separator-normalized value
   const containsSecretKeyword = /\b(?:token|secret|pass|password|passphrase|pwd|key|credential|secure|private)\b|\bauth\b/i.test(value.replace(/[-_.]/g, ' '))
 
-  // 1. If it contains a secret keyword and is of moderate length, it's a secret
-  if (containsSecretKeyword && len >= 12) return true
+  // 1. If it contains a secret keyword and is of moderate length, it's a secret.
+  //    When the value has separators, require at least one segment to be long
+  //    so that compound model names (e.g. "prefix-sk-or-SECRET-VALUE-123-suffix")
+  //    are not falsely flagged.
+  if (containsSecretKeyword && len >= 12) {
+    if (!hasSep) return true
+    if (segments.some(seg => seg.length >= 12)) return true
+  }
 
   // 2. pure hex blobs
   if (len >= 16 && /^[a-f0-9]+$/i.test(value) && hasDigit) return true
-
-  const segments = value.split(/[-_.]+/)
 
   if (!hasSep) {
     // Single segment (no hyphens/underscores/dots)
