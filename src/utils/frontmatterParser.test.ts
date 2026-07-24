@@ -122,6 +122,19 @@ test('parses the ordinary shapes exactly as before', () => {
   expect(atEof.content).toBe('')
 })
 
+test('parses CRLF-delimited frontmatter (Windows-authored files)', () => {
+  // `---\r\n` must be recognized: the delimiter matcher accepts an optional
+  // carriage return on the open, the captured body lines, and the close.
+  const crlf = parseFrontmatter('---\r\nname: a\r\n---\r\nBody\r\n')
+  expect(crlf.frontmatter).toEqual({ name: 'a' })
+  expect(crlf.content).toBe('Body\r\n')
+
+  // Empty CRLF frontmatter.
+  const empty = parseFrontmatter('---\r\n---\r\nBody\r\n')
+  expect(empty.frontmatter).toEqual({})
+  expect(empty.content).toBe('Body\r\n')
+})
+
 test('leaves a file without frontmatter untouched', () => {
   const markdown = 'Just a body.\n\nWith a --- rule in it.\n'
   const { frontmatter, content } = parseFrontmatter(markdown)

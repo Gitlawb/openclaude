@@ -138,7 +138,7 @@ function quoteProblematicValues(frontmatterText: string): string {
  * accepted mid-document too.
  */
 export const FRONTMATTER_REGEX =
-  /^---[ \t]*\n((?:[\s\S]*?\n)?)---[ \t]*(?:\n|$)/
+  /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n|$)/
 
 /**
  * Parses markdown content to extract frontmatter and content
