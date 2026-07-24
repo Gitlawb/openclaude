@@ -40,6 +40,13 @@ import {
   resolveEndpoints,
 } from './config.js'
 import { promptHidden, promptText } from './prompt.js'
+import {
+  claimAimlapiTopupState,
+  clearAimlapiTopupState,
+  saveAimlapiTopupState,
+  type AimlapiCheckoutState,
+  type AimlapiTopupIntent,
+} from './topupState.js'
 
 export type AimlapiTopupOptions = {
   email?: string
@@ -78,6 +85,81 @@ export type AimlapiProvisionOptions = AimlapiTopupOptions & {
 
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000 // 20 minutes
+
+/**
+ * A recorded session is only worth resuming while it can still reach a paid
+ * exchange. `exchanging`/`exchanged` mean the one-shot key was already claimed,
+ * and the terminal states are dead, so both start a fresh checkout instead.
+ */
+const RESUMABLE_SESSION_STATUSES: ReadonlySet<string> = new Set([
+  'pending_auth',
+  'pending_payment',
+  'paid',
+])
+
+function buildTopupIntent(args: {
+  email: string
+  amountUsdMinor: number
+  partnerId: string
+  partnerName: string
+  appBaseUrl: string
+  inferenceBaseUrl: string
+}): AimlapiTopupIntent {
+  return {
+    email: args.email,
+    amountUsdMinor: args.amountUsdMinor,
+    // The password flow has no auto-top-up toggle; it is part of the intent so a
+    // later flow that does offer it cannot adopt this checkout by accident.
+    autoTopUp: false,
+    partnerId: args.partnerId,
+    partnerName: args.partnerName,
+    appBaseUrl: args.appBaseUrl,
+    inferenceBaseUrl: args.inferenceBaseUrl,
+  }
+}
+
+/**
+ * Reuse the checkout recorded for this exact intent when it can still be paid,
+ * so a run interrupted after the payment page opened resumes that session rather
+ * than opening — and charging — a second one.
+ */
+async function resolveCheckoutSession(
+  client: AimlapiClient,
+  args: {
+    intent: AimlapiTopupIntent
+    state: AimlapiCheckoutState
+    partnerId: string
+    partnerName: string
+  },
+): Promise<{ session: PartnerCheckoutSession; state: AimlapiCheckoutState }> {
+  const { intent, partnerId, partnerName } = args
+  let state = args.state
+
+  if (state.resumeSessionToken) {
+    try {
+      const existing = await client.getSession(state.resumeSessionToken)
+      if (RESUMABLE_SESSION_STATUSES.has(existing.status)) {
+        return { session: existing, state }
+      }
+    } catch {
+      // Unreadable or expired: fall through and open a fresh checkout.
+    }
+    // The recorded session cannot be paid anymore. Drop it and claim a new
+    // payment identity so the next attempt is not tied to the dead one.
+    clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
+    state = claimAimlapiTopupState(intent)
+  }
+
+  const session = await client.createSession({ partnerId, partnerName })
+  const next: AimlapiCheckoutState = {
+    ...state,
+    resumeSessionToken: session.sessionToken,
+  }
+  // Record it before the browser opens: an interruption from here on resumes
+  // this session instead of starting another checkout.
+  saveAimlapiTopupState({ ...intent, ...next })
+  return { session, state: next }
+}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -182,8 +264,23 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   })
   console.log(chalk.green('  [OK] Signed in'))
 
-  // 2. Partner-checkout session.
-  const session = await client.createSession({ partnerId, partnerName })
+  // 2. Partner-checkout session, resuming the one recorded for this intent when
+  // a previous run was interrupted after payment started.
+  const intent = buildTopupIntent({
+    email,
+    amountUsdMinor,
+    partnerId,
+    partnerName,
+    appBaseUrl: endpoints.appBaseUrl,
+    inferenceBaseUrl: endpoints.inferenceBaseUrl,
+  })
+  const checkoutState = claimAimlapiTopupState(intent)
+  const { session, state } = await resolveCheckoutSession(client, {
+    intent,
+    state: checkoutState,
+    partnerId,
+    partnerName,
+  })
   console.log(chalk.dim(`  -> Session ${session.id}`))
 
   // 3. Bind + open hosted payment page. The co-branded return URLs make the
@@ -223,6 +320,16 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // 6. Exchange the paid session for the raw key (once).
   console.log(chalk.dim('  -> Provisioning API key...'))
   const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
+  // The exchange is one-shot: record the issued key before touching the profile
+  // so an interruption here does not strand a paid-for credential.
+  saveAimlapiTopupState({
+    ...intent,
+    ...state,
+    apiKey,
+    apiKeyId,
+    model,
+    settled: true,
+  })
 
   // 7. Persist into OpenClaude's provider profile.
   const profilePath = saveProfileFile({
@@ -234,6 +341,9 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     },
     createdAt: new Date().toISOString(),
   })
+
+  // The credential is now in the profile, so the recovery record is spent.
+  clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
 
   console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
   console.log(`    key      ${chalk.dim(maskKey(apiKey))}  (id ${apiKeyId})`)
@@ -277,8 +387,36 @@ export async function provisionAimlapiKey(
     onStatus: options.onStatus,
   })
 
+  // Resume the checkout recorded for this intent when a previous run was
+  // interrupted after payment started, instead of opening a second one.
+  const intent = buildTopupIntent({
+    email,
+    amountUsdMinor,
+    partnerId,
+    partnerName,
+    appBaseUrl: endpoints.appBaseUrl,
+    inferenceBaseUrl: endpoints.inferenceBaseUrl,
+  })
+  const claimed = claimAimlapiTopupState(intent)
+  // A previous run already exchanged the key but was interrupted before the
+  // caller could persist it: hand back that credential instead of paying again.
+  if (claimed.settled && claimed.apiKey) {
+    clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
+    return {
+      apiKey: claimed.apiKey,
+      apiKeyId: claimed.apiKeyId ?? '',
+      baseUrl: endpoints.inferenceBaseUrl,
+      model: claimed.model?.trim() || model,
+    }
+  }
+
   options.onStatus?.('creating-session')
-  const session = await client.createSession({ partnerId, partnerName })
+  const { session, state } = await resolveCheckoutSession(client, {
+    intent,
+    state: claimed,
+    partnerId,
+    partnerName,
+  })
 
   options.onStatus?.('opening-checkout')
   const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
@@ -310,6 +448,11 @@ export async function provisionAimlapiKey(
 
   options.onStatus?.('provisioning-key')
   const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
+  // The checkout is spent, so drop its recovery record. The key itself is handed
+  // to the caller; retaining a settled receipt here would make a deliberate
+  // second top-up for the same intent return this key instead of charging. The
+  // caller-side handoff is covered when the guided UI adopts this state.
+  clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
 
   return {
     apiKey,
