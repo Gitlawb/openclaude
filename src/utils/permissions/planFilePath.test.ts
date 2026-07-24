@@ -13,6 +13,7 @@ import { join } from 'path'
 import { isPlanFilePath } from './filesystem.js'
 import {
   encodeAgentIdForPlanFile,
+  isPathWithinPlansDir,
   readAndMigrateLegacyPlan,
 } from '../plans.js'
 
@@ -160,6 +161,30 @@ describe('legacy plan file recovery', () => {
     expect(
       readAndMigrateLegacyPlan(join(dir, `${SLUG}-agent-nothing.md`), escaped),
     ).toBeNull()
+  })
+
+  test('confines the legacy lookup to the plans directory', () => {
+    // The legacy path is built from the RAW agent id, so a traversal-shaped
+    // team/agent name can collapse to a path outside plansDir. Recovery must
+    // refuse it before reading + renaming, or it would move an arbitrary file.
+    const plansDir = join(dir, 'plans')
+    for (const agentId of [
+      '../../../etc/passwd',
+      'x/../../../../etc/passwd',
+      '../../../../root/.ssh/authorized_keys',
+      'a/../../..//tmp/evil',
+    ]) {
+      const legacy = join(plansDir, `${SLUG}-agent-${agentId}.md`)
+      // Each collapses to a path outside plansDir; recovery must refuse it.
+      expect(isPathWithinPlansDir(legacy, plansDir)).toBe(false)
+    }
+
+    // Every id a producer actually emits keeps the legacy path inside plansDir:
+    // the `/` lands a level deeper, not outside.
+    for (const agentId of ['abc123', 'writer@myteam', 'writer@a/b']) {
+      const legacy = join(plansDir, `${SLUG}-agent-${agentId}.md`)
+      expect(isPathWithinPlansDir(legacy, plansDir)).toBe(true)
+    }
   })
 
   test('does nothing when the id needed no escaping', () => {
