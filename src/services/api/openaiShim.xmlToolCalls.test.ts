@@ -254,57 +254,89 @@ describe('parseXmlToolCalls', () => {
     const block =
       '<tool_call><function=Bash><parameter=command>pwd</parameter></function></tool_call>'
     const text = `${block}\n${block}\nnext`
-    const { calls, toolCallRanges, stripToolCallRanges } = parseXmlToolCalls(text)
+    const { calls, toolCallRanges, stripToolCallRanges, stripRangeOwnerIndex } = parseXmlToolCalls(text)
     expect(calls).toHaveLength(1)
     expect(toolCallRanges).toHaveLength(1)
     expect(stripToolCallRanges).toHaveLength(2)
+    expect(stripRangeOwnerIndex).toHaveLength(2)
+    // Both strip ranges belong to the same unique call (index 0).
+    expect(stripRangeOwnerIndex).toEqual([0, 0])
     const stripped = stripRangesForTest(text, stripToolCallRanges)
     expect(stripped).not.toContain('<tool_call>')
     expect(stripped).toContain('next')
   })
 
-  test('accepts duplicate blocks for same call and strips both when allowlist matches', () => {
-    // Regression: when allowlist is active, every duplicate XML block for an
-    // accepted call must be stripped, not just the first.
-    const allowedNames = new Set(['Bash'])
-    const block =
-      '<tool_call><function=Bash><parameter=command>pwd</parameter></function></tool_call>'
-    const text = `${block}\n${block}\nnext`
-    const { calls, stripToolCallRanges } = parseXmlToolCalls(text)
+  // Integration test for duplicate XML block stripping with allowlist filtering.
+  // Tests the full production path: streaming through createOpenAIShimClient with
+  // tools parameter and verify both duplicate blocks are stripped from text.
+  test('streaming: duplicate accepted XML blocks stripped from text, tool_use deduped', async () => {
+    // Mock endpoint that echoes back our streaming response with duplicate XML calls.
+    const duplicateBlock =
+      '<tool_call><function=Bash><parameter=command>echo hello</parameter></function></tool_call>'
+    const responseText = `${duplicateBlock}\n${duplicateBlock}\nnext`
 
-    // Simulate allowlist filtering with content-based matching.
-    const allow = allowedNames
-    const acceptedCallIndices = new Set<number>()
-    for (let i = 0; i < calls.length; i++) {
-      if (!allow || allow.size === 0 || allow.has(calls[i]!.name)) {
-        acceptedCallIndices.add(i)
-      }
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9999/v1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    let capturedBody: Record<string, unknown> | undefined
+
+    globalThis.fetch = (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return new Response(
+        [
+          `data: ${JSON.stringify({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 123456789,
+            model: 'test-model',
+            choices: [{ index: 0, delta: { content: responseText }, finish_reason: null }],
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 123456789,
+            model: 'test-model',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          })}\n\n`,
+          'data: [DONE]\n\n',
+        ].join(''),
+        {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Transfer-Encoding': 'chunked',
+          },
+        },
+      )
+    }) as unknown as typeof fetch
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result: AnthropicStreamEvent[] = []
+
+    const stream = await client.beta.messages.create({
+      model: 'test-model',
+      tools: [{ type: 'function' as const, function: { name: 'Bash', parameters: {} } }],
+      messages: [
+        { role: 'assistant' as const, content: 'Testing duplicates' },
+        { role: 'user' as const, content: 'Run bash' },
+      ],
+      max_tokens: 1024,
+      stream: true,
+    } as any)
+
+    for await (const event of stream) {
+      result.push(event)
     }
 
-    // Match strip ranges to unique calls by content.
-    const filteredStripRanges: typeof stripToolCallRanges = []
-    for (const stripRange of stripToolCallRanges) {
-      const stripContent = text.slice(stripRange[0], stripRange[1])
-      for (const uniqueIdx of acceptedCallIndices) {
-        // toolCallRanges not available here, so we reconstruct by finding
-        // the first accepted call whose content matches this strip range.
-        const firstOccurrence = stripToolCallRanges.findIndex(
-          (r) => text.slice(r[0], r[1]) === stripContent && uniqueIdx === 0,
-        )
-        if (firstOccurrence !== -1 || uniqueIdx === 0) {
-          if (!filteredStripRanges.includes(stripRange)) {
-            filteredStripRanges.push(stripRange)
-          }
-          break
-        }
-      }
-    }
+    // Verify we got one tool_use event (duplicates are deduped at call level).
+    const toolUseEvents = result.filter(e => e.type === 'content_block_start' && (e.content_block?.type === 'tool_use'))
+    expect(toolUseEvents).toHaveLength(1)
+    expect(toolUseEvents[0]?.content_block?.name).toBe('Bash')
 
-    // Both duplicate blocks should be included.
-    expect(filteredStripRanges).toHaveLength(2)
-    const stripped = stripRangesForTest(text, filteredStripRanges)
-    expect(stripped).not.toContain('<tool_call>')
-    expect(stripped).toContain('next')
+    // Find the text_delta event and verify both XML blocks are stripped, "next" preserved.
+    const textEvents = result.filter(e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta')
+    const fullText = textEvents.map(e => (e as any).delta.text).join('')
+    expect(fullText).toContain('next')
+    expect(fullText).not.toContain('<tool_call>')
   })
 
   test('truncated block (no closing tag) still parses', () => {

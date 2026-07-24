@@ -1693,11 +1693,18 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
    * Use for stripRanges so repeated identical tool XML does not remain visible.
    */
   stripToolCallRanges: Array<[number, number]>
+  /**
+   * Parallel to `stripToolCallRanges`. Each entry is the index into `toolCallRanges`
+   * (and `calls`) that owns the corresponding strip range. Duplicates of the same
+   * unique call share the same owner index.
+   */
+  stripRangeOwnerIndex: Array<number>
 } {
   const results: ParsedTextToolCall[] = []
-  const seen = new Set<string>()
+  const seen = new Map<string, number>()
   const ranges: Array<[number, number]> = []
   const stripRangesAll: Array<[number, number]> = []
+  const stripRangeOwners: Array<number> = []
 
   const addCall = (
     name: string,
@@ -1707,8 +1714,14 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     // Always retain the block for stripping, even when the call is deduped.
     stripRangesAll.push(range)
     const dedupKey = `${name}:${JSON.stringify(args)}`
-    if (seen.has(dedupKey)) return false
-    seen.add(dedupKey)
+    if (seen.has(dedupKey)) {
+      // Duplicate — owner is the existing call index.
+      stripRangeOwners.push(seen.get(dedupKey)!)
+      return false
+    }
+    // New unique call — owner is the current results length.
+    stripRangeOwners.push(results.length)
+    seen.set(dedupKey, results.length)
     results.push({ id: `xml_tc_${nextTextToolCallSequence()}`, name, arguments: args })
     // Keep toolCallRanges 1:1 with emitted (unique) calls.
     ranges.push(range)
@@ -1810,6 +1823,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     calls: results,
     toolCallRanges: ranges,
     stripToolCallRanges: stripRangesAll,
+    stripRangeOwnerIndex: stripRangeOwners,
   }
 }
 
@@ -2908,27 +2922,11 @@ async function* openaiStreamToAnthropic(
                   }
                 }
 
-                // Include all stripToolCallRanges entries whose corresponding unique call
-                // is accepted. We map each strip range to its owning unique call index
-                // by comparing block content at that position.
+                // Include all strip ranges whose owner is an accepted call.
                 const filteredStripRanges: typeof xmlParsed.stripToolCallRanges = []
-
-                for (const stripRange of xmlParsed.stripToolCallRanges) {
-                  const stripContent = accumulatedText.slice(stripRange[0], stripRange[1])
-                  let ownedByUniqueIdx: number | null = null
-                  for (let j = 0; j < xmlParsed.toolCallRanges.length; j++) {
-                    if (!acceptedCallIndices.has(j)) continue
-                    const toolContent = accumulatedText.slice(
-                      xmlParsed.toolCallRanges[j][0],
-                      xmlParsed.toolCallRanges[j][1],
-                    )
-                    if (stripContent === toolContent) {
-                      ownedByUniqueIdx = j
-                      break
-                    }
-                  }
-                  if (ownedByUniqueIdx !== null) {
-                    filteredStripRanges.push(stripRange)
+                for (let i = 0; i < xmlParsed.stripRangeOwnerIndex.length; i++) {
+                  if (acceptedCallIndices.has(xmlParsed.stripRangeOwnerIndex[i]!)) {
+                    filteredStripRanges.push(xmlParsed.stripToolCallRanges[i]!)
                   }
                 }
 
