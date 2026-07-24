@@ -141,8 +141,19 @@ async function resolveCheckoutSession(
       if (RESUMABLE_SESSION_STATUSES.has(existing.status)) {
         return { session: existing, state }
       }
-    } catch {
-      // Unreadable or expired: fall through and open a fresh checkout.
+    } catch (error) {
+      // Only a definitive answer may retire the recorded checkout. A network
+      // blip or 5xx says nothing about the session, and discarding it here would
+      // open — and charge — a second checkout for a still-payable one. Surface it
+      // instead: the record survives, so a re-run resumes. `pollUntilPaid` draws
+      // the same line.
+      if (
+        error instanceof AimlapiApiError &&
+        (error.status === 0 || error.status >= 500)
+      ) {
+        throw error
+      }
+      // Anything else is a definitive failure to read the session; fall through.
     }
     // The recorded session cannot be paid anymore. Drop it and claim a new
     // payment identity so the next attempt is not tied to the dead one.
@@ -156,8 +167,14 @@ async function resolveCheckoutSession(
     resumeSessionToken: session.sessionToken,
   }
   // Record it before the browser opens: an interruption from here on resumes
-  // this session instead of starting another checkout.
-  saveAimlapiTopupState({ ...intent, ...next })
+  // this session instead of starting another checkout. A lost compare-and-swap
+  // means another run owns the slot, so this attempt has no resume record and
+  // must not proceed to charge.
+  if (!saveAimlapiTopupState({ ...intent, ...next })) {
+    throw new Error(
+      'Another AI/ML API checkout claimed this top-up. Re-run to continue that one.',
+    )
+  }
   return { session, state: next }
 }
 
@@ -283,53 +300,70 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   })
   console.log(chalk.dim(`  -> Session ${session.id}`))
 
-  // 3. Bind + open hosted payment page. The co-branded return URLs make the
-  // post-payment browser redirect land on the AI/ML API success / failure
-  // screen for this partner.
-  const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
-    endpoints.appBaseUrl,
-    session.sessionToken,
-  )
-  const { checkout } = await client.pay(token, session.sessionToken, {
-    amountUsdMinor,
-    method,
-    successUrl,
-    cancelUrl,
-  })
-  if (!checkout.payUrl) {
-    throw new Error('Payment provider did not return a checkout URL.')
-  }
-
-  console.log(
-    chalk.bold(`\n  Pay $${(amountUsdMinor / 100).toFixed(2)} (${method}) to top up:\n`) +
-      `  ${chalk.cyan(checkout.payUrl)}\n`,
-  )
-  if (options.noOpen) {
-    console.log(chalk.dim('  (open the link above to complete payment)'))
+  // 3. Bind + open hosted payment page, unless we resumed a session that is
+  // already paid — re-binding a settled checkout has no defined behaviour, so go
+  // straight to the exchange.
+  let paid: PartnerCheckoutSession
+  if (session.status === 'paid') {
+    console.log(chalk.dim('  -> Payment already completed; resuming'))
+    paid = session
   } else {
-    const opened = await openBrowser(checkout.payUrl)
-    if (!opened) {
-      console.log(chalk.dim('  (could not auto-open a browser - open the link above manually)'))
+    const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
+      endpoints.appBaseUrl,
+      session.sessionToken,
+    )
+    const { checkout } = await client.pay(token, session.sessionToken, {
+      amountUsdMinor,
+      method,
+      successUrl,
+      cancelUrl,
+    })
+    if (!checkout.payUrl) {
+      throw new Error('Payment provider did not return a checkout URL.')
     }
-  }
 
-  // 4./5. Poll until paid.
-  console.log(chalk.dim('\n  Waiting for payment...'))
-  const paid = await pollUntilPaid(client, session.sessionToken)
+    console.log(
+      chalk.bold(`\n  Pay $${(amountUsdMinor / 100).toFixed(2)} (${method}) to top up:\n`) +
+        `  ${chalk.cyan(checkout.payUrl)}\n`,
+    )
+    if (options.noOpen) {
+      console.log(chalk.dim('  (open the link above to complete payment)'))
+    } else {
+      const opened = await openBrowser(checkout.payUrl)
+      if (!opened) {
+        console.log(chalk.dim('  (could not auto-open a browser - open the link above manually)'))
+      }
+    }
+
+    // 4./5. Poll until paid.
+    console.log(chalk.dim('\n  Waiting for payment...'))
+    paid = await pollUntilPaid(client, session.sessionToken)
+  }
 
   // 6. Exchange the paid session for the raw key (once).
   console.log(chalk.dim('  -> Provisioning API key...'))
   const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
   // The exchange is one-shot: record the issued key before touching the profile
-  // so an interruption here does not strand a paid-for credential.
-  saveAimlapiTopupState({
-    ...intent,
-    ...state,
-    apiKey,
-    apiKeyId,
-    model,
-    settled: true,
-  })
+  // so an interruption here does not strand a paid-for credential. A lost
+  // compare-and-swap means the receipt was NOT stored, so say so loudly with the
+  // key in hand rather than continuing as if recovery were possible.
+  if (
+    !saveAimlapiTopupState({
+      ...intent,
+      ...state,
+      apiKey,
+      apiKeyId,
+      model,
+      settled: true,
+    })
+  ) {
+    console.log(
+      chalk.yellow(
+        `\n  [warn] Could not record the recovery receipt for the issued key.` +
+          `\n         Save it now if the next step fails: ${maskKey(apiKey)} (id ${apiKeyId})`,
+      ),
+    )
+  }
 
   // 7. Persist into OpenClaude's provider profile.
   const profilePath = saveProfileFile({
@@ -418,41 +452,56 @@ export async function provisionAimlapiKey(
     partnerName,
   })
 
-  options.onStatus?.('opening-checkout')
-  const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
-    endpoints.appBaseUrl,
-    session.sessionToken,
-  )
-  const { checkout } = await client.pay(token, session.sessionToken, {
-    amountUsdMinor,
-    method,
-    successUrl,
-    cancelUrl,
-  })
-  if (!checkout.payUrl) {
-    throw new Error('Payment provider did not return a checkout URL.')
-  }
-
-  if (options.noOpen) {
-    options.onStatus?.('opening-checkout', checkout.payUrl)
+  // A resumed session that is already paid must not be re-bound: go straight to
+  // the exchange instead of calling pay() on a settled checkout.
+  let paid: PartnerCheckoutSession
+  if (session.status === 'paid') {
+    paid = session
   } else {
-    const opened = await openBrowser(checkout.payUrl)
-    options.onStatus?.(
-      'opening-checkout',
-      opened ? checkout.payUrl : `Open manually: ${checkout.payUrl}`,
+    options.onStatus?.('opening-checkout')
+    const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
+      endpoints.appBaseUrl,
+      session.sessionToken,
     )
-  }
+    const { checkout } = await client.pay(token, session.sessionToken, {
+      amountUsdMinor,
+      method,
+      successUrl,
+      cancelUrl,
+    })
+    if (!checkout.payUrl) {
+      throw new Error('Payment provider did not return a checkout URL.')
+    }
 
-  options.onStatus?.('waiting-payment')
-  const paid = await pollUntilPaid(client, session.sessionToken)
+    if (options.noOpen) {
+      options.onStatus?.('opening-checkout', checkout.payUrl)
+    } else {
+      const opened = await openBrowser(checkout.payUrl)
+      options.onStatus?.(
+        'opening-checkout',
+        opened ? checkout.payUrl : `Open manually: ${checkout.payUrl}`,
+      )
+    }
+
+    options.onStatus?.('waiting-payment')
+    paid = await pollUntilPaid(client, session.sessionToken)
+  }
 
   options.onStatus?.('provisioning-key')
   const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
-  // The checkout is spent, so drop its recovery record. The key itself is handed
-  // to the caller; retaining a settled receipt here would make a deliberate
-  // second top-up for the same intent return this key instead of charging. The
-  // caller-side handoff is covered when the guided UI adopts this state.
-  clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
+  // The exchange is one-shot and the key is only handed back in memory, so keep
+  // a settled receipt rather than clearing here: an interruption before the
+  // caller persists it would otherwise lose a paid-for credential permanently.
+  // The receipt is consumed by the shortcut above on the next run, and the
+  // caller clears it once its own persistence succeeds.
+  saveAimlapiTopupState({
+    ...intent,
+    ...state,
+    apiKey,
+    apiKeyId,
+    model,
+    settled: true,
+  })
 
   return {
     apiKey,
