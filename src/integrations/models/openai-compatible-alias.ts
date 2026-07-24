@@ -5,6 +5,7 @@ type AliasModel = readonly [
   label: string,
   contextWindow: number,
   maxOutputTokens?: number,
+  supportsVision?: boolean,
 ]
 
 const aliasCapabilities = {
@@ -21,15 +22,16 @@ function aliasModel(
   label: string,
   contextWindow: number,
   maxOutputTokens?: number,
+  supportsVision = false,
 ) {
   return defineModel({
     id,
     label,
     brandId: 'openai-compatible-alias',
     vendorId: 'openai',
-    classification: ['chat', 'coding'],
+    classification: supportsVision ? ['chat', 'coding', 'vision'] : ['chat', 'coding'],
     defaultModel: id,
-    capabilities: aliasCapabilities,
+    capabilities: { ...aliasCapabilities, supportsVision },
     contextWindow,
     maxOutputTokens,
   })
@@ -131,8 +133,18 @@ const aliasModels: readonly AliasModel[] = [
   ['codellama:13b', 'Code Llama 13B', 16_384, 4_096],
   ['qwen3:8b', 'Qwen 3 8B', 128_000, 8_192],
   ['qwen3-max-2026-01-23', 'Qwen 3 Max 2026-01-23', 262_144, 32_768],
+  // Robert's local Ollama models — MUST match Ollama num_ctx or auto-compact fires too late
+  ['qwen3.6:latest', 'Qwen 3.6 Local', 40_960, 8_192],
+  ['qwen3.6-oc:latest', 'Qwen 3.6 OpenClaude', 40_960, 8_192],
+  ['qwen3.6:35b', 'Qwen 3.6 35B Local', 40_960, 8_192],
+  ['qwen3-coder:30b', 'Qwen 3 Coder 30B Local', 40_960, 8_192],
+  ['qwen3-coder:480b-cloud', 'Qwen 3 Coder 480B Cloud', 128_000, 32_768, false],
+  ['devstral-small-2:latest', 'Devstral Small 2 Local', 40_960, 8_192, true],
+  ['gemma4:12b', 'Gemma 4 12B Local (vision)', 262_144, 16_384, true],
+  ['gemma4:latest', 'Gemma 4 Local (vision)', 262_144, 16_384, true],
 ]
 
-export default aliasModels.map(([id, label, contextWindow, maxOutputTokens]) =>
-  aliasModel(id, label, contextWindow, maxOutputTokens),
+export default aliasModels.map(
+  ([id, label, contextWindow, maxOutputTokens, supportsVision]) =>
+    aliasModel(id, label, contextWindow, maxOutputTokens, supportsVision),
 )

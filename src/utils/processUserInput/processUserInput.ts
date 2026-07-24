@@ -48,6 +48,8 @@ import {
   maybeResizeAndDownsampleImageBlock,
 } from '../imageResizer.js'
 import { storeImages } from '../imageStore.js'
+import { getMainLoopModel } from '../model/model.js'
+import { isVisionSupported } from '../visionUtils.js'
 import {
   createCommandInputMessage,
   createSystemMessage,
@@ -423,6 +425,29 @@ async function processUserInputBase(
     imageContentBlocks.push(resized.block)
   }
   queryCheckpoint('query_pasted_image_processing_end')
+
+  if (imageContentBlocks.length > 0) {
+    const mainLoopModel = getMainLoopModel()
+    if (!isVisionSupported(mainLoopModel)) {
+      const msg =
+        `The active model (${mainLoopModel}) does not support image inputs. ` +
+        'Run /model to switch to a vision-capable model (e.g. gemma4:12b or devstral-small-2:latest), ' +
+        'or describe the problem in words instead of pasting a screenshot.'
+      return {
+        messages: [
+          createUserMessage({
+            content: inputString ?? '',
+            uuid,
+          }),
+          createCommandInputMessage(
+            `<local-command-stdout>${msg}</local-command-stdout>`,
+          ),
+        ],
+        shouldQuery: false,
+        resultText: msg,
+      }
+    }
+  }
 
   // Bridge-safe slash command override: mobile/web clients set bridgeOrigin
   // with skipSlashCommands still true (defense-in-depth against exit words and

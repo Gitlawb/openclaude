@@ -2,7 +2,7 @@
   "name": "openclaude-vscode",
   "displayName": "OpenClaude",
   "description": "Practical VS Code companion for OpenClaude with project-aware launch, Control Center, optional Microsoft Foundry / Azure OpenAI terminal env, and chat.",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "publisher": "devnull-bootloader",
   "engines": {
     "vscode": "^1.95.0"

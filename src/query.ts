@@ -65,6 +65,13 @@ import {
   createMicrocompactBoundaryMessage,
 } from './utils/messages.js'
 import { analyzeContinuationIntent } from './utils/continuation.js'
+import { sleep } from './utils/sleep.js'
+import {
+  getOpenClaudeAutoResumeDelayMs,
+  getOpenClaudeMaxAutoResume,
+  isOpenClaudeAutoResumeEnabled,
+  OPENCLAUDE_AUTO_RESUME_PROMPT,
+} from './utils/openclaudeApiAutoResume.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
@@ -201,7 +208,10 @@ function* yieldMissingToolResultBlocks(
  * the rules of thinking are the rules of the universe. If ye does not heed these
  * rules, ye will be punished with an entire day of debugging and hair pulling.
  */
-const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
+// Number of times the loop will silently recover from an output-token-limit
+// cut-off (model wrote too much in one response) before surfacing the error.
+// Raised for local models that try to write whole large files in one go.
+const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 10
 const MAX_CONTINUATION_NUDGES = 20
 
 type AgentStepLimitConfig = {
@@ -582,6 +592,7 @@ async function* queryLoop(
   // model (a model-only route keyed to the old provider) must not be replayed
   // at the new endpoint — KTD6 in the plan.
   let pinnedRouteProviderId: string | undefined = undefined
+  let apiErrorAutoResumeCount = 0
   const toolFailureGuardState = createToolFailureLoopGuardState()
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
@@ -2032,8 +2043,11 @@ async function* queryLoop(
         if (maxOutputTokensRecoveryCount < MAX_OUTPUT_TOKENS_RECOVERY_LIMIT) {
           const recoveryMessage = createUserMessage({
             content:
-              `Output token limit hit. Resume directly — no apology, no recap of what you were doing. ` +
-              `Pick up mid-thought if that is where the cut happened. Break remaining work into smaller pieces.`,
+              `Output token limit hit — your last response was too long and was cut off. ` +
+              `Continue from exactly where you were cut off; do NOT restart or repeat what you already produced. ` +
+              `Critical: never write or rewrite a whole large file in a single response. ` +
+              `Instead, edit only the specific lines that need changing, or create large files in several small successive writes (e.g. a header chunk, then append the next section, and so on). ` +
+              `No apology, no recap — just resume in small pieces.`,
             isMeta: true,
           })
 
@@ -2156,6 +2170,50 @@ async function* queryLoop(
       // real response — hooks evaluating it create a death spiral:
       // error → hook blocking → retry → error → …
       if (lastMessage?.isApiErrorMessage) {
+        if (
+          isOpenClaudeAutoResumeEnabled() &&
+          apiErrorAutoResumeCount < getOpenClaudeMaxAutoResume() &&
+          !toolUseContext.abortController.signal.aborted
+        ) {
+          apiErrorAutoResumeCount++
+          logForDebugging(
+            `[query] OPENCLAUDE auto-resume after API error (${apiErrorAutoResumeCount}/${getOpenClaudeMaxAutoResume()})`,
+          )
+          yield lastMessage
+          await sleep(
+            getOpenClaudeAutoResumeDelayMs(),
+            toolUseContext.abortController.signal,
+          )
+          if (toolUseContext.abortController.signal.aborted) {
+            return { reason: 'aborted_streaming' }
+          }
+          const next: State = {
+            messages: [
+              ...messagesForQuery,
+              createUserMessage({
+                content: OPENCLAUDE_AUTO_RESUME_PROMPT,
+                isMeta: true,
+              }),
+            ],
+            toolUseContext,
+            autoCompactTracking: tracking,
+            maxOutputTokensRecoveryCount: 0,
+            hasAttemptedReactiveCompact,
+            hasAttemptedProviderFallback,
+            maxOutputTokensOverride: undefined,
+            providerMaxOutputTokensCap,
+            pendingToolUseSummary: undefined,
+            stopHookActive: undefined,
+            turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
+            transition: {
+              reason: 'api_error_auto_resume',
+              attempt: apiErrorAutoResumeCount,
+            },
+          }
+          state = next
+          continue
+        }
         void executeStopFailureHooks(lastMessage, toolUseContext)
         return { reason: 'completed' }
       }

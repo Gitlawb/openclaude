@@ -36,7 +36,7 @@
  *                                     would not otherwise match (for example inference.ml.azure.com)
  */
 
-import { APIError } from '@anthropic-ai/sdk'
+import { APIConnectionError, APIError } from '@anthropic-ai/sdk'
 import {
   readCodexCredentialsAsync,
   refreshCodexAccessTokenIfNeeded,
@@ -386,6 +386,18 @@ function setNvidiaNimChatTemplateThinking(body: Record<string, unknown>): void {
   body.chat_template_kwargs = kwargs
 }
 
+/** Ollama accepts high|medium|low|max|none — not OpenAI's xhigh. */
+function normalizeReasoningEffortForEndpoint(
+  effort: string | undefined,
+  baseUrl: string,
+): string | undefined {
+  if (!effort) return effort
+  if (isLikelyOllamaEndpoint(baseUrl) && effort === 'xhigh') {
+    return 'max'
+  }
+  return effort
+}
+
 function maybeSetNvidiaNimChatTemplateThinking(
   body: Record<string, unknown>,
   baseUrl: string | undefined,
@@ -474,6 +486,8 @@ type OllamaChatResponse = {
   message?: {
     role?: string
     content?: string
+    /** Qwen3.6 / thinking models stream chain-of-thought here (not in content). */
+    thinking?: string
     tool_calls?: Array<{
       function?: {
         name?: string
@@ -673,6 +687,8 @@ function convertOllamaChatResponseToOpenAI(
   fallbackModel: string,
 ): Record<string, unknown> {
   const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
+  const thinking =
+    typeof data.message?.thinking === 'string' ? data.message.thinking : ''
   return {
     id: makeMessageId(),
     object: 'chat.completion',
@@ -684,6 +700,8 @@ function convertOllamaChatResponseToOpenAI(
         message: {
           role: 'assistant',
           content: data.message?.content ?? '',
+          // OpenAI-compat + openaiStreamToAnthropic read `reasoning` / reasoning_content.
+          ...(thinking ? { reasoning: thinking, reasoning_content: thinking } : {}),
           ...(toolCalls ? { tool_calls: toolCalls } : {}),
         },
         finish_reason: mapOllamaDoneReason(data.done_reason),
@@ -776,14 +794,19 @@ function convertOllamaStreamingResponse(
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop() ?? ''
 
-        let emittedLine = false
+        // Only return from pull when we actually enqueued OpenAI SSE.
+        // Thinking-only Ollama NDJSON used to set "emitted" without enqueueing,
+        // which left the Anthropic stream idle until the 90s watchdog fired
+        // (GPU busy / UI "Brewing..." with no tokens).
+        let enqueuedOpenAI = false
         for (const line of lines) {
           if (line.trim()) {
-            enqueueOllamaLineAsOpenAI(line.trim(), controller)
-            emittedLine = true
+            if (enqueueOllamaLineAsOpenAI(line.trim(), controller)) {
+              enqueuedOpenAI = true
+            }
           }
         }
-        if (emittedLine) {
+        if (enqueuedOpenAI) {
           return
         }
       }
@@ -796,12 +819,12 @@ function convertOllamaStreamingResponse(
   function enqueueOllamaLineAsOpenAI(
     line: string,
     controller: ReadableStreamDefaultController<Uint8Array>,
-  ): void {
+  ): boolean {
     let data: OllamaChatResponse
     try {
       data = JSON.parse(line) as OllamaChatResponse
     } catch {
-      return
+      return false
     }
 
     const model = data.model ?? fallbackModel
@@ -813,6 +836,13 @@ function convertOllamaStreamingResponse(
     }
     if (data.message?.content) {
       delta.content = data.message.content
+    }
+    // Native /api/chat streams CoT in message.thinking with content often "".
+    // Forward as OpenAI-compat `reasoning` so openaiStreamToAnthropic emits
+    // thinking_delta instead of dropping the chunk (idle-stream hang).
+    if (typeof data.message?.thinking === 'string' && data.message.thinking) {
+      delta.reasoning = data.message.thinking
+      delta.reasoning_content = data.message.thinking
     }
     const toolCalls = normalizeOllamaToolCalls(data.message?.tool_calls)
     if (toolCalls) {
@@ -849,6 +879,7 @@ function convertOllamaStreamingResponse(
     for (const chunk of chunks) {
       controller.enqueue(encoder.encode(chunk))
     }
+    return chunks.length > 0
   }
 
   return responseWithPreservedUrl(
@@ -1537,6 +1568,8 @@ interface OpenAIStreamChunk {
       role?: string
       content?: string | null
       reasoning_content?: string | null
+      /** Ollama OpenAI-compat uses `reasoning` instead of `reasoning_content`. */
+      reasoning?: string | null
       extra_content?: Record<string, unknown>
       tool_calls?: Array<{
         index: number
@@ -1592,6 +1625,54 @@ function couldBeRawToolCallsRequestedPrefix(text: string): boolean {
     RAW_TOOL_CALLS_REQUESTED_PREFIX.startsWith(trimmedStart) ||
     trimmedStart.startsWith(RAW_TOOL_CALLS_REQUESTED_PREFIX)
   )
+}
+
+/**
+ * Split Ollama buffered assistant text into safe-to-show prose vs a held
+ * suffix that might still become a tool-call payload. Flushing early stops the
+ * "GPU idle but UI still Brewing" gap for normal chat replies.
+ */
+function splitOllamaFlushableText(
+  buffer: string,
+  allowHy3: boolean,
+): { flush: string; hold: string } {
+  if (!buffer) return { flush: '', hold: '' }
+
+  if (couldBeRawToolCallsRequestedPrefix(buffer)) {
+    return { flush: '', hold: buffer }
+  }
+
+  const xmlOpen = findXmlToolCallOpener(buffer, allowHy3)
+  if (xmlOpen !== -1) {
+    return { flush: buffer.slice(0, xmlOpen), hold: buffer.slice(xmlOpen) }
+  }
+
+  const trail = trailingXmlOpenerPrefixLen(buffer, allowHy3)
+  if (trail > 0) {
+    return {
+      flush: buffer.slice(0, buffer.length - trail),
+      hold: buffer.slice(buffer.length - trail),
+    }
+  }
+
+  const bareIdx = buffer.search(/\{\s*"(?:name|type)"\s*:/)
+  if (bareIdx !== -1) {
+    return { flush: buffer.slice(0, bareIdx), hold: buffer.slice(bareIdx) }
+  }
+
+  if (/^\s*\{\s*$/.test(buffer) || /^\s*\{\s*"(?:name|type)?"?\s*:?\s*$/.test(buffer)) {
+    return { flush: '', hold: buffer }
+  }
+
+  const fenceIdx = buffer.indexOf('```')
+  if (fenceIdx !== -1) {
+    const after = buffer.slice(fenceIdx)
+    if (after.length < 48 || /^```(?:json)?\s*$/i.test(after.trimEnd())) {
+      return { flush: buffer.slice(0, fenceIdx), hold: buffer.slice(fenceIdx) }
+    }
+  }
+
+  return { flush: buffer, hold: '' }
 }
 
 function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | null {
@@ -2351,6 +2432,8 @@ type NonStreamingOpenAIResponse = {
       role?: string
       content?: string | null | Array<{ type?: string; text?: string }>
       reasoning_content?: string | null
+      /** Ollama OpenAI-compat uses `reasoning` instead of `reasoning_content`. */
+      reasoning?: string | null
       extra_content?: Record<string, unknown>
       tool_calls?: Array<{
         id: string
@@ -2388,9 +2471,10 @@ function convertNonStreamingResponseToAnthropicMessage(
     (choice?.message?.tool_calls?.length ?? 0) > 0
 
   // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
-  // reasoning_content while content stays null. Preserve it as a thinking
-  // block, but do not surface it as visible assistant text.
-  const reasoningText = choice?.message?.reasoning_content
+  // reasoning_content while content stays null. Ollama uses `reasoning`.
+  // Preserve it as a thinking block, but do not surface it as visible text.
+  const reasoningText =
+    choice?.message?.reasoning_content ?? choice?.message?.reasoning
   if (typeof reasoningText === 'string' && reasoningText) {
     content.push({ type: 'thinking', thinking: reasoningText })
   }
@@ -2872,8 +2956,10 @@ async function* openaiStreamToAnthropic(
 
         // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
         // in `reasoning_content` before the actual reply appears in `content`.
+        // Ollama OpenAI-compat streams the same field as `reasoning`.
         // Emit reasoning as a thinking block and content as a text block.
-        if (delta.reasoning_content != null && delta.reasoning_content !== '') {
+        const reasoningDelta = delta.reasoning_content ?? delta.reasoning
+        if (reasoningDelta != null && reasoningDelta !== '') {
           if (!hasEmittedThinkingStart) {
             throwIfStreamAborted(signal)
             yield {
@@ -2887,7 +2973,7 @@ async function* openaiStreamToAnthropic(
           yield {
             type: 'content_block_delta',
             index: contentBlockIndex,
-            delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
+            delta: { type: 'thinking_delta', thinking: reasoningDelta },
           }
         }
 
@@ -2907,6 +2993,32 @@ async function* openaiStreamToAnthropic(
             const visible = thinkFilter.feed(delta.content)
             if (visible) {
               ollamaTextBuffer += visible
+              // Flush prose immediately when it cannot still become a tool call.
+              // Holding everything until finish_reason leaves GPU idle while the
+              // UI keeps "Brewing..." with no visible tokens.
+              const { flush, hold } = splitOllamaFlushableText(
+                ollamaTextBuffer,
+                allowHy3ToolCalls,
+              )
+              ollamaTextBuffer = hold
+              if (flush) {
+                if (!hasEmittedContentStart) {
+                  throwIfStreamAborted(signal)
+                  yield {
+                    type: 'content_block_start',
+                    index: contentBlockIndex,
+                    content_block: { type: 'text', text: '' },
+                  }
+                  hasEmittedContentStart = true
+                }
+                throwIfStreamAborted(signal)
+                yield {
+                  type: 'content_block_delta',
+                  index: contentBlockIndex,
+                  delta: { type: 'text_delta', text: flush },
+                }
+                processStreamChunk(streamState, flush)
+              }
             }
           } else if (xmlToolCallText !== null) {
             // Inside an XML tool-call region — buffer, emit nothing visible.
@@ -3120,19 +3232,12 @@ async function* openaiStreamToAnthropic(
               const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
               const strippedVisible = stripThinkTags(stripped).trim()
               if (hasEmittedContentStart) {
-                // Text block was already open — emit stripped prose then close it.
-                if (strippedVisible) {
-                  throwIfStreamAborted(signal)
-                  yield {
-                    type: 'content_block_delta',
-                    index: contentBlockIndex,
-                    delta: { type: 'text_delta', text: strippedVisible },
-                  }
-                }
+                // Prose may already have been live-flushed during the stream.
+                // Do not re-emit strippedVisible (would duplicate). Just close.
+                ollamaTextBuffer = ''
                 yield* closeActiveContentBlock()
               } else if (strippedVisible) {
-                // Text was buffered (Ollama path, hasEmittedContentStart === false).
-                // Open a text block, emit the visible prose before the tool call, close it.
+                // Text was fully buffered until finish — emit prose once, then tools.
                 throwIfStreamAborted(signal)
                 yield {
                   type: 'content_block_start',
@@ -3147,6 +3252,9 @@ async function* openaiStreamToAnthropic(
                   delta: { type: 'text_delta', text: strippedVisible },
                 }
                 yield* closeActiveContentBlock()
+                ollamaTextBuffer = ''
+              } else {
+                ollamaTextBuffer = ''
               }
               for (const tc of textToolCalls) {
                 throwIfStreamAborted(signal)
@@ -3408,6 +3516,43 @@ async function* openaiStreamToAnthropic(
         hasEmittedFinalUsage = true
       }
     }
+    }
+
+    // Stream ended with leftover hold / no finish_reason — never leave the UI
+    // spinning after Ollama/GPU already stopped. Must run AFTER the while exits
+    // (including break on done); never inside the read loop.
+    if (isOllamaStream) {
+      if (hasEmittedThinkingStart && !hasClosedThinking) {
+        throwIfStreamAborted(signal)
+        yield { type: 'content_block_stop', index: contentBlockIndex }
+        contentBlockIndex++
+        hasClosedThinking = true
+      }
+      // Only flush thinkFilter here if content block was never opened — otherwise
+      // closeActiveContentBlock (finish path) already flushed it.
+      const filterTail = hasEmittedContentStart ? '' : thinkFilter.flush()
+      const toFlush = (ollamaTextBuffer || '') + (filterTail || '')
+      ollamaTextBuffer = ''
+      if (toFlush) {
+        if (!hasEmittedContentStart) {
+          throwIfStreamAborted(signal)
+          yield {
+            type: 'content_block_start',
+            index: contentBlockIndex,
+            content_block: { type: 'text', text: '' },
+          }
+          hasEmittedContentStart = true
+        }
+        throwIfStreamAborted(signal)
+        yield {
+          type: 'content_block_delta',
+          index: contentBlockIndex,
+          delta: { type: 'text_delta', text: toFlush },
+        }
+      }
+      if (hasEmittedContentStart && lastStopReason === null) {
+        yield* closeActiveContentBlock()
+      }
     }
   } finally {
     if (!streamComplete || signal?.aborted) {
@@ -3859,7 +4004,10 @@ class OpenAIShimMessages {
      // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
      // most OpenAI-compatible endpoints read it from this top-level field.
     if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
-      body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+      body.reasoning_effort = normalizeReasoningEffortForEndpoint(
+        reasoningRequestPlan.reasoningEffort,
+        request.baseUrl,
+      )
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -3924,7 +4072,10 @@ class OpenAIShimMessages {
         body.thinking = { type: reasoningRequestPlan.thinkingType }
       }
       if (reasoningRequestPlan.reasoningEffort) {
-        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+        body.reasoning_effort = normalizeReasoningEffortForEndpoint(
+          reasoningRequestPlan.reasoningEffort,
+          request.baseUrl,
+        )
       }
       maybeSetNvidiaNimChatTemplateThinking(body, request.baseUrl, reasoningRequestPlan)
     }
@@ -3936,7 +4087,10 @@ class OpenAIShimMessages {
       if (reasoningRequestPlan.thinkingType === 'disabled') {
         delete body.reasoning_effort
       } else if (reasoningRequestPlan.reasoningEffort) {
-        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+        body.reasoning_effort = normalizeReasoningEffortForEndpoint(
+          reasoningRequestPlan.reasoningEffort,
+          request.baseUrl,
+        )
       } else {
         delete body.reasoning_effort
       }
@@ -4030,7 +4184,10 @@ class OpenAIShimMessages {
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
       if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
         responsesBody.reasoning = {
-          effort: reasoningRequestPlan.reasoningEffort,
+          effort: normalizeReasoningEffortForEndpoint(
+            reasoningRequestPlan.reasoningEffort,
+            request.baseUrl,
+          ),
           summary: 'auto',
         }
         responsesBody.include = ['reasoning.encrypted_content']
@@ -4555,10 +4712,18 @@ class OpenAIShimMessages {
       if (params.temperature !== undefined) options.temperature = params.temperature
       if (params.top_p !== undefined) options.top_p = params.top_p
 
+      const enableThink =
+        reasoningRequestPlan.thinkingType === 'enabled' ||
+        Boolean(reasoningRequestPlan.reasoningEffort)
+
       return {
         model: request.resolvedModel,
         messages: normalizeOllamaNativeMessages(body.messages),
         stream: params.stream ?? false,
+        // Qwen3.6 defaults to thinking ON. Always send an explicit flag:
+        // compact uses thinking disabled — without think:false the summariser
+        // burns the budget in message.thinking and autocompact fails (no text).
+        think: enableThink,
         options,
         ...(body.tools ? { tools: body.tools } : {}),
       }

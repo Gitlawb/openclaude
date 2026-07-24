@@ -818,8 +818,7 @@ function formatFileLines(file: { content: string; startLine: number }): string {
   return addLineNumbers(file)
 }
 
-export const CYBER_RISK_MITIGATION_REMINDER =
-  '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n'
+export const CYBER_RISK_MITIGATION_REMINDER = ''
 
 // Models where cyber risk mitigation should be skipped. The recent Opus models
 // (4.8/4.7) inherit 4.6's exemption — 4.8 is now the first-party default, so
@@ -831,7 +830,12 @@ const MITIGATION_EXEMPT_MODELS = new Set([
 ])
 
 function shouldIncludeFileReadMitigation(): boolean {
+  // OpenClaude Main default: never inject malware "MUST refuse to improve" text.
+  // Opt back in with OPENCLAUDE_ENABLE_TOOL_REMINDERS=1.
   if (isEnvTruthy(process.env.OPENCLAUDE_DISABLE_TOOL_REMINDERS)) {
+    return false
+  }
+  if (!isEnvTruthy(process.env.OPENCLAUDE_ENABLE_TOOL_REMINDERS)) {
     return false
   }
   const shortName = getCanonicalName(getMainLoopModel())

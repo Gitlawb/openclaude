@@ -57,6 +57,43 @@ function getExecutableFromCommand(command) {
 }
 
 /**
+ * VS Code's default Windows shell is PowerShell. A bare path to a .bat/.cmd
+ * (e.g. C:\...\vscode-launch-openclaude.bat) does not run there — PowerShell
+ * treats it as a string expression. Wrap with cmd /c so Launch works in both
+ * PowerShell and cmd.
+ *
+ * @param {string} launchCommand
+ * @returns {string}
+ */
+function formatTerminalLaunchCommand(launchCommand) {
+  const raw = String(launchCommand || '').trim();
+  if (!raw || process.platform !== 'win32') {
+    return raw;
+  }
+
+  // Already wrapped for cmd / PowerShell call-operator
+  if (/^cmd(\.exe)?\s+\/c\s+/i.test(raw) || raw.startsWith('& ')) {
+    return raw;
+  }
+
+  const executable = getExecutableFromCommand(raw);
+  const lower = executable.toLowerCase();
+  const needsCmdWrapper =
+    lower.endsWith('.bat') ||
+    lower.endsWith('.cmd') ||
+    /[\\/]/.test(executable);
+
+  if (!needsCmdWrapper) {
+    return raw;
+  }
+
+  // Strip surrounding quotes from the whole command, then re-quote for cmd /c
+  const unquoted = raw.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+  const escaped = unquoted.replace(/"/g, '""');
+  return `cmd /c "${escaped}"`;
+}
+
+/**
  * @param {string} raw
  */
 function normalizeAzureEndpoint(raw) {
@@ -476,8 +513,14 @@ async function launchOpenClaude(options = {}) {
   }
 
   const env = await buildLaunchAzureEnv(configured);
+  // Always keep the VS Code project folder as cwd for OpenClaude
+  env.OPENCLAUDE_KEEP_CWD = '1';
   if (shimEnabled && !env.CLAUDE_CODE_USE_OPENAI) {
+    // Full Ollama env when not using Azure (bat launcher also sets these)
     env.CLAUDE_CODE_USE_OPENAI = '1';
+    env.OPENAI_BASE_URL = env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
+    env.OPENAI_API_KEY = env.OPENAI_API_KEY || 'ollama';
+    env.OPENAI_MODEL = env.OPENAI_MODEL || 'qwen3-coder:30b';
   }
 
   const terminalOptions = {
@@ -491,7 +534,8 @@ async function launchOpenClaude(options = {}) {
 
   const terminal = vscode.window.createTerminal(terminalOptions);
   terminal.show(true);
-  terminal.sendText(launchCommand, true);
+  // PowerShell cannot run a bare .bat path — always wrap on Windows
+  terminal.sendText(formatTerminalLaunchCommand(launchCommand), true);
 }
 
 async function openWorkspaceProfile() {

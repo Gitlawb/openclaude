@@ -30,8 +30,18 @@ function getLaunchConfig() {
   const command = cfg.get('launchCommand', 'openclaude');
   const shimEnabled = cfg.get('useOpenAIShim', false);
   const permissionMode = cfg.get('permissionMode', 'acceptEdits');
-  const env = {};
-  if (shimEnabled) env.CLAUDE_CODE_USE_OPENAI = '1';
+  const env = {
+    // Keep VS Code's project folder (do not jump to Desktop / openclaude-main)
+    OPENCLAUDE_KEEP_CWD: '1',
+  };
+  if (shimEnabled) {
+    // Full Ollama OpenAI shim — CLAUDE_CODE_USE_OPENAI alone is not enough
+    env.CLAUDE_CODE_USE_OPENAI = '1';
+    if (!env.OPENAI_BASE_URL) env.OPENAI_BASE_URL = 'http://127.0.0.1:11434/v1';
+    if (!env.OPENAI_API_KEY) env.OPENAI_API_KEY = 'ollama';
+    // Default for IDE shim-only path; launch .bat overrides this
+    if (!env.OPENAI_MODEL) env.OPENAI_MODEL = 'qwen2.5-coder:7b';
+  }
   const folders = vscode.workspace.workspaceFolders;
   const cwd = folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
   return { command, cwd, env, permissionMode };
@@ -165,9 +175,16 @@ class ChatController {
     // On first message after process start, wait for CLI to be ready.
     // On subsequent messages, the process is already running and accepting input.
     if (this._readyPromise) {
-      const grace = new Promise(resolve => setTimeout(resolve, 8000));
+      const grace = new Promise(resolve => setTimeout(resolve, 20000));
       await Promise.race([this._readyPromise, grace]);
       this._readyPromise = null;
+    }
+    if (!this._process || !this._process.running) {
+      this._broadcast({
+        type: 'error',
+        message: 'OpenClaude failed to start. Check Ollama is running, then click + New and try again. Or use OpenClaude: Launch in Workspace Root (terminal).',
+      });
+      return;
     }
     this._accumulatedText = '';
     this._toolUses = [];

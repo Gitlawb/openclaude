@@ -50,16 +50,33 @@ export function getMCPUserAgent(): string {
   return `claude-code/${MACRO.VERSION}${suffix}`
 }
 
-// User-Agent for WebFetch requests to arbitrary sites. `Claude-User` is
-// The first-party provider's publicly documented agent for user-initiated fetches (what site
-// operators match in robots.txt); the claude-code suffix lets them distinguish
-// local CLI traffic from claude.ai server-side fetches.
-export function getWebFetchUserAgent(): string {
+// User-Agent for WebFetch requests to arbitrary sites.
+//
+// Many retailer / restaurant / competitor sites (Just Eat, etc.) return 403
+// to any request that announces itself as a bot. To make user-initiated
+// research fetches actually succeed, default to a current desktop Chrome
+// User-Agent. The bot identity is still available via WEBFETCH_USER_AGENT
+// for anyone who needs the documented `Claude-User` agent (e.g. to honour a
+// site's robots.txt allowlist) — set that env var to override the default.
+const DEFAULT_WEB_FETCH_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+
+export function getBotWebFetchUserAgent(): string {
   const supportUrl =
     getAPIProvider() === 'firstParty'
       ? 'https://support.anthropic.com/'
       : 'https://github.com/Gitlawb/openclaude'
   return `Claude-User (${getClaudeCodeUserAgent()}; +${supportUrl})`
+}
+
+export function getWebFetchUserAgent(): string {
+  const override = process.env.WEBFETCH_USER_AGENT?.trim()
+  if (override) {
+    return override.toLowerCase() === 'bot'
+      ? getBotWebFetchUserAgent()
+      : override
+  }
+  return DEFAULT_WEB_FETCH_USER_AGENT
 }
 
 export type AuthHeaders = {

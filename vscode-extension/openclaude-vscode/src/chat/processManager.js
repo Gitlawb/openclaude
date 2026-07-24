@@ -87,16 +87,28 @@ class ProcessManager {
     const isWin = process.platform === 'win32';
 
     if (isWin) {
-      // On Windows, npm global installs create .cmd shims that spawn()
-      // cannot find without a shell.  Build one command string so the
-      // deprecation warning about unsanitised args does not fire.
-      const cmdLine = [this._command, ...args].join(' ');
-      this._process = spawn(cmdLine, [], {
+      // Quote the executable when it is a path / .bat / .cmd so cmd.exe
+      // does not split on spaces or fail to invoke the launcher.
+      const quoteWin = (token) => {
+        const s = String(token);
+        if (!s) return '""';
+        if (/[\s"&<>|^]/.test(s) || /[\\/]/.test(s) || /\.(bat|cmd)$/i.test(s)) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+      const cmdLine = [quoteWin(this._command), ...args.map(quoteWin)].join(' ');
+      // Prefer ComSpec /c (no nested shell:true quirks with .bat → .cmd)
+      const comspec = process.env.ComSpec || 'cmd.exe';
+      // windowsVerbatimArguments is required: without it Node re-quotes the
+      // already-quoted .bat path and cmd.exe exits with "not recognized",
+      // which surfaces in the UI as "Process is not running".
+      this._process = spawn(comspec, ['/d', '/s', '/c', cmdLine], {
         cwd: this._cwd,
         env: spawnEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
         windowsHide: true,
+        windowsVerbatimArguments: true,
       });
     } else {
       this._process = spawn(this._command, args, {

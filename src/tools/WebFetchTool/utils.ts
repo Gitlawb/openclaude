@@ -284,7 +284,9 @@ export async function getWithPermittedRedirects(
     maxContentLength: MAX_HTTP_CONTENT_LENGTH,
     lookup: ssrfGuardedLookup,
     headers: {
-      Accept: 'text/markdown, text/html, */*',
+      Accept:
+        'text/markdown, text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8',
+      'Accept-Language': 'en-GB,en;q=0.9',
       'User-Agent': getWebFetchUserAgent(),
     },
   }
