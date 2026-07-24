@@ -494,14 +494,25 @@ export async function provisionAimlapiKey(
   // caller persists it would otherwise lose a paid-for credential permanently.
   // The receipt is consumed by the shortcut above on the next run, and the
   // caller clears it once its own persistence succeeds.
-  saveAimlapiTopupState({
-    ...intent,
-    ...state,
-    apiKey,
-    apiKeyId,
-    model,
-    settled: true,
-  })
+  if (
+    !saveAimlapiTopupState({
+      ...intent,
+      ...state,
+      apiKey,
+      apiKeyId,
+      model,
+      settled: true,
+    })
+  ) {
+    // Another run claimed the slot, so the receipt was NOT stored and the
+    // shortcut above cannot recover this key. The caller is now the only thing
+    // between a paid-for credential and permanent loss — say so rather than
+    // returning as if recovery were still possible.
+    options.onStatus?.(
+      'provisioning-key',
+      `Could not record the recovery receipt for the issued key (id ${apiKeyId}); persist it immediately.`,
+    )
+  }
 
   return {
     apiKey,
