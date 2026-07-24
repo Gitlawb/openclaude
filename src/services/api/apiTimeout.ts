@@ -22,6 +22,14 @@
  */
 export const MAX_API_TIMEOUT_MS = 2_147_483_647
 
+/**
+ * Default request timeout when `API_TIMEOUT_MS` is unset or invalid: 10 minutes,
+ * the API's non-streaming boundary. Named here so the callers that fall back to
+ * it (`parseApiTimeoutMsEnv() ?? DEFAULT_API_TIMEOUT_MS`) share one value rather
+ * than repeating the literal.
+ */
+export const DEFAULT_API_TIMEOUT_MS = 600_000
+
 export function parseApiTimeoutMsEnv(): number | null {
   const raw = process.env.API_TIMEOUT_MS?.trim()
   if (!raw || !/^\d+$/.test(raw)) return null

@@ -159,13 +159,15 @@ import {
   getOllamaNumCtx,
   normalizeOllamaNativeMessages,
 } from './openaiShim/ollamaAdapter.js'
-import { parseApiTimeoutMsEnv } from './apiTimeout.js'
+import {
+  DEFAULT_API_TIMEOUT_MS,
+  parseApiTimeoutMsEnv,
+} from './apiTimeout.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
-const DEFAULT_API_TIMEOUT_MS = 600_000
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'

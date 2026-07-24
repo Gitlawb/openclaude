@@ -55,7 +55,10 @@ import {
   shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
-import { parseApiTimeoutMsEnv } from './apiTimeout.js'
+import {
+  DEFAULT_API_TIMEOUT_MS,
+  parseApiTimeoutMsEnv,
+} from './apiTimeout.js'
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
@@ -584,7 +587,7 @@ export async function getAnthropicClient({
   const ARGS = {
     defaultHeaders,
     maxRetries,
-    timeout: parseApiTimeoutMsEnv() ?? 600 * 1000,
+    timeout: parseApiTimeoutMsEnv() ?? DEFAULT_API_TIMEOUT_MS,
     dangerouslyAllowBrowser: true,
     fetchOptions: getProxyFetchOptions({
       forAnthropicAPI: true,
@@ -607,7 +610,7 @@ export async function getAnthropicClient({
     return createOpenAIShimClient({
       defaultHeaders: safeHeaders,
       maxRetries,
-      timeout: parseApiTimeoutMsEnv() ?? 600 * 1000,
+      timeout: parseApiTimeoutMsEnv() ?? DEFAULT_API_TIMEOUT_MS,
       providerOverride,
       reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
@@ -646,7 +649,7 @@ export async function getAnthropicClient({
     return createOpenAIShimClient({
       defaultHeaders,
       maxRetries,
-      timeout: parseApiTimeoutMsEnv() ?? 600 * 1000,
+      timeout: parseApiTimeoutMsEnv() ?? DEFAULT_API_TIMEOUT_MS,
       reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
   }
