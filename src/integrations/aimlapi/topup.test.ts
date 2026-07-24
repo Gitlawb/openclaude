@@ -145,8 +145,11 @@ test('an interrupted checkout resumes its recorded session instead of charging a
   // The recorded session was reused; no second checkout was opened.
   expect(calls.createSession).toBe(0)
   expect(provisioned.apiKey).toBe('k_issued')
-  // The spent checkout no longer lingers.
-  expect(loadAimlapiTopupState(intent)).toBeNull()
+  // The record now carries the settled receipt, held for the caller to persist.
+  expect(loadAimlapiTopupState(intent)).toMatchObject({
+    apiKey: 'k_issued',
+    settled: true,
+  })
 })
 
 test('a dead recorded session is replaced rather than resumed', async () => {
@@ -166,7 +169,7 @@ test('a dead recorded session is replaced rather than resumed', async () => {
 
   // The expired session was inspected, then a fresh checkout was opened.
   expect(calls.createSession).toBe(1)
-  expect(loadAimlapiTopupState(intent)).toBeNull()
+  expect(loadAimlapiTopupState(intent)).toMatchObject({ settled: true })
 })
 
 test('a settled receipt returns the issued key without paying again', async () => {
@@ -197,7 +200,7 @@ test('a settled receipt returns the issued key without paying again', async () =
   expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
-test('a fresh run records its checkout before payment and clears it after', async () => {
+test('a fresh run records its checkout and leaves a settled receipt for the caller', async () => {
   useTemporaryConfig()
 
   const { provisionAimlapiKey, calls } = await importTopupWithClient({})
@@ -206,5 +209,61 @@ test('a fresh run records its checkout before payment and clears it after', asyn
   expect(calls.createSession).toBe(1)
   expect(calls.exchange).toBe(1)
   expect(provisioned.apiKey).toBe('k_issued')
-  expect(loadAimlapiTopupState(intent)).toBeNull()
+  // The key is only returned in memory, so the receipt must survive until the
+  // caller has persisted it; otherwise an interruption loses a paid-for key.
+  expect(loadAimlapiTopupState(intent)).toMatchObject({
+    apiKey: 'k_issued',
+    apiKeyId: 'id_issued',
+    settled: true,
+  })
+})
+
+test('a transient getSession failure preserves the recorded checkout', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'recorded-session',
+  })
+
+  const { AimlapiApiError } = await import('./client.js')
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    // A 5xx says nothing about the session's fate.
+    getSession: async () => {
+      throw new AimlapiApiError('upstream boom', 503, '')
+    },
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('upstream boom')
+  // No second checkout was opened, and the record survived for a later re-run.
+  expect(calls.createSession).toBe(0)
+  expect(loadAimlapiTopupState(intent)).toMatchObject({
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'recorded-session',
+  })
+})
+
+test('a resumed session that is already paid is not re-bound', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    getSession: async token => session({ sessionToken: token, status: 'paid' }),
+  })
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+
+  // Straight to the exchange: no createSession, and no pay() on a settled
+  // checkout.
+  expect(calls.createSession).toBe(0)
+  expect(calls.pay).toBe(0)
+  expect(calls.exchange).toBe(1)
+  expect(provisioned.apiKey).toBe('k_issued')
 })
