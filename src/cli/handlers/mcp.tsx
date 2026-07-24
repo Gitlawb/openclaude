@@ -201,17 +201,22 @@ export async function mcpRemoveHandler(name: string, options: {
     const projectConfig = getCurrentProjectConfig();
     const globalConfig = getGlobalConfig();
 
-    // Check if server exists in project scope (.mcp.json)
+    // Check if server exists in project scope (.mcp.json). These maps are plain
+    // objects from JSON config, so a `!!servers[name]` / `?.[name]` check treats
+    // inherited Object.prototype members ('constructor', '__proto__', …) as
+    // present. `mcp remove constructor` would then report the reserved name as
+    // living in multiple scopes instead of "No MCP server found". Gate on
+    // own-property.
     const {
       servers: projectServers
     } = getMcpConfigsByScope('project');
-    const mcpJsonExists = !!projectServers[name];
+    const mcpJsonExists = Object.hasOwn(projectServers, name);
 
     // Count how many scopes contain this server
     const scopes: Array<Exclude<ConfigScope, 'dynamic'>> = [];
-    if (projectConfig.mcpServers?.[name]) scopes.push('local');
+    if (Object.hasOwn(projectConfig.mcpServers ?? {}, name)) scopes.push('local');
     if (mcpJsonExists) scopes.push('project');
-    if (globalConfig.mcpServers?.[name]) scopes.push('user');
+    if (Object.hasOwn(globalConfig.mcpServers ?? {}, name)) scopes.push('user');
     if (scopes.length === 0) {
       cliError(`No MCP server found with name: "${name}"`);
     } else if (scopes.length === 1) {
