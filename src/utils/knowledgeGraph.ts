@@ -179,7 +179,8 @@ function migrateLegacyKnowledgeGraph(): void {
     }
   }
 
-  let sqliteData = sqliteExists ? readLegacySqliteStore() : null
+  const sqliteRead: SqliteReadResult = sqliteExists ? readLegacySqliteStore() : { ok: false, reason: 'not_found' }
+  const sqliteData: any = sqliteRead.ok ? (sqliteRead as { ok: true; data: any }).data : null
 
   let mergedData: any = null
   let chosenSource = ''
@@ -253,23 +254,34 @@ function migrateLegacyKnowledgeGraph(): void {
   }
 
   if (!mergedData) {
-    legacyMigrationDoneProjects.add(projectKey)
+    // If SQLite exists but could not be read, do not mark migration done (P1).
+    // Retry on next run so data is not silently lost.
+    if (!sqliteRead.ok && sqliteRead.reason !== 'not_found') {
+      const currentAttempts = migrationAttempts.get(projectKey) || 0
+      migrationAttempts.set(projectKey, currentAttempts + 1)
+    } else {
+      legacyMigrationDoneProjects.add(projectKey)
+    }
     return
   }
 
-  doMigration(mergedData, chosenSource, projectKey)
+  doMigration(mergedData, chosenSource, projectKey, sqliteRead.ok)
 }
 
-function readLegacySqliteStore(): any | null {
+type SqliteReadResult =
+  | { ok: true; data: any }
+  | { ok: false; reason: 'not_found' | 'unavailable' | 'error' }
+
+function readLegacySqliteStore(): SqliteReadResult {
   const dbPath = getLegacySqlitePath()
-  if (!existsSync(dbPath)) return null
+  if (!existsSync(dbPath)) return { ok: false, reason: 'not_found' }
 
   let Database: any
   try {
     Database = _require('bun:sqlite').Database
   } catch {
     console.error('[knowledgeGraph] bun:sqlite not available; cannot migrate SQLite store.')
-    return null
+    return { ok: false, reason: 'unavailable' }
   }
 
   try {
@@ -301,10 +313,10 @@ function readLegacySqliteStore(): any | null {
     data.rules = (db.query('SELECT content FROM rules').all() as any[]).map((r: any) => r.content)
 
     db.close()
-    return data
+    return { ok: true, data }
   } catch (e) {
     console.error('[knowledgeGraph] Failed to read SQLite store:', e)
-    return null
+    return { ok: false, reason: 'error' }
   }
 }
 
@@ -316,7 +328,7 @@ function getShortHash(str: string): string {
   return (hash >>> 0).toString(36).slice(0, 6)
 }
 
-function doMigration(data: any, sourcePath: string, projectKey: string): void {
+function doMigration(data: any, sourcePath: string, projectKey: string, sqliteReadOk = true): void {
   // Track which sources were successfully archived so we never retire a
   // source whose data was not preserved (P1).
   const archivedSources = new Set<string>()
@@ -326,9 +338,9 @@ function doMigration(data: any, sourcePath: string, projectKey: string): void {
   if (existsSync(sourcePath)) {
     try {
       writeFileSync(backupPath, readFileSync(sourcePath))
-      archivedSources.add(sourcePath)
       // If the selected source is SQLite, also snapshot WAL/SHM which may
       // contain committed state not yet flushed to the main database file (P1).
+      // Backup all artifacts before marking as archived (P1 atomic).
       if (sourcePath === getLegacySqlitePath()) {
         for (const sidecar of ['-wal', '-shm']) {
           const sidecarPath = `${sourcePath}${sidecar}`
@@ -337,6 +349,7 @@ function doMigration(data: any, sourcePath: string, projectKey: string): void {
           }
         }
       }
+      archivedSources.add(sourcePath)
     } catch {
       console.error('[knowledgeGraph] Legacy migration: cannot create backup, aborting')
       return
@@ -455,10 +468,14 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
     // bug is discovered. The selected source was already backed up above.
     for (const p of [legacyPath, sqlitePath]) {
       if (p !== sourcePath && existsSync(p)) {
+        // Do not archive a SQLite store that was never successfully read (P1).
+        if (p === sqlitePath && !sqliteReadOk) continue
+
         const altBackupPath = `${p}.migration-backup`
         try {
           writeFileSync(altBackupPath, readFileSync(p))
-          archivedSources.add(p)
+          // Backup all WAL/SHM sidecars before marking as archived so the
+          // source is only retired after every artifact is preserved (P1).
           if (p === sqlitePath) {
             for (const sidecar of ['-wal', '-shm']) {
               const sidecarPath = `${p}${sidecar}`
@@ -467,6 +484,7 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
               }
             }
           }
+          archivedSources.add(p)
         } catch {
           console.error(`[knowledgeGraph] Legacy migration: cannot create backup for ${p}`)
         }
@@ -480,8 +498,6 @@ ${relations.map(r => `${r.sourceId} => ${r.type} => ${r.targetId}`).join('\n')}
     }
     if (archivedSources.has(sqlitePath)) {
       try { rmSync(sqlitePath, { force: true }) } catch { /* non-fatal */ }
-    }
-    if (archivedSources.has(sqlitePath)) {
       for (const sidecar of ['-wal', '-shm']) {
         const sidecarPath = `${sqlitePath}${sidecar}`
         if (existsSync(sidecarPath)) {

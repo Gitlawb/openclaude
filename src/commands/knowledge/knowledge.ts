@@ -12,17 +12,21 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (!subCommand || subCommand === 'status') {
     const config = getGlobalConfig();
-    const stats = getArcStats();
-    const graph = getGlobalGraph();
-    const entityCount = Object.keys(graph.entities).length;
     
     const statusText = (config.knowledgeGraphEnabled !== false)
       ? chalk.green('ENABLED') 
       : chalk.red('DISABLED');
       
     let output = `${chalk.bold('Knowledge Graph Engine')}: ${statusText}\n`;
-    if (stats) {
-      output += `• Stats: ${stats.goalCount} goals, ${stats.milestoneCount} milestones, ${entityCount} technical facts learned`;
+    
+    // Do not initialize or migrate when disabled (P2).
+    if (config.knowledgeGraphEnabled !== false) {
+      const stats = getArcStats();
+      const graph = getGlobalGraph();
+      const entityCount = Object.keys(graph.entities).length;
+      if (stats) {
+        output += `• Stats: ${stats.goalCount} goals, ${stats.milestoneCount} milestones, ${entityCount} technical facts learned`;
+      }
     }
     
     return { type: 'text', value: output };
