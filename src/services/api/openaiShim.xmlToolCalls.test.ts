@@ -275,6 +275,10 @@ describe('parseXmlToolCalls', () => {
       '<tool_call><function=Bash><parameter=command>echo hello</parameter></function></tool_call>'
     const responseText = `${duplicateBlock}\n${duplicateBlock}\nnext`
 
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalApiKey = process.env.OPENAI_API_KEY
+    const originalFetch = globalThis.fetch as unknown as FetchType | undefined
+
     process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9999/v1'
     process.env.OPENAI_API_KEY = 'test-key'
 
@@ -310,33 +314,50 @@ describe('parseXmlToolCalls', () => {
     }) as unknown as typeof fetch
 
     const client = createOpenAIShimClient({}) as OpenAIShimClient
-    const result: AnthropicStreamEvent[] = []
+    const result: Record<string, unknown>[] = []
 
-    const stream = await client.beta.messages.create({
+    const withResponse = await client.beta.messages.create({
       model: 'test-model',
-      tools: [{ type: 'function' as const, function: { name: 'Bash', parameters: {} } }],
+      tools: [{ name: 'Bash', input_schema: {} }],
       messages: [
         { role: 'assistant' as const, content: 'Testing duplicates' },
         { role: 'user' as const, content: 'Run bash' },
       ],
       max_tokens: 1024,
       stream: true,
-    } as any)
+    } as any).withResponse()
 
-    for await (const event of stream) {
+    for await (const event of withResponse.data) {
       result.push(event)
     }
 
     // Verify we got one tool_use event (duplicates are deduped at call level).
-    const toolUseEvents = result.filter(e => e.type === 'content_block_start' && (e.content_block?.type === 'tool_use'))
+    const toolUseEvents = result.filter(e => (e as any).type === 'content_block_start' && (e as any).content_block?.type === 'tool_use')
     expect(toolUseEvents).toHaveLength(1)
-    expect(toolUseEvents[0]?.content_block?.name).toBe('Bash')
+    expect((toolUseEvents[0] as any)?.content_block?.name).toBe('Bash')
 
     // Find the text_delta event and verify both XML blocks are stripped, "next" preserved.
-    const textEvents = result.filter(e => e.type === 'content_block_delta' && (e as any).delta?.type === 'text_delta')
+    const textEvents = result.filter(e => (e as any).type === 'content_block_delta' && (e as any).delta?.type === 'text_delta')
     const fullText = textEvents.map(e => (e as any).delta.text).join('')
     expect(fullText).toContain('next')
     expect(fullText).not.toContain('<tool_call>')
+
+    // Teardown: restore original state
+    if (originalBaseUrl === undefined) {
+      delete process.env.OPENAI_BASE_URL
+    } else {
+      process.env.OPENAI_BASE_URL = originalBaseUrl
+    }
+    if (originalApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY
+    } else {
+      process.env.OPENAI_API_KEY = originalApiKey
+    }
+    if (originalFetch === undefined) {
+      delete (globalThis as { fetch?: unknown }).fetch
+    } else {
+      globalThis.fetch = originalFetch
+    }
   })
 
   test('truncated block (no closing tag) still parses', () => {
