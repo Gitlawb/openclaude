@@ -79,8 +79,8 @@ async function installCommonMocks(options?: {
 
   mock.module('./env.js', () => ({
     ...realEnvSnapshot,
-    env: { platform: 'windows' },
-    getHostPlatformForAnalytics: () => 'windows',
+    env: { platform: 'win32' },
+    getHostPlatformForAnalytics: () => 'win32',
   }))
 
   mock.module('./envUtils.js', () => ({
@@ -94,6 +94,7 @@ async function installCommonMocks(options?: {
     execa: async () => ({
       exitCode: options?.gitEmail ? 0 : 1,
       stdout: options?.gitEmail ?? '',
+      stderr: '',
     }),
     execaSync: () => ({
       exitCode: 1,

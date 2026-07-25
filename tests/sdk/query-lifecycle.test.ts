@@ -239,31 +239,123 @@ describe('Query interrupt lifecycle', () => {
   }, 10_000)
 
   test('interrupt() with reason undefined yields synthetic user cancellation message', async () => {
-    const q = query({
-      prompt: 'test undefined reason',
-      options: { cwd: process.cwd() },
+    // Deterministic query-loop path (same shape as the Stop-hook regression
+    // tests below). The public SDK query() path races model/VCR startup against
+    // interrupt timing and was papered over by an empty fixtures/734ad7.json
+    // capture; assert the abort-reason contract here instead.
+    const { query: queryLoop } = await import('../../src/query.js')
+    const { getDefaultAppState } = await import('../../src/state/AppStateStore.js')
+    const { asSystemPrompt } = await import('../../src/utils/systemPromptType.js')
+
+    const abortController = new AbortController()
+    const appStateRef = {
+      current: {
+        ...getDefaultAppState(),
+      },
+    }
+
+    const toolUseContext: any = {
+      options: {
+        commands: [],
+        debug: false,
+        mainLoopModel: 'sonnet',
+        tools: [],
+        verbose: false,
+        thinkingConfig: { type: 'disabled' },
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: true,
+        agentDefinitions: { activeAgents: [], allAgents: [], allowedAgentTypes: [] },
+      },
+      abortController,
+      getAppState: () => appStateRef.current,
+      setAppState: (updater: any) => {
+        appStateRef.current = updater(appStateRef.current)
+      },
+    }
+
+    const mockExecuteStopHooks = async function* () {
+      yield {
+        message: {
+          type: 'progress' as const,
+          toolUseID: 'mock-tool-use-id',
+          data: {
+            command: 'mock-command',
+            promptText: 'mock-prompt',
+          },
+        },
+      }
+      // Default abort() has undefined reason → normalizeAbortReason maps
+      // AbortError to 'user-abort' → synthetic cancellation message is emitted.
+      abortController.abort()
+      yield {
+        message: {
+          type: 'progress' as const,
+          toolUseID: 'mock-tool-use-id-2',
+          data: {
+            command: 'mock-command-2',
+            promptText: 'mock-prompt-2',
+          },
+        },
+      }
+    }
+
+    const mockCallModel = async function* () {
+      yield {
+        type: 'assistant' as const,
+        uuid: 'assistant-1',
+        message: {
+          id: 'assistant-1',
+          type: 'message' as const,
+          role: 'assistant' as const,
+          model: 'test-model',
+          stop_reason: 'end_turn' as const,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      }
+    }
+
+    const q = queryLoop({
+      messages: [],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool: async () => ({ behavior: 'allow' }),
+      toolUseContext,
+      querySource: 'sdk',
+      deps: {
+        callModel: mockCallModel as any,
+        microcompact: async (messages) => ({ messages }),
+        autocompact: async () => ({ wasCompacted: false }),
+        uuid: () => 'uuid-1',
+        stopHookExecutionDeps: {
+          executeStopHooks: mockExecuteStopHooks as any,
+          isTeammate: () => false,
+          getStopHookMessage: () => 'stop hook blocked',
+        },
+      },
     })
-    const iterator = q[Symbol.asyncIterator]()
-    const firstPromise = iterator.next()
-    
-    // Interrupt during execution
-    q.interrupt()
 
     const messages: any[] = []
     try {
-      let result = await firstPromise
-      while (!result.done) {
-        messages.push(result.value)
-        result = await iterator.next()
+      for await (const msg of q) {
+        messages.push(msg)
       }
     } catch (err) {
       if (!isExpectedDrainAbort(err)) throw err
     }
 
-    const userCancelMsg = messages.find((m: any) => 
-      m.type === 'user' && 
-      Array.isArray(m.message?.content) && 
-      m.message.content[0]?.text === '[Request interrupted by user]'
+    const userCancelMsg = messages.find(
+      (m: any) =>
+        m.type === 'user' &&
+        Array.isArray(m.message?.content) &&
+        m.message.content[0]?.text === '[Request interrupted by user]',
     )
     expect(userCancelMsg).toBeDefined()
   }, 10_000)
