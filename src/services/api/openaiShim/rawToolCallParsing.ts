@@ -210,8 +210,7 @@ function parseAndAdd(
 
   if (typeof parsed.name === 'string') {
     name = parsed.name
-    argumentsValue =
-      (parsed.arguments as Record<string, unknown> | undefined) ?? {}
+    argumentsValue = parseArguments(parsed.arguments)
   } else if (parsed.type === 'function' && isRecord(parsed.function)) {
     const functionValue = parsed.function
     if (typeof functionValue.name !== 'string') return false

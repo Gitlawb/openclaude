@@ -4,6 +4,7 @@ import {
   parseRawToolCallsRequestedText,
   parseTextToolCalls,
   repairPossiblyTruncatedObjectJson,
+  stripRanges,
 } from './rawToolCallParsing.js'
 
 test('parses a Gemini raw tool call accumulated across stream chunks', () => {
@@ -45,6 +46,20 @@ test('does not parse a fenced JSON example with trailing prose before its fence'
     calls: [],
     toolCallRanges: [],
   })
+})
+
+test('parses stringified arguments in a bare-name tool call', () => {
+  const text = '{"name":"Bash","arguments":"{\\"command\\":\\"ls\\"}"}'
+
+  expect(parseTextToolCalls(text, () => 1).calls).toEqual([{
+    id: 'ollama_tc_1',
+    name: 'Bash',
+    arguments: { command: 'ls' },
+  }])
+})
+
+test('strips tool-call ranges regardless of input order', () => {
+  expect(stripRanges('a{one}b{two}c', [[7, 12], [1, 6]])).toBe('abc')
 })
 
 test('parses a complete Gemini raw tool-call response', () => {

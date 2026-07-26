@@ -162,6 +162,21 @@ import {
   convertMessages as convertAnthropicMessages,
   convertSystemPrompt as convertSystemPromptImpl,
 } from './openaiShim/messageConversion.js'
+import {
+  JSON_REPAIR_SUFFIXES,
+  couldBeRawToolCallsRequestedPrefix,
+  extractBalancedJson,
+  parseRawToolCallsRequestedText,
+  parseTextToolCalls as parseTextToolCallsModule,
+  repairPossiblyTruncatedObjectJson,
+  stripRanges,
+  type ParsedRawToolCall,
+  type ParsedTextToolCall,
+} from './openaiShim/rawToolCallParsing.js'
+import {
+  convertTools as convertToolsModule,
+  normalizeSchemaForOpenAI as normalizeSchemaForOpenAIModule,
+} from './openaiShim/toolConversion.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -769,11 +784,6 @@ function getCompressedMessagesForTransport<T>(
  * which causes 400 errors on OpenAI/Codex endpoints. This normalizes the
  * schema by ensuring `required` is a superset of `properties` keys.
  */
-import {
-  convertTools as convertToolsModule,
-  normalizeSchemaForOpenAI as normalizeSchemaForOpenAIModule,
-} from './openaiShim/toolConversion.js'
-
 function normalizeSchemaForOpenAI(
   schema: Record<string, unknown>,
   strict = true,
@@ -844,17 +854,6 @@ function convertChunkUsage(
   )
 }
 
-import {
-  JSON_REPAIR_SUFFIXES,
-  couldBeRawToolCallsRequestedPrefix,
-  extractBalancedJson,
-  parseRawToolCallsRequestedText,
-  parseTextToolCalls as parseTextToolCallsModule,
-  repairPossiblyTruncatedObjectJson,
-  stripRanges,
-  type ParsedRawToolCall,
-  type ParsedTextToolCall,
-} from './openaiShim/rawToolCallParsing.js'
 export function parseTextToolCalls(text: string): {
   calls: ParsedTextToolCall[]
   toolCallRanges: Array<[number, number]>
