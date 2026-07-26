@@ -1,7 +1,10 @@
 import { getSessionId } from '../../bootstrap/state.js'
 import { firstUsableCredential } from '../../services/api/credentialPool.js'
 import { resolveOpenAICredentialEnvState } from '../../utils/providerProfile.js'
-import { resolveProviderRequest } from '../../services/api/providerConfig.js'
+import {
+  isAzureStyleBaseUrl,
+  resolveProviderRequest,
+} from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
@@ -47,12 +50,15 @@ function getModelFamily(model: string | undefined): string {
  * so descriptor-level `removeBodyFields` rules do not protect strict
  * compatible endpoints such as NVIDIA NIM.
  */
-export function supportsCacheProbeFields(baseUrl: string): boolean {
+export function supportsCacheProbeFields(
+  baseUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   try {
     const hostname = new URL(baseUrl).hostname.toLowerCase()
     return hostname === 'api.openai.com' ||
       hostname.endsWith('.api.openai.com') ||
-      hostname.endsWith('.openai.azure.com')
+      isAzureStyleBaseUrl(baseUrl, env)
   } catch {
     return false
   }

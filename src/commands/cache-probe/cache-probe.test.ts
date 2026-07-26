@@ -15,6 +15,12 @@ test('cache-probe only sends OpenAI cache extensions to direct OpenAI API hosts 
   expect(supportsCacheProbeFields('https://api.openai.com/v1')).toBe(true)
   expect(supportsCacheProbeFields('https://eu.api.openai.com/v1')).toBe(true)
   expect(supportsCacheProbeFields('https://resource.openai.azure.com/openai/v1')).toBe(true)
+  expect(supportsCacheProbeFields('https://resource.services.ai.azure.com/v1')).toBe(true)
+  expect(
+    supportsCacheProbeFields('https://azure-proxy.example.test/v1', {
+      OPENAI_AZURE_STYLE: '1',
+    }),
+  ).toBe(true)
   expect(supportsCacheProbeFields('https://integrate.api.nvidia.com/v1')).toBe(false)
   expect(supportsCacheProbeFields('https://compatible.example.test/v1')).toBe(false)
 })
