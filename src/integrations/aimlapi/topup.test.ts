@@ -70,17 +70,25 @@ type Calls = { createSession: number; getSession: number; pay: number; exchange:
  * Load `topup.ts` against a stubbed client. The stub records how often a fresh
  * checkout was opened, which is what the resume behaviour is judged on.
  */
+type ProvisionResult = { apiKey: string; apiKeyId: string; model: string }
+
 async function importTopupWithClient(stub: {
   getSession?: (token: string) => Promise<unknown>
   createSession?: () => Promise<unknown>
   onExchange?: () => void
 }): Promise<{
-  provisionAimlapiKey: (options: unknown) => Promise<{ apiKey: string; apiKeyId: string; model: string }>
+  provisionAimlapiKey: (options: unknown) => Promise<ProvisionResult>
+  runAimlapiTopup: (options: unknown) => Promise<void>
   calls: Calls
+  payBodies: Array<Record<string, unknown>>
+  savedProfiles: Array<Record<string, unknown>>
 }> {
   const calls: Calls = { createSession: 0, getSession: 0, pay: 0, exchange: 0 }
+  const payBodies: Array<Record<string, unknown>> = []
+  const savedProfiles: Array<Record<string, unknown>> = []
   let overrideUsed = false
-  const actual = await import('./client.js')
+  const actualClient = await import('./client.js')
+  const actualProfile = await import('../../utils/providerProfile.js')
 
   class StubClient {
     async signup(): Promise<{ token: string; exp: number }> {
@@ -88,7 +96,10 @@ async function importTopupWithClient(stub: {
     }
     async createSession(): Promise<unknown> {
       calls.createSession += 1
-      return stub.createSession ? await stub.createSession() : session()
+      // A freshly opened checkout is not paid yet; polling flips it to paid.
+      return stub.createSession
+        ? await stub.createSession()
+        : session({ status: 'pending_payment' })
     }
     async getSession(token: string): Promise<unknown> {
       calls.getSession += 1
@@ -100,8 +111,13 @@ async function importTopupWithClient(stub: {
       }
       return session({ sessionToken: token, status: 'paid' })
     }
-    async pay(): Promise<unknown> {
+    async pay(
+      _bearer: string,
+      _token: string,
+      body: Record<string, unknown>,
+    ): Promise<unknown> {
       calls.pay += 1
+      payBodies.push(body)
       return {
         checkout: { providerSessionId: 'p', payUrl: 'https://checkout.test/pay' },
         partnerCheckout: session(),
@@ -116,16 +132,28 @@ async function importTopupWithClient(stub: {
     }
   }
 
-  mock.module('./client.js', () => ({ ...actual, AimlapiClient: StubClient }))
+  mock.module('./client.js', () => ({ ...actualClient, AimlapiClient: StubClient }))
+  mock.module('../../utils/providerProfile.js', () => ({
+    ...actualProfile,
+    // Record the profile write instead of touching disk; the CLI flow only needs
+    // the returned path.
+    saveProfileFile: (profile: Record<string, unknown>) => {
+      savedProfiles.push(profile)
+      return '/tmp/openclaude-profile.json'
+    },
+  }))
   const nonce = `${Date.now()}-${Math.random()}`
   const topup = (await import(`./topup.js?ts=${nonce}`)) as {
-    provisionAimlapiKey: (options: unknown) => Promise<{
-      apiKey: string
-      apiKeyId: string
-      model: string
-    }>
+    provisionAimlapiKey: (options: unknown) => Promise<ProvisionResult>
+    runAimlapiTopup: (options: unknown) => Promise<void>
   }
-  return { provisionAimlapiKey: topup.provisionAimlapiKey, calls }
+  return {
+    provisionAimlapiKey: topup.provisionAimlapiKey,
+    runAimlapiTopup: topup.runAimlapiTopup,
+    calls,
+    payBodies,
+    savedProfiles,
+  }
 }
 
 test('an interrupted checkout resumes its recorded session instead of charging again', async () => {
@@ -201,8 +229,42 @@ test('a settled receipt returns the issued key without paying again', async () =
   expect(calls.createSession).toBe(0)
   expect(calls.pay).toBe(0)
   expect(calls.exchange).toBe(0)
-  // The receipt is one-shot: it is consumed so a later top-up really charges.
-  expect(loadAimlapiTopupState(intent)).toBeNull()
+  // The receipt is NOT consumed here: the key is only returned in memory, so it
+  // must survive until the caller has durably persisted it (caller-clear
+  // contract). Clearing now would drop the sole recoverable copy on a failed
+  // persist.
+  expect(loadAimlapiTopupState(intent)).toMatchObject({
+    apiKey: 'k_stranded',
+    settled: true,
+  })
+})
+
+test('a second top-up only charges again once the caller has cleared the receipt', async () => {
+  useTemporaryConfig()
+
+  // First provision leaves a settled receipt behind.
+  const first = await importTopupWithClient({})
+  await first.provisionAimlapiKey(provisionOptions)
+  expect(first.calls.exchange).toBe(1)
+
+  // Without a caller-clear, a second top-up short-circuits on the receipt and
+  // returns the same key without opening a checkout - the documented contract.
+  const second = await importTopupWithClient({})
+  const reused = await second.provisionAimlapiKey(provisionOptions)
+  expect(reused.apiKey).toBe('k_issued')
+  expect(second.calls.createSession).toBe(0)
+  expect(second.calls.exchange).toBe(0)
+
+  // The caller acknowledges its persist by clearing the receipt...
+  const stored = loadAimlapiTopupState(intent)!
+  clearAimlapiTopupState({ ...intent, paymentSessionId: stored.paymentSessionId })
+
+  // ...after which a genuine second top-up opens and pays for a fresh checkout.
+  const third = await importTopupWithClient({})
+  await third.provisionAimlapiKey(provisionOptions)
+  expect(third.calls.createSession).toBe(1)
+  expect(third.calls.pay).toBe(1)
+  expect(third.calls.exchange).toBe(1)
 })
 
 test('a fresh run records its checkout and leaves a settled receipt for the caller', async () => {
@@ -300,4 +362,79 @@ test('a resumed session that is already paid is not re-bound', async () => {
   expect(calls.pay).toBe(0)
   expect(calls.exchange).toBe(1)
   expect(provisioned.apiKey).toBe('k_issued')
+})
+
+test('a rate-limited status check preserves the recorded checkout', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'recorded-session',
+  })
+
+  const { AimlapiApiError } = await import('./client.js')
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    // 429/408 are transient and say nothing about the session's fate.
+    getSession: async () => {
+      throw new AimlapiApiError('slow down', 429, '')
+    },
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('slow down')
+  expect(calls.createSession).toBe(0)
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
+})
+
+test('checkout binding sends the persisted payment id as the idempotency key', async () => {
+  useTemporaryConfig()
+
+  const { provisionAimlapiKey, payBodies } = await importTopupWithClient({})
+  await provisionAimlapiKey(provisionOptions)
+
+  // The recorded paymentSessionId must ride along on /pay so a retry references
+  // the same charge identity instead of opening a second one.
+  const recorded = loadAimlapiTopupState(intent)
+  expect(payBodies).toHaveLength(1)
+  expect(payBodies[0]?.paymentSessionId).toBeTruthy()
+  // It matches the id that was claimed and persisted for this checkout.
+  expect(payBodies[0]?.paymentSessionId).toBe(recorded?.paymentSessionId)
+})
+
+test('the CLI flow resumes a settled receipt instead of opening a new checkout', async () => {
+  useTemporaryConfig()
+
+  // A previous CLI run exchanged the key but was interrupted before (or during)
+  // the profile write.
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'exchanged-session',
+    apiKey: 'k_paid',
+    apiKeyId: 'id_paid',
+    model: 'gpt-4o',
+    settled: true,
+  })
+
+  const { runAimlapiTopup, calls, savedProfiles } = await importTopupWithClient({})
+  await runAimlapiTopup({
+    email: intent.email,
+    password: 'secret',
+    amountUsd: '25',
+    partnerId: intent.partnerId,
+    partnerName: intent.partnerName,
+    model: 'gpt-4o',
+    noOpen: true,
+  })
+
+  // The paid-for key was written to the profile with no new checkout or charge.
+  expect(calls.createSession).toBe(0)
+  expect(calls.pay).toBe(0)
+  expect(calls.exchange).toBe(0)
+  expect(savedProfiles).toHaveLength(1)
+  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_paid' })
+  // The record is spent once the profile write (owned by this flow) succeeds.
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })
