@@ -195,10 +195,9 @@ export function SpinnerAnimationRow({
   let showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   let usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   let showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
-  // If glyph reservation dropped every content part, retry without the glyph so
-  // tokens/timer/thinking win over empty "(↓ )" chrome on mid-narrow rows.
-  const hasContentStatus = Boolean(spinnerSuffix) || showTimer || showTokens || showThinking;
-  if (reserveModeGlyph && !hasContentStatus) {
+  // Re-check without the glyph. Keep it when it fits alongside the same
+  // content, but prefer timer/token status when reserving the glyph hides it.
+  if (reserveModeGlyph) {
     const bareAvailableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
     let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + thinkingWidthValue;
     if (!bareShowThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
@@ -212,10 +211,10 @@ export function SpinnerAnimationRow({
     const bareShowTimer = wantsTimer && bareAvailableSpace > bareUsedAfterThinking + timerWidth;
     const bareUsedAfterTimer = bareUsedAfterThinking + (bareShowTimer ? timerWidth + sep : 0);
     const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace > bareUsedAfterTimer + tokensWidth;
-    // Prefer tokens/timer/suffix without glyph over empty glyph-only status.
     // Thinking-only recovery stays in the dedicated second-chance block below
     // so full "(↓ · thinking)" chrome still wins when it fits.
-    if (bareShowTimer || bareShowTokens || Boolean(spinnerSuffix)) {
+    const glyphHidesContent = bareShowTimer && !showTimer || bareShowTokens && !showTokens;
+    if (glyphHidesContent) {
       reserveModeGlyph = false;
       parensWidth = BASE_PARENS_WIDTH;
       availableSpace = bareAvailableSpace;

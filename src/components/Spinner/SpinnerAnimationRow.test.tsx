@@ -76,6 +76,25 @@ describe('SpinnerAnimationRow', () => {
     expect(rows[0]).not.toContain(figures.arrowDown)
   })
 
+  it('drops the glyph when it would hide tokens behind a visible timer', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 4_000,
+          verbose: true,
+          loadingStartTimeRef: { current: Date.now() - 6_000 },
+          columns: 31,
+        })}
+      />,
+      31,
+    )
+
+    const rows = visibleRows(output)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/^● Thinking \(\d+s · 1\.0k tokens\)$/)
+    expect(rows[0]).not.toContain(figures.arrowDown)
+  })
+
   it('shows zero tokens as soon as the first response character arrives', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow {...baseProps({ responseLength: 1 })} />,
