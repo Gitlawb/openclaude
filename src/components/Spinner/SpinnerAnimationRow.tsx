@@ -246,16 +246,20 @@ export function SpinnerAnimationRow({
   const thinkingShimmerColor = toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
 
   // === Build status parts ===
+  // bareThinkingOnly nests parens on the thinking word (no outer status parens).
+  // Apply in both shimmer and reduced-motion arms so teammate bare status is
+  // always "(thinking)", not a bare word jammed after the verb.
+  const thinkingDisplay = thinkingText ? bareThinkingOnly ? `(${thinkingText})` : thinkingText : null;
   const parts = [...(spinnerSuffix ? [<Text dimColor key="suffix">
             {spinnerSuffix}
           </Text>] : []), ...(showTimer ? [<Text dimColor key="elapsedTime">
             {timerText}
           </Text>] : []), ...(showTokens ? [<Text dimColor key="tokens">
             {tokensText}
-          </Text>] : []), ...(showThinking && thinkingText ? [thinkingStatus === 'thinking' && !reducedMotion ? <Text key="thinking" color={thinkingShimmerColor}>
-              {bareThinkingOnly ? `(${thinkingText})` : thinkingText}
+          </Text>] : []), ...(showThinking && thinkingDisplay ? [thinkingStatus === 'thinking' && !reducedMotion ? <Text key="thinking" color={thinkingShimmerColor}>
+              {thinkingDisplay}
             </Text> : <Text dimColor key="thinking">
-              {thinkingText}
+              {thinkingDisplay}
             </Text>] : [])];
   // Lead the status with the request-direction glyph (↑ requesting /
   // ↓ streaming) inside the status parens so the mode is always visible while

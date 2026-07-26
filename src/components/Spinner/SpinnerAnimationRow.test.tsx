@@ -194,4 +194,26 @@ describe('SpinnerAnimationRow', () => {
     expect(output).not.toContain(figures.arrowDown)
     expect(output).not.toContain(figures.arrowUp)
   })
+
+  it('nests (thinking) for teammate bare status under reduced motion', async () => {
+    // wantsTimer is true with teammates, so use a narrow width that drops the
+    // timer and leaves thinking-only bare status (no mode glyph, no outer parens).
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          hasRunningTeammates: true,
+          reducedMotion: true,
+          columns: 26,
+        })}
+      />,
+      26,
+    )
+
+    expect(output).toContain('(thinking)')
+    expect(output).not.toContain(figures.arrowDown)
+    expect(output).not.toContain(figures.arrowUp)
+    expect(output).not.toMatch(/Thinking thinking/)
+  })
 })
