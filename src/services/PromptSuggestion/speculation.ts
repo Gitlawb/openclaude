@@ -15,6 +15,10 @@ import { checkReadOnlyConstraints } from '../../tools/BashTool/readOnlyValidatio
 import type { SpeculationAcceptMessage } from '../../types/logs.js'
 import type { Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
+import {
+  createAttachmentMessage,
+  getUltrathinkEffortAttachment,
+} from '../../utils/attachments.js'
 import { count } from '../../utils/array.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -454,8 +458,16 @@ export async function startSpeculation(
   logForDebugging(`[Speculation] Starting speculation ${id}`)
 
   try {
+    const promptMessages = [
+      createUserMessage({ content: suggestionText }),
+      // Prefetch must carry the effort to its provider request but is not a
+      // user activation. handleSpeculationAccept logs the real submission.
+      ...getUltrathinkEffortAttachment(suggestionText, false).map(
+        createAttachmentMessage,
+      ),
+    ]
     const result = await runForkedAgent({
-      promptMessages: [createUserMessage({ content: suggestionText })],
+      promptMessages,
       cacheSafeParams: cacheSafeParams ?? createCacheSafeParams(context),
       skipTranscript: true,
       canUseTool: async (tool, input) => {
@@ -871,7 +883,13 @@ export async function handleSpeculationAccept(
 
     // Inject user message first for instant visual feedback before any async work
     const userMessage = createUserMessage({ content: input })
-    setMessages(prev => [...prev, userMessage])
+    // Accepted suggestions bypass processUserInput(), so create the same
+    // keyword attachment it normally would. This keeps the model reminder and
+    // the request-level effort override in query.ts aligned for this path.
+    const ultrathinkAttachments = getUltrathinkEffortAttachment(input).map(
+      createAttachmentMessage,
+    )
+    setMessages(prev => [...prev, userMessage, ...ultrathinkAttachments])
 
     const result = await acceptSpeculation(
       speculationState,
@@ -947,6 +965,7 @@ export async function handleSpeculationAccept(
         messages: [
           ...speculationState.contextRef.current.messages,
           createUserMessage({ content: input }),
+          ...ultrathinkAttachments,
           ...cleanMessages,
         ],
       }

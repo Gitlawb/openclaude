@@ -1513,7 +1513,10 @@ export function getDateChangeAttachments(
   return [{ type: 'date_change', newDate: currentDate }]
 }
 
-function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
+export function getUltrathinkEffortAttachment(
+  input: string | null,
+  logActivation: boolean = true,
+): Attachment[] {
   // Gate the model-facing attachment behind the same rollout flag as the UI.
   // Without this, the hidden `ultrathink_effort` attachment would still raise
   // the turn to high effort even when the ULTRATHINK build flag / GrowthBook
@@ -1521,7 +1524,9 @@ function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
   if (!input || !isUltrathinkEnabled() || !hasUltrathinkKeyword(input)) {
     return []
   }
-  logEvent('tengu_ultrathink', {})
+  if (logActivation) {
+    logEvent('tengu_ultrathink', {})
+  }
   return [{ type: 'ultrathink_effort', level: 'high' }]
 }
 

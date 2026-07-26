@@ -458,6 +458,41 @@ export type QueryParams = {
   deps?: QueryDeps
 }
 
+/**
+ * `ultrathink_effort` is emitted while processing the current user input.
+ * Its attachment is deliberately transient, but the request-level effort
+ * setting must follow it for providers that expose reasoning effort as a wire
+ * parameter. The attachment must follow the newest human turn without an
+ * intervening meta user message: historical attachments and system-generated
+ * prompts must not affect the request's effort. Image metadata is appended
+ * after attachments, so it remains eligible.
+ */
+function hasUltrathinkEffortForCurrentTurn(messages: readonly Message[]): boolean {
+  const latestHumanTurn = messages.findLastIndex(isHumanTurn)
+  if (latestHumanTurn === -1) {
+    return false
+  }
+
+  const ultrathinkAttachment = messages.findIndex(
+    (message, index) =>
+      index > latestHumanTurn &&
+      message.type === 'attachment' &&
+      message.attachment.type === 'ultrathink_effort',
+  )
+  if (ultrathinkAttachment === -1) {
+    return false
+  }
+
+  return !messages
+    .slice(latestHumanTurn + 1, ultrathinkAttachment)
+    .some(
+      message =>
+        message.type === 'user' &&
+        message.isMeta &&
+        message.toolUseResult === undefined,
+    )
+}
+
 function injectRequestOnlyMessages(
   messages: readonly Message[],
   requestOnlyMessages: readonly Message[] | undefined,
@@ -564,6 +599,9 @@ async function* queryLoop(
     skipCacheWrite,
   } = params
   const deps = params.deps ?? productionDeps()
+  const ultrathinkEffortForCurrentTurn = hasUltrathinkEffortForCurrentTurn(
+    params.messages,
+  )
 
   // Mutable cross-iteration state. The loop body destructures this at the top
   // of each iteration so reads stay bare-name (`messages`, `toolUseContext`).
@@ -1375,7 +1413,13 @@ async function* queryLoop(
               ),
               queryTracking,
               queryLifecycle: toolUseContext.queryLifecycle,
-              effortValue: appState.effortValue,
+              // Explicit /effort selection wins. When it is unset, carry the
+              // current turn's ultrathink attachment through to the API client
+              // so OpenAI-compatible providers receive reasoning_effort=high
+              // instead of only a natural-language system reminder.
+              effortValue:
+                appState.effortValue ??
+                (ultrathinkEffortForCurrentTurn ? 'high' : undefined),
               advisorModel: appState.advisorModel,
               skipCacheWrite,
               agentId: toolUseContext.agentId,
