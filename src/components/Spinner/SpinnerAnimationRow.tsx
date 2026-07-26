@@ -169,18 +169,20 @@ export function SpinnerAnimationRow({
 
   // === Progressive width gating ===
   // messageWidth = glimmer text + spinner glyph (width: 2).
-  // parensWidth = 3 accounts for " (" and ")" wrapping the status parts.
-  // The extra 1 is a safety margin so content never touches the right edge.
+  // Base parens chrome is 4: glimmer trailing space + "(" + ")" + safety.
+  // Leader spins may also reserve mode glyph (width 2) + separator.
   const messageWidth = glimmerMessageWidth + 2;
   const sep = SEP_WIDTH;
-  // Non-teammate spins prepend the ↑/↓ mode glyph (width 2) + separator to
-  // the status parts, so reserve that space in the gating math too.
-  const parensWidth = hasRunningTeammates ? 4 : 4 + 2 + SEP_WIDTH;
+  const MODE_GLYPH_RESERVE = 2 + SEP_WIDTH;
+  const BASE_PARENS_WIDTH = 4;
   const suffixWidth = spinnerSuffix ? stringWidth(spinnerSuffix) + sep : 0;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimer = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS;
   const wantsTokens = true;
-  const availableSpace = columns - messageWidth - parensWidth;
+  // Prefer layout with the mode glyph when it fits alongside other status.
+  let reserveModeGlyph = !hasRunningTeammates;
+  let parensWidth = BASE_PARENS_WIDTH + (reserveModeGlyph ? MODE_GLYPH_RESERVE : 0);
+  let availableSpace = columns - messageWidth - parensWidth;
   let showThinking = wantsThinking && availableSpace > suffixWidth + thinkingWidthValue;
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
     if (availableSpace > suffixWidth + THINKING_BARE_WIDTH) {
@@ -189,54 +191,86 @@ export function SpinnerAnimationRow({
       showThinking = true;
     }
   }
-  const usedAfterThinking = suffixWidth + (showThinking ? thinkingWidthValue + sep : 0);
-  const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
-  const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
-  const showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
+  let usedAfterThinking = suffixWidth + (showThinking ? thinkingWidthValue + sep : 0);
+  let showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
+  let usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
+  let showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
+  // If glyph reservation dropped every content part, retry without the glyph so
+  // tokens/timer/thinking win over empty "(↓ )" chrome on mid-narrow rows.
+  const hasContentStatus = Boolean(spinnerSuffix) || showTimer || showTokens || showThinking;
+  if (reserveModeGlyph && !hasContentStatus) {
+    const bareAvailableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
+    let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + thinkingWidthValue;
+    if (!bareShowThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
+      if (bareAvailableSpace > suffixWidth + THINKING_BARE_WIDTH) {
+        thinkingText = 'thinking';
+        thinkingWidthValue = THINKING_BARE_WIDTH;
+        bareShowThinking = true;
+      }
+    }
+    const bareUsedAfterThinking = suffixWidth + (bareShowThinking ? thinkingWidthValue + sep : 0);
+    const bareShowTimer = wantsTimer && bareAvailableSpace > bareUsedAfterThinking + timerWidth;
+    const bareUsedAfterTimer = bareUsedAfterThinking + (bareShowTimer ? timerWidth + sep : 0);
+    const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace > bareUsedAfterTimer + tokensWidth;
+    // Prefer tokens/timer/suffix without glyph over empty glyph-only status.
+    // Thinking-only recovery stays in the dedicated second-chance block below
+    // so full "(↓ · thinking)" chrome still wins when it fits.
+    if (bareShowTimer || bareShowTokens || Boolean(spinnerSuffix)) {
+      reserveModeGlyph = false;
+      parensWidth = BASE_PARENS_WIDTH;
+      availableSpace = bareAvailableSpace;
+      showThinking = bareShowThinking;
+      usedAfterThinking = bareUsedAfterThinking;
+      showTimer = bareShowTimer;
+      usedAfterTimer = bareUsedAfterTimer;
+      showTokens = bareShowTokens;
+    }
+  }
   // Leader thinking-only prefers the mode glyph inside outer parens
-  // ("(↓ · thinking)"). The primary gate above still uses a conservative
-  // parensWidth that can reject widths where that physical layout still fits.
-  // Retry in two steps so the thinking word is not lost on narrow terminals:
-  // 1) full leader chrome with glyph when it fits
-  // 2) bare "(thinking)" without the glyph (same band as pre-glyph layout)
-  //    rather than rendering glyph-only empty status
-  // Physical full chrome: "(" + glyph(2) + " · " + thinking + ")" (+ 1 safety).
+  // ("(↓ · thinking)") when both fit. When full chrome does not fit, fall
+  // back to bare "(thinking)" without the glyph (same band as pre-glyph
+  // layout) rather than empty glyph-only status.
+  // Full chrome budget includes +1 safety vs physical Ink width.
   const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
   let suppressModeGlyphForBareThinking = false;
-  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
-    const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
-    if (leaderThinkingAvailable >= thinkingWidthValue) {
-      showThinking = true;
-    } else if (effortSuffix && leaderThinkingAvailable >= THINKING_BARE_WIDTH) {
-      thinkingText = 'thinking';
-      thinkingWidthValue = THINKING_BARE_WIDTH;
-      showThinking = true;
-    } else {
+  if (!showThinking && wantsThinking && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
+    if (reserveModeGlyph) {
+      const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
+      if (leaderThinkingAvailable >= thinkingWidthValue) {
+        showThinking = true;
+      } else if (thinkingStatus === 'thinking' && effortSuffix && leaderThinkingAvailable >= THINKING_BARE_WIDTH) {
+        thinkingText = 'thinking';
+        thinkingWidthValue = THINKING_BARE_WIDTH;
+        showThinking = true;
+      }
+    }
+    if (!showThinking) {
       // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
       const bareAvailable = columns - messageWidth - 3;
       if (bareAvailable >= thinkingWidthValue) {
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
-      } else if (effortSuffix && bareAvailable >= THINKING_BARE_WIDTH) {
+        reserveModeGlyph = false;
+      } else if (thinkingStatus === 'thinking' && effortSuffix && bareAvailable >= THINKING_BARE_WIDTH) {
         thinkingText = 'thinking';
         thinkingWidthValue = THINKING_BARE_WIDTH;
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
+        reserveModeGlyph = false;
       }
     }
   }
-  // thinkingOnly: only the thinking word (plus the mode glyph on leader spins
-  // when space allows). Nested "(thinking)" is reserved for teammate spins that
-  // skip the mode glyph and therefore have no outer status parens. Leader bare
-  // fallback still uses outer parens with just the thinking word: "(thinking)".
-  const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
-  const bareThinkingOnly = thinkingOnly && hasRunningTeammates;
+  // Nested "(thinking)" is reserved for teammate spins that skip the mode glyph
+  // and therefore have no outer status parens. Leader bare fallback still uses
+  // outer parens with just the thinking word: "(thinking)".
+  const isThinkingOnlyStatus = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
+  const bareThinkingOnly = isThinkingOnlyStatus && hasRunningTeammates;
   // Minimum residual for leader status chrome after the glimmer trailing space:
   // " " + "(" + glyph Box(width=2) + ")". Below this, omit the glyph rather
-  // than overflow the row. Also omit when the bare-thinking fallback chose to
-  // keep the thinking word without glyph chrome.
+  // than overflow. Also omit when content recovery or bare-thinking fallback
+  // dropped the glyph so higher-value status can show.
   const residualForStatus = columns - messageWidth;
-  const canShowModeGlyph = !hasRunningTeammates && !suppressModeGlyphForBareThinking && residualForStatus >= 5;
+  const canShowModeGlyph = reserveModeGlyph && !suppressModeGlyphForBareThinking && residualForStatus >= 5;
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
   // Same sine-wave opacity, but derived from our shared `time` instead of a
@@ -262,11 +296,9 @@ export function SpinnerAnimationRow({
               {thinkingDisplay}
             </Text>] : [])];
   // Lead the status with the request-direction glyph (↑ requesting /
-  // ↓ streaming) inside the status parens so the mode is always visible while
-  // the spinner is active — including the early requesting window before any
-  // other status part qualifies, and thinking-only spins. Teammate spins skip
-  // it (the teammate tree carries its own activity cue). Very narrow rows that
-  // cannot fit "(" + glyph + ")" omit the glyph instead of overflowing.
+  // ↓ streaming) inside the status parens when residual width allows and the
+  // glyph did not force higher-value status (tokens/timer/thinking) off the
+  // row. Teammate spins skip it (the teammate tree carries its own cue).
   if (canShowModeGlyph) {
     parts.unshift(<Box flexDirection="row" key="mode">
             <SpinnerModeGlyph mode={mode} />
@@ -297,20 +329,6 @@ function SpinnerModeGlyph(t0) {
     mode
   } = t0;
   switch (mode) {
-    case "tool-input":
-    case "tool-use":
-    case "responding":
-    case "thinking":
-      {
-        let t1;
-        if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <Box width={2}><Text dimColor={true}>{figures.arrowDown}</Text></Box>;
-          $[0] = t1;
-        } else {
-          t1 = $[0];
-        }
-        return t1;
-      }
     case "requesting":
       {
         let t1;
@@ -319,6 +337,23 @@ function SpinnerModeGlyph(t0) {
           $[1] = t1;
         } else {
           t1 = $[1];
+        }
+        return t1;
+      }
+    case "tool-input":
+    case "tool-use":
+    case "responding":
+    case "thinking":
+    default:
+      {
+        // Default to down-arrow for known streaming modes and any open-union
+        // SpinnerMode string so unmapped modes never unshift an empty child.
+        let t1;
+        if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
+          t1 = <Box width={2}><Text dimColor={true}>{figures.arrowDown}</Text></Box>;
+          $[0] = t1;
+        } else {
+          t1 = $[0];
         }
         return t1;
       }

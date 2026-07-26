@@ -58,6 +58,24 @@ describe('SpinnerAnimationRow', () => {
     ])
   })
 
+  it('prefers token count over glyph-only status on mid-narrow terminals', async () => {
+    // Full glyph+tokens chrome fails primary gate around cols 26–30 for message
+    // "Thinking"; content recovery drops the glyph so tokens still show.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 4_000,
+          columns: 28,
+        })}
+      />,
+      28,
+    )
+
+    const rows = visibleRows(output)
+    expect(rows).toEqual(['● Thinking (1.0k tokens)'])
+    expect(rows[0]).not.toContain(figures.arrowDown)
+  })
+
   it('shows zero tokens as soon as the first response character arrives', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow {...baseProps({ responseLength: 1 })} />,
@@ -225,5 +243,25 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
+  })
+
+  it('keeps leader thinking glyph path under reducedMotion false', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          reducedMotion: false,
+        })}
+      />,
+      120,
+    )
+
+    // Spinner glyph frame varies under motion; lock the status chrome shape.
+    const rows = visibleRows(output)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(
+      new RegExp(`^\\S Thinking \\(${figures.arrowDown}  · thinking\\)$`),
+    )
   })
 })
