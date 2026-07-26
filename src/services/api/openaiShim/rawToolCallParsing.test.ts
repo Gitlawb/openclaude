@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import {
   couldBeRawToolCallsRequestedPrefix,
   parseRawToolCallsRequestedText,
+  parseTextToolCalls,
   repairPossiblyTruncatedObjectJson,
 } from './rawToolCallParsing.js'
 
@@ -12,6 +13,8 @@ test('parses a Gemini raw tool call accumulated across stream chunks', () => {
   ].join('')
 
   expect(couldBeRawToolCallsRequestedPrefix('Tool calls')).toBe(true)
+  expect(couldBeRawToolCallsRequestedPrefix('ordinary prose')).toBe(false)
+  expect(couldBeRawToolCallsRequestedPrefix('Tool cogs')).toBe(false)
   expect(parseRawToolCallsRequestedText(accumulated)).toEqual([{
     id: 'call79435b5a26564619b0151197',
     name: 'Write',
@@ -20,6 +23,28 @@ test('parses a Gemini raw tool call accumulated across stream chunks', () => {
       content: 'ul { padding: 0; }',
     }),
   }])
+})
+
+test('parses balanced JSON inside a fenced tool call', () => {
+  const text = '```json\n{"name":"Bash","arguments":{"command":"echo {ok}"}}\n```'
+
+  expect(parseTextToolCalls(text, () => 1)).toEqual({
+    calls: [{
+      id: 'ollama_tc_1',
+      name: 'Bash',
+      arguments: { command: 'echo {ok}' },
+    }],
+    toolCallRanges: [[0, text.length]],
+  })
+})
+
+test('does not parse a fenced JSON example with trailing prose before its fence', () => {
+  const text = '```json\n{"name":"Bash","arguments":{}}\nexample\n```'
+
+  expect(parseTextToolCalls(text, () => 1)).toEqual({
+    calls: [],
+    toolCallRanges: [],
+  })
 })
 
 test('parses a complete Gemini raw tool-call response', () => {

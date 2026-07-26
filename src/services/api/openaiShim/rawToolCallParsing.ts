@@ -14,7 +14,7 @@ export const JSON_REPAIR_SUFFIXES = [
 ]
 
 const RAW_TOOL_CALLS_REQUESTED_PREFIX = 'Tool calls requested:'
-const FENCED_TOOL_CALL_RE = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g
+const FENCED_TOOL_CALL_START_RE = /```(?:json)?\s*\n?\s*\{/g
 const BARE_TOOL_CALL_START_RE = /\{\s*"(?:name|type)"\s*:/g
 
 export type ParsedRawToolCall = {
@@ -152,13 +152,21 @@ export function parseTextToolCalls(
   const fencedRanges: Array<[number, number]> = []
   const acceptedRanges: Array<[number, number]> = []
 
-  for (const match of text.matchAll(FENCED_TOOL_CALL_RE)) {
-    const raw = (match[1] ?? '').trim()
-    const after = text.slice(match.index! + match[0].length).trimStart()
+  for (const match of text.matchAll(FENCED_TOOL_CALL_START_RE)) {
+    const fenceStart = match.index!
+    const rawStart = fenceStart + match[0].length - 1
+    const raw = extractBalancedJson(text, rawStart)
+    if (!raw) continue
+
+    const closingFence = text.slice(rawStart + raw.length).match(/^\s*```/)
+    if (!closingFence) continue
+
+    const fenceEnd = rawStart + raw.length + closingFence[0].length
+    const after = text.slice(fenceEnd).trimStart()
     if (after.length > 0 && !after.startsWith('{')) continue
-    const range: [number, number] = [match.index!, match.index! + match[0].length]
+    const range: [number, number] = [fenceStart, fenceEnd]
     fencedRanges.push(range)
-    if (raw && parseAndAdd(raw, results, seen, nextSequence)) acceptedRanges.push(range)
+    if (parseAndAdd(raw, results, seen, nextSequence)) acceptedRanges.push(range)
   }
 
   const processedRanges: Array<[number, number]> = [...fencedRanges]

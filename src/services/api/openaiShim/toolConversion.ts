@@ -83,7 +83,7 @@ export function convertTools(
 
       if (tool.name === 'Agent' && schema.properties) {
         const properties = schema.properties as Record<string, unknown>
-        if (!Array.isArray(schema.required)) schema.required = []
+        schema.required = Array.isArray(schema.required) ? [...schema.required] : []
         const required = schema.required as string[]
         for (const key of ['message', 'subagent_type']) {
           if (key in properties && !required.includes(key)) required.push(key)

@@ -70,18 +70,20 @@ test('optional tool properties are not added to required[] — fixes Groq/Azure 
 })
 
 test('omits deferred tool search and promotes known Agent fields', () => {
+  const inputSchema = {
+    type: 'object',
+    properties: {
+      message: { type: 'string' },
+      subagent_type: { type: 'string' },
+      optional: { type: 'string' },
+    },
+    required: ['optional'],
+  }
   const tools = convertTools([
     { name: 'ToolSearchTool' },
     {
       name: 'Agent',
-      input_schema: {
-        type: 'object',
-        properties: {
-          message: { type: 'string' },
-          subagent_type: { type: 'string' },
-          optional: { type: 'string' },
-        },
-      },
+      input_schema: inputSchema,
     },
   ], {
     isGemini: false,
@@ -91,7 +93,24 @@ test('omits deferred tool search and promotes known Agent fields', () => {
   expect(tools).toHaveLength(1)
   expect(tools[0]?.function.name).toBe('Agent')
   expect(tools[0]?.function.parameters.required).toEqual([
+    'optional',
     'message',
     'subagent_type',
   ])
+  expect(inputSchema.required).toEqual(['optional'])
+})
+
+test('Gemini mode omits strict schema fields', () => {
+  const tools = convertTools([{
+    name: 'Read',
+    input_schema: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+    },
+  }], {
+    isGemini: true,
+    disableStrictTools: false,
+  })
+
+  expect(tools[0]?.function.parameters.additionalProperties).toBeUndefined()
 })
