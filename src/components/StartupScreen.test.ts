@@ -43,7 +43,9 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_MISTRAL',
   'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
   'OPENAI_API_KEY',
+  'OPENAI_API_KEYS',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
   'MISTRAL_MODEL',
@@ -185,6 +187,57 @@ describe('detectProvider — direct vendor endpoints', () => {
   test('api.deepseek.com labels as DeepSeek', () => {
     setupOpenAIMode('https://api.deepseek.com/v1', 'deepseek-chat')
     expect(detectProvider().name).toBe('DeepSeek')
+  })
+
+  test('bare DeepSeek origin displays the route default model', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    expect(detectProvider()).toMatchObject({
+      name: 'DeepSeek',
+      model: 'deepseek-v4-pro',
+      baseUrl: 'https://api.deepseek.com/v1',
+    })
+  })
+
+  test('legacy OPENAI_API_BASE displays the DeepSeek route default model', () => {
+    process.env.OPENAI_API_BASE = 'https://api.deepseek.com'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    expect(detectProvider()).toMatchObject({
+      name: 'DeepSeek',
+      model: 'deepseek-v4-pro',
+      baseUrl: 'https://api.deepseek.com/v1',
+    })
+  })
+
+  test.each(['', 'undefined'])(
+    'legacy OPENAI_API_BASE wins when OPENAI_BASE_URL is %p',
+    openAIBaseUrl => {
+      process.env.OPENAI_BASE_URL = openAIBaseUrl
+      process.env.OPENAI_API_BASE = 'https://api.deepseek.com'
+      process.env.OPENAI_API_KEY = 'test-key'
+
+      expect(detectProvider()).toMatchObject({
+        name: 'DeepSeek',
+        model: 'deepseek-v4-pro',
+        baseUrl: 'https://api.deepseek.com/v1',
+      })
+    },
+  )
+
+  test('generic OpenAI credentials do not select an arbitrary endpoint without the OpenAI mode flag', () => {
+    process.env.OPENAI_BASE_URL = 'https://example.invalid/v1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    expect(detectProvider().name).toBe('Anthropic')
+  })
+
+  test('blank OpenAI credentials do not select DeepSeek without the OpenAI mode flag', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+    process.env.OPENAI_API_KEY = '   '
+
+    expect(detectProvider().name).toBe('Anthropic')
   })
 
   test('api.kimi.com labels as Moonshot AI - Kimi Code', () => {

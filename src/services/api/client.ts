@@ -47,6 +47,7 @@ import {
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
   getXiaomiMimoBaseUrlOverride,
+  resolveActiveRouteIdFromEnv,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
@@ -511,6 +512,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
   const useAimlapiEnvOnlyProvider =
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
+  const useDeepSeekOpenAIShim =
+    resolveActiveRouteIdFromEnv(process.env) === 'deepseek'
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -636,6 +639,7 @@ export async function getAnthropicClient({
     useNearaiEnvOnlyProvider ||
     useFireworksEnvOnlyProvider ||
     useAimlapiEnvOnlyProvider ||
+    useDeepSeekOpenAIShim ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

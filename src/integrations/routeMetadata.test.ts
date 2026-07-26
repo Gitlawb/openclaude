@@ -599,6 +599,33 @@ test.each([
   },
 )
 
+test('resolveActiveRouteIdFromEnv recognizes a bare DeepSeek origin with generic OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      OPENAI_API_KEY: 'deepseek-key',
+      OPENAI_BASE_URL: 'https://api.deepseek.com',
+    }),
+  ).toBe('deepseek')
+})
+
+test.each(['', 'undefined'])(
+  'resolveActiveRouteIdFromEnv falls back to OPENAI_API_BASE when OPENAI_BASE_URL is %p',
+  openAIBaseUrl => {
+    expect(
+      resolveActiveRouteIdFromEnv({
+        OPENAI_API_KEY: 'deepseek-key',
+        OPENAI_BASE_URL: openAIBaseUrl,
+        OPENAI_API_BASE: 'https://api.deepseek.com',
+      }),
+    ).toBe('deepseek')
+  },
+)
+
+test('bare origins do not bypass Cloudflare and LongCat path boundaries', () => {
+  expect(resolveRouteIdFromBaseUrl('https://api.cloudflare.com')).toBeNull()
+  expect(resolveRouteIdFromBaseUrl('https://api.longcat.chat')).toBeNull()
+})
+
 test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ClinePass base URL', () => {
   expect(
     resolveActiveRouteIdFromEnv(

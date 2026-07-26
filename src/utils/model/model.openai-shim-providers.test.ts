@@ -349,6 +349,29 @@ test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', asy
   expect(getDefaultMainLoopModel()).toBe('mimo-v2.5-pro')
 })
 
+test('DeepSeek base URL uses its route default when OPENAI_MODEL is unset', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+
+  const {
+    getDefaultHaikuModel,
+    getDefaultMainLoopModelSetting,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getSmallFastModel,
+  } = await importFreshModelModule()
+
+  for (const getModel of [
+    getSmallFastModel,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+    getDefaultMainLoopModelSetting,
+  ]) {
+    expect(getModel()).toBe('deepseek-v4-pro')
+  }
+})
+
 test('modelDisplayString does not show Claude subscription default for Xiaomi MiMo', async () => {
   process.env.MIMO_API_KEY = 'mimo-test'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

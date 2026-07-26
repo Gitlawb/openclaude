@@ -2,6 +2,39 @@ import { expect, test } from 'bun:test'
 
 import { resolveProviderRequest } from './providerConfig.js'
 
+test('resolveProviderRequest expands a bare DeepSeek origin to its API base', () => {
+  const request = resolveProviderRequest({
+    baseUrl: 'https://api.deepseek.com',
+    processEnv: {},
+  })
+
+  expect(request.baseUrl).toBe('https://api.deepseek.com/v1')
+  expect(request.resolvedModel).toBe('deepseek-v4-pro')
+})
+
+test('resolveProviderRequest preserves an explicit non-default port', () => {
+  const request = resolveProviderRequest({
+    baseUrl: 'https://api.deepseek.com:8443',
+    processEnv: {},
+  })
+
+  expect(request.baseUrl).toBe('https://api.deepseek.com:8443')
+})
+
+test('resolveProviderRequest does not rewrite a bare native Anthropic route', () => {
+  const request = resolveProviderRequest({
+    baseUrl: 'https://api.minimax.io',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'test-key',
+      OPENAI_MODEL: 'custom-openai-model',
+    },
+  })
+
+  expect(request.baseUrl).toBe('https://api.minimax.io')
+  expect(request.transport).toBe('chat_completions')
+})
+
 test('resolveProviderRequest strips GLM model-query suffixes from API model value', () => {
   const request = resolveProviderRequest({
     model: 'glm-5.2?reasoning=high',

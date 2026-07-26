@@ -7,8 +7,10 @@
 
 import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import {
+  getRouteDefaultModel,
   getRouteLabel,
   isMiniMaxBaseUrl,
+  resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
@@ -27,6 +29,17 @@ declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
 const RESET = ANSI_RESET
 const DIM = ANSI_DIM
+
+function getConfiguredOpenAIBaseUrl(): string | undefined {
+  const usableUrl = (value: string | undefined): string | undefined => {
+    const trimmed = value?.trim()
+    return trimmed && trimmed.toLowerCase() !== 'undefined'
+      ? trimmed
+      : undefined
+  }
+  return usableUrl(process.env.OPENAI_BASE_URL) ??
+    usableUrl(process.env.OPENAI_API_BASE)
+}
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [
@@ -79,7 +92,17 @@ const LOGO_CLAUDE = [
 export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
-  const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
+  const configuredOpenAIBaseUrl = getConfiguredOpenAIBaseUrl()
+  const configuredOpenAIRouteId = resolveRouteIdFromBaseUrl(
+    configuredOpenAIBaseUrl,
+  )
+  const useOpenAI =
+    process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
+    process.env.CLAUDE_CODE_USE_OPENAI === 'true' ||
+    Boolean(
+      configuredOpenAIRouteId === 'deepseek' &&
+        resolveActiveRouteIdFromEnv(process.env) === 'deepseek',
+    )
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
@@ -102,14 +125,20 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useOpenAI) {
-    const rawModel = modelOverride || process.env.OPENAI_MODEL || 'gpt-4o'
+    const configuredBaseUrl = configuredOpenAIBaseUrl
+    const routeId = configuredOpenAIRouteId
+    const rawModel =
+      modelOverride ||
+      process.env.OPENAI_MODEL ||
+      (routeId ? getRouteDefaultModel(routeId) : undefined) ||
+      'gpt-4o'
     const resolvedRequest = resolveProviderRequest({
       model: rawModel,
-      baseUrl: process.env.OPENAI_BASE_URL,
+      baseUrl: configuredBaseUrl,
     })
     const baseUrl = resolvedRequest.baseUrl
     const isLocal = isLocalProviderUrl(baseUrl)
-    const routeId = resolveRouteIdFromBaseUrl(baseUrl)
+    const resolvedRouteId = resolveRouteIdFromBaseUrl(baseUrl)
     let name = 'OpenAI'
     // Explicit dedicated-provider env flags win.
     if (process.env.NVIDIA_NIM) name = 'NVIDIA NIM'
@@ -129,8 +158,8 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/nvidia/i.test(baseUrl)) name = 'NVIDIA NIM'
     else if (/minimax/i.test(baseUrl)) name = 'MiniMax'
     else if (/api\.kimi\.com/i.test(baseUrl)) name = 'Moonshot AI - Kimi Code'
-    else if (routeId && routeId !== 'openai' && routeId !== 'custom')
-      name = getRouteLabel(routeId) ?? name
+    else if (resolvedRouteId && resolvedRouteId !== 'openai' && resolvedRouteId !== 'custom')
+      name = getRouteLabel(resolvedRouteId) ?? name
     else if (/moonshot/i.test(baseUrl)) name = 'Moonshot AI - API'
     else if (/deepseek/i.test(baseUrl)) name = 'DeepSeek'
     else if (/mistral/i.test(baseUrl)) name = 'Mistral'

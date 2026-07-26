@@ -24,8 +24,10 @@ import {
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
+  getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   isClinePassBaseUrl,
+  resolveRouteIdFromBaseUrl,
 } from '../../integrations/routeMetadata.js'
 import {
   openAIShimSupportsApiFormatForModel,
@@ -69,6 +71,42 @@ function normalizeGitlawbOpengatewayBaseUrl(baseUrl: string | undefined): string
     return baseUrl
   }
   return baseUrl
+}
+
+function normalizeKnownBareRouteBaseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return baseUrl
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      return baseUrl
+    }
+  } catch {
+    return baseUrl
+  }
+
+  const routeId = resolveRouteIdFromBaseUrl(baseUrl)
+  if (routeId !== 'deepseek') return baseUrl
+  const routeDefaultBaseUrl = routeId ? getRouteDefaultBaseUrl(routeId) : undefined
+  if (!routeDefaultBaseUrl) return baseUrl
+  return new URL(routeDefaultBaseUrl).origin === new URL(baseUrl).origin
+    ? routeDefaultBaseUrl
+    : baseUrl
+}
+
+function getBareDeepSeekDefaultModel(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      return undefined
+    }
+  } catch {
+    return undefined
+  }
+
+  return resolveRouteIdFromBaseUrl(baseUrl) === 'deepseek'
+    ? getRouteDefaultModel('deepseek')
+    : undefined
 }
 
 const CODEX_ALIAS_MODELS: Record<
@@ -976,6 +1014,9 @@ export function resolveProviderRequest(options?: {
   const clinePassDefaultModel = effectiveClinePassMode
     ? getRouteDefaultModel('clinepass')
     : undefined
+  const routeDefaultModel = !isGithubMode
+    ? getBareDeepSeekDefaultModel(concreteBaseUrlBeforeDefault)
+    : undefined
 
   const requestedModel =
     options?.model?.trim() ||
@@ -987,6 +1028,7 @@ export function resolveProviderRequest(options?: {
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
           : processEnv.OPENAI_MODEL?.trim()) ||
+    routeDefaultModel ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     clinePassDefaultModel ||
@@ -1030,7 +1072,9 @@ export function resolveProviderRequest(options?: {
     !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
-  const finalBaseUrl = normalizeGitlawbOpengatewayBaseUrl(finalBaseUrlRaw)
+  const finalBaseUrl = normalizeKnownBareRouteBaseUrl(
+    normalizeGitlawbOpengatewayBaseUrl(finalBaseUrlRaw),
+  )
 
   const gheUrl = githubEnterpriseEnvUrl
   const githubEndpointType = isGithubMode

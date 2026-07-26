@@ -35,7 +35,10 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
-import { getRouteDefaultModel } from '../../integrations/routeMetadata.js'
+import {
+  getRouteDefaultModel,
+  resolveActiveRouteIdFromEnv,
+} from '../../integrations/routeMetadata.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -49,6 +52,19 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
+}
+
+function getOpenAIShimModelOrRouteDefault(fallback: ModelName): ModelName {
+  if (process.env.OPENAI_MODEL) {
+    return process.env.OPENAI_MODEL
+  }
+
+  const routeId = resolveActiveRouteIdFromEnv(process.env)
+  if (routeId && routeId !== 'openai' && routeId !== 'custom') {
+    return getRouteDefaultModel(routeId) ?? fallback
+  }
+
+  return fallback
 }
 
 export function getSmallFastModel(): ModelName {
@@ -65,7 +81,7 @@ export function getSmallFastModel(): ModelName {
   }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return getOpenAIShimModelOrRouteDefault('gpt-4o-mini')
   }
   // Codex provider — OPENAI_MODEL is always set for Codex profiles; only fall
   // back to a codex-spark alias when an override env strips it.
@@ -205,7 +221,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return getOpenAIShimModelOrRouteDefault('gpt-4o')
   }
   // Codex provider: use user-specified model or default to gpt-5.5
   if (getAPIProvider() === 'codex') {
@@ -255,7 +271,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return getOpenAIShimModelOrRouteDefault('gpt-4o')
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
@@ -299,7 +315,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return getOpenAIShimModelOrRouteDefault('gpt-4o-mini')
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
@@ -397,7 +413,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return getOpenAIShimModelOrRouteDefault('gpt-4o')
   }
   // Codex provider: always use the configured Codex model (default gpt-5.5)
   if (getAPIProvider() === 'codex') {

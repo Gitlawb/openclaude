@@ -238,6 +238,20 @@ function hasAnyUsableOpenAICredential(processEnv: NodeJS.ProcessEnv): boolean {
   )
 }
 
+function getConfiguredOpenAIBaseUrl(
+  processEnv: NodeJS.ProcessEnv,
+): string | undefined {
+  const usableUrl = (value: string | undefined): string | undefined => {
+    const trimmed = value?.trim()
+    return trimmed && trimmed.toLowerCase() !== 'undefined'
+      ? trimmed
+      : undefined
+  }
+
+  return usableUrl(processEnv.OPENAI_BASE_URL) ??
+    usableUrl(processEnv.OPENAI_API_BASE)
+}
+
 function hasNonEmptyEnvValue(value: string | undefined): boolean {
   const trimmed = value?.trim().toLowerCase()
   return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
@@ -995,6 +1009,51 @@ export function resolveRouteIdFromBaseUrl(
     }
   }
 
+  // Several OpenAI-compatible SDKs accept a provider origin and append the
+  // versioned API path themselves. Treat a bare origin as the route's default
+  // when that default differs only by its path, so env-only setups such as
+  // `OPENAI_BASE_URL=https://api.deepseek.com` retain the provider's routing
+  // metadata and model default instead of falling through to generic OpenAI.
+  if (normalizedBaseUrl && normalizedHost) {
+    const isBareOrigin = (() => {
+      try {
+        return new URL(normalizedBaseUrl).pathname === '/'
+      } catch {
+        return false
+      }
+    })()
+
+    if (isBareOrigin) {
+      const configuredAuthority = new URL(normalizedBaseUrl).host.toLowerCase()
+      const pathDefaultRoutes = routes.filter(route => {
+        if (
+          (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
+          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl))
+        ) {
+          return false
+        }
+        if (!route.defaultBaseUrl) return false
+        let defaultAuthority: string
+        try {
+          defaultAuthority = new URL(route.defaultBaseUrl).host.toLowerCase()
+        } catch {
+          return false
+        }
+        const defaultHost = normalizeHost(route.defaultBaseUrl)
+        const normalizedDefaultBaseUrl = normalizeComparableBaseUrl(route.defaultBaseUrl)
+        return (
+          defaultHost === normalizedHost &&
+          defaultAuthority === configuredAuthority &&
+          normalizedDefaultBaseUrl &&
+          normalizedDefaultBaseUrl !== normalizedBaseUrl
+        )
+      })
+      if (pathDefaultRoutes.length === 1) {
+        return pathDefaultRoutes[0]!.id
+      }
+    }
+  }
+
   if (normalizedHost) {
     for (const route of routes) {
       if (matchHostnameAgainstRouteHosts(normalizedHost, getValidationRoutingHosts(route))) {
@@ -1091,8 +1150,7 @@ export function resolveActiveRouteIdFromEnv(
   if (envOnlyRouteId) return envOnlyRouteId
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
-    const baseUrl =
-      processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
+    const baseUrl = getConfiguredOpenAIBaseUrl(processEnv)
     const matchedRoute = resolveRouteIdFromBaseUrl(baseUrl)
 
     if (matchedRoute) {
@@ -1154,6 +1212,18 @@ export function resolveActiveRouteIdFromEnv(
     )
     if (profileBaseUrlRoute) {
       return profileBaseUrlRoute
+    }
+  }
+
+  const explicitOpenAIBaseUrl = getConfiguredOpenAIBaseUrl(processEnv)
+  if (hasAnyUsableOpenAICredential(processEnv) && explicitOpenAIBaseUrl) {
+    const routeId = resolveRouteIdFromBaseUrl(explicitOpenAIBaseUrl)
+    // Keep this inference deliberately narrow: DeepSeek documents its API as
+    // OpenAI-compatible and its common setup uses only OPENAI_API_KEY plus a
+    // bare provider origin. Other provider-specific credentials retain their
+    // existing precedence rules.
+    if (routeId === 'deepseek') {
+      return routeId
     }
   }
 
