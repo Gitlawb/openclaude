@@ -76,6 +76,18 @@ test('cache-probe retains cache extensions for supported Chat and Responses endp
       prompt_cache_retention: '24h',
     })
     expect(responsesBody).toHaveProperty('prompt_cache_key')
+
+    const compatResponsesBody = await captureFirstProbeBody({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_FORMAT: 'responses_compat',
+      OPENAI_API_KEY: 'test-key',
+    })
+    expect(compatResponsesBody).toMatchObject({
+      input: [{ content: [{ type: 'text', text: 'Say "hello" and nothing else.' }] }],
+      prompt_cache_retention: '24h',
+    })
   } finally {
     releaseSharedMutationLock()
   }

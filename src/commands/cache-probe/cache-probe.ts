@@ -291,7 +291,10 @@ export const call: LocalCommandCall = async (args) => {
         {
           type: 'message',
           role: 'user',
-          content: [{ type: 'input_text', text: USER_MESSAGE }],
+          content: [{
+            type: request.transport === 'responses_compat' ? 'text' : 'input_text',
+            text: USER_MESSAGE,
+          }],
         },
       ],
       stream: true,
