@@ -42,15 +42,17 @@ function getModelFamily(model: string | undefined): string {
 }
 
 /**
- * `prompt_cache_*` and `store` are OpenAI-specific request extensions. This
- * command sends requests directly (rather than through the OpenAI shim), so
- * descriptor-level `removeBodyFields` rules do not protect strict compatible
- * endpoints such as NVIDIA NIM.
+ * `prompt_cache_*` and `store` are OpenAI/Azure OpenAI request extensions.
+ * This command sends requests directly (rather than through the OpenAI shim),
+ * so descriptor-level `removeBodyFields` rules do not protect strict
+ * compatible endpoints such as NVIDIA NIM.
  */
 export function supportsCacheProbeFields(baseUrl: string): boolean {
   try {
     const hostname = new URL(baseUrl).hostname.toLowerCase()
-    return hostname === 'api.openai.com' || hostname.endsWith('.api.openai.com')
+    return hostname === 'api.openai.com' ||
+      hostname.endsWith('.api.openai.com') ||
+      hostname.endsWith('.openai.azure.com')
   } catch {
     return false
   }
