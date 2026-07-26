@@ -141,6 +141,26 @@ describe('SpinnerAnimationRow', () => {
     expect(output).not.toContain(figures.arrowUp)
   })
 
+  it('does not enable bare thinking one column short of physical fit', async () => {
+    // bareAvailable = columns - messageWidth - 3; for "Thinking" that is
+    // columns - 13. At columns=20, bareAvailable=7 < 8, so bare must not show.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          columns: 20,
+        })}
+      />,
+      20,
+    )
+
+    expect(output).not.toContain('(thinking)')
+    // Residual 10 >= 5 so a mode glyph alone may still appear; either way the
+    // row must not claim a bare thinking status that overflows.
+    expect(output).not.toMatch(/Thinking\(thinking\)/)
+  })
+
   it('omits the mode glyph when residual width cannot fit status chrome', async () => {
     // messageWidth("Thinking")+2 = 10; residual at columns=14 is 4 (< 5 after
     // accounting for glimmer trailing space).

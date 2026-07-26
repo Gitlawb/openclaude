@@ -212,7 +212,8 @@ export function SpinnerAnimationRow({
       thinkingWidthValue = THINKING_BARE_WIDTH;
       showThinking = true;
     } else {
-      const bareAvailable = columns - messageWidth - 2;
+      // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
+      const bareAvailable = columns - messageWidth - 3;
       if (bareAvailable >= thinkingWidthValue) {
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
