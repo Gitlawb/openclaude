@@ -233,12 +233,13 @@ function parseAndAdd(
 function parseArguments(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
     try {
-      return JSON.parse(value) as Record<string, unknown>
+      const parsed: unknown = JSON.parse(value)
+      return isRecord(parsed) ? parsed : {}
     } catch {
       return {}
     }
   }
-  return (value as Record<string, unknown> | undefined) ?? {}
+  return isRecord(value) ? value : {}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

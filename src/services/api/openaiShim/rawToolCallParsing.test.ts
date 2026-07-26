@@ -58,6 +58,21 @@ test('parses stringified arguments in a bare-name tool call', () => {
   }])
 })
 
+test('rejects non-object arguments in text tool calls', () => {
+  for (const argumentsValue of [[], null, 'text']) {
+    const text = JSON.stringify({ name: 'Bash', arguments: argumentsValue })
+
+    expect(parseTextToolCalls(text, () => 1).calls).toEqual([{
+      id: 'ollama_tc_1',
+      name: 'Bash',
+      arguments: {},
+    }])
+  }
+
+  const stringifiedArray = JSON.stringify({ name: 'Bash', arguments: '[]' })
+  expect(parseTextToolCalls(stringifiedArray, () => 1).calls[0]?.arguments).toEqual({})
+})
+
 test('strips tool-call ranges regardless of input order', () => {
   expect(stripRanges('a{one}b{two}c', [[7, 12], [1, 6]])).toBe('abc')
 })
