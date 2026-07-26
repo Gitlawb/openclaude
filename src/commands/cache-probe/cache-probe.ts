@@ -41,6 +41,21 @@ function getModelFamily(model: string | undefined): string {
     .replace(/-preview$/, '')
 }
 
+/**
+ * `prompt_cache_*` and `store` are OpenAI-specific request extensions. This
+ * command sends requests directly (rather than through the OpenAI shim), so
+ * descriptor-level `removeBodyFields` rules do not protect strict compatible
+ * endpoints such as NVIDIA NIM.
+ */
+export function supportsCacheProbeFields(baseUrl: string): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'api.openai.com' || hostname.endsWith('.api.openai.com')
+  } catch {
+    return false
+  }
+}
+
 
 export function resolveCacheProbeApiKey(
   env: NodeJS.ProcessEnv = process.env,
@@ -244,6 +259,8 @@ export const call: LocalCommandCall = async (args) => {
   const url = `${request.baseUrl}${endpoint}`
   const family = getModelFamily(request.resolvedModel)
   const cacheKey = `${getSessionId()}:${family}`
+  const includeCacheProbeFields =
+    !noKey && supportsCacheProbeFields(request.baseUrl)
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -267,11 +284,13 @@ export const call: LocalCommandCall = async (args) => {
         },
       ],
       stream: true,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-        prompt_cache_retention: '24h',
-      }),
+      ...(includeCacheProbeFields
+        ? {
+            store: false,
+            prompt_cache_key: cacheKey,
+            prompt_cache_retention: '24h',
+          }
+        : {}),
     }
   } else {
     body = {
@@ -283,21 +302,23 @@ export const call: LocalCommandCall = async (args) => {
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: 20,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-      }),
+      ...(includeCacheProbeFields
+        ? {
+            store: false,
+            prompt_cache_key: cacheKey,
+          }
+        : {}),
     }
   }
 
   // Log configuration
   const config = [
-    `[cache-probe] Starting cache probe${noKey ? ' (--no-key: cache params OMITTED)' : ''}`,
+    `[cache-probe] Starting cache probe${!includeCacheProbeFields ? ' (cache params OMITTED)' : ''}`,
     `  model: ${request.resolvedModel} (family: ${family})`,
     `  transport: ${request.transport}`,
     `  endpoint: ${url}`,
-    `  prompt_cache_key: ${noKey ? 'NOT SENT' : cacheKey}`,
-    `  store: ${noKey ? 'NOT SENT' : 'false'}`,
+    `  prompt_cache_key: ${includeCacheProbeFields ? cacheKey : 'NOT SENT'}`,
+    `  store: ${includeCacheProbeFields ? 'false' : 'NOT SENT'}`,
     `  system prompt: ~${Math.round(SYSTEM_PROMPT.length / 4)} tokens`,
     `  delay between calls: ${DELAY_MS}ms`,
   ].join('\n')
