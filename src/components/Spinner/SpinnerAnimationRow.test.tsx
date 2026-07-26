@@ -2,18 +2,24 @@ import { describe, expect, it } from 'bun:test'
 import figures from 'figures'
 import { createRef } from 'react'
 import { renderToString } from '../../utils/staticRender.js'
-import { getCurrentResponseTokenCount, SpinnerAnimationRow } from './SpinnerAnimationRow.js'
+import {
+  getCurrentResponseTokenCount,
+  SpinnerAnimationRow,
+  type SpinnerAnimationRowProps,
+} from './SpinnerAnimationRow.js'
 
-function baseProps(overrides: Partial<Parameters<typeof SpinnerAnimationRow>[0]> = {}) {
+function baseProps(
+  overrides: Partial<SpinnerAnimationRowProps> = {},
+): SpinnerAnimationRowProps {
   const now = Date.now()
   return {
-    mode: 'responding' as const,
+    mode: 'responding',
     reducedMotion: true,
     hasActiveTools: false,
     responseLengthRef: { current: 0 },
     message: 'Thinking',
-    messageColor: 'text' as const,
-    shimmerColor: 'text' as const,
+    messageColor: 'text',
+    shimmerColor: 'text',
     loadingStartTimeRef: { current: now },
     totalPausedMsRef: { current: 0 },
     pauseStartTimeRef: createRef<number | null>(),
@@ -22,10 +28,18 @@ function baseProps(overrides: Partial<Parameters<typeof SpinnerAnimationRow>[0]>
     hasRunningTeammates: false,
     teammateTokens: 0,
     foregroundedTeammate: undefined,
-    thinkingStatus: null as const,
+    thinkingStatus: null,
     effortSuffix: '',
     ...overrides,
   }
+}
+
+/** ANSI-stripped non-empty rows from a static Ink render. */
+function visibleRows(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map(line => line.replace(/\s+$/u, ''))
+    .filter(line => line.trim().length > 0)
 }
 
 describe('SpinnerAnimationRow', () => {
@@ -39,11 +53,9 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    expect(output).toContain('1.0k tokens')
-    // Mode glyph stays inside the status parens next to the token count.
-    expect(output).toMatch(
-      new RegExp(`\\(${figures.arrowDown}[\\s\\S]*1\\.0k tokens[\\s\\S]*\\)`),
-    )
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown}  · 1.0k tokens)`,
+    ])
   })
 
   it('shows zero tokens as soon as the first response character arrives', async () => {
@@ -52,7 +64,9 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    expect(output).toContain('0 tokens')
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown}  · 0 tokens)`,
+    ])
   })
 
   it('does not overflow a narrow row when a spinner suffix is present', async () => {
@@ -67,8 +81,9 @@ describe('SpinnerAnimationRow', () => {
       45,
     )
 
-    expect(output).toContain('running stop hooks… 1/1')
-    expect(output).not.toContain('tokens')
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown}  · running stop hooks… 1/1)`,
+    ])
   })
 
   it('shows the requesting mode glyph inside parens before other status parts qualify', async () => {
@@ -77,9 +92,10 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    expect(output).toContain(`(${figures.arrowUp}`)
-    expect(output).toContain(')')
-    expect(output).not.toContain('tokens')
+    // Glyph Box width is 2, so the single-width arrow is padded inside parens.
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowUp} )`,
+    ])
   })
 
   it('shows the thinking mode glyph inside parens for thinking-only status', async () => {
@@ -93,11 +109,9 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    expect(output).toMatch(
-      new RegExp(`\\(${figures.arrowDown}[\\s\\S]*thinking[\\s\\S]*\\)`),
-    )
-    // Nested "(thinking)" is only for teammate bare status; leader uses outer parens.
-    expect(output).not.toContain('(thinking)')
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown}  · thinking)`,
+    ])
   })
 
   it('keeps thinking text with the mode glyph on moderately narrow terminals', async () => {
@@ -115,10 +129,9 @@ describe('SpinnerAnimationRow', () => {
       26,
     )
 
-    expect(output).toContain('thinking')
-    expect(output).toMatch(
-      new RegExp(`\\(${figures.arrowDown}[\\s\\S]*thinking[\\s\\S]*\\)`),
-    )
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown}  · thinking)`,
+    ])
   })
 
   it('falls back to bare thinking without glyph when full chrome does not fit', async () => {
@@ -135,15 +148,13 @@ describe('SpinnerAnimationRow', () => {
       23,
     )
 
-    expect(output).toContain('thinking')
-    expect(output).toContain('(thinking)')
-    expect(output).not.toContain(figures.arrowDown)
-    expect(output).not.toContain(figures.arrowUp)
+    expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
   })
 
   it('does not enable bare thinking one column short of physical fit', async () => {
     // bareAvailable = columns - messageWidth - 3; for "Thinking" that is
     // columns - 13. At columns=20, bareAvailable=7 < 8, so bare must not show.
+    // Residual still allows glyph-only status chrome.
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
@@ -155,10 +166,9 @@ describe('SpinnerAnimationRow', () => {
       20,
     )
 
-    expect(output).not.toContain('(thinking)')
-    // Residual 10 >= 5 so a mode glyph alone may still appear; either way the
-    // row must not claim a bare thinking status that overflows.
-    expect(output).not.toMatch(/Thinking\(thinking\)/)
+    expect(visibleRows(output)).toEqual([
+      `● Thinking (${figures.arrowDown} )`,
+    ])
   })
 
   it('omits the mode glyph when residual width cannot fit status chrome', async () => {
@@ -174,8 +184,7 @@ describe('SpinnerAnimationRow', () => {
       14,
     )
 
-    expect(output).not.toContain(figures.arrowUp)
-    expect(output).not.toContain(figures.arrowDown)
+    expect(visibleRows(output)).toEqual(['● Thinking'])
   })
 
   it('omits the mode glyph when teammates are running', async () => {
@@ -190,9 +199,13 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    expect(output).toContain('1.0k tokens')
-    expect(output).not.toContain(figures.arrowDown)
-    expect(output).not.toContain(figures.arrowUp)
+    // wantsTimer is true for teammates, so the elapsed timer appears with tokens.
+    // Timer text depends on wall clock (0s vs 0.0s), so match the full row shape.
+    const rows = visibleRows(output)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/^● Thinking \(\d+(?:\.\d+)?s · 1\.0k tokens\)$/)
+    expect(rows[0]).not.toContain(figures.arrowDown)
+    expect(rows[0]).not.toContain(figures.arrowUp)
   })
 
   it('nests (thinking) for teammate bare status under reduced motion', async () => {
@@ -211,9 +224,6 @@ describe('SpinnerAnimationRow', () => {
       26,
     )
 
-    expect(output).toContain('(thinking)')
-    expect(output).not.toContain(figures.arrowDown)
-    expect(output).not.toContain(figures.arrowUp)
-    expect(output).not.toMatch(/Thinking thinking/)
+    expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
   })
 })
