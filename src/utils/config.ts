@@ -237,6 +237,13 @@ export type ProviderProfile = {
    * Applied to OpenAI-compatible providers when resolving runtime limits.
    */
   maxContextLength?: number
+  /**
+   * Per-profile self-hosted tool compatibility (llama-server, vLLM, Ollama,
+   * etc.). When this profile is active, OpenClaude enables JSON-in-text
+   * tool recovery and related self-hosted tool behaviour for this provider
+   * only — no shell env required. Other profiles are unaffected.
+   */
+  selfHostedTools?: boolean
 }
 
 export type GlobalConfig = {

@@ -731,6 +731,35 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
   })
+
+  test('clears parent self-hosted recovery flags for the override route', () => {
+    const env: Record<string, string | undefined> = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://llama.example.com:8443/v1',
+      OPENAI_MODEL: 'qwen-parent',
+      OPENAI_SELF_HOSTED_TOOLS: '1',
+      OPENAI_PARSE_TEXT_TOOL_CALLS: '1',
+      OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS: '1',
+      OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS: '1',
+    }
+
+    applyAgentProviderOverrideToEnv(
+      {
+        model: 'gpt-4o',
+        baseURL: 'https://api.openai.com/v1',
+        apiKey: 'sk-oai',
+      },
+      env,
+    )
+
+    expect(env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(env.OPENAI_SELF_HOSTED_TOOLS).toBeUndefined()
+    expect(env.OPENAI_PARSE_TEXT_TOOL_CALLS).toBeUndefined()
+    expect(env.OPENCLAUDE_STARTUP_SELF_HOSTED_TOOLS).toBeUndefined()
+    expect(env.OPENCLAUDE_STARTUP_PARSE_TEXT_TOOL_CALLS).toBeUndefined()
+  })
 })
 
 describe('shouldEnforceModelAllowlist', () => {

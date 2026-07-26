@@ -10,7 +10,7 @@ import {
   type CodexCredentialBlob,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
+import { isEnvDefinedFalsy, isEnvTruthy } from '../../utils/envUtils.js'
 import {
   asTrimmedString,
   parseChatgptAccountId,
@@ -673,6 +673,109 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Synthetic assistant text the OpenAI shim injects between `tool` and `user`
+ * for Mistral/Devstral Jinja role sequencing only. Never use this as a
+ * continuation signal for llama-server / Ollama / vLLM — those backends treat
+ * it as real assistant content and often echo it, stalling the tool loop.
+ */
+export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
+
+/**
+ * Opt-in for self-hosted OpenAI-compatible tool behaviour (llama-server, vLLM,
+ * LM Studio, remote tunnels). When set, host detection is not required — any
+ * base URL (public domain, reverse proxy, non-standard port) is treated as a
+ * text-tool-compat backend.
+ *
+ * Also accepted: OPENAI_PARSE_TEXT_TOOL_CALLS (historical alias).
+ */
+export const OPENAI_SELF_HOSTED_TOOLS_ENV = 'OPENAI_SELF_HOSTED_TOOLS'
+
+/**
+ * Whether to inject the Mistral-only tool→assistant→user semantic boundary.
+ * Other OpenAI-compatible backends (llama-server + Qwen, Ollama, vLLM, OpenAI)
+ * must keep tool→user (or tool as last message) so Jinja templates stay valid.
+ */
+export function shouldInjectToolResultSemanticBoundary(options?: {
+  baseUrl?: string
+  model?: string
+  processEnv?: NodeJS.ProcessEnv
+}): boolean {
+  const processEnv = options?.processEnv ?? process.env
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return true
+  }
+
+  const baseUrl =
+    options?.baseUrl ??
+    processEnv.MISTRAL_BASE_URL ??
+    processEnv.OPENAI_BASE_URL ??
+    ''
+  // Hostname only — avoid false positives like https://mistral.ai-proxy.example/v1
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    if (
+      host === 'mistral.ai' ||
+      host === 'api.mistral.ai' ||
+      host.endsWith('.mistral.ai')
+    ) {
+      return true
+    }
+  } catch {
+    // Invalid URL — fall through to model-name detection.
+  }
+
+  const model = (
+    options?.model ??
+    processEnv.MISTRAL_MODEL ??
+    processEnv.OPENAI_MODEL ??
+    ''
+  ).toLowerCase()
+  return /\b(devstral|mistral|ministral|codestral)\b/.test(model)
+}
+
+/**
+ * Self-hosted tool-call recovery (JSON-in-text + stream buffering).
+ *
+ * True when:
+ * - OPENAI_SELF_HOSTED_TOOLS=1 (or OPENAI_PARSE_TEXT_TOOL_CALLS=1) — any host
+ * - base URL is loopback / RFC1918 / .local (llama-server on LAN, any port)
+ * - endpoint looks like Ollama
+ *
+ * Explicit `0`/`false`/`off` on either flag forces recovery off (including
+ * local URLs) so a profile/UI "Disabled" selection is honoured.
+ *
+ * Host detection is intentionally not required when the env flag is set so a
+ * publicly reverse-proxied llama-server works the same as localhost:8080.
+ *
+ * Callers with a providerOverride must pass that route's processEnv (with
+ * parent self-hosted flags cleared) so recovery is not inherited from the
+ * parent profile.
+ */
+export function shouldUseSelfHostedToolCompat(
+  baseUrl?: string,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // Explicit disable wins over local/Ollama auto-detect and over a conflicting
+  // truthy alias — profile "Disabled" sets OPENAI_SELF_HOSTED_TOOLS=0.
+  if (
+    isEnvDefinedFalsy(processEnv[OPENAI_SELF_HOSTED_TOOLS_ENV]) ||
+    isEnvDefinedFalsy(processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)
+  ) {
+    return false
+  }
+  if (isEnvTruthy(processEnv[OPENAI_SELF_HOSTED_TOOLS_ENV])) {
+    return true
+  }
+  if (isEnvTruthy(processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)) {
+    return true
+  }
+  if (isLocalProviderUrl(baseUrl)) {
+    return true
+  }
+  return isLikelyOllamaEndpoint(baseUrl)
 }
 
 export function isDirectLocalOllamaEndpoint(baseUrl: string | undefined): boolean {
