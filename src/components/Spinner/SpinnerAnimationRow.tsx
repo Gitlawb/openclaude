@@ -193,13 +193,16 @@ export function SpinnerAnimationRow({
   const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   const showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
-  // Leader thinking-only now keeps the mode glyph inside outer parens
+  // Leader thinking-only prefers the mode glyph inside outer parens
   // ("(↓ · thinking)"). The primary gate above still uses a conservative
   // parensWidth that can reject widths where that physical layout still fits.
-  // Retry with the real leader chrome budget so the thinking word is not lost
-  // on moderately narrow terminals.
-  // Physical: "(" + glyph(2) + " · " + thinking + ")" (+ 1 safety).
+  // Retry in two steps so the thinking word is not lost on narrow terminals:
+  // 1) full leader chrome with glyph when it fits
+  // 2) bare "(thinking)" without the glyph (same band as pre-glyph layout)
+  //    rather than rendering glyph-only empty status
+  // Physical full chrome: "(" + glyph(2) + " · " + thinking + ")" (+ 1 safety).
   const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
+  let suppressModeGlyphForBareThinking = false;
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
     const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
     if (leaderThinkingAvailable >= thinkingWidthValue) {
@@ -208,17 +211,31 @@ export function SpinnerAnimationRow({
       thinkingText = 'thinking';
       thinkingWidthValue = THINKING_BARE_WIDTH;
       showThinking = true;
+    } else {
+      const bareAvailable = columns - messageWidth - 2;
+      if (bareAvailable >= thinkingWidthValue) {
+        showThinking = true;
+        suppressModeGlyphForBareThinking = true;
+      } else if (effortSuffix && bareAvailable >= THINKING_BARE_WIDTH) {
+        thinkingText = 'thinking';
+        thinkingWidthValue = THINKING_BARE_WIDTH;
+        showThinking = true;
+        suppressModeGlyphForBareThinking = true;
+      }
     }
   }
-  // thinkingOnly: only the thinking word (plus the mode glyph on leader spins).
-  // Nested "(thinking)" is reserved for teammate spins that skip the mode glyph
-  // and therefore have no outer status parens.
+  // thinkingOnly: only the thinking word (plus the mode glyph on leader spins
+  // when space allows). Nested "(thinking)" is reserved for teammate spins that
+  // skip the mode glyph and therefore have no outer status parens. Leader bare
+  // fallback still uses outer parens with just the thinking word: "(thinking)".
   const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
   const bareThinkingOnly = thinkingOnly && hasRunningTeammates;
-  // Minimum residual for leader status chrome: "(" + glyph Box(width=2) + ")".
-  // Below this, omit the glyph entirely rather than overflow the row.
+  // Minimum residual for leader status chrome after the glimmer trailing space:
+  // " " + "(" + glyph Box(width=2) + ")". Below this, omit the glyph rather
+  // than overflow the row. Also omit when the bare-thinking fallback chose to
+  // keep the thinking word without glyph chrome.
   const residualForStatus = columns - messageWidth;
-  const canShowModeGlyph = !hasRunningTeammates && residualForStatus >= 4;
+  const canShowModeGlyph = !hasRunningTeammates && !suppressModeGlyphForBareThinking && residualForStatus >= 5;
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
   // Same sine-wave opacity, but derived from our shared `time` instead of a

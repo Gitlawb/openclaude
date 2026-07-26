@@ -121,16 +121,37 @@ describe('SpinnerAnimationRow', () => {
     )
   })
 
+  it('falls back to bare thinking without glyph when full chrome does not fit', async () => {
+    // Cols 21–25: glyph+thinking chrome does not fit, but bare "(thinking)" does.
+    // Prefer the thinking word over glyph-only empty status.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          columns: 23,
+        })}
+      />,
+      23,
+    )
+
+    expect(output).toContain('thinking')
+    expect(output).toContain('(thinking)')
+    expect(output).not.toContain(figures.arrowDown)
+    expect(output).not.toContain(figures.arrowUp)
+  })
+
   it('omits the mode glyph when residual width cannot fit status chrome', async () => {
-    // messageWidth("Thinking")+2 = 10; residual at columns=12 is 2 (< 4).
+    // messageWidth("Thinking")+2 = 10; residual at columns=14 is 4 (< 5 after
+    // accounting for glimmer trailing space).
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           mode: 'requesting',
-          columns: 12,
+          columns: 14,
         })}
       />,
-      12,
+      14,
     )
 
     expect(output).not.toContain(figures.arrowUp)
