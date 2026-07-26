@@ -40,10 +40,10 @@ test('cache-probe omits cache extensions from NVIDIA NIM requests (#2042)', asyn
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.NVIDIA_NIM = '1'
     process.env.NVIDIA_API_KEY = 'test-key'
-    globalThis.fetch = async (_input, init) => {
+    globalThis.fetch = (async (_input, init) => {
       sentBody = JSON.parse(String(init?.body))
       return new Response('unsupported fields', { status: 400 })
-    }
+    }) as typeof globalThis.fetch
 
     const result = await call('', {} as any)
 
