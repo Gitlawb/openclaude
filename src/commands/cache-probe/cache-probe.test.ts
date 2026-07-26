@@ -23,6 +23,62 @@ test('cache-probe only sends OpenAI cache extensions to direct OpenAI API hosts 
   ).toBe(true)
   expect(supportsCacheProbeFields('https://integrate.api.nvidia.com/v1')).toBe(false)
   expect(supportsCacheProbeFields('https://compatible.example.test/v1')).toBe(false)
+  expect(supportsCacheProbeFields('not a URL')).toBe(false)
+})
+
+async function captureFirstProbeBody(
+  env: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const originalEnv = { ...process.env }
+  const originalFetch = globalThis.fetch
+  let sentBody: Record<string, unknown> | undefined
+  try {
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    Object.assign(process.env, env)
+    const mockFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body))
+      return new Response('unsupported fields', { status: 400 })
+    }) as unknown as typeof globalThis.fetch
+    globalThis.fetch = mockFetch
+
+    await call('', {} as any)
+    expect(sentBody).toBeDefined()
+    return sentBody!
+  } finally {
+    globalThis.fetch = originalFetch
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    Object.assign(process.env, originalEnv)
+  }
+}
+
+test('cache-probe retains cache extensions for supported Chat and Responses endpoints (#2042)', async () => {
+  await acquireSharedMutationLock('commands/cache-probe/cache-probe.test.ts')
+  try {
+    const chatBody = await captureFirstProbeBody({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'test-key',
+    })
+    expect(chatBody).toMatchObject({ store: false })
+    expect(chatBody).toHaveProperty('prompt_cache_key')
+    expect(chatBody).not.toHaveProperty('prompt_cache_retention')
+
+    const responsesBody = await captureFirstProbeBody({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://resource.openai.azure.com/openai/v1',
+      OPENAI_MODEL: 'gpt-5.4',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_API_KEY: 'test-key',
+    })
+    expect(responsesBody).toMatchObject({
+      store: false,
+      prompt_cache_retention: '24h',
+    })
+    expect(responsesBody).toHaveProperty('prompt_cache_key')
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('cache-probe omits cache extensions from NVIDIA NIM requests (#2042)', async () => {
@@ -40,10 +96,11 @@ test('cache-probe omits cache extensions from NVIDIA NIM requests (#2042)', asyn
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.NVIDIA_NIM = '1'
     process.env.NVIDIA_API_KEY = 'test-key'
-    globalThis.fetch = (async (_input, init) => {
+    const mockFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       sentBody = JSON.parse(String(init?.body))
       return new Response('unsupported fields', { status: 400 })
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
+    globalThis.fetch = mockFetch
 
     const result = await call('', {} as any)
 

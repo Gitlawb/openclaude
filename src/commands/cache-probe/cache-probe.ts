@@ -262,7 +262,10 @@ export const call: LocalCommandCall = async (args) => {
     }
   }
 
-  const useResponses = request.transport === 'codex_responses'
+  const useResponses =
+    request.transport === 'codex_responses' ||
+    request.transport === 'responses' ||
+    request.transport === 'responses_compat'
   const endpoint = useResponses ? '/responses' : '/chat/completions'
   const url = `${request.baseUrl}${endpoint}`
   const family = getModelFamily(request.resolvedModel)
