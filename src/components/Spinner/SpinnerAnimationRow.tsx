@@ -193,22 +193,11 @@ export function SpinnerAnimationRow({
   const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   const showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
-  // Second chance for narrow terminals: the gating above reserves space for
-  // the mode glyph + separator, but a would-be thinking-only spin renders
-  // neither the glyph nor the wrapping parens beyond "( )". When nothing
-  // else will show, re-try the thinking gate with that space returned so
-  // "(thinking)" appears instead of nothing.
-  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
-    const bareAvailable = columns - messageWidth - 2;
-    if (bareAvailable > thinkingWidthValue) {
-      showThinking = true;
-    } else if (effortSuffix && bareAvailable > THINKING_BARE_WIDTH) {
-      thinkingText = 'thinking';
-      thinkingWidthValue = THINKING_BARE_WIDTH;
-      showThinking = true;
-    }
-  }
-  const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens && true;
+  // thinkingOnly: only the thinking word (plus the mode glyph on leader spins).
+  // Nested "(thinking)" is reserved for teammate spins that skip the mode glyph
+  // and therefore have no outer status parens.
+  const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
+  const bareThinkingOnly = thinkingOnly && hasRunningTeammates;
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
   // Same sine-wave opacity, but derived from our shared `time` instead of a
@@ -225,15 +214,16 @@ export function SpinnerAnimationRow({
           </Text>] : []), ...(showTokens ? [<Text dimColor key="tokens">
             {tokensText}
           </Text>] : []), ...(showThinking && thinkingText ? [thinkingStatus === 'thinking' && !reducedMotion ? <Text key="thinking" color={thinkingShimmerColor}>
-              {thinkingOnly ? `(${thinkingText})` : thinkingText}
+              {bareThinkingOnly ? `(${thinkingText})` : thinkingText}
             </Text> : <Text dimColor key="thinking">
               {thinkingText}
             </Text>] : [])];
   // Lead the status with the request-direction glyph (↑ requesting /
-  // ↓ responding) so the mode is visible whenever any status shows — it was
-  // previously buried inside the tokens part, which only appears after 30s.
-  // Skipped for thinkingOnly (kept minimal) and teammate spins (tree has it).
-  if (!hasRunningTeammates && !thinkingOnly && parts.length > 0) {
+  // ↓ streaming) inside the status parens so the mode is always visible while
+  // the spinner is active — including the early requesting window before any
+  // other status part qualifies, and thinking-only spins. Teammate spins skip
+  // it (the teammate tree carries its own activity cue).
+  if (!hasRunningTeammates) {
     parts.unshift(<Box flexDirection="row" key="mode">
             <SpinnerModeGlyph mode={mode} />
           </Box>);
@@ -244,7 +234,7 @@ export function SpinnerAnimationRow({
           {foregroundedTeammate.identity.agentName}
         </Text>
         <Text dimColor>)</Text>
-      </> : !foregroundedTeammate && parts.length > 0 ? thinkingOnly ? <Byline>{parts}</Byline> : <>
+      </> : !foregroundedTeammate && parts.length > 0 ? bareThinkingOnly ? <Byline>{parts}</Byline> : <>
           <Text dimColor>(</Text>
           <Byline>{parts}</Byline>
           <Text dimColor>)</Text>
