@@ -100,6 +100,43 @@ describe('SpinnerAnimationRow', () => {
     expect(output).not.toContain('(thinking)')
   })
 
+  it('keeps thinking text with the mode glyph on moderately narrow terminals', async () => {
+    // Primary gate with full parensWidth rejects ~cols 25–27 for message
+    // "Thinking"; the leader thinking-only second chance must still fit
+    // "(↓ · thinking)" so the thinking word is not dropped.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          columns: 26,
+        })}
+      />,
+      26,
+    )
+
+    expect(output).toContain('thinking')
+    expect(output).toMatch(
+      new RegExp(`\\(${figures.arrowDown}[\\s\\S]*thinking[\\s\\S]*\\)`),
+    )
+  })
+
+  it('omits the mode glyph when residual width cannot fit status chrome', async () => {
+    // messageWidth("Thinking")+2 = 10; residual at columns=12 is 2 (< 4).
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'requesting',
+          columns: 12,
+        })}
+      />,
+      12,
+    )
+
+    expect(output).not.toContain(figures.arrowUp)
+    expect(output).not.toContain(figures.arrowDown)
+  })
+
   it('omits the mode glyph when teammates are running', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow

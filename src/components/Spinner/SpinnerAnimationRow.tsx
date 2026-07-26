@@ -193,11 +193,32 @@ export function SpinnerAnimationRow({
   const showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   const showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
+  // Leader thinking-only now keeps the mode glyph inside outer parens
+  // ("(↓ · thinking)"). The primary gate above still uses a conservative
+  // parensWidth that can reject widths where that physical layout still fits.
+  // Retry with the real leader chrome budget so the thinking word is not lost
+  // on moderately narrow terminals.
+  // Physical: "(" + glyph(2) + " · " + thinking + ")" (+ 1 safety).
+  const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
+  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
+    const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
+    if (leaderThinkingAvailable >= thinkingWidthValue) {
+      showThinking = true;
+    } else if (effortSuffix && leaderThinkingAvailable >= THINKING_BARE_WIDTH) {
+      thinkingText = 'thinking';
+      thinkingWidthValue = THINKING_BARE_WIDTH;
+      showThinking = true;
+    }
+  }
   // thinkingOnly: only the thinking word (plus the mode glyph on leader spins).
   // Nested "(thinking)" is reserved for teammate spins that skip the mode glyph
   // and therefore have no outer status parens.
   const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
   const bareThinkingOnly = thinkingOnly && hasRunningTeammates;
+  // Minimum residual for leader status chrome: "(" + glyph Box(width=2) + ")".
+  // Below this, omit the glyph entirely rather than overflow the row.
+  const residualForStatus = columns - messageWidth;
+  const canShowModeGlyph = !hasRunningTeammates && residualForStatus >= 4;
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
   // Same sine-wave opacity, but derived from our shared `time` instead of a
@@ -222,8 +243,9 @@ export function SpinnerAnimationRow({
   // ↓ streaming) inside the status parens so the mode is always visible while
   // the spinner is active — including the early requesting window before any
   // other status part qualifies, and thinking-only spins. Teammate spins skip
-  // it (the teammate tree carries its own activity cue).
-  if (!hasRunningTeammates) {
+  // it (the teammate tree carries its own activity cue). Very narrow rows that
+  // cannot fit "(" + glyph + ")" omit the glyph instead of overflowing.
+  if (canShowModeGlyph) {
     parts.unshift(<Box flexDirection="row" key="mode">
             <SpinnerModeGlyph mode={mode} />
           </Box>);
