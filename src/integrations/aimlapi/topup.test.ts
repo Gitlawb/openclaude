@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,11 +14,25 @@ import {
 
 const directories: string[] = []
 
+// Captured before any mock.module runs, so teardown can restore the real
+// implementations. import() after a mock is registered would return the stub.
+const realClientModule = await import('./client.js')
+const realProviderProfileModule = await import('../../utils/providerProfile.js')
+
 afterEach(() => {
   setClaudeConfigHomeDirForTesting(undefined)
   for (const directory of directories.splice(0)) {
     rmSync(directory, { force: true, recursive: true })
   }
+})
+
+afterAll(() => {
+  // mock.restore() does NOT undo mock.module(); re-register the real modules so
+  // the client/saveProfileFile stubs cannot bleed into later test files in the
+  // same process (a leaked saveProfileFile would silently swallow real writes).
+  mock.module('./client.js', () => realClientModule)
+  mock.module('../../utils/providerProfile.js', () => realProviderProfileModule)
+  mock.restore()
 })
 
 function useTemporaryConfig(): string {
@@ -87,8 +101,8 @@ async function importTopupWithClient(stub: {
   const payBodies: Array<Record<string, unknown>> = []
   const savedProfiles: Array<Record<string, unknown>> = []
   let overrideUsed = false
-  const actualClient = await import('./client.js')
-  const actualProfile = await import('../../utils/providerProfile.js')
+  const actualClient = realClientModule
+  const actualProfile = realProviderProfileModule
 
   class StubClient {
     async signup(): Promise<{ token: string; exp: number }> {
@@ -362,6 +376,56 @@ test('a resumed session that is already paid is not re-bound', async () => {
   expect(calls.pay).toBe(0)
   expect(calls.exchange).toBe(1)
   expect(provisioned.apiKey).toBe('k_issued')
+})
+
+test('a session interrupted at exchanging is resumed, not re-charged', async () => {
+  useTemporaryConfig()
+
+  // Payment settled and the exchange had begun, but the run was interrupted
+  // before the settled receipt was written — the provider reports `exchanging`.
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'exchanging-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    getSession: async token => session({ sessionToken: token, status: 'exchanging' }),
+  })
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+
+  // Resumed straight to the exchange: no new checkout and no second charge,
+  // matching how pollUntilPaid treats an `exchanging` session.
+  expect(calls.createSession).toBe(0)
+  expect(calls.pay).toBe(0)
+  expect(calls.exchange).toBe(1)
+  expect(provisioned.apiKey).toBe('k_issued')
+})
+
+test('a malformed status response preserves the recorded checkout', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'recorded-session',
+  })
+
+  const { AimlapiApiError } = await import('./client.js')
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    // client.getSession throws status 200 for a malformed/empty success body,
+    // explicitly as a non-terminal signal.
+    getSession: async () => {
+      throw new AimlapiApiError('malformed session', 200, '')
+    },
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('malformed session')
+  // The record survived rather than being retired into a second checkout.
+  expect(calls.createSession).toBe(0)
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
 })
 
 test('a rate-limited status check preserves the recorded checkout', async () => {

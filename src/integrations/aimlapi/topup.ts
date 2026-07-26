@@ -87,14 +87,24 @@ const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000 // 20 minutes
 
 /**
- * A recorded session is only worth resuming while it can still reach a paid
- * exchange. `exchanging`/`exchanged` mean the one-shot key was already claimed,
- * and the terminal states are dead, so both start a fresh checkout instead.
+ * Statuses that mean payment has settled, so binding/paying again is wrong and
+ * the flow goes straight to the key exchange. `exchanging` is included because
+ * `pollUntilPaid` also treats it as ready to exchange.
+ */
+const PAID_SESSION_STATUSES: ReadonlySet<string> = new Set(['paid', 'exchanging'])
+
+/**
+ * A recorded session is worth resuming while it can still reach a paid exchange:
+ * the pending states plus the already-settled ones. `exchanged` means the
+ * one-shot key was already claimed and the terminal states are dead, so those
+ * start a fresh checkout. `exchanging` stays resumable — matching
+ * `pollUntilPaid` — so a run interrupted between payment and receipt does not
+ * discard the session and open a second, chargeable checkout.
  */
 const RESUMABLE_SESSION_STATUSES: ReadonlySet<string> = new Set([
   'pending_auth',
   'pending_payment',
-  'paid',
+  ...PAID_SESSION_STATUSES,
 ])
 
 /**
@@ -158,15 +168,23 @@ async function resolveCheckoutSession(
         return { session: existing, state }
       }
     } catch (error) {
-      // Only a definitive answer may retire the recorded checkout. A transient
-      // condition (network blip, timeout, rate-limit, 5xx) says nothing about the
-      // session, and discarding it here would open — and charge — a second
-      // checkout for a still-payable one. Surface it instead: the record
-      // survives, so a re-run resumes. `pollUntilPaid` draws the same line.
-      if (isTransientHttpError(error)) {
+      // Only a definitive answer may retire the recorded checkout. Preserve it
+      // (surface the error, so a re-run resumes) when the failure says nothing
+      // about the session's fate:
+      //   - transient conditions: network blip, timeout, rate-limit, 5xx;
+      //   - a malformed-but-successful body — client.getSession throws
+      //     AimlapiApiError(..., 200) for that, explicitly as a non-terminal
+      //     signal so retained state is preserved.
+      // Discarding here would open — and charge — a second checkout for a
+      // still-payable one. `pollUntilPaid` draws the same line.
+      if (
+        isTransientHttpError(error) ||
+        (error instanceof AimlapiApiError && error.status === 200)
+      ) {
         throw error
       }
-      // Anything else is a definitive failure to read the session; fall through.
+      // A definitive read failure (e.g. 404/410 for a genuinely gone session):
+      // fall through and open a fresh checkout.
     }
     // The recorded session cannot be paid anymore. Drop it and claim a new
     // payment identity so the next attempt is not tied to the dead one.
@@ -367,7 +385,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // already paid — re-binding a settled checkout has no defined behaviour, so go
   // straight to the exchange.
   let paid: PartnerCheckoutSession
-  if (session.status === 'paid') {
+  if (PAID_SESSION_STATUSES.has(session.status)) {
     console.log(chalk.dim('  -> Payment already completed; resuming'))
     paid = session
   } else {
@@ -427,7 +445,8 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     console.log(
       chalk.yellow(
         `\n  [warn] Could not record the recovery receipt for the issued key.` +
-          `\n         Save it now if the next step fails: ${maskKey(apiKey)} (id ${apiKeyId})`,
+          `\n         If the profile write below fails this is the only copy — save it now:` +
+          `\n         ${apiKey} (id ${apiKeyId})`,
       ),
     )
   }
@@ -527,7 +546,7 @@ export async function provisionAimlapiKey(
   // A resumed session that is already paid must not be re-bound: go straight to
   // the exchange instead of calling pay() on a settled checkout.
   let paid: PartnerCheckoutSession
-  if (session.status === 'paid') {
+  if (PAID_SESSION_STATUSES.has(session.status)) {
     paid = session
   } else {
     options.onStatus?.('opening-checkout')
