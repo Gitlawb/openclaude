@@ -97,6 +97,22 @@ const RESUMABLE_SESSION_STATUSES: ReadonlySet<string> = new Set([
   'paid',
 ])
 
+/**
+ * Transient HTTP conditions that say nothing about a checkout's fate: a retry or
+ * a later resume may still succeed, so they must never retire a recorded session
+ * or abort an in-progress payment. status 0 is a network-level failure (see
+ * client.ts); 408/429 are request-timeout/rate-limit; 5xx are server-side.
+ */
+function isTransientHttpError(error: unknown): boolean {
+  return (
+    error instanceof AimlapiApiError &&
+    (error.status === 0 ||
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500)
+  )
+}
+
 function buildTopupIntent(args: {
   email: string
   amountUsdMinor: number
@@ -142,15 +158,12 @@ async function resolveCheckoutSession(
         return { session: existing, state }
       }
     } catch (error) {
-      // Only a definitive answer may retire the recorded checkout. A network
-      // blip or 5xx says nothing about the session, and discarding it here would
-      // open — and charge — a second checkout for a still-payable one. Surface it
-      // instead: the record survives, so a re-run resumes. `pollUntilPaid` draws
-      // the same line.
-      if (
-        error instanceof AimlapiApiError &&
-        (error.status === 0 || error.status >= 500)
-      ) {
+      // Only a definitive answer may retire the recorded checkout. A transient
+      // condition (network blip, timeout, rate-limit, 5xx) says nothing about the
+      // session, and discarding it here would open — and charge — a second
+      // checkout for a still-payable one. Surface it instead: the record
+      // survives, so a re-run resumes. `pollUntilPaid` draws the same line.
+      if (isTransientHttpError(error)) {
         throw error
       }
       // Anything else is a definitive failure to read the session; fall through.
@@ -186,6 +199,39 @@ function maskKey(key: string): string {
     return '****'
   }
   return `${key.slice(0, 6)}...${key.slice(-4)}`
+}
+
+/**
+ * Write the issued key into the provider profile, drop the now-spent recovery
+ * record, and report success. Shared by the normal exchange path and the
+ * settled-receipt resume so both retire the record only after the profile write.
+ */
+function finishCliTopup(args: {
+  intent: AimlapiTopupIntent
+  paymentSessionId: string
+  apiKey: string
+  apiKeyId: string
+  model: string
+  baseUrl: string
+}): void {
+  const profilePath = saveProfileFile({
+    profile: 'openai',
+    env: {
+      OPENAI_BASE_URL: args.baseUrl,
+      OPENAI_API_KEY: args.apiKey,
+      OPENAI_MODEL: args.model,
+    },
+    createdAt: new Date().toISOString(),
+  })
+  // The credential is now in the profile, so the recovery record is spent.
+  clearAimlapiTopupState({ ...args.intent, paymentSessionId: args.paymentSessionId })
+
+  console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
+  console.log(`    key      ${chalk.dim(maskKey(args.apiKey))}  (id ${args.apiKeyId})`)
+  console.log(`    base URL ${chalk.dim(args.baseUrl)}`)
+  console.log(`    model    ${chalk.dim(args.model)}`)
+  console.log(`    profile  ${chalk.dim(profilePath)}`)
+  console.log(chalk.dim(`\n  Run ${chalk.bold('openclaude')} to start coding on AI/ML API.\n`))
 }
 
 function parseAmount(amountUsd: string | undefined): number {
@@ -292,6 +338,23 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     inferenceBaseUrl: endpoints.inferenceBaseUrl,
   })
   const checkoutState = claimAimlapiTopupState(intent)
+  // A previous run already exchanged the key but was interrupted before (or
+  // during) the profile write. Resume from the receipt instead of resolving a
+  // checkout: the provider now reports that session as `exchanged`, so going
+  // through resolveCheckoutSession would discard the receipt and open — and
+  // charge — a brand-new checkout for a key we already paid for.
+  if (checkoutState.settled && checkoutState.apiKey) {
+    console.log(chalk.dim('  -> Resuming a previously provisioned key'))
+    finishCliTopup({
+      intent,
+      paymentSessionId: checkoutState.paymentSessionId,
+      apiKey: checkoutState.apiKey,
+      apiKeyId: checkoutState.apiKeyId ?? '',
+      model: checkoutState.model?.trim() || model,
+      baseUrl: endpoints.inferenceBaseUrl,
+    })
+    return
+  }
   const { session, state } = await resolveCheckoutSession(client, {
     intent,
     state: checkoutState,
@@ -315,6 +378,10 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     const { checkout } = await client.pay(token, session.sessionToken, {
       amountUsdMinor,
       method,
+      // The persisted payment id is the charge idempotency key: a retry or an
+      // ambiguous /pay result must reference the same identity, not open a
+      // second charge.
+      paymentSessionId: state.paymentSessionId,
       successUrl,
       cancelUrl,
     })
@@ -365,28 +432,29 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     )
   }
 
-  // 7. Persist into OpenClaude's provider profile.
-  const profilePath = saveProfileFile({
-    profile: 'openai',
-    env: {
-      OPENAI_BASE_URL: endpoints.inferenceBaseUrl,
-      OPENAI_API_KEY: apiKey,
-      OPENAI_MODEL: model,
-    },
-    createdAt: new Date().toISOString(),
+  // 7. Persist into OpenClaude's provider profile and retire the record.
+  finishCliTopup({
+    intent,
+    paymentSessionId: state.paymentSessionId,
+    apiKey,
+    apiKeyId,
+    model,
+    baseUrl: endpoints.inferenceBaseUrl,
   })
-
-  // The credential is now in the profile, so the recovery record is spent.
-  clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
-
-  console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
-  console.log(`    key      ${chalk.dim(maskKey(apiKey))}  (id ${apiKeyId})`)
-  console.log(`    base URL ${chalk.dim(endpoints.inferenceBaseUrl)}`)
-  console.log(`    model    ${chalk.dim(model)}`)
-  console.log(`    profile  ${chalk.dim(profilePath)}`)
-  console.log(chalk.dim(`\n  Run ${chalk.bold('openclaude')} to start coding on AI/ML API.\n`))
 }
 
+/**
+ * Provision a key for the guided (GUI) flow and return it in memory.
+ *
+ * Recovery-receipt contract: this function does not own the persistence of the
+ * returned key, so it never clears the checkout record itself. On success it
+ * leaves a settled receipt behind; the caller MUST call
+ * `clearAimlapiTopupState({ ...intent, paymentSessionId })` once it has durably
+ * saved the key. Until then the receipt is the only recoverable copy, and a
+ * second top-up for the same intent will short-circuit and return the recorded
+ * key instead of charging again — so clearing after a successful persist is
+ * required for a later top-up to actually open a new checkout.
+ */
 export async function provisionAimlapiKey(
   options: AimlapiProvisionOptions,
 ): Promise<AimlapiProvisionedKey> {
@@ -433,9 +501,13 @@ export async function provisionAimlapiKey(
   })
   const claimed = claimAimlapiTopupState(intent)
   // A previous run already exchanged the key but was interrupted before the
-  // caller could persist it: hand back that credential instead of paying again.
+  // caller persisted it: hand back that credential instead of paying again.
+  // The receipt is NOT cleared here — the key is returned only in memory, and
+  // clearing before the caller has persisted it would drop the sole recoverable
+  // copy if that persistence then fails. The caller clears it (via
+  // clearAimlapiTopupState) once its own write succeeds; see the contract note
+  // on this function.
   if (claimed.settled && claimed.apiKey) {
-    clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
     return {
       apiKey: claimed.apiKey,
       apiKeyId: claimed.apiKeyId ?? '',
@@ -466,6 +538,10 @@ export async function provisionAimlapiKey(
     const { checkout } = await client.pay(token, session.sessionToken, {
       amountUsdMinor,
       method,
+      // The persisted payment id is the charge idempotency key: a retry or an
+      // ambiguous /pay result must reference the same identity, not open a
+      // second charge.
+      paymentSessionId: state.paymentSessionId,
       successUrl,
       cancelUrl,
     })
@@ -532,9 +608,9 @@ async function pollUntilPaid(
     try {
       session = await client.getSession(sessionToken)
     } catch (error) {
-      // Transient poll failures shouldn't abort a payment in progress.
-      // status 0 is a network-level failure (see client.ts), not a real HTTP response.
-      if (error instanceof AimlapiApiError && (error.status === 0 || error.status >= 500)) {
+      // Transient poll failures (network, timeout, rate-limit, 5xx) shouldn't
+      // abort a payment in progress.
+      if (isTransientHttpError(error)) {
         await sleep(POLL_INTERVAL_MS)
         continue
       }
