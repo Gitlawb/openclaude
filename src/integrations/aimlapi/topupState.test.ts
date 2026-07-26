@@ -88,9 +88,12 @@ test('a fresh lock held by another process times out instead of corrupting state
   const directory = useTemporaryConfig()
   holdLock(directory, { stale: false })
 
-  // The message names the condition it kept hitting, for diagnosis.
+  // The message names the condition it kept hitting, for diagnosis. The exact
+  // code is not pinned: a held lock surfaces as ELOCKED on POSIX but can be
+  // EPERM/EEXIST/etc. on Windows (see topupState.ts), and this test is about the
+  // timeout-without-writing behaviour, not the platform's lock errno.
   expect(() => claimAimlapiTopupState(intent)).toThrow(
-    /Timed out waiting for the AI\/ML API checkout state lock \(last: ELOCKED, \d+ retries\)/,
+    /Timed out waiting for the AI\/ML API checkout state lock \(last: [A-Z]+, \d+ retries\)/,
   )
   // Nothing was written behind the held lock.
   expect(existsSync(join(directory, 'aimlapi-topup.json'))).toBe(false)
@@ -149,17 +152,22 @@ async function claimFromProcesses(
   try {
     return await Promise.all(
       workers.map(async worker => {
+        // Bound the exit first: a hung worker never closes its pipes, so draining
+        // stdout/stderr before this would block past the guard. Clear the timer
+        // on the happy path so no 30s timer lingers after the test.
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const code = await Promise.race([
+          worker.exited,
+          new Promise<number>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('worker timed out')), 30_000)
+          }),
+        ]).finally(() => {
+          if (timer) clearTimeout(timer)
+        })
+        // The worker has exited, so its pipes are closed and these resolve.
         const [out, err] = await Promise.all([
           new Response(worker.stdout).text(),
           new Response(worker.stderr).text(),
-        ])
-        // Bound each worker so a hang fails the test fast instead of running out
-        // the full test timeout and racing afterEach cleanup.
-        const code = await Promise.race([
-          worker.exited,
-          new Promise<number>((_, reject) =>
-            setTimeout(() => reject(new Error('worker timed out')), 30_000),
-          ),
         ])
         if (code !== 0) throw new Error(`worker failed (${code}): ${err}\n${out}`)
         return out.trim()
