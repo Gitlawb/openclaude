@@ -1517,6 +1517,14 @@ export function getUltrathinkEffortAttachment(
   input: string | null,
   logActivation: boolean = true,
 ): Attachment[] {
+  // This helper is also used by speculative paths, which do not call
+  // getAttachments(). Keep their behavior aligned with its global opt-out.
+  if (
+    isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)
+  ) {
+    return []
+  }
   // Gate the model-facing attachment behind the same rollout flag as the UI.
   // Without this, the hidden `ultrathink_effort` attachment would still raise
   // the turn to high effort even when the ULTRATHINK build flag / GrowthBook
