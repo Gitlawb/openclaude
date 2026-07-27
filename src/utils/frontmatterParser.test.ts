@@ -72,7 +72,9 @@ test('does not end the block at a --- inside a quoted value', () => {
   // leaked into the body that is sent to the model.
   expect(frontmatter.description).toBe('Reviews code --- thoroughly')
   expect(frontmatter.name).toBe('r')
-  expect(content).toBe('\nBody.\n')
+  // The blank separator line after the closing delimiter is consumed, so the
+  // body starts at the first real line (not with a leading newline).
+  expect(content).toBe('Body.\n')
   expect(content).not.toContain('---')
 })
 
@@ -133,6 +135,25 @@ test('parses CRLF-delimited frontmatter (Windows-authored files)', () => {
   const empty = parseFrontmatter('---\r\n---\r\nBody\r\n')
   expect(empty.frontmatter).toEqual({})
   expect(empty.content).toBe('Body\r\n')
+})
+
+test('consumes blank and whitespace-only separator lines after the close', () => {
+  // Bodies are passed into prompts untrimmed, so a conventional blank line
+  // between frontmatter and body must not survive as a leading newline. The
+  // pre-anchor regex consumed it via `\s*`; the anchored one has to as well.
+  const oneBlank = parseFrontmatter('---\nname: a\n---\n\nBody\n')
+  expect(oneBlank.content).toBe('Body\n')
+
+  const manyBlank = parseFrontmatter('---\nname: a\n---\n\n\n\nBody\n')
+  expect(manyBlank.content).toBe('Body\n')
+
+  // Whitespace-only separator lines (spaces/tabs) are consumed too.
+  const wsOnly = parseFrontmatter('---\nname: a\n---\n   \n\t\nBody\n')
+  expect(wsOnly.content).toBe('Body\n')
+
+  // CRLF blank separators.
+  const crlfBlank = parseFrontmatter('---\r\nname: a\r\n---\r\n\r\nBody\r\n')
+  expect(crlfBlank.content).toBe('Body\r\n')
 })
 
 test('leaves a file without frontmatter untouched', () => {

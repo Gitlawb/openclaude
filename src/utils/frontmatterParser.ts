@@ -133,12 +133,19 @@ function quoteProblematicValues(frontmatterText: string): string {
  * Requiring the captured block to be empty or to end at a line break pins the
  * close to the start of a line. The `m` flag would do the same for the close
  * but would also un-anchor the open, letting a horizontal rule partway down a
- * body be read as frontmatter. Only spaces and tabs may follow the close --
- * `\s*` matched a newline, so a bare `---` with no line terminator after it was
- * accepted mid-document too.
+ * body be read as frontmatter. Only spaces and tabs may sit between the close
+ * `---` and its line terminator -- letting `\s*` match the terminator itself
+ * accepted a bare `---` with no line ending mid-document.
+ *
+ * Once that terminator (or EOF) is confirmed, the trailing `\s*` consumes the
+ * conventional blank separator line(s) between frontmatter and body, matching
+ * the pre-anchor behavior. Skill and plugin-command bodies are passed into
+ * prompts untrimmed, so leaving that blank line in would prepend a stray
+ * newline to the model instructions. This consumption runs only after a valid
+ * line-terminated close, so it cannot revive the mid-document false close.
  */
 export const FRONTMATTER_REGEX =
-  /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n|$)/
+  /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n\s*|$)/
 
 /**
  * Parses markdown content to extract frontmatter and content
