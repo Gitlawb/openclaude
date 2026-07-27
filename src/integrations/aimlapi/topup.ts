@@ -67,6 +67,13 @@ export type AimlapiProvisionedKey = {
   apiKeyId: string
   baseUrl: string
   model: string
+  /**
+   * Retire the settled recovery receipt this call left behind. The caller MUST
+   * invoke it once it has durably persisted the returned key; until then a
+   * second top-up for the same intent short-circuits to this key instead of
+   * opening a new checkout. See the contract note on `provisionAimlapiKey`.
+   */
+  clearReceipt: () => void
 }
 
 export type AimlapiTopupStatus =
@@ -85,6 +92,13 @@ export type AimlapiProvisionOptions = AimlapiTopupOptions & {
 
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000 // 20 minutes
+
+// A session the provider reports as `exchanged` has already minted its one-shot
+// key; it can never be paid or exchanged again. Both the poll loop and the
+// resume path use this so neither opens a second, separately chargeable checkout
+// for a credential that is already gone.
+const SESSION_ALREADY_EXCHANGED_MESSAGE =
+  'Session was already exchanged. The key can only be issued once - rotate it from the AI/ML API dashboard.'
 
 /**
  * Statuses that mean payment has settled, so binding/paying again is wrong and
@@ -162,11 +176,9 @@ async function resolveCheckoutSession(
   let state = args.state
 
   if (state.resumeSessionToken) {
+    let existing: PartnerCheckoutSession | undefined
     try {
-      const existing = await client.getSession(state.resumeSessionToken)
-      if (RESUMABLE_SESSION_STATUSES.has(existing.status)) {
-        return { session: existing, state }
-      }
+      existing = await client.getSession(state.resumeSessionToken)
     } catch (error) {
       // Only a definitive answer may retire the recorded checkout. Preserve it
       // (surface the error, so a re-run resumes) when the failure says nothing
@@ -184,6 +196,21 @@ async function resolveCheckoutSession(
         throw error
       }
       // A definitive read failure (e.g. 404/410 for a genuinely gone session):
+      // fall through and open a fresh checkout.
+    }
+    if (existing) {
+      if (RESUMABLE_SESSION_STATUSES.has(existing.status)) {
+        return { session: existing, state }
+      }
+      if (existing.status === 'exchanged') {
+        // The one-shot key was already issued for this session, but no settled
+        // receipt survived locally (the caller's settled-receipt shortcut has
+        // already run). Opening a fresh checkout would charge again for a key we
+        // cannot re-mint, so fail closed exactly like `pollUntilPaid` instead of
+        // minting a second checkout.
+        throw new Error(SESSION_ALREADY_EXCHANGED_MESSAGE)
+      }
+      // Any other terminal status (cancelled/expired/failed) is a dead session:
       // fall through and open a fresh checkout.
     }
     // The recorded session cannot be paid anymore. Drop it and claim a new
@@ -444,9 +471,9 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   ) {
     console.log(
       chalk.yellow(
-        `\n  [warn] Could not record the recovery receipt for the issued key.` +
-          `\n         If the profile write below fails this is the only copy — save it now:` +
-          `\n         ${apiKey} (id ${apiKeyId})`,
+        `\n  [warn] Could not record the recovery receipt for the issued key ${maskKey(apiKey)} (id ${apiKeyId}).` +
+          `\n         If the profile write below also fails, this key cannot be recovered —` +
+          `\n         rotate it from the AI/ML API dashboard.`,
       ),
     )
   }
@@ -467,12 +494,12 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
  *
  * Recovery-receipt contract: this function does not own the persistence of the
  * returned key, so it never clears the checkout record itself. On success it
- * leaves a settled receipt behind; the caller MUST call
- * `clearAimlapiTopupState({ ...intent, paymentSessionId })` once it has durably
- * saved the key. Until then the receipt is the only recoverable copy, and a
- * second top-up for the same intent will short-circuit and return the recorded
- * key instead of charging again — so clearing after a successful persist is
- * required for a later top-up to actually open a new checkout.
+ * leaves a settled receipt behind and returns a `clearReceipt` closure; the
+ * caller MUST call it once it has durably saved the key. Until then the receipt
+ * is the only recoverable copy, and a second top-up for the same intent will
+ * short-circuit and return the recorded key instead of charging again — so
+ * calling `clearReceipt` after a successful persist is required for a later
+ * top-up to actually open a new checkout.
  */
 export async function provisionAimlapiKey(
   options: AimlapiProvisionOptions,
@@ -518,6 +545,11 @@ export async function provisionAimlapiKey(
     appBaseUrl: endpoints.appBaseUrl,
     inferenceBaseUrl: endpoints.inferenceBaseUrl,
   })
+  // Bind the receipt-clear to the intent so the caller can retire it without
+  // reconstructing the checkout identity itself.
+  const clearReceiptFor = (paymentSessionId: string) => (): void =>
+    clearAimlapiTopupState({ ...intent, paymentSessionId })
+
   const claimed = claimAimlapiTopupState(intent)
   // A previous run already exchanged the key but was interrupted before the
   // caller persisted it: hand back that credential instead of paying again.
@@ -532,6 +564,7 @@ export async function provisionAimlapiKey(
       apiKeyId: claimed.apiKeyId ?? '',
       baseUrl: endpoints.inferenceBaseUrl,
       model: claimed.model?.trim() || model,
+      clearReceipt: clearReceiptFor(claimed.paymentSessionId),
     }
   }
 
@@ -614,6 +647,7 @@ export async function provisionAimlapiKey(
     apiKeyId,
     baseUrl: endpoints.inferenceBaseUrl,
     model,
+    clearReceipt: clearReceiptFor(state.paymentSessionId),
   }
 }
 
@@ -641,9 +675,7 @@ async function pollUntilPaid(
       case 'exchanging':
         return session
       case 'exchanged':
-        throw new Error(
-          'Session was already exchanged. The key can only be issued once - rotate it from the AI/ML API dashboard.',
-        )
+        throw new Error(SESSION_ALREADY_EXCHANGED_MESSAGE)
       case 'cancelled':
       case 'expired':
       case 'failed':

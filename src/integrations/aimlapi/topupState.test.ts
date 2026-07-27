@@ -365,6 +365,30 @@ test('claiming a different intent refuses to discard an issued key', () => {
   ).toBeTruthy()
 })
 
+test('claiming a different intent refuses to abandon an open payable checkout', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  // Got as far as opening the payment page (a resume token) but no key yet.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'open-session',
+  })
+
+  // A different amount would strand that still-payable session and open a
+  // second, separately chargeable checkout, so the claim is refused.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    'still open for a different top-up',
+  )
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('open-session')
+
+  // Clearing it explicitly is the documented way to start over.
+  clearAimlapiTopupState({ ...intent, paymentSessionId: claimed.paymentSessionId })
+  expect(
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }).paymentSessionId,
+  ).toBeTruthy()
+})
+
 test('claiming the same checkout intent reuses one payment id', () => {
   useTemporaryConfig()
   const first = claimAimlapiTopupState(intent)

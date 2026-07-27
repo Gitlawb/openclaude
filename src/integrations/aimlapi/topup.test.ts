@@ -14,10 +14,15 @@ import {
 
 const directories: string[] = []
 
-// Captured before any mock.module runs, so teardown can restore the real
-// implementations. import() after a mock is registered would return the stub.
-const realClientModule = await import('./client.js')
-const realProviderProfileModule = await import('../../utils/providerProfile.js')
+// Captured through a cache-busting query so these are a SECOND, permanently
+// unmocked instance of each module. A plain `import('./client.js')` would return
+// the very instance `mock.module` later replaces, so the captured reference would
+// be corrupted to the stub — and the afterAll restore below would re-install the
+// stub instead of the real module. (Same trap documented in companion.test.ts.)
+const realClientModule = await import(`./client.js?real=${Date.now()}`)
+const realProviderProfileModule = await import(
+  `../../utils/providerProfile.js?real=${Date.now()}`
+)
 
 afterEach(() => {
   setClaudeConfigHomeDirForTesting(undefined)
@@ -217,6 +222,32 @@ test('a dead recorded session is replaced rather than resumed', async () => {
   // The expired session was inspected, then a fresh checkout was opened.
   expect(calls.createSession).toBe(1)
   expect(loadAimlapiTopupState(intent)).toMatchObject({ settled: true })
+})
+
+test('an already-exchanged session with no local receipt fails closed', async () => {
+  useTemporaryConfig()
+
+  // The exchange completed on a prior run but the settled receipt never landed
+  // locally (write failed or the process died), leaving only the resume token.
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'spent-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    getSession: async token => session({ sessionToken: token, status: 'exchanged' }),
+  })
+
+  // The one-shot key is already gone, so resuming must not open — and charge —
+  // a second checkout; it fails closed exactly like pollUntilPaid.
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/already exchanged/i)
+  expect(calls.createSession).toBe(0)
+  expect(calls.pay).toBe(0)
+  // The record survives, so every re-run keeps failing closed rather than
+  // silently minting a fresh checkout later.
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('spent-session')
 })
 
 test('a settled receipt returns the issued key without paying again', async () => {
