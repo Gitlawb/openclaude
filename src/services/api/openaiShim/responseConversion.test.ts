@@ -9,7 +9,6 @@ import {
 import {
   parseRawToolCallsRequestedText,
   stripRanges,
-  nextToolCallSequence,
 } from './rawToolCallParsing.js'
 import {
   isHy3Model,
@@ -20,8 +19,10 @@ import {
   type NonStreamingOpenAIResponse,
 } from './responseConversion.js'
 
-const parseXmlToolCalls = (text: string, allowHy3: boolean) =>
-  parseXmlToolCallsModule(text, allowHy3, nextToolCallSequence)
+const parseXmlToolCalls = (text: string, allowHy3: boolean) => {
+  let sequence = 0
+  return parseXmlToolCallsModule(text, allowHy3, () => ++sequence)
+}
 
 const dependencies = {
   makeMessageId: () => 'msg-test',

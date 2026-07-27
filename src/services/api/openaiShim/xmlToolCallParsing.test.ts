@@ -16,13 +16,13 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createOpenAIShimClient } from '../openaiShim.js'
-import { nextToolCallSequence } from './rawToolCallParsing.js'
 import {
   parseXmlToolCalls as parseXmlToolCallsModule,
 } from './xmlToolCallParsing.js'
 
 function parseXmlToolCalls(text: string, allowHy3 = false) {
-  return parseXmlToolCallsModule(text, allowHy3, nextToolCallSequence)
+  let sequence = 0
+  return parseXmlToolCallsModule(text, allowHy3, () => ++sequence)
 }
 
 type FetchType = typeof globalThis.fetch
@@ -135,6 +135,21 @@ describe('parseXmlToolCalls', () => {
     const { calls } = parseXmlToolCalls(text)
     expect(calls[0].name).toBe('Bash')
     expect(calls[0].arguments).toEqual({ command: 'pwd' })
+  })
+
+  test('preserves source order when mixing standard XML and HY3 dialects', () => {
+    const text =
+      'before <tool_call>{"name":"xml_first","arguments":{}}</tool_call> ' +
+      'mid <tool_call:hy3>Hy3Second\nk: v\n</tool_call:hy3> after'
+    const { calls, toolCallRanges } = parseXmlToolCalls(text, true)
+
+    expect(calls.map(call => call.name)).toEqual(['xml_first', 'Hy3Second'])
+    expect(calls.map(call => call.id)).toEqual(['xml_tc_1', 'xml_tc_2'])
+    expect(calls[1].arguments).toEqual({ k: 'v' })
+    expect(toolCallRanges).toEqual([
+      [text.indexOf('<tool_call>'), text.indexOf('</tool_call>') + '</tool_call>'.length],
+      [text.indexOf('<tool_call:hy3>'), text.indexOf('</tool_call:hy3>') + '</tool_call:hy3>'.length],
+    ])
   })
 
   test('dialect D: Tencent HY3 wrapper with named parameters', () => {

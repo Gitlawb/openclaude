@@ -99,6 +99,60 @@ export function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
  * Callers must inject the session sequencer so XML and raw-text fallbacks
  * share one id space (see openaiShim façade `nextTextToolCallSequence`).
  */
+function parseStandardXmlToolCallInner(inner: string): {
+  name?: string
+  args: Record<string, unknown>
+} {
+  let name: string | undefined
+  const args: Record<string, unknown> = {}
+
+  const fnMatch = inner.match(XML_FUNCTION_NAME_RE)
+  if (fnMatch) {
+    // Dialect A: <function=NAME><parameter=KEY>VALUE</parameter>…
+    name = fnMatch[1]
+    for (const p of inner.matchAll(XML_PARAMETER_RE)) {
+      const key = p[1]
+      if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
+    }
+  } else {
+    const trimmedInner = inner.trim()
+    const argPairs = [...inner.matchAll(XML_ARG_PAIR_RE)]
+    if (argPairs.length > 0 && !trimmedInner.startsWith('{')) {
+      // Dialect B: leading token is the function name, then arg_key/arg_value.
+      const nameTok = trimmedInner.split(/[\n<]/, 1)[0]?.trim()
+      if (nameTok) name = nameTok
+      for (const p of argPairs) {
+        const key = (p[1] ?? '').trim()
+        if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
+      }
+    } else {
+      // Dialect C: a JSON tool-call object inside the tags.
+      const jsonStart = trimmedInner.indexOf('{')
+      if (jsonStart !== -1) {
+        const jsonRaw = extractBalancedJson(trimmedInner, jsonStart)
+        if (jsonRaw) {
+          try {
+            const obj = JSON.parse(jsonRaw) as Record<string, unknown>
+            if (typeof obj['name'] === 'string') {
+              name = obj['name'] as string
+              const rawArgs = obj['arguments']
+              if (typeof rawArgs === 'string') {
+                try {
+                  Object.assign(args, JSON.parse(rawArgs))
+                } catch {}
+              } else if (rawArgs && typeof rawArgs === 'object') {
+                Object.assign(args, rawArgs as Record<string, unknown>)
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+
+  return { name, args }
+}
+
 export function parseXmlToolCalls(
   text: string,
   allowHy3: boolean,
@@ -116,6 +170,13 @@ export function parseXmlToolCalls(
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
     results.push({ id: `xml_tc_${nextSequence()}`, name, arguments: args })
+  }
+
+  type RangeTaggedCandidate = {
+    range: [number, number]
+    name: string
+    args: Record<string, unknown>
+    coveredByWrapper: boolean
   }
 
   const hy3Blocks = allowHy3
@@ -141,75 +202,50 @@ export function parseXmlToolCalls(
       ] as [number, number])
     : []
 
+  const candidates: RangeTaggedCandidate[] = []
+
   for (const block of hy3Blocks) {
     const { name, args } = block.parsed
     if (!name) continue
     const range = block.range
-    if (!hy3WrapperRanges.some(wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1])) {
-      ranges.push(range)
-    }
-    addCall(name, args)
+    candidates.push({
+      range,
+      name,
+      args,
+      coveredByWrapper: hy3WrapperRanges.some(
+        wrapper => wrapper[0] <= range[0] && range[1] <= wrapper[1],
+      ),
+    })
   }
 
-  ranges.push(...hy3WrapperRanges)
-
   for (const block of text.matchAll(XML_TOOL_CALL_BLOCK_RE)) {
-    const inner = block[1] ?? ''
     const range: [number, number] = [
       block.index!,
       block.index! + block[0].length,
     ]
-    let name: string | undefined
-    const args: Record<string, unknown> = {}
-
-    const fnMatch = inner.match(XML_FUNCTION_NAME_RE)
-    if (fnMatch) {
-      // Dialect A: <function=NAME><parameter=KEY>VALUE</parameter>…
-      name = fnMatch[1]
-      for (const p of inner.matchAll(XML_PARAMETER_RE)) {
-        const key = p[1]
-        if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
-      }
-    } else {
-      const trimmedInner = inner.trim()
-      const argPairs = [...inner.matchAll(XML_ARG_PAIR_RE)]
-      if (argPairs.length > 0 && !trimmedInner.startsWith('{')) {
-        // Dialect B: leading token is the function name, then arg_key/arg_value.
-        const nameTok = trimmedInner.split(/[\n<]/, 1)[0]?.trim()
-        if (nameTok) name = nameTok
-        for (const p of argPairs) {
-          const key = (p[1] ?? '').trim()
-          if (key) args[key] = coerceXmlToolValue(p[2] ?? '')
-        }
-      } else {
-        // Dialect C: a JSON tool-call object inside the tags.
-        const jsonStart = trimmedInner.indexOf('{')
-        if (jsonStart !== -1) {
-          const jsonRaw = extractBalancedJson(trimmedInner, jsonStart)
-          if (jsonRaw) {
-            try {
-              const obj = JSON.parse(jsonRaw) as Record<string, unknown>
-              if (typeof obj['name'] === 'string') {
-                name = obj['name'] as string
-                const rawArgs = obj['arguments']
-                if (typeof rawArgs === 'string') {
-                  try {
-                    Object.assign(args, JSON.parse(rawArgs))
-                  } catch {}
-                } else if (rawArgs && typeof rawArgs === 'object') {
-                  Object.assign(args, rawArgs as Record<string, unknown>)
-                }
-              }
-            } catch {}
-          }
-        }
-      }
-    }
-
+    const { name, args } = parseStandardXmlToolCallInner(block[1] ?? '')
     if (!name) continue
-    ranges.push(range)
-    addCall(name, args)
+    candidates.push({
+      range,
+      name,
+      args,
+      coveredByWrapper: false,
+    })
   }
+
+  // Preserve provider source order across HY3 and standard XML dialects so
+  // multi-tool turns execute (and mint xml_tc_* IDs) in markup order.
+  candidates.sort((left, right) => left.range[0] - right.range[0])
+
+  for (const candidate of candidates) {
+    addCall(candidate.name, candidate.args)
+    if (!candidate.coveredByWrapper) {
+      ranges.push(candidate.range)
+    }
+  }
+
+  ranges.push(...hy3WrapperRanges)
+  ranges.sort((left, right) => left[0] - right[0])
 
   return { calls: results, toolCallRanges: ranges }
 }
