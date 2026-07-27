@@ -240,6 +240,39 @@ test('doctorAllServers reports global validation findings once without duplicati
   assert.deepEqual(report.servers[0]?.findings, [])
 })
 
+test('doctorAllServers surfaces a finding for a name that produced no server report', async () => {
+  // A fatal reserved-name error ("__proto__") is keyed by a server name that
+  // never survives parsing, so it is absent from the active/parsed name set and
+  // gets no server report. Its finding must still be emitted -- otherwise
+  // `mcp doctor --config-only` reads clean while the invalid config is present.
+  const deps = makeDependencies({
+    getAllMcpConfigs: async () => allConfig(),
+    getMcpConfigsByScope: scope =>
+      scope === 'project'
+        ? scopeConfig({}, [
+            {
+              file: '.mcp.json',
+              path: 'mcpServers.__proto__',
+              message: 'Invalid MCP server name "__proto__": this name is reserved.',
+              suggestion: 'Rename the "__proto__" entry under mcpServers.',
+              mcpErrorMetadata: {
+                scope: 'project',
+                serverName: '__proto__',
+                severity: 'fatal',
+              },
+            },
+          ])
+        : scopeConfig(),
+  })
+
+  const report = await doctorAllServers({ configOnly: true }, deps)
+
+  const reserved = report.findings.find(f => f.serverName === '__proto__')
+  assert.ok(reserved, 'reserved-name finding should surface globally')
+  assert.equal(reserved?.blocking, true)
+  assert.equal(report.summary.blocking, 1)
+})
+
 test('doctorServer explains same-name shadowing across scopes', async () => {
   const localConfig = stdioConfig('local', 'node-local')
   const userConfig = stdioConfig('user', 'node-user')

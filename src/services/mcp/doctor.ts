@@ -671,8 +671,19 @@ export async function doctorAllServers(
     ),
   )
 
+  // Validation findings are keyed by server name, but a fatal reserved-name
+  // error ("__proto__"/"constructor") is keyed by a name that never survives
+  // parsing, so it is absent from `names` and its finding would otherwise be
+  // built into no server report and silently dropped -- `mcp doctor
+  // --config-only` would read clean while the invalid config is present.
+  // Surface any finding whose server has no report as a global finding.
+  const reportedNames = new Set(names)
+  const orphanedFindings = Array.from(serverFindingsByName.entries())
+    .filter(([name]) => !reportedNames.has(name))
+    .flatMap(([, findings]) => findings)
+
   report.servers = servers
-  report.findings = globalFindings
+  report.findings = [...globalFindings, ...orphanedFindings]
   return summarizeReport(report)
 }
 
