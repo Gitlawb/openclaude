@@ -10,9 +10,11 @@ export { AimlapiClient, AimlapiApiError } from './client.js'
 export type {
   AimlapiEndpoints,
 } from './config.js'
-// Checkout-resume persistence. Exposed here so the public API is discoverable;
-// it is consumed by the guided top-up flow, which migrates onto it in a
-// follow-up PR (see PR stack). Until then it has no in-tree caller.
+// Checkout-resume persistence, consumed by both top-up entry points in
+// ./topup.ts: the CLI flow (`runAimlapiTopup`) and the guided GUI flow
+// (`provisionAimlapiKey`). A caller that receives a settled recovery receipt
+// (the GUI flow returns a `clearReceipt` closure for this) MUST retire it with
+// `clearAimlapiTopupState` once it has durably persisted the issued key.
 export {
   claimAimlapiTopupState,
   saveAimlapiTopupState,

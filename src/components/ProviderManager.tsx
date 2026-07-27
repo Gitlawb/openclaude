@@ -1643,11 +1643,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setScreen('form')
   }
 
+  // Returns true only when the profile was actually persisted, so callers (the
+  // aimlapi.com top-up) can clear the recovery receipt only on a real save.
   function persistDraft(
     nextDraft: ProviderDraft = draft,
     provider: ProviderProfile['provider'] = draftProvider,
     profileId: string | null = editingProfileId,
-  ): void {
+  ): boolean {
     if (
       provider === 'custom-anthropic' &&
       (isSetupPlaceholder(nextDraft.baseUrl) ||
@@ -1657,7 +1659,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         }))
     ) {
       setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
-      return
+      return false
     }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
@@ -1669,7 +1671,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
     if (parsedCustomHeaders.error) {
       setErrorMessage(parsedCustomHeaders.error)
-      return
+      return false
     }
 
     const requestedResponses =
@@ -1714,7 +1716,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     if (!saved) {
       setErrorMessage('Could not save provider. Fill all required fields.')
-      return
+      return false
     }
 
     const isActiveSavedProfile = getActiveProviderProfile()?.id === saved.id
@@ -1755,13 +1757,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         activeProfileId: saved.id,
         message: `Provider configured: ${saved.name}${apiFormatMessage}`,
       })
-      return
+      return true
     }
 
     setEditingProfileId(null)
     setFormStepIndex(0)
     setErrorMessage(undefined)
     returnToMenu()
+    return true
   }
 
   function applyPresetApiFormat(
@@ -2475,7 +2478,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setDraft(nextDraft)
         setAimlapiTopupPassword('')
         setIsAimlapiTopupRunning(false)
-        persistDraft(nextDraft, draftProvider, null)
+        // Only retire the recovery receipt once the key is durably saved. If the
+        // save fails, the receipt is the sole recoverable copy, so leave it so a
+        // re-run can hand the same key back instead of charging again.
+        if (persistDraft(nextDraft, draftProvider, null)) {
+          provisioned.clearReceipt()
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         setIsAimlapiTopupRunning(false)

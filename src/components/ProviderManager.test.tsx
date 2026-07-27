@@ -1001,6 +1001,7 @@ test('ProviderManager can top up aimlapi.com and save the issued key', async () 
     id: 'aimlapi_profile',
     ...payload,
   }))
+  const clearReceipt = mock(() => {})
   const provisionAimlapiKey = mock(async (options: any) => {
     options.onStatus?.('creating-session')
     options.onStatus?.('opening-checkout', 'https://app.aimlapi.com/checkout/test')
@@ -1011,6 +1012,7 @@ test('ProviderManager can top up aimlapi.com and save the issued key', async () 
       apiKeyId: 'key_test',
       baseUrl: 'https://api.aimlapi.com/v1',
       model: 'gpt-4o',
+      clearReceipt,
     }
   })
 
@@ -1096,6 +1098,10 @@ test('ProviderManager can top up aimlapi.com and save the issued key', async () 
       }),
       expect.objectContaining({ makeActive: true }),
     )
+    // The recovery receipt is retired once the profile is durably saved, so a
+    // later top-up opens a fresh checkout instead of short-circuiting to this key.
+    await waitForCondition(() => clearReceipt.mock.calls.length > 0)
+    expect(clearReceipt).toHaveBeenCalledTimes(1)
   } finally {
     await mounted.dispose()
   }

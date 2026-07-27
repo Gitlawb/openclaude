@@ -411,9 +411,20 @@ export function claimAimlapiTopupState(
     if (existing && matchesIntent(existing, intent)) {
       return toCheckoutState(existing)
     }
+    // Reaching here means a stored record exists for a DIFFERENT intent (a
+    // matching one returned above). Refuse to silently discard it while it still
+    // represents value in flight:
     if (existing?.apiKey?.trim()) {
       throw new Error(
         'An unfinished AI/ML API checkout still holds an issued key. Finish or clear it before starting a different one.',
+      )
+    }
+    if (existing?.resumeSessionToken?.trim()) {
+      // A payable session is still open on the provider. Overwriting the slot
+      // would strand that payment page and open a second, separately chargeable
+      // checkout, so make the caller finish or clear it explicitly instead.
+      throw new Error(
+        'An unfinished AI/ML API checkout is still open for a different top-up. Finish or clear it before starting another.',
       )
     }
     const claimed: AimlapiCheckoutState = {
