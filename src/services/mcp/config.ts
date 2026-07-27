@@ -1427,6 +1427,15 @@ export function parseMcpConfig(params: {
 
     validatedServers[name] = configToCheck
   }
+  // A reserved name is fatal. For "constructor" the schema already failed and
+  // returned config: null above, but "__proto__" passes the schema (zod's
+  // rebuild silently drops the key), so without this the parse would succeed
+  // with a partial config and callers that branch on config -- e.g. the
+  // --mcp-config ingress in main.tsx -- would start with the bad entry quietly
+  // dropped and the error discarded. Reject the whole input either way.
+  if (reservedNameErrors.length > 0) {
+    return { config: null, errors }
+  }
   return {
     config: { mcpServers: validatedServers },
     errors,

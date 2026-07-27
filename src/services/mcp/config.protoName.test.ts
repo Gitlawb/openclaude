@@ -120,7 +120,7 @@ test('reports proto-name removal as not found instead of succeeding', async () =
   }
 })
 
-test('surfaces a __proto__ entry in file config instead of dropping it', () => {
+test('surfaces a __proto__ entry and rejects the whole file', () => {
   // A hand-authored .mcp.json can carry this name: the schema accepts it, but
   // copying it into a plain object hits the prototype setter, so the entry
   // vanished with no diagnostic and the user could not tell why their server
@@ -141,9 +141,10 @@ test('surfaces a __proto__ entry in file config instead of dropping it', () => {
   expect(protoError).toBeDefined()
   expect(protoError?.message).toContain('reserved')
   expect(protoError?.mcpErrorMetadata?.severity).toBe('fatal')
-  // The rest of the file still parses, and the bad name is not an own key.
-  expect(Object.hasOwn(config?.mcpServers ?? {}, 'realone')).toBe(true)
-  expect(Object.hasOwn(config?.mcpServers ?? {}, '__proto__')).toBe(false)
+  // A fatal reserved name rejects the whole input (config: null), the same as
+  // "constructor" does when the schema fails -- so a caller that branches on
+  // config cannot start with the bad entry quietly dropped and the error lost.
+  expect(config).toBeNull()
 })
 
 test('still allows adding and removing a real server name', async () => {
