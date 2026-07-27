@@ -314,6 +314,92 @@ describe('SpinnerAnimationRow', () => {
     expect(rows[0]).toContain('6s')
   })
 
+  it('recovers tokens onto timer-only rows after preferring tokens over suffix', async () => {
+    for (const columns of [44, 46, 48]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            responseLength: 4_000,
+            spinnerSuffix: 'running stop hooks… 1/1',
+            columns,
+            ...frozenElapsedRefs(6_000),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('1.0k tokens')
+      expect(rows[0]).toContain('6s')
+      expect(rows[0]).not.toContain('running stop hooks')
+    }
+  })
+
+  it('does not wrap wide timers onto thinking and early token counts', async () => {
+    for (const columns of [34, 40]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            responseLength: 1,
+            verbose: true,
+            columns,
+            ...frozenElapsedRefs(36_000_000),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('thinking')
+      expect(rows[0]).toContain('0 tokens')
+      expect(rows[0]).not.toMatch(/Thinkin[^g]/)
+    }
+  })
+
+  it('prefers leader thinking over a bare-fitting suffix that crowds it out', async () => {
+    for (const columns of [37, 40]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            spinnerSuffix: 'running stop hooks… 1/1',
+            columns,
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows[0]).toContain('thinking')
+      expect(rows[0]).not.toContain('running stop hooks')
+    }
+  })
+
+  it('keeps mode glyph across the suffix-to-tokens bare-fit boundary', async () => {
+    for (const columns of [36, 37, 42]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            responseLength: 4_000,
+            spinnerSuffix: 'running stop hooks… 1/1',
+            columns,
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toEqual([
+        `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · 1.0k tokens)`,
+      ])
+    }
+  })
+
   it('drops an overflowing spinner suffix to keep leader thinking', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow
