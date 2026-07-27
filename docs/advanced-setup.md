@@ -429,6 +429,28 @@ directly configured endpoint that instead requires Anthropic's native
 `x-api-key` authentication, set `ANTHROPIC_API_KEY` in place of the Bearer
 token; do not set both credentials.
 
+#### Keeping a subscription (OAuth) session through a local proxy
+
+Pointing `ANTHROPIC_BASE_URL` at any host other than `api.anthropic.com`
+normally switches the client to API-key mode, so a signed-in subscription
+session is dropped. To route traffic through a **local, transparent** proxy
+(compression, request inspection, caching) that forwards the `Authorization`
+and `anthropic-beta` headers to Anthropic unchanged, opt in with
+`ANTHROPIC_FIRST_PARTY_PROXY_HOSTS` — a comma-separated `host[:port]` allowlist
+that extends first-party detection:
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:47821
+export ANTHROPIC_FIRST_PARTY_PROXY_HOSTS=127.0.0.1:47821
+openclaude   # OAuth session persists; traffic rides the local proxy
+```
+
+Only loopback hosts (`127.0.0.1`, `[::1]`, `localhost`) are ever honored, so
+the setting can never route OAuth tokens off the machine — a non-loopback entry
+is ignored. Write IPv6 in bracket form (`[::1]` or `[::1]:8080`). An entry with
+a port matches that port only; an entry without a port matches any port on the
+host. Without this variable the behavior is unchanged.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_USE_OPENAI` | OpenAI-compatible only | Set to `1` to enable the OpenAI-compatible provider path |
