@@ -242,9 +242,11 @@ export function SpinnerAnimationRow({
     const glyphHidesThinking = bareShowThinking && !showThinking;
     const glyphHidesTimer = bareShowTimer && !showTimer;
     const glyphHidesTokens = bareShowTokens && !showTokens;
-    // Timer under glyph with no tokens: prefer tokens alone (or timer+tokens)
-    // over timer-only / glyph+timer chrome.
-    const preferTokensOverTimerOnly = Boolean(showTimer && !showTokens && tokensFitBareAlone);
+    // Timer under glyph with no tokens and thinking not already visible: prefer
+    // tokens alone (or timer+tokens) over timer-only / glyph+timer chrome.
+    // Do not enter this shortcut when thinking is already on-screen — the else
+    // bare layout can keep thinking+timer+tokens together when they fit.
+    const preferTokensOverTimerOnly = Boolean(showTimer && !showTokens && !showThinking && tokensFitBareAlone);
     // Active thinking hidden behind glyph+timer: prefer thinking (drop timer if needed).
     const preferThinkingOverTimerOnly = Boolean(showTimer && !showThinking && bareShowThinking && thinkingStatus === 'thinking');
     // Do not swap already-visible tokens for a timer that only fits without the glyph,
@@ -258,8 +260,15 @@ export function SpinnerAnimationRow({
         // Tie-break: when tokens and thinking both unlock by dropping the glyph
         // (preferTokensOverTimerOnly && preferThinkingOverTimerOnly), tokens win.
         // Keep tokens; include timer only when both fit without the glyph.
+        // If a suffix is still reserved and cannot share the row with tokens
+        // (and timer when both fit), drop it — otherwise Ink wraps/truncates.
+        const timerTokensWidth = timerAndTokensFitBare ? timerWidth + sep + tokensWidth : tokensWidth;
+        if (showSuffix && bareAvailableSpace < effectiveSuffixWidth + timerTokensWidth) {
+          showSuffix = false;
+          effectiveSuffixWidth = 0;
+        }
         showThinking = false;
-        showTimer = Boolean(wantsTimer && timerAndTokensFitBare);
+        showTimer = Boolean(wantsTimer && (showSuffix ? bareAvailableSpace >= effectiveSuffixWidth + timerWidth + sep + tokensWidth : timerAndTokensFitBare));
         showTokens = true;
         thinkingText = fullThinkingText;
         thinkingWidthValue = fullThinkingWidth;
@@ -305,14 +314,52 @@ export function SpinnerAnimationRow({
       }
     }
   }
-  // After dropping a crowding suffix, recover tokens that primary gating hid
-  // while suffix width was reserved — including thinkingStatus === null (the
-  // common responding + stop-hook/tool suffix path from REPL).
-  if (!showSuffix && !showTokens && !showTimer && !showThinking && wantsTokens && hasTokenContent && physicalBareBudget >= tokensWidth) {
-    showTokens = true;
-    reserveModeGlyph = false;
-    usedAfterThinking = 0;
-    usedAfterTimer = 0;
+  // Prefer live streaming tokens over a bare-fitting suffix when both cannot
+  // share the row (same priority as tokens-over-duration). Avoids the
+  // non-monotonic cliff where widening from overflow-drop to exact suffix-fit
+  // swaps tokens for suffix-only chrome.
+  if (showSuffix && hasTokenContent && physicalBareBudget >= tokensWidth) {
+    const tokensWithSuffixFit = physicalBareBudget >= suffixTextWidth + sep + tokensWidth;
+    if (!tokensWithSuffixFit) {
+      showSuffix = false;
+      effectiveSuffixWidth = 0;
+    }
+  }
+  // After dropping a crowding suffix (or preferring tokens over it), recover
+  // status primary gating hid while suffix width was reserved — including
+  // thinkingStatus === null (common responding + stop-hook/tool suffix path).
+  // Restore timer symmetrically with tokens when the freed budget allows.
+  // Leave empty rows that still want thinking for the thinking second-chance
+  // block below (do not steal with a timer-only recovery first).
+  if (!showSuffix) {
+    const tokensFitBareAlone = wantsTokens && hasTokenContent && physicalBareBudget >= tokensWidth;
+    const timerFitBareAlone = wantsTimer && physicalBareBudget > timerWidth;
+    const timerAndTokensFitBare = wantsTimer && hasTokenContent && physicalBareBudget >= timerWidth + sep + tokensWidth;
+    const withGlyphSpace = columns - messageWidth - BASE_PARENS_WIDTH - MODE_GLYPH_RESERVE;
+    if (!showTokens && !showTimer && !showThinking) {
+      if (tokensFitBareAlone) {
+        showTokens = true;
+        showTimer = Boolean(timerAndTokensFitBare);
+        usedAfterThinking = 0;
+        usedAfterTimer = showTimer ? timerWidth + sep : 0;
+        // Keep the mode glyph only when primary glyph chrome would also fit
+        // the recovered content (strict `>` matches the initial gate).
+        const recoveredWidth = usedAfterTimer + tokensWidth;
+        if (reserveModeGlyph && !(withGlyphSpace > recoveredWidth)) {
+          reserveModeGlyph = false;
+        }
+      } else if (!wantsThinking && timerFitBareAlone) {
+        showTimer = true;
+        usedAfterThinking = 0;
+        usedAfterTimer = timerWidth + sep;
+        if (reserveModeGlyph && !(withGlyphSpace > timerWidth)) {
+          reserveModeGlyph = false;
+        }
+      }
+    } else if (showTokens && !showTimer && timerAndTokensFitBare) {
+      showTimer = true;
+      usedAfterTimer = timerWidth + sep + tokensWidth;
+    }
   }
   // Prefer live streaming tokens over numeric post-thinking duration when both
   // cannot fit (including when primary already chose duration under the glyph,
@@ -378,6 +425,28 @@ export function SpinnerAnimationRow({
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
         reserveModeGlyph = false;
+      }
+    }
+  }
+  // After thinking recovery from a dropped suffix, co-restore a fitting timer
+  // so recovered thinking matches the no-suffix layout at the same width.
+  if (!showSuffix && showThinking && !showTimer && wantsTimer) {
+    const thinkingWidth = thinkingWidthValue + sep;
+    if (physicalBareBudget > thinkingWidth + timerWidth) {
+      // Timer fits with thinking under bare chrome. Drop glyph if glyph+both
+      // would not fit, matching the earlier bare-glyph recovery trade-off.
+      const glyphThinkingTimerWidth = MODE_GLYPH_RESERVE + thinkingWidth + timerWidth;
+      if (reserveModeGlyph && physicalBareBudget < glyphThinkingTimerWidth) {
+        if (physicalBareBudget > thinkingWidth + timerWidth) {
+          reserveModeGlyph = false;
+          showTimer = true;
+          usedAfterThinking = thinkingWidth;
+          usedAfterTimer = usedAfterThinking + timerWidth + sep;
+        }
+      } else {
+        showTimer = true;
+        usedAfterThinking = thinkingWidth;
+        usedAfterTimer = usedAfterThinking + timerWidth + sep;
       }
     }
   }
