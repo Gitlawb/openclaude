@@ -133,11 +133,20 @@ export function updateToolFailureLoopGuard(params: {
     resetPersistentToolSignatures(params.state, toolName)
   }
 
+  // Parallel failures in one model turn must only count once per key so the
+  // model can observe the batch and adapt. Cross-turn accumulation still trips.
+  const seenPersistentSignatures = new Set<string>()
+  const seenPaths = new Set<string>()
+  const seenSignatures = new Set<string>()
+  const seenCategories = new Set<string>()
+
   const advisories: ToolFailureLoopGuardAdvisory[] = []
   for (const failure of failures) {
-    const persistentSignatureCount = incrementCounter(
+    const persistentSignature = `${failure.toolName}\0${failure.errorCategory}`
+    const persistentSignatureCount = incrementCounterOnce(
       params.state.persistentSignatureCounts,
-      `${failure.toolName}\0${failure.errorCategory}`,
+      persistentSignature,
+      seenPersistentSignatures,
     )
 
     if (persistentSignatureCount >= threshold) {
@@ -175,7 +184,11 @@ export function updateToolFailureLoopGuard(params: {
       continue
     }
 
-    const pathCount = incrementCounter(params.state.pathCounts, failure.path)
+    const pathCount = incrementCounterOnce(
+      params.state.pathCounts,
+      failure.path,
+      seenPaths,
+    )
     if (pathCount >= threshold) {
       return {
         tripped: true,
@@ -199,13 +212,16 @@ export function updateToolFailureLoopGuard(params: {
   }
 
   for (const failure of failures) {
-    const signatureCount = incrementCounter(
+    const signature = `${failure.toolName}\0${failure.errorCategory}`
+    const signatureCount = incrementCounterOnce(
       params.state.signatureCounts,
-      `${failure.toolName}\0${failure.errorCategory}`,
+      signature,
+      seenSignatures,
     )
-    const categoryCount = incrementCounter(
+    const categoryCount = incrementCounterOnce(
       params.state.categoryCounts,
       failure.errorCategory,
+      seenCategories,
     )
     if (signatureCount >= threshold) {
       return {
@@ -451,6 +467,18 @@ function incrementCounter(counts: Map<string, number>, key: string): number {
   const next = (counts.get(key) ?? 0) + 1
   counts.set(key, next)
   return next
+}
+
+function incrementCounterOnce(
+  counts: Map<string, number>,
+  key: string,
+  seenThisTurn: Set<string>,
+): number {
+  if (seenThisTurn.has(key)) {
+    return counts.get(key) ?? 0
+  }
+  seenThisTurn.add(key)
+  return incrementCounter(counts, key)
 }
 
 function createTripMessage(

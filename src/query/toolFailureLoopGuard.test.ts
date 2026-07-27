@@ -349,7 +349,7 @@ test('trip messages do not echo unsafe tool names, error categories, or paths', 
   expect(pathTrip.message).not.toContain(unsafePath)
 })
 
-test('multiple failures in the same batch each increment the counters', () => {
+test('multiple identical failures in the same batch count once toward the threshold', () => {
   const state = createToolFailureLoopGuardState()
 
   const decision = update(
@@ -366,7 +366,74 @@ test('multiple failures in the same batch each increment the counters', () => {
     ],
   )
 
-  expect(decision.tripped).toBe(true)
+  expect(decision.tripped).toBe(false)
+})
+
+test('same-batch parallel failures still accumulate across later turns', () => {
+  const state = createToolFailureLoopGuardState()
+
+  update(
+    state,
+    [toolUse('a', 'Bash'), toolUse('b', 'Bash'), toolUse('c', 'Bash')],
+    [
+      toolResult('a', '<tool_use_error>ENOENT: no such file or directory: /x</tool_use_error>'),
+      toolResult('b', '<tool_use_error>ENOENT: no such file or directory: /y</tool_use_error>'),
+      toolResult('c', '<tool_use_error>ENOENT: no such file or directory: /z</tool_use_error>'),
+    ],
+  )
+  update(state, [toolUse('d', 'Bash')], [
+    toolResult('d', '<tool_use_error>ENOENT: no such file or directory: /w</tool_use_error>'),
+  ])
+  const decision = update(state, [toolUse('e', 'Bash')], [
+    toolResult('e', '<tool_use_error>ENOENT: no such file or directory: /v</tool_use_error>'),
+  ])
+
+  if (!decision.tripped) {
+    throw new Error('Expected cross-turn Bash NotFound failures to trip')
+  }
+  expect(decision.message).toContain('`Bash` failed 3 times')
+  expect(decision.message).toContain('`NotFound`')
+})
+
+test('parallel tool failures in a single turn do not trip the guard', () => {
+  const state = createToolFailureLoopGuardState()
+  const decision = update(
+    state,
+    [toolUse('a', 'Bash'), toolUse('b', 'Bash'), toolUse('c', 'Bash')],
+    [
+      toolResult(
+        'a',
+        '<tool_use_error>ENOENT: no such file or directory: /x</tool_use_error>',
+      ),
+      toolResult(
+        'b',
+        '<tool_use_error>ENOENT: no such file or directory: /y</tool_use_error>',
+      ),
+      toolResult(
+        'c',
+        '<tool_use_error>ENOENT: no such file or directory: /z</tool_use_error>',
+      ),
+    ],
+  )
+  expect(decision.tripped).toBe(false)
+})
+
+test('parallel different-tool failures of the same category in one turn do not trip', () => {
+  const state = createToolFailureLoopGuardState()
+  const decision = update(
+    state,
+    [
+      toolUse('a', 'Edit'),
+      toolUse('b', 'Write'),
+      toolUse('c', 'NotebookEdit'),
+    ],
+    [
+      toolResult('a', '<tool_use_error>Error writing file: one</tool_use_error>'),
+      toolResult('b', 'Error writing file: two'),
+      toolResult('c', 'Error writing file: three'),
+    ],
+  )
+  expect(decision.tripped).toBe(false)
 })
 
 test('different tools with different error categories do not trip early', () => {
