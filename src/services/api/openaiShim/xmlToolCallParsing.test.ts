@@ -16,7 +16,14 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createOpenAIShimClient } from '../openaiShim.js'
-import { parseXmlToolCalls } from './xmlToolCallParsing.js'
+import { nextToolCallSequence } from './rawToolCallParsing.js'
+import {
+  parseXmlToolCalls as parseXmlToolCallsModule,
+} from './xmlToolCallParsing.js'
+
+function parseXmlToolCalls(text: string, allowHy3 = false) {
+  return parseXmlToolCallsModule(text, allowHy3, nextToolCallSequence)
+}
 
 type FetchType = typeof globalThis.fetch
 

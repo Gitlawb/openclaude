@@ -1,7 +1,4 @@
-import {
-  extractBalancedJson,
-  nextToolCallSequence,
-} from './rawToolCallParsing.js'
+import { extractBalancedJson } from './rawToolCallParsing.js'
 
 const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
 const HY3_NAMED_ARGUMENT_LINE_RE = /^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/gm
@@ -97,11 +94,15 @@ export function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
   }, -1)
 }
 
-/** Exported for unit testing only. */
+/**
+ * Parse XML / HY3 tool-call markup from assistant text.
+ * Callers must inject the session sequencer so XML and raw-text fallbacks
+ * share one id space (see openaiShim façade `nextTextToolCallSequence`).
+ */
 export function parseXmlToolCalls(
   text: string,
-  allowHy3 = false,
-  nextSequence: () => number = nextToolCallSequence,
+  allowHy3: boolean,
+  nextSequence: () => number,
 ): {
   calls: ParsedXmlToolCall[]
   toolCallRanges: Array<[number, number]>

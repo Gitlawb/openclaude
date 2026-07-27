@@ -9,15 +9,19 @@ import {
 import {
   parseRawToolCallsRequestedText,
   stripRanges,
+  nextToolCallSequence,
 } from './rawToolCallParsing.js'
 import {
   isHy3Model,
-  parseXmlToolCalls,
+  parseXmlToolCalls as parseXmlToolCallsModule,
 } from './xmlToolCallParsing.js'
 import {
   convertNonStreamingResponseToAnthropicMessage,
   type NonStreamingOpenAIResponse,
 } from './responseConversion.js'
+
+const parseXmlToolCalls = (text: string, allowHy3: boolean) =>
+  parseXmlToolCallsModule(text, allowHy3, nextToolCallSequence)
 
 const dependencies = {
   makeMessageId: () => 'msg-test',
