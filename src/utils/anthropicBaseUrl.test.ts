@@ -55,3 +55,99 @@ describe('isFirstPartyAnthropicBaseUrlForEnv', () => {
     ).toBe(false)
   })
 })
+
+describe('ANTHROPIC_FIRST_PARTY_PROXY_HOSTS loopback allowlist', () => {
+  test('keeps first-party status for an allowlisted loopback proxy', () => {
+    // The whole point: a local transparent proxy (http, non-default port) that
+    // forwards auth to Anthropic must not drop the OAuth session.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:47821',
+      }),
+    ).toBe(true)
+  })
+
+  test('honors localhost and bracketed IPv6 loopback entries', () => {
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://localhost:8080',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: 'localhost:8080',
+      }),
+    ).toBe(true)
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://[::1]:8080',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '[::1]:8080',
+      }),
+    ).toBe(true)
+    // A case-different localhost still matches.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://LocalHost:8080',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: 'localhost:8080',
+      }),
+    ).toBe(true)
+  })
+
+  test('an entry with no port matches any port on that loopback host', () => {
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:59999',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1',
+      }),
+    ).toBe(true)
+  })
+
+  test('picks the matching host out of a comma-separated list', () => {
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://[::1]:8080',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:47821, [::1]:8080',
+      }),
+    ).toBe(true)
+  })
+
+  test('a port on the entry must match the base URL port exactly', () => {
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:47822',
+      }),
+    ).toBe(false)
+  })
+
+  test('never widens first-party status to an off-machine host', () => {
+    // A non-loopback base URL is rejected even if the operator lists it -- the
+    // token can only ever ride a proxy on the local machine.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://proxy.internal.example:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: 'proxy.internal.example:47821',
+      }),
+    ).toBe(false)
+    // A loopback base URL with a non-loopback allowlist entry does not match.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: 'evil.example:47821',
+      }),
+    ).toBe(false)
+  })
+
+  test('does nothing without the opt-in variable', () => {
+    // Default behavior is unchanged: a loopback base URL is still a custom
+    // provider unless the allowlist explicitly opts in.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:47821',
+      }),
+    ).toBe(false)
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '',
+      }),
+    ).toBe(false)
+  })
+})
