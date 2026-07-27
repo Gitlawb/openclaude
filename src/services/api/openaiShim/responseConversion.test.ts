@@ -203,12 +203,17 @@ test('preserves structured Gemini signatures and safety terminal responses', () 
 })
 
 test('normalizes array content and length stop reasons', () => {
+  const functionPart = Object.assign(() => {}, {
+    type: 'text' as const,
+    text: 'ignored-fn',
+  })
   const message = convert({
     choices: [{
       message: {
         content: [
           { type: 'text', text: 'first' },
           { type: 'image' },
+          functionPart,
           { type: 'text', text: 'second' },
         ],
       },

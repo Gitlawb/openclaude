@@ -69,8 +69,16 @@ export function convertNonStreamingResponseToAnthropicMessage(
     ? choice.message.content : null
   if (typeof rawContent === 'string' && rawContent) appendTextOrRecoveredToolCalls(rawContent)
   else if (Array.isArray(rawContent)) {
-    const text = rawContent.filter(part => part?.type === 'text' && typeof part.text === 'string')
-      .map(part => part.text!).join('\n')
+    const text = rawContent
+      .filter(
+        part =>
+          part &&
+          typeof part === 'object' &&
+          part.type === 'text' &&
+          typeof part.text === 'string',
+      )
+      .map(part => part.text!)
+      .join('\n')
     if (text) appendTextOrRecoveredToolCalls(text)
   }
 
