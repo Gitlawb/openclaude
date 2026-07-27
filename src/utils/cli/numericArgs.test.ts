@@ -104,6 +104,22 @@ test('parsePositiveAmountArg rejects finite budgets the guard can never reach', 
   ).toBe(Number.MAX_SAFE_INTEGER)
 })
 
+test('parsePositiveAmountArg rejects a decimal cap that loses precision', () => {
+  // Number('9007199254740990.5') rounds to 9007199254740990, which is under
+  // MAX_SAFE_INTEGER, so the earlier bound accepts it -- but the enforced cap
+  // is no longer the value the user typed. A double cannot hold this decimal.
+  expect(() =>
+    parsePositiveAmountArg('--max-budget-usd', '9007199254740990.5'),
+  ).toThrow(InvalidArgumentError)
+  expect(() =>
+    parsePositiveAmountArg('--max-budget-usd', '1234567890.1234567'),
+  ).toThrow(InvalidArgumentError)
+  // A decimal within a double's ~15 significant digits is fine, including one
+  // whose trailing/leading zeros are not significant.
+  expect(parsePositiveAmountArg('--max-budget-usd', '1000.50')).toBe(1000.5)
+  expect(parsePositiveAmountArg('--max-budget-usd', '0.000001')).toBe(0.000001)
+})
+
 test('parsePositiveAmountArg names the option in the error message', () => {
   expect(() => parsePositiveAmountArg('--max-budget-usd', 'abc')).toThrow(
     '--max-budget-usd must be a positive number greater than 0',

@@ -39,6 +39,15 @@ export function parsePositiveIntArg(name: string, value: string): number {
  * so the enforced cap would differ from the one the user typed. Bound at the
  * safe-integer range -- far above any real budget, below where either problem
  * starts.
+ *
+ * The safe-integer bound alone misses one case: a fractional value just under
+ * it can still lose precision. `Number('9007199254740990.5')` rounds to
+ * 9007199254740990, which is <= MAX_SAFE_INTEGER yet no longer the value that
+ * was typed, so the enforced cap silently shifts. A double round-trips only
+ * ~15 significant decimal digits, so a fractional input carrying more than that
+ * is rejected. (Whole-number precision is already bounded by MAX_SAFE_INTEGER,
+ * which legitimately carries 16 digits, so the digit check is gated on a
+ * decimal point to avoid rejecting the boundary integer itself.)
  */
 export function parsePositiveAmountArg(name: string, value: string): number {
   const parsed = Number(value)
@@ -51,5 +60,25 @@ export function parsePositiveAmountArg(name: string, value: string): number {
       `${name} must be a positive number greater than 0`,
     )
   }
+  if (value.includes('.') && significantDigitCount(value) > 15) {
+    throw new InvalidArgumentError(
+      `${name} has more precision than can be represented exactly`,
+    )
+  }
   return parsed
+}
+
+/**
+ * Count the significant decimal digits in a numeric string: drop the sign, any
+ * exponent suffix, the decimal point, then leading and trailing zeros (neither
+ * of which carries precision). "1000.50" -> "10005" -> 5; "9007199254740990.5"
+ * -> 17. Used to reject caps a double cannot hold exactly.
+ */
+function significantDigitCount(value: string): number {
+  const mantissa = value
+    .trim()
+    .replace(/^[+-]/, '')
+    .replace(/[eE][+-]?\d+$/, '')
+  const digitsOnly = mantissa.replace('.', '')
+  return digitsOnly.replace(/^0+/, '').replace(/0+$/, '').length
 }
