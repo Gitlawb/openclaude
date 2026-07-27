@@ -77,22 +77,24 @@ describe('SpinnerAnimationRow', () => {
   })
 
   it('drops the glyph when it would hide tokens behind a visible timer', async () => {
-    const output = await renderToString(
-      <SpinnerAnimationRow
-        {...baseProps({
-          responseLength: 4_000,
-          verbose: true,
-          loadingStartTimeRef: { current: Date.now() - 6_000 },
-          columns: 31,
-        })}
-      />,
-      31,
-    )
+    for (const columns of [30, 31]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            responseLength: 4_000,
+            verbose: true,
+            loadingStartTimeRef: { current: Date.now() - 6_000 },
+            columns,
+          })}
+        />,
+        columns,
+      )
 
-    const rows = visibleRows(output)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatch(/^● Thinking \(\d+s · 1\.0k tokens\)$/)
-    expect(rows[0]).not.toContain(figures.arrowDown)
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatch(/^● Thinking \(\d+s · 1\.0k tokens\)$/)
+      expect(rows[0]).not.toContain(figures.arrowDown)
+    }
   })
 
   it('shows zero tokens as soon as the first response character arrives', async () => {
@@ -280,6 +282,22 @@ describe('SpinnerAnimationRow', () => {
     expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
   })
 
+  it('omits empty glyph chrome for requesting spins with numeric thinkingStatus', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'requesting',
+          thinkingStatus: 3_000,
+          columns: 16,
+        })}
+      />,
+      16,
+    )
+
+    expect(visibleRows(output)).toEqual(['● Thinking'])
+    expect(visibleRows(output)[0]).not.toContain(figures.arrowUp)
+  })
+
   it('shows post-thinking duration without glyph when bare chrome fits', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow
@@ -294,6 +312,25 @@ describe('SpinnerAnimationRow', () => {
 
     expect(visibleRows(output)).toEqual(['● Thinking (thought for 3s)'])
     expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
+  })
+
+  it('prefers streaming tokens over post-thinking duration on mid-narrow terminals', async () => {
+    for (const columns of [29, 30]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'responding',
+            thinkingStatus: 3_000,
+            responseLength: 4_000,
+            columns,
+          })}
+        />,
+        columns,
+      )
+
+      expect(visibleRows(output)).toEqual(['● Thinking (1.0k tokens)'])
+      expect(visibleRows(output)[0]).not.toContain('thought for')
+    }
   })
 
   it('keeps zero tokens when glyph recovery would swap them for timer only', async () => {

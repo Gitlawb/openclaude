@@ -211,12 +211,15 @@ export function SpinnerAnimationRow({
     const bareShowTimer = wantsTimer && bareAvailableSpace > bareUsedAfterThinking + timerWidth;
     const bareUsedAfterTimer = bareUsedAfterThinking + (bareShowTimer ? timerWidth + sep : 0);
     const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace > bareUsedAfterTimer + tokensWidth;
+    const bareShowTokensWithTimer = wantsTokens && hasTokenContent && bareAvailableSpace >= bareUsedAfterTimer + tokensWidth;
     // Thinking-only recovery stays in the dedicated second-chance block below
     // so full "(↓ · thinking)" chrome still wins when it fits.
     const glyphHidesContent = bareShowTimer && !showTimer || bareShowTokens && !showTokens;
     // Do not swap already-visible tokens for a timer that only fits without the glyph.
     const glyphRecoveryLosesTokens = showTokens && !bareShowTokens;
-    if (glyphHidesContent && !glyphRecoveryLosesTokens) {
+    // Timer may already show with the glyph while tokens only fit after dropping it.
+    const glyphRecoveryAddsTokens = showTimer && !showTokens && bareShowTokensWithTimer;
+    if ((glyphHidesContent || glyphRecoveryAddsTokens) && !glyphRecoveryLosesTokens) {
       reserveModeGlyph = false;
       parensWidth = BASE_PARENS_WIDTH;
       availableSpace = bareAvailableSpace;
@@ -224,7 +227,7 @@ export function SpinnerAnimationRow({
       usedAfterThinking = bareUsedAfterThinking;
       showTimer = bareShowTimer;
       usedAfterTimer = bareUsedAfterTimer;
-      showTokens = bareShowTokens;
+      showTokens = glyphRecoveryAddsTokens ? bareShowTokensWithTimer : bareShowTokens;
     }
   }
   // Leader thinking-only prefers the mode glyph inside outer parens
@@ -248,7 +251,13 @@ export function SpinnerAnimationRow({
     if (!showThinking) {
       // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
       const bareAvailable = columns - messageWidth - 3;
-      if (bareAvailable >= thinkingWidthValue) {
+      const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailable > tokensWidth;
+      const thinkingAndTokensFitBare = bareAvailable > thinkingWidthValue + sep + tokensWidth;
+      if (typeof thinkingStatus === 'number' && tokensFitBareAlone && !thinkingAndTokensFitBare && !showTokens) {
+        showTokens = true;
+        suppressModeGlyphForBareThinking = true;
+        reserveModeGlyph = false;
+      } else if (bareAvailable >= thinkingWidthValue) {
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
         reserveModeGlyph = false;
@@ -274,7 +283,7 @@ export function SpinnerAnimationRow({
   const hasVisibleStatusContent = Boolean(spinnerSuffix) || showTimer || showTokens || showThinking;
   // Requesting and active "thinking" may show glyph-only chrome; completed-thought
   // duration and other states must not render an empty "(↓ )" row.
-  const allowGlyphOnlyStatus = mode === 'requesting' || thinkingStatus === 'thinking';
+  const allowGlyphOnlyStatus = (mode === 'requesting' || thinkingStatus === 'thinking') && typeof thinkingStatus !== 'number';
   const canShowModeGlyph = reserveModeGlyph && !suppressModeGlyphForBareThinking && residualForStatus >= 5 && (hasVisibleStatusContent || allowGlyphOnlyStatus);
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
