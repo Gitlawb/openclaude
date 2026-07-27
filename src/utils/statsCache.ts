@@ -454,28 +454,41 @@ export function isDateBefore(date1: string, date2: string): boolean {
  * truncated or foreign-format value would silently yield a
  * plausible-but-wrong span instead of being rejected.
  *
- * The match is anchored at both ends and the zone designator is required. A
- * space-delimited "2026-07-13 23:30:00" is neither shape, and `Date.parse`
- * would read it as a host-local time — making the computed span depend on the
- * machine's timezone (2 under UTC, 1 under America/Los_Angeles) rather than
- * falling back to 0 for corrupt input.
+ * The match is anchored at both ends and, once a time is present, a zone
+ * designator is required. A space-delimited "2026-07-13 23:30:00" is neither
+ * shape, and `Date.parse` would read it as a host-local time — making the
+ * computed span depend on the machine's timezone (2 under UTC, 1 under
+ * America/Los_Angeles) rather than falling back to 0 for corrupt input.
+ *
+ * What it must NOT do is narrow the timestamp contract the ingestion path
+ * already accepts. `processSessionFiles` persists whatever original string
+ * `new Date(...)` accepted, and SDK callers may supply their own, so valid ISO
+ * spellings reach this validator: seconds are optional (`T12:00Z`) and a numeric
+ * offset may omit its colon (`+0000`). Rejecting those would count the session
+ * in `dailyActivity` yet return a 0 span, so `/stats` reads zero total days for
+ * real multi-day activity. The seconds group and the offset colon are therefore
+ * optional here.
  */
 const PERSISTED_DATE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2})))?$/
+  /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):?(\d{2})))?$/
 
 export function parsePersistedDateMs(value: string): number {
   const match = PERSISTED_DATE_PATTERN.exec(value)
   if (!match) {
     return NaN
   }
+  const [, yearStr, monthStr, dayStr, hour, minute, second, offsetHour, offsetMinute] =
+    match
   // The clock components need the same treatment as the calendar ones below.
   // `Date.parse` normalizes an out-of-range time instead of rejecting it, so
   // "2026-07-13T24:00:00.000Z" becomes midnight on July 14 -- a corrupt
   // persisted timestamp silently shifting the span by a day rather than
   // falling back to 0.
-  const [, hour, minute, second, offsetHour, offsetMinute] = match
   if (hour !== undefined) {
-    if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) {
+    if (Number(hour) > 23 || Number(minute) > 59) {
+      return NaN
+    }
+    if (second !== undefined && Number(second) > 59) {
       return NaN
     }
   }
@@ -487,16 +500,20 @@ export function parsePersistedDateMs(value: string): number {
   // A date-shaped prefix is not enough: Date.parse silently normalizes
   // impossible calendar values (2026-02-30 parses as March 2), which would turn
   // a corrupt persisted date into a fabricated span instead of the 0 fallback.
-  // Validate the spelled components against the real calendar, leap years
-  // included.
-  const year = Number(value.slice(0, 4))
-  const month = Number(value.slice(5, 7))
-  const day = Number(value.slice(8, 10))
+  // Validate the spelled components against the real calendar. Use the explicit
+  // leap rule rather than `Date.UTC(year, ...)`, which maps years 0-99 to
+  // 1900-1999 and would judge year 0000's Feb 29 inconsistently with the
+  // Date.parse this returns.
+  const year = Number(yearStr)
+  const month = Number(monthStr)
+  const day = Number(dayStr)
   if (month < 1 || month > 12) {
     return NaN
   }
-  // With a 1-based month, day 0 of the next month is this month's last day.
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+  const daysInMonth = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][
+    month - 1
+  ]
   if (day < 1 || day > daysInMonth) {
     return NaN
   }

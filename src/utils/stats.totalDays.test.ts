@@ -141,6 +141,33 @@ describe('inclusiveCalendarDaySpan', () => {
     ).toBe(0)
   })
 
+  test('accepts valid ISO spellings the ingestion path persists', () => {
+    // processSessionFiles stores whatever original string `new Date(...)`
+    // accepted, so seconds may be omitted and a numeric offset may drop its
+    // colon. Narrowing the validator to require both counted the session in
+    // dailyActivity yet returned a 0 span, so /stats read zero total days for
+    // genuine multi-day activity.
+    expect(
+      inclusiveCalendarDaySpan('2026-07-13T12:00Z', '2026-07-14T12:00Z'),
+    ).toBe(2)
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T12:00:00+0000',
+        '2026-07-15T00:00:00+0000',
+      ),
+    ).toBe(3)
+    // Second-less form with an offset, and fractional seconds, both accepted.
+    expect(
+      inclusiveCalendarDaySpan('2026-07-13T23:30+05:30', '2026-07-14T00:30Z'),
+    ).toBe(2)
+    expect(
+      inclusiveCalendarDaySpan(
+        '2026-07-13T00:00:00.5Z',
+        '2026-07-13T23:00:00.250Z',
+      ),
+    ).toBe(1)
+  })
+
   test('accepts a UTC offset instant as well as Z', () => {
     // 2026-07-13T23:30+05:30 is 2026-07-13T18:00Z, so these endpoints span
     // exactly two UTC calendar days. Asserting the value rather than just
