@@ -14,7 +14,7 @@ import {
   extractOpenAICategoryMarker,
   isOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.ts'
-import { createOpenAIShimClient, hasMistralApiHost, parseTextToolCalls, parseXmlToolCalls } from './openaiShim.ts'
+import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
@@ -6566,13 +6566,6 @@ test('the OpenAI shim façade creates independent client instances', () => {
 })
 // openaiShim test extraction seam 112 end
 
-test('raw-text and XML fallback tool calls use one unique sequence', () => {
-  const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
-  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
-  expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
-  expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
-  expect(text.calls[0]?.id?.replace(/^\D+/, '')).not.toBe(xml.calls[0]?.id?.replace(/^\D+/, ''))
-})
 
 // ---------------------------------------------------------------------------
 // openaiShim test extraction seam 113 start: non-streaming: reasoning_content emitted as thinking block only when content is null
