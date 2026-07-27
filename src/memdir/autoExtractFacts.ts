@@ -116,27 +116,28 @@ function writeFactMemory(
   const filePath = join(factsDir, filename)
 
   const now = new Date().toISOString()
-  const attrLines = Object.entries(attributes)
-    .map(([k, v]) => `${k}: ${yamlQuote(v)}`)
-    .join('\n')
-
   const content = `---
 type: reference
 title: ${yamlQuote(name)}
 description: ${yamlQuote(description)}
 factType: ${yamlQuote(factType)}
 detectedAt: ${now}
-${attrLines ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${yamlQuote(v)}`).join('\n')}` : ''}
+${Object.keys(attributes).length > 0 ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${yamlQuote(v)}`).join('\n')}` : ''}
 ---
 
 Auto-detected fact: **${name}**
 
 ${description}
 
-${Object.entries(attributes).length > 0 ? `**Details:**\n${Object.entries(attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
+${Object.keys(attributes).length > 0 ? `**Details:**\n${Object.entries(attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 `
 
   try {
+    // Skip rewriting when content is identical to avoid triggering
+    // unnecessary rebuildIndex() calls (P2).
+    if (existsSync(filePath) && readFileSync(filePath, 'utf-8') === content) {
+      return false
+    }
     writeFileSync(filePath, content, 'utf-8')
     return true
   } catch {

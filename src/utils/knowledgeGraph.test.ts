@@ -54,9 +54,13 @@ describe('knowledgeGraph legacy migration', () => {
   beforeEach(() => {
     projectCwd = mkdtempSync(join(tmpdir(), 'kg-test-'))
     setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
+    // Redirect auto-memory to a per-test temp directory so getAutoMemPath()
+    // does NOT resolve to the user's real memory dir (P1).
+    process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = mkdtempSync(join(tmpdir(), 'kg-mem-'))
     removeProjectArtifacts()
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
     delete process.env.CLAUDE_CODE_SIMPLE
+    getAutoMemPath.cache?.clear?.()
     setGovernancePolicySettingsForSourceForTesting(() => ({
       memory: { requireApprovalBeforeWrite: false },
     }))
@@ -65,7 +69,9 @@ describe('knowledgeGraph legacy migration', () => {
   afterEach(() => {
     removeProjectArtifacts()
     setOriginalFsImplementation()
+    delete process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+    getAutoMemPath.cache?.clear?.()
     setGovernancePolicySettingsForSourceForTesting(null)
   })
 

@@ -62,6 +62,10 @@ export const call: LocalCommandCall = async (args, _context) => {
   }
 
   if (subCommand === 'list') {
+    const config = getGlobalConfig();
+    if (config.knowledgeGraphEnabled === false) {
+      return { type: 'text', value: 'Knowledge graph is disabled.' };
+    }
     return { type: 'text', value: await getArcSummary() };
   }
 
