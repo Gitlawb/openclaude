@@ -137,6 +137,45 @@ describe('SpinnerAnimationRow', () => {
     expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
   })
 
+  it('recovers streaming tokens after suffix drop when thinkingStatus is null', async () => {
+    // Production responding + stop-hook/tool suffix often has thinkingStatus null.
+    // Suffix drop must re-gate tokens — not only the numeric-thinkingStatus path.
+    for (const columns of [30, 31, 35]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            thinkingStatus: null,
+            responseLength: 4_000,
+            spinnerSuffix: 'running stop hooks… 1/1',
+            columns,
+          })}
+        />,
+        columns,
+      )
+
+      expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
+    }
+  })
+
+  it('drops glyph to keep an untruncated suffix when bare chrome still fits', async () => {
+    // Glyph+suffix overflows cols 39 for Thinking… + production stop-hook text,
+    // but bare suffix fits — drop the glyph rather than truncating mid-suffix.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLengthRef: { current: 4_000 },
+          spinnerSuffix: 'running stop hooks… 1/1',
+          columns: 39,
+        })}
+      />,
+      39,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (running stop hooks… 1/1)`,
+    ])
+  })
+
   it('drops an overflowing spinner suffix to keep leader thinking', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow
@@ -153,6 +192,23 @@ describe('SpinnerAnimationRow', () => {
     expect(visibleRows(output)).toEqual([
       `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking)`,
     ])
+  })
+
+  it('recovers teammate nested thinking after dropping an overflowing suffix', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          hasRunningTeammates: true,
+          spinnerSuffix: 'running stop hooks… 1/1',
+          columns: 27,
+        })}
+      />,
+      27,
+    )
+
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (thinking)`])
   })
 
   it('drops the glyph when it would hide tokens behind a visible timer', async () => {

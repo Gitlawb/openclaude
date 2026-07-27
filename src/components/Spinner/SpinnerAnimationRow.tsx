@@ -287,10 +287,32 @@ export function SpinnerAnimationRow({
   }
   // Drop an overflowing spinner suffix before other recovery so mid-narrow rows
   // can keep tokens/thinking instead of wrapping glyph+suffix-only chrome.
+  // Budget must include mode-glyph chrome when reserved — comparing suffix text
+  // alone against bare parens leaves glyph+suffix rows that Ink truncates mid-string.
+  // Prefer dropping the glyph to keep a suffix that still fits under bare parens.
   const physicalBareBudget = columns - messageWidth - PHYSICAL_BARE_PARENS;
-  if (showSuffix && physicalBareBudget < suffixTextWidth) {
-    showSuffix = false;
-    effectiveSuffixWidth = 0;
+  if (showSuffix) {
+    const suffixFitsBare = physicalBareBudget >= suffixTextWidth;
+    const suffixFitsWithGlyph = reserveModeGlyph ? physicalBareBudget - MODE_GLYPH_RESERVE >= suffixTextWidth : suffixFitsBare;
+    if (!suffixFitsWithGlyph) {
+      if (reserveModeGlyph && suffixFitsBare) {
+        reserveModeGlyph = false;
+        parensWidth = BASE_PARENS_WIDTH;
+        availableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
+      } else {
+        showSuffix = false;
+        effectiveSuffixWidth = 0;
+      }
+    }
+  }
+  // After dropping a crowding suffix, recover tokens that primary gating hid
+  // while suffix width was reserved — including thinkingStatus === null (the
+  // common responding + stop-hook/tool suffix path from REPL).
+  if (!showSuffix && !showTokens && !showTimer && !showThinking && wantsTokens && hasTokenContent && physicalBareBudget >= tokensWidth) {
+    showTokens = true;
+    reserveModeGlyph = false;
+    usedAfterThinking = 0;
+    usedAfterTimer = 0;
   }
   // Prefer live streaming tokens over numeric post-thinking duration when both
   // cannot fit (including when primary already chose duration under the glyph,
@@ -316,13 +338,14 @@ export function SpinnerAnimationRow({
       usedAfterTimer = usedAfterThinking;
     }
   }
-  // Leader thinking-only prefers the mode glyph inside outer parens
+  // Thinking-only prefers the mode glyph inside outer parens for leaders
   // ("(↓ · thinking)") when both fit. When full chrome does not fit, fall
   // back to bare "(thinking)" without the glyph (same band as pre-glyph
-  // layout) rather than empty glyph-only status. Runs after suffix overflow
-  // drop so stop-hook/tool suffixes do not permanently hide thinking.
-  if (!showThinking && wantsThinking && !hasRunningTeammates && !showSuffix && !showTimer && !showTokens) {
-    if (reserveModeGlyph) {
+  // layout) rather than empty glyph-only status. Teammates skip glyph chrome
+  // and recover nested "(thinking)" here after suffix overflow drop so
+  // stop-hook/tool suffixes do not permanently hide thinking.
+  if (!showThinking && wantsThinking && !showSuffix && !showTimer && !showTokens) {
+    if (reserveModeGlyph && !hasRunningTeammates) {
       const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
       if (leaderThinkingAvailable >= fullThinkingWidth) {
         thinkingText = fullThinkingText;
@@ -336,6 +359,7 @@ export function SpinnerAnimationRow({
     }
     if (!showThinking) {
       // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
+      // Teammates nest these parens on the thinking word via bareThinkingOnly.
       const bareAvailable = physicalBareBudget;
       const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailable >= tokensWidth;
       const thinkingAndTokensFitBare = bareAvailable >= fullThinkingWidth + sep + tokensWidth;
