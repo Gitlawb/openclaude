@@ -80,7 +80,9 @@ describe('SpinnerAnimationRow', () => {
 
   it('prefers token count over glyph-only status on mid-narrow terminals', async () => {
     // Full glyph+tokens chrome fails primary gate around cols 27–31 for
-    // production "Thinking…"; content recovery drops the glyph so tokens show.
+    // production "Thinking…" (messageWidth 11); content recovery drops the
+    // glyph so tokens show. Breakpoints are message-relative — longer verbs
+    // shift the band (see long-verb recovery test).
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
@@ -94,6 +96,63 @@ describe('SpinnerAnimationRow', () => {
     const rows = visibleRows(output)
     expect(rows).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
     expect(rows[0]).not.toContain(figures.arrowDown)
+  })
+
+  it('recovers tokens for long production verbs at their shifted column band', async () => {
+    // Spinner.tsx uses effectiveVerb + '…'; Flibbertigibbeting… is messageWidth 21,
+    // so tokens need columns >= 35 (21 + bare parens 3 + "1.0k tokens" 11).
+    const longMessage = 'Flibbertigibbeting…'
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          message: longMessage,
+          responseLength: 4_000,
+          columns: 35,
+        })}
+      />,
+      35,
+    )
+
+    const rows = visibleRows(output)
+    expect(rows).toEqual([`● ${longMessage} (1.0k tokens)`])
+    expect(rows[0]).not.toContain(figures.arrowDown)
+  })
+
+  it('drops an overflowing spinner suffix to keep streaming tokens', async () => {
+    // Stop-hook suffix (~23 cols) cannot fit under bare chrome at cols 31 with
+    // Thinking…; drop it and prefer live tokens over post-thinking duration.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'responding',
+          thinkingStatus: 3_000,
+          responseLength: 4_000,
+          spinnerSuffix: 'running stop hooks… 1/1',
+          columns: 31,
+        })}
+      />,
+      31,
+    )
+
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
+  })
+
+  it('drops an overflowing spinner suffix to keep leader thinking', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          spinnerSuffix: 'running stop hooks… 1/1',
+          columns: 27,
+        })}
+      />,
+      27,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking)`,
+    ])
   })
 
   it('drops the glyph when it would hide tokens behind a visible timer', async () => {

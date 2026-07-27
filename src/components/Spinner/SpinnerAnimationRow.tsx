@@ -180,7 +180,8 @@ export function SpinnerAnimationRow({
   const PHYSICAL_BARE_PARENS = 3;
   // Full glyph+thinking chrome budget includes +1 safety vs physical Ink width.
   const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
-  const suffixWidth = spinnerSuffix ? stringWidth(spinnerSuffix) + sep : 0;
+  const suffixTextWidth = spinnerSuffix ? stringWidth(spinnerSuffix) : 0;
+  const suffixWidth = spinnerSuffix ? suffixTextWidth + sep : 0;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimer = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS;
   const wantsTokens = true;
@@ -188,25 +189,27 @@ export function SpinnerAnimationRow({
   const fullThinkingWidth = thinkingWidthValue;
   // Prefer layout with the mode glyph when it fits alongside other status.
   let reserveModeGlyph = !hasRunningTeammates;
+  let showSuffix = Boolean(spinnerSuffix);
+  let effectiveSuffixWidth = showSuffix ? suffixWidth : 0;
   let parensWidth = BASE_PARENS_WIDTH + (reserveModeGlyph ? MODE_GLYPH_RESERVE : 0);
   let availableSpace = columns - messageWidth - parensWidth;
   // Try full effort text against the looser leader glyph chrome before shrinking,
   // so "(↓ · thinking with high effort)" wins when it physically fits.
-  let showThinking = wantsThinking && availableSpace > suffixWidth + thinkingWidthValue;
-  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && reserveModeGlyph) {
+  let showThinking = wantsThinking && availableSpace > effectiveSuffixWidth + thinkingWidthValue;
+  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !showSuffix && reserveModeGlyph) {
     const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
     if (leaderThinkingAvailable >= fullThinkingWidth) {
       showThinking = true;
     }
   }
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
-    if (availableSpace > suffixWidth + THINKING_BARE_WIDTH) {
+    if (availableSpace > effectiveSuffixWidth + THINKING_BARE_WIDTH) {
       thinkingText = 'thinking';
       thinkingWidthValue = THINKING_BARE_WIDTH;
       showThinking = true;
     }
   }
-  let usedAfterThinking = suffixWidth + (showThinking ? thinkingWidthValue + sep : 0);
+  let usedAfterThinking = effectiveSuffixWidth + (showThinking ? thinkingWidthValue + sep : 0);
   let showTimer = wantsTimer && availableSpace > usedAfterThinking + timerWidth;
   let usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   let showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
@@ -220,15 +223,15 @@ export function SpinnerAnimationRow({
     let bareThinkingWidth = fullThinkingWidth;
     // Thinking/timer keep `>` so they leave one safety column; token checks use
     // `>=` so live token counts may consume the exact physical bare budget.
-    let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + bareThinkingWidth;
+    let bareShowThinking = wantsThinking && bareAvailableSpace > effectiveSuffixWidth + bareThinkingWidth;
     if (!bareShowThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
-      if (bareAvailableSpace > suffixWidth + THINKING_BARE_WIDTH) {
+      if (bareAvailableSpace > effectiveSuffixWidth + THINKING_BARE_WIDTH) {
         bareThinkingText = 'thinking';
         bareThinkingWidth = THINKING_BARE_WIDTH;
         bareShowThinking = true;
       }
     }
-    const bareUsedAfterThinking = suffixWidth + (bareShowThinking ? bareThinkingWidth + sep : 0);
+    const bareUsedAfterThinking = effectiveSuffixWidth + (bareShowThinking ? bareThinkingWidth + sep : 0);
     const bareShowTimer = wantsTimer && bareAvailableSpace > bareUsedAfterThinking + timerWidth;
     const bareUsedAfterTimer = bareUsedAfterThinking + (bareShowTimer ? timerWidth + sep : 0);
     const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace >= bareUsedAfterTimer + tokensWidth;
@@ -260,7 +263,7 @@ export function SpinnerAnimationRow({
         showTokens = true;
         thinkingText = fullThinkingText;
         thinkingWidthValue = fullThinkingWidth;
-        usedAfterThinking = suffixWidth;
+        usedAfterThinking = effectiveSuffixWidth;
         usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
       } else if (preferThinkingOverTimerOnly && !bareShowTimer) {
         // Thinking fits bare; timer does not fit alongside — drop timer.
@@ -269,7 +272,7 @@ export function SpinnerAnimationRow({
         showThinking = true;
         showTimer = false;
         showTokens = false;
-        usedAfterThinking = suffixWidth + thinkingWidthValue + sep;
+        usedAfterThinking = effectiveSuffixWidth + thinkingWidthValue + sep;
         usedAfterTimer = usedAfterThinking;
       } else {
         thinkingText = bareThinkingText ?? fullThinkingText;
@@ -282,28 +285,43 @@ export function SpinnerAnimationRow({
       }
     }
   }
+  // Drop an overflowing spinner suffix before other recovery so mid-narrow rows
+  // can keep tokens/thinking instead of wrapping glyph+suffix-only chrome.
+  const physicalBareBudget = columns - messageWidth - PHYSICAL_BARE_PARENS;
+  if (showSuffix && physicalBareBudget < suffixTextWidth) {
+    showSuffix = false;
+    effectiveSuffixWidth = 0;
+  }
   // Prefer live streaming tokens over numeric post-thinking duration when both
-  // cannot fit (including when primary already chose duration under the glyph).
+  // cannot fit (including when primary already chose duration under the glyph,
+  // or when a dropped/crowding suffix hid both). Keep suffix only when it still
+  // fits beside tokens.
   let suppressModeGlyphForBareThinking = false;
-  if (typeof thinkingStatus === 'number' && hasTokenContent && showThinking && !showTokens && !spinnerSuffix) {
-    const physicalBare = columns - messageWidth - PHYSICAL_BARE_PARENS;
-    const tokensFitBareAlone = physicalBare >= tokensWidth;
-    const thinkingAndTokensFit = physicalBare >= thinkingWidthValue + sep + tokensWidth;
-    if (tokensFitBareAlone && !thinkingAndTokensFit) {
+  if (typeof thinkingStatus === 'number' && hasTokenContent && !showTokens) {
+    const tokensFitBareAlone = physicalBareBudget >= tokensWidth;
+    const thinkingAndTokensFit = physicalBareBudget >= fullThinkingWidth + sep + tokensWidth;
+    const durationShowingWithoutTokens = showThinking && !thinkingAndTokensFit;
+    const nothingVisibleYet = !showThinking && !showTimer;
+    if (tokensFitBareAlone && !thinkingAndTokensFit && (durationShowingWithoutTokens || nothingVisibleYet)) {
       showThinking = false;
       showTokens = true;
       showTimer = false;
       // reserveModeGlyph=false is enough to keep canShowModeGlyph false.
       reserveModeGlyph = false;
-      usedAfterThinking = suffixWidth;
+      if (showSuffix && physicalBareBudget < suffixWidth + tokensWidth) {
+        showSuffix = false;
+        effectiveSuffixWidth = 0;
+      }
+      usedAfterThinking = effectiveSuffixWidth;
       usedAfterTimer = usedAfterThinking;
     }
   }
   // Leader thinking-only prefers the mode glyph inside outer parens
   // ("(↓ · thinking)") when both fit. When full chrome does not fit, fall
   // back to bare "(thinking)" without the glyph (same band as pre-glyph
-  // layout) rather than empty glyph-only status.
-  if (!showThinking && wantsThinking && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
+  // layout) rather than empty glyph-only status. Runs after suffix overflow
+  // drop so stop-hook/tool suffixes do not permanently hide thinking.
+  if (!showThinking && wantsThinking && !hasRunningTeammates && !showSuffix && !showTimer && !showTokens) {
     if (reserveModeGlyph) {
       const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
       if (leaderThinkingAvailable >= fullThinkingWidth) {
@@ -318,7 +336,7 @@ export function SpinnerAnimationRow({
     }
     if (!showThinking) {
       // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
-      const bareAvailable = columns - messageWidth - PHYSICAL_BARE_PARENS;
+      const bareAvailable = physicalBareBudget;
       const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailable >= tokensWidth;
       const thinkingAndTokensFitBare = bareAvailable >= fullThinkingWidth + sep + tokensWidth;
       if (typeof thinkingStatus === 'number' && tokensFitBareAlone && !thinkingAndTokensFitBare && !showTokens) {
@@ -342,14 +360,14 @@ export function SpinnerAnimationRow({
   // Nested "(thinking)" is reserved for teammate spins that skip the mode glyph
   // and therefore have no outer status parens. Leader bare fallback still uses
   // outer parens with just the thinking word: "(thinking)".
-  const isThinkingOnlyStatus = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens;
+  const isThinkingOnlyStatus = showThinking && thinkingStatus === 'thinking' && !showSuffix && !showTimer && !showTokens;
   const bareThinkingOnly = isThinkingOnlyStatus && hasRunningTeammates;
   // Minimum residual for leader status chrome after the glimmer trailing space:
   // " " + "(" + glyph Box(width=2) + ")". Below this, omit the glyph rather
   // than overflow. Also omit when content recovery or bare-thinking fallback
   // dropped the glyph so higher-value status can show.
   const residualForStatus = columns - messageWidth;
-  const hasVisibleStatusContent = Boolean(spinnerSuffix) || showTimer || showTokens || showThinking;
+  const hasVisibleStatusContent = Boolean(showSuffix) || showTimer || showTokens || showThinking;
   // Requesting and active "thinking" may show glyph-only chrome; completed-thought
   // duration and other states must not render an empty "(↓ )" row.
   const allowGlyphOnlyStatus = (mode === 'requesting' || thinkingStatus === 'thinking') && typeof thinkingStatus !== 'number';
@@ -367,7 +385,7 @@ export function SpinnerAnimationRow({
   // Apply in both shimmer and reduced-motion arms so teammate bare status is
   // always "(thinking)", not a bare word jammed after the verb.
   const thinkingDisplay = thinkingText ? bareThinkingOnly ? `(${thinkingText})` : thinkingText : null;
-  const parts = [...(spinnerSuffix ? [<Text dimColor key="suffix">
+  const parts = [...(showSuffix && spinnerSuffix ? [<Text dimColor key="suffix">
             {spinnerSuffix}
           </Text>] : []), ...(showTimer ? [<Text dimColor key="elapsedTime">
             {timerText}
