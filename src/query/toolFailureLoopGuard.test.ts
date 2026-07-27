@@ -352,7 +352,7 @@ test('trip messages do not echo unsafe tool names, error categories, or paths', 
 test('multiple identical failures in the same batch count once toward the threshold', () => {
   const state = createToolFailureLoopGuardState()
 
-  const decision = update(
+  const first = update(
     state,
     [
       toolUse('a', 'Edit'),
@@ -365,14 +365,34 @@ test('multiple identical failures in the same batch count once toward the thresh
       toolResult('c', 'Error writing file: failed to replace text'),
     ],
   )
+  expect(first.tripped).toBe(false)
 
-  expect(decision.tripped).toBe(false)
+  // Once-per-key counting must land at 1, not a partial double-count: the next
+  // turn stays below threshold, and only the turn after that trips.
+  const second = update(state, [toolUse('d', 'Edit')], [
+    toolResult('d', 'Error writing file: failed to replace text'),
+  ])
+  expect(second.tripped).toBe(false)
+  if (second.tripped || !second.advisories) {
+    throw new Error('Expected penultimate advisory after a once-counted parallel batch')
+  }
+  expect(second.advisories).toHaveLength(1)
+  expect(second.advisories[0]?.message).toContain('2/3 times')
+
+  const third = update(state, [toolUse('e', 'Edit')], [
+    toolResult('e', 'Error writing file: failed to replace text'),
+  ])
+  if (!third.tripped) {
+    throw new Error('Expected Edit FileWriteError failures to trip on the third turn')
+  }
+  expect(third.message).toContain('`Edit` failed 3 times')
+  expect(third.message).toContain('`FileWriteError`')
 })
 
 test('same-batch parallel failures still accumulate across later turns', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(
+  const first = update(
     state,
     [toolUse('a', 'Bash'), toolUse('b', 'Bash'), toolUse('c', 'Bash')],
     [
@@ -381,9 +401,17 @@ test('same-batch parallel failures still accumulate across later turns', () => {
       toolResult('c', '<tool_use_error>ENOENT: no such file or directory: /z</tool_use_error>'),
     ],
   )
-  update(state, [toolUse('d', 'Bash')], [
+  expect(first.tripped).toBe(false)
+
+  const second = update(state, [toolUse('d', 'Bash')], [
     toolResult('d', '<tool_use_error>ENOENT: no such file or directory: /w</tool_use_error>'),
   ])
+  expect(second.tripped).toBe(false)
+  if (second.tripped || !second.advisories) {
+    throw new Error('Expected penultimate advisory on the second Bash NotFound turn')
+  }
+  expect(second.advisories).toHaveLength(1)
+
   const decision = update(state, [toolUse('e', 'Bash')], [
     toolResult('e', '<tool_use_error>ENOENT: no such file or directory: /v</tool_use_error>'),
   ])
@@ -431,6 +459,25 @@ test('parallel different-tool failures of the same category in one turn do not t
       toolResult('a', '<tool_use_error>Error writing file: one</tool_use_error>'),
       toolResult('b', 'Error writing file: two'),
       toolResult('c', 'Error writing file: three'),
+    ],
+  )
+  expect(decision.tripped).toBe(false)
+})
+
+test('parallel same-path failures in a single turn do not trip the guard', () => {
+  const state = createToolFailureLoopGuardState()
+  const decision = update(
+    state,
+    [
+      toolUse('a', 'Edit', { file_path: 'src/a.ts' }),
+      toolUse('b', 'Write', { file_path: 'src/a.ts' }),
+      toolUse('c', 'NotebookEdit', { notebook_path: 'src/a.ts' }),
+    ],
+    [
+      // Distinct categories so signature/category counters cannot hide a path trip.
+      toolResult('a', 'Error writing file: one'),
+      toolResult('b', 'ENOENT: no such file or directory'),
+      toolResult('c', 'No such tool available: NotebookEdit'),
     ],
   )
   expect(decision.tripped).toBe(false)
