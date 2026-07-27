@@ -90,6 +90,26 @@ export type AimlapiProvisionOptions = AimlapiTopupOptions & {
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
+// Test seam. The unit tests drive both entry points against a stub transport and
+// a capturing profile writer by swapping these in, rather than a process-global
+// `mock.module('./client.js')`. That mock is not confined to this file: bun's
+// module registry is shared across the whole run, so when this suite executes
+// before client.test.ts the stub bleeds in and breaks it. Injecting instead of
+// mocking keeps the seam local to this module.
+type AimlapiClientFactory = (endpoints: ReturnType<typeof resolveEndpoints>) => AimlapiClient
+let createAimlapiClient: AimlapiClientFactory = endpoints => new AimlapiClient(endpoints)
+let writeAimlapiProviderProfile: typeof saveProfileFile = saveProfileFile
+
+/** Swap in stubs for tests; pass `undefined` to restore the real implementations. */
+export function setAimlapiTopupTestDoubles(
+  doubles:
+    | { createClient?: AimlapiClientFactory; writeProfile?: typeof saveProfileFile }
+    | undefined,
+): void {
+  createAimlapiClient = doubles?.createClient ?? (endpoints => new AimlapiClient(endpoints))
+  writeAimlapiProviderProfile = doubles?.writeProfile ?? saveProfileFile
+}
+
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000 // 20 minutes
 
@@ -259,7 +279,7 @@ function finishCliTopup(args: {
   model: string
   baseUrl: string
 }): void {
-  const profilePath = saveProfileFile({
+  const profilePath = writeAimlapiProviderProfile({
     profile: 'openai',
     env: {
       OPENAI_BASE_URL: args.baseUrl,
@@ -344,7 +364,7 @@ async function authenticateAimlapiAccount(
 
 export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<void> {
   const endpoints = resolveEndpoints()
-  const client = new AimlapiClient(endpoints)
+  const client = createAimlapiClient(endpoints)
 
   const partnerId = options.partnerId?.trim() || process.env.AIMLAPI_PARTNER_ID?.trim() || DEFAULT_PARTNER_ID
   const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
@@ -505,7 +525,7 @@ export async function provisionAimlapiKey(
   options: AimlapiProvisionOptions,
 ): Promise<AimlapiProvisionedKey> {
   const endpoints = resolveEndpoints()
-  const client = new AimlapiClient(endpoints)
+  const client = createAimlapiClient(endpoints)
 
   const partnerId =
     options.partnerId?.trim() ||
