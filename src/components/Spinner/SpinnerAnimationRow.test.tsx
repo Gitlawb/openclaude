@@ -332,7 +332,31 @@ describe('SpinnerAnimationRow', () => {
       expect(rows).toHaveLength(1)
       expect(rows[0]).toContain('1.0k tokens')
       expect(rows[0]).toContain('6s')
+      expect(rows[0]).toContain(figures.arrowDown)
       expect(rows[0]).not.toContain('running stop hooks')
+    }
+  })
+
+  it('keeps streaming tokens when leader thinking unlocks on mid-narrow rows', async () => {
+    for (const columns of [26, 27, 30]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            responseLength: 4_000,
+            verbose: true,
+            columns,
+            ...frozenElapsedRefs(6_000),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('1.0k tokens')
+      expect(rows[0]).not.toContain('thinking')
     }
   })
 
@@ -736,7 +760,7 @@ describe('SpinnerAnimationRow', () => {
   })
 
   it('prefers streaming tokens over post-thinking duration on mid-narrow terminals', async () => {
-    for (const columns of [30, 31, 35]) {
+    for (const columns of [30, 31]) {
       const output = await renderToString(
         <SpinnerAnimationRow
           {...baseProps({
@@ -749,10 +773,24 @@ describe('SpinnerAnimationRow', () => {
         columns,
       )
 
-      expect(visibleRows(output)).toEqual([
-        `● ${PROD_MESSAGE} (1.0k tokens)`,
-      ])
+      expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
     }
+
+    // At cols 35 glyph+tokens fit — restore the mode arrow after duration→tokens.
+    const wide = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'responding',
+          thinkingStatus: 3_000,
+          responseLength: 4_000,
+          columns: 35,
+        })}
+      />,
+      35,
+    )
+    expect(visibleRows(wide)).toEqual([
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · 1.0k tokens)`,
+    ])
   })
 
   it('recovers tokens at the exact-fit column boundary', async () => {
