@@ -324,7 +324,12 @@ export function SpinnerAnimationRow({
     // Use `>` (not `>=`) so exact-fit suffix+thinking does not keep the suffix
     // while glyph chrome still cannot show thinking — avoids a one-column cliff.
     const thinkingWithSuffixFit = !wantsThinking || physicalBareBudget > suffixTextWidth + sep + thinkingWidthForSuffix;
+    const tokensWithSuffixAndThinkingFit = !hasTokenContent || !wantsThinking || physicalBareBudget >= suffixTextWidth + sep + thinkingWidthForSuffix + sep + tokensWidth;
     if (hasTokenContent && physicalBareBudget >= tokensWidth && !tokensWithSuffixFit) {
+      showSuffix = false;
+      effectiveSuffixWidth = 0;
+    } else if (hasTokenContent && wantsThinking && physicalBareBudget >= tokensWidth && tokensWithSuffixFit && !tokensWithSuffixAndThinkingFit) {
+      // Suffix+thinking would fit without tokens; prefer live tokens over that pair.
       showSuffix = false;
       effectiveSuffixWidth = 0;
     } else if (!hasTokenContent && wantsThinking && physicalBareBudget >= thinkingWidthForSuffix && !thinkingWithSuffixFit) {
@@ -371,6 +376,13 @@ export function SpinnerAnimationRow({
         showTokens = true;
         usedAfterThinking = 0;
         usedAfterTimer = 0;
+      }
+    } else if (showThinking && !showTokens && tokensFitBareAlone) {
+      // Thinking recovered after suffix drop — co-restore tokens when they fit.
+      let total = thinkingWidthValue + sep + tokensWidth;
+      if (showTimer) total += timerWidth + sep;
+      if (physicalBareBudget >= total) {
+        showTokens = true;
       }
     } else if (showTokens && !showTimer && wantsTimer) {
       let total = timerWidth + sep + tokensWidth;
