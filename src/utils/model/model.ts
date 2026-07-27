@@ -469,7 +469,10 @@ export function getDefaultMainLoopModel(): ModelName {
 export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
   // Special cases for Claude 4+ models to differentiate versions
-  // Order matters: check more specific versions first (4-8 before 4-7 before 4-6 before 4-5 before 4)
+  // Order matters: check more specific versions first (5 before 4-8 before 4-7 before 4-6 before 4-5 before 4)
+  if (name.includes('claude-opus-5')) {
+    return 'claude-opus-5'
+  }
   if (name.includes('claude-opus-4-8')) {
     return 'claude-opus-4-8'
   }
