@@ -1,20 +1,9 @@
-const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
+import {
+  extractBalancedJson,
+  nextToolCallSequence,
+} from './rawToolCallParsing.js'
 
-function extractBalancedJson(text: string, start: number): string | null {
-  let depth = 0
-  let inString = false
-  let escape = false
-  for (let i = start; i < text.length; i++) {
-    const char = text[i]!
-    if (escape) { escape = false; continue }
-    if (char === '\\' && inString) { escape = true; continue }
-    if (char === '"') { inString = !inString; continue }
-    if (inString) continue
-    if (char === '{') depth++
-    else if (char === '}' && --depth === 0) return text.slice(start, i + 1)
-  }
-  return null
-}
+const HY3_PARAMETER_RE = /<parameter\s+name=["']([^"'>\s]+)["']\s*>([\s\S]*?)<\/parameter>/g
 const HY3_NAMED_ARGUMENT_LINE_RE = /^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/gm
 const HY3_ARG_PAIR_RE = /<arg_key(?::[^>\s]+)?>([\s\S]*?)<\/arg_key(?::[^>\s]+)?>\s*<arg_value(?::[^>\s]+)?>([\s\S]*?)<\/arg_value(?::[^>\s]+)?>/g
 
@@ -59,7 +48,6 @@ export interface ParsedXmlToolCall {
   name: string
   arguments: Record<string, unknown>
 }
-let xmlToolCallCounter = 0
 
 const XML_TOOL_CALL_OPEN = '<tool_call>'
 const HY3_TOOL_CALLS_OPEN = '<tool_calls:'
@@ -110,7 +98,11 @@ export function findXmlToolCallOpener(text: string, allowHy3: boolean): number {
 }
 
 /** Exported for unit testing only. */
-export function parseXmlToolCalls(text: string, allowHy3 = false): {
+export function parseXmlToolCalls(
+  text: string,
+  allowHy3 = false,
+  nextSequence: () => number = nextToolCallSequence,
+): {
   calls: ParsedXmlToolCall[]
   toolCallRanges: Array<[number, number]>
 } {
@@ -122,7 +114,7 @@ export function parseXmlToolCalls(text: string, allowHy3 = false): {
     const dedupKey = `${name}:${JSON.stringify(args)}`
     if (seen.has(dedupKey)) return
     seen.add(dedupKey)
-    results.push({ id: `xml_tc_${++xmlToolCallCounter}`, name, arguments: args })
+    results.push({ id: `xml_tc_${nextSequence()}`, name, arguments: args })
   }
 
   const hy3Blocks = allowHy3

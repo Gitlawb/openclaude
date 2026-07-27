@@ -14,7 +14,12 @@ import {
   extractOpenAICategoryMarker,
   isOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.ts'
-import { createOpenAIShimClient, hasMistralApiHost } from './openaiShim.ts'
+import {
+  createOpenAIShimClient,
+  hasMistralApiHost,
+  parseTextToolCalls,
+  parseXmlToolCalls,
+} from './openaiShim.ts'
 import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
@@ -5270,7 +5275,62 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
 // Extraction seam: streaming conversion | non-streaming response conversion.
 
 // openaiShim test extraction seam 092 start: converts Gemini raw tool-call text into non-streaming tool_use blocks
+test('converts Gemini raw tool-call text into non-streaming tool_use blocks', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-raw-tool',
+        model: 'google/gemini-3.1-flash-lite',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Tool calls requested:\n- Agent({"description":"Verify the todo list application functionality.","prompt":"Check files.","subagent_type":"verification"}) [id: call9a8b7c6d5e4f3a2b1c0d9e8f]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
 
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite',
+    messages: [{ role: 'user', content: 'Verify' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    stop_reason?: string
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.stop_reason).toBe('tool_use')
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'call9a8b7c6d5e4f3a2b1c0d9e8f',
+      name: 'Agent',
+      input: {
+        description: 'Verify the todo list application functionality.',
+        prompt: 'Check files.',
+        subagent_type: 'verification',
+      },
+    },
+  ])
+})
 // openaiShim test extraction seam 092 end
 
 
@@ -6566,6 +6626,13 @@ test('the OpenAI shim façade creates independent client instances', () => {
 })
 // openaiShim test extraction seam 112 end
 
+test('raw-text and XML fallback tool calls use one unique sequence', () => {
+  const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
+  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
+  expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
+  expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
+  expect(text.calls[0]?.id?.replace(/^\D+/, '')).not.toBe(xml.calls[0]?.id?.replace(/^\D+/, ''))
+})
 
 // ---------------------------------------------------------------------------
 // openaiShim test extraction seam 113 start: non-streaming: reasoning_content emitted as thinking block only when content is null

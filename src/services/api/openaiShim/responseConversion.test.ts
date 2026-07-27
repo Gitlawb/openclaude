@@ -1,4 +1,15 @@
 import { expect, test } from 'bun:test'
+import { buildAnthropicUsageFromRawUsage } from '../cacheMetrics.js'
+import { normalizeToolArguments } from '../toolArgumentNormalization.js'
+import { stripThinkTags } from '../thinkTagSanitizer.js'
+import {
+  geminiThoughtSignatureFromExtraContent,
+  mergeGeminiThoughtSignature,
+} from './providerCompatibility.js'
+import {
+  parseRawToolCallsRequestedText,
+  stripRanges,
+} from './rawToolCallParsing.js'
 import {
   isHy3Model,
   parseXmlToolCalls,
@@ -8,44 +19,18 @@ import {
   type NonStreamingOpenAIResponse,
 } from './responseConversion.js'
 
-function stripRanges(text: string, ranges: Array<[number, number]>): string {
-  return [...ranges]
-    .sort((left, right) => right[0] - left[0])
-    .reduce((result, [start, end]) => result.slice(0, start) + result.slice(end), text)
-}
-
 const dependencies = {
   makeMessageId: () => 'msg-test',
-  buildUsage: (usage: Record<string, unknown> | undefined) => ({
-    input_tokens: usage?.prompt_tokens ?? 0,
-    output_tokens: usage?.completion_tokens ?? 0,
-  }),
-  stripThinkTags: (text: string) => text.replace(/<think>[\s\S]*?<\/think>/g, ''),
+  buildUsage: (usage: Record<string, unknown> | undefined) =>
+    buildAnthropicUsageFromRawUsage(usage),
+  stripThinkTags,
   parseXmlToolCalls,
   isHy3Model,
   stripRanges,
-  parseRawToolCalls: (text: string) => {
-    const match = text.match(
-      /^Tool calls requested:\s*\n-\s*([A-Za-z_][\w.-]*)\((.*)\)\s*\[id:\s*([^\]\s]+)\]$/s,
-    )
-    return match?.[1] && match[2] !== undefined && match[3]
-      ? [{ id: match[3], name: match[1], argumentsJson: match[2] }]
-      : null
-  },
-  normalizeToolArguments: (_name: string, argumentsJson: string) => JSON.parse(argumentsJson) as unknown,
-  getGeminiThoughtSignature: (extraContent: unknown) => {
-    if (!extraContent || typeof extraContent !== 'object') return undefined
-    const google = (extraContent as { google?: unknown }).google
-    if (!google || typeof google !== 'object') return undefined
-    const signature = (google as { thought_signature?: unknown }).thought_signature
-    return typeof signature === 'string' ? signature : undefined
-  },
-  mergeGeminiThoughtSignature: (
-    extraContent: Record<string, unknown> | undefined,
-    signature: string | undefined,
-  ) => signature
-    ? { ...extraContent, google: { thought_signature: signature } }
-    : extraContent,
+  parseRawToolCalls: parseRawToolCallsRequestedText,
+  normalizeToolArguments,
+  getGeminiThoughtSignature: geminiThoughtSignatureFromExtraContent,
+  mergeGeminiThoughtSignature,
 }
 
 function convert(data: NonStreamingOpenAIResponse, model = 'fallback-model') {
@@ -78,7 +63,12 @@ test('recovers a non-streaming Gemini raw tool call without exposing provider te
     },
   }])
   expect(message.stop_reason).toBe('tool_use')
-  expect(message.usage).toEqual({ input_tokens: 12, output_tokens: 4 })
+  expect(message.usage).toEqual({
+    input_tokens: 12,
+    output_tokens: 4,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  })
 })
 
 test('emits reasoning_content as thinking when content is null', () => {

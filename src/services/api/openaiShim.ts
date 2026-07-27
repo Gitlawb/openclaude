@@ -890,8 +890,8 @@ function isHy3Model(model: string): boolean {
   return isHy3ModelModule(model)
 }
 
-function parseXmlToolCalls(text: string, allowHy3 = false) {
-  return parseXmlToolCallsModule(text, allowHy3)
+export function parseXmlToolCalls(text: string, allowHy3 = false) {
+  return parseXmlToolCallsModule(text, allowHy3, nextTextToolCallSequence)
 }
 
 function trailingXmlOpenerPrefixLen(text: string, allowHy3: boolean): number {
