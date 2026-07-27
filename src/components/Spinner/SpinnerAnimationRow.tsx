@@ -218,6 +218,8 @@ export function SpinnerAnimationRow({
     const bareAvailableSpace = columns - messageWidth - PHYSICAL_BARE_PARENS;
     let bareThinkingText = fullThinkingText;
     let bareThinkingWidth = fullThinkingWidth;
+    // Thinking/timer keep `>` so they leave one safety column; token checks use
+    // `>=` so live token counts may consume the exact physical bare budget.
     let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + bareThinkingWidth;
     if (!bareShowThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
       if (bareAvailableSpace > suffixWidth + THINKING_BARE_WIDTH) {
@@ -250,6 +252,8 @@ export function SpinnerAnimationRow({
       parensWidth = BASE_PARENS_WIDTH;
       availableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
       if (preferTokensOverTimerOnly) {
+        // Tie-break: when tokens and thinking both unlock by dropping the glyph
+        // (preferTokensOverTimerOnly && preferThinkingOverTimerOnly), tokens win.
         // Keep tokens; include timer only when both fit without the glyph.
         showThinking = false;
         showTimer = Boolean(wantsTimer && timerAndTokensFitBare);
@@ -289,8 +293,8 @@ export function SpinnerAnimationRow({
       showThinking = false;
       showTokens = true;
       showTimer = false;
+      // reserveModeGlyph=false is enough to keep canShowModeGlyph false.
       reserveModeGlyph = false;
-      suppressModeGlyphForBareThinking = true;
       usedAfterThinking = suffixWidth;
       usedAfterTimer = usedAfterThinking;
     }
@@ -319,7 +323,6 @@ export function SpinnerAnimationRow({
       const thinkingAndTokensFitBare = bareAvailable >= fullThinkingWidth + sep + tokensWidth;
       if (typeof thinkingStatus === 'number' && tokensFitBareAlone && !thinkingAndTokensFitBare && !showTokens) {
         showTokens = true;
-        suppressModeGlyphForBareThinking = true;
         reserveModeGlyph = false;
       } else if (bareAvailable >= fullThinkingWidth) {
         thinkingText = fullThinkingText;

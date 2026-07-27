@@ -9,6 +9,15 @@ import {
 
 /** Match Spinner.tsx production message shape: verb + ellipsis. */
 const PROD_MESSAGE = 'Thinking…'
+const PROD_MESSAGE_RE = PROD_MESSAGE.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+
+/**
+ * SpinnerModeGlyph wraps the arrow in a Box of width 2, so a single-width
+ * arrow always renders with one trailing pad space inside status parens.
+ */
+function paddedModeGlyph(arrow: string): string {
+  return `${arrow} `
+}
 
 function frozenElapsedRefs(elapsedMs: number): Pick<
   SpinnerAnimationRowProps,
@@ -65,7 +74,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 1.0k tokens)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · 1.0k tokens)`,
     ])
   })
 
@@ -147,7 +156,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 0 tokens)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · 0 tokens)`,
     ])
   })
 
@@ -164,7 +173,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · running stop hooks… 1/1)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · running stop hooks… 1/1)`,
     ])
   })
 
@@ -174,9 +183,9 @@ describe('SpinnerAnimationRow', () => {
       120,
     )
 
-    // Glyph Box width is 2, so the single-width arrow is padded inside parens.
+    // paddedModeGlyph encodes the Box(width=2) trailing space after ↑.
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowUp} )`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowUp)})`,
     ])
   })
 
@@ -192,7 +201,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking)`,
     ])
   })
 
@@ -212,7 +221,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking)`,
     ])
   })
 
@@ -247,7 +256,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown} )`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)})`,
     ])
   })
 
@@ -318,7 +327,7 @@ describe('SpinnerAnimationRow', () => {
     // Spinner glyph frame varies under motion; lock nested teammate thinking.
     const rows = visibleRows(output)
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatch(/^\S Thinking… \(thinking\)$/)
+    expect(rows[0]).toMatch(new RegExp(`^\\S ${PROD_MESSAGE_RE} \\(thinking\\)$`))
   })
 
   it('omits empty glyph chrome when post-thinking duration does not fit', async () => {
@@ -416,7 +425,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking with high effort)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking with high effort)`,
     ])
   })
 
@@ -435,8 +444,32 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · thinking)`,
     ])
+  })
+
+  it('prefers tokens over thinking when both unlock by dropping the glyph', async () => {
+    // Col 26 + verbose timer: glyph layout keeps timer only (leader thinking
+    // chrome does not fit); bare unlocks both tokens and thinking.
+    // preferTokensOverTimerOnly wins that tie-break.
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          responseLength: 4_000,
+          verbose: true,
+          columns: 26,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      26,
+    )
+
+    const rows = visibleRows(output)
+    expect(rows).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
+    expect(rows[0]).not.toContain('thinking')
+    expect(rows[0]).not.toContain(figures.arrowDown)
   })
 
   it('keeps zero tokens when glyph recovery would swap them for timer only', async () => {
@@ -455,7 +488,7 @@ describe('SpinnerAnimationRow', () => {
 
     const rows = visibleRows(output)
     expect(rows).toEqual([
-      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 0 tokens)`,
+      `● ${PROD_MESSAGE} (${paddedModeGlyph(figures.arrowDown)} · 0 tokens)`,
     ])
     expect(rows[0]).not.toMatch(/\dh\b/)
   })
@@ -476,7 +509,9 @@ describe('SpinnerAnimationRow', () => {
     const rows = visibleRows(output)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatch(
-      new RegExp(`^\\S Thinking… \\(${figures.arrowDown}  · thinking\\)$`),
+      new RegExp(
+        `^\\S ${PROD_MESSAGE_RE} \\(${figures.arrowDown}  · thinking\\)$`,
+      ),
     )
   })
 })
