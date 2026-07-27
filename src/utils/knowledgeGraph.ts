@@ -17,6 +17,7 @@ import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
+import { looksLikeSecretValue } from './providerSecrets.js'
 import { createRequire } from 'module'
 const _require = createRequire(import.meta.url)
 
@@ -116,7 +117,9 @@ function migrateLegacyKnowledgeGraph(): void {
   const projectKey = currentProjectKey()
   if (legacyMigrationDoneProjects.has(projectKey)) return
 
-  // Bound retries: if it failed 3 times, skip to avoid infinite loops (M9)
+  // Bound retries: if it failed 3 times, skip to avoid infinite loops (M9).
+  // Not applied when bun:sqlite is unavailable on Node — SQLite-only stores
+  // must keep retrying until a Node-compatible reader is available (P1).
   const attempts = migrationAttempts.get(projectKey) || 0
   if (attempts >= 3) {
     legacyMigrationDoneProjects.add(projectKey)
@@ -191,11 +194,23 @@ function migrateLegacyKnowledgeGraph(): void {
     chosenSource = sqlitePath
 
     if (jsonData) {
-      const sqliteNames = new Set(Object.values(mergedData.entities).map((e: any) => e.name.toLowerCase()))
+      // Track name-deduplicated entity IDs so relations referencing the dropped
+      // ID are still remapped correctly (P1).
+      const droppedIds = new Map<string, string>()
+      const sqliteNames = new Map<string, string>()
+      for (const [eid, e] of Object.entries(mergedData.entities) as [string, any][]) {
+        sqliteNames.set(e.name.toLowerCase(), eid)
+      }
       for (const [id, entity] of Object.entries(jsonData.entities || {}) as [string, any][]) {
         if (!mergedData.entities[id] && !sqliteNames.has(entity.name.toLowerCase())) {
           mergedData.entities[id] = entity
+        } else {
+          const mergedId = sqliteNames.get(entity.name.toLowerCase())
+          if (mergedId) droppedIds.set(id, mergedId)
         }
+      }
+      if (droppedIds.size > 0) {
+        mergedData._droppedEntityAliases = droppedIds
       }
       const relKeys = new Set(mergedData.relations.map((r: any) => `${r.sourceId}:${r.targetId}:${r.type}`))
       for (const r of (jsonData.relations || [])) {
@@ -224,11 +239,21 @@ function migrateLegacyKnowledgeGraph(): void {
     chosenSource = legacyPath
 
     if (sqliteData) {
-      const jsonNames = new Set(Object.values(mergedData.entities).map((e: any) => e.name.toLowerCase()))
+      const droppedIds = new Map<string, string>()
+      const jsonNames = new Map<string, string>()
+      for (const [eid, e] of Object.entries(mergedData.entities) as [string, any][]) {
+        jsonNames.set(e.name.toLowerCase(), eid)
+      }
       for (const [id, entity] of Object.entries(sqliteData.entities || {}) as [string, any][]) {
         if (!mergedData.entities[id] && !jsonNames.has(entity.name.toLowerCase())) {
           mergedData.entities[id] = entity
+        } else {
+          const mergedId = jsonNames.get(entity.name.toLowerCase())
+          if (mergedId) droppedIds.set(id, mergedId)
         }
+      }
+      if (droppedIds.size > 0) {
+        mergedData._droppedEntityAliases = droppedIds
       }
       const relKeys = new Set(mergedData.relations.map((r: any) => `${r.sourceId}:${r.targetId}:${r.type}`))
       for (const r of (sqliteData.relations || [])) {
@@ -256,9 +281,13 @@ function migrateLegacyKnowledgeGraph(): void {
   if (!mergedData) {
     // If SQLite exists but could not be read, do not mark migration done (P1).
     // Retry on next run so data is not silently lost.
+    // bun:sqlite unavailable on Node is not counted as an attempt — the
+    // SQLite store must never be abandoned until a compatible reader exists.
     if (!sqliteRead.ok && sqliteRead.reason !== 'not_found') {
-      const currentAttempts = migrationAttempts.get(projectKey) || 0
-      migrationAttempts.set(projectKey, currentAttempts + 1)
+      if (sqliteRead.reason !== 'unavailable') {
+        const currentAttempts = migrationAttempts.get(projectKey) || 0
+        migrationAttempts.set(projectKey, currentAttempts + 1)
+      }
     } else {
       legacyMigrationDoneProjects.add(projectKey)
     }
@@ -368,6 +397,22 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
     let count = 0
     const legacyToNewId = new Map<string, string>()
 
+    // Apply name-deduplication aliases so relations on dropped IDs are remapped (P1).
+    const droppedAliases: Map<string, string> = data._droppedEntityAliases || new Map()
+    for (const [droppedId, mergedId] of droppedAliases) {
+      if (!legacyToNewId.has(mergedId)) {
+        // mergedId wasn't iterated because the dedicated entity loop assigned
+        // it from the winning store; look up its migrated name.
+        const entity = data.entities[mergedId]
+        if (entity) {
+          const nameSlug = `${slugify(entity.name)}-${getShortHash(entity.name + '_' + mergedId)}`
+          const typeSlug = slugify(entity.type || 'unknown')
+          legacyToNewId.set(mergedId, `fact_fact-${typeSlug}-${nameSlug}.md`)
+        }
+      }
+      legacyToNewId.set(droppedId, legacyToNewId.get(mergedId) || droppedId)
+    }
+
     // Migrate entities
     const legacyEntities = Object.entries(data.entities ?? {})
     for (const [legacyId, entity] of legacyEntities as [string, any][]) {
@@ -376,7 +421,14 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
       const newId = `fact_fact-${typeSlug}-${nameSlug}.md`
       legacyToNewId.set(legacyId, newId)
 
-      const attrsYaml = Object.entries(entity.attributes ?? {})
+      // Redact secret-bearing attributes before persisting (P1):
+      // the old fact extractor stored raw env values in entity attributes.
+      const safeAttrs = Object.fromEntries(
+        Object.entries(entity.attributes ?? {}).filter(
+          ([, v]) => !looksLikeSecretValue(String(v)),
+        ),
+      )
+      const attrsYaml = Object.entries(safeAttrs)
         .map(([k, v]) => `  ${k}: ${yamlQuote(String(v))}`)
         .join('\n')
       const content = `---
@@ -645,6 +697,14 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
       for (const r of results.slice(0, 8)) {
         output += `- ${r.title}`
         if (r.description) output += `: ${r.description}`
+        // Include body content excerpt for decisions/config stored only in
+        // the fact body (P1). Bound to 500 bytes, redacted for secrets.
+        if (r.content) {
+          const { redactLikelySecrets } = await import('./redaction.js')
+          const body = r.content.trim().slice(0, 500)
+          const redacted = redactLikelySecrets(body)
+          output += `\n  ${redacted.replace(/\n/g, '\n  ')}`
+        }
         output += '\n'
       }
       return '\n--- BEGIN RETRIEVED MEMORY (DATA ONLY) ---\n'

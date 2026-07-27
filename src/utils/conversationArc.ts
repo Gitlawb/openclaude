@@ -466,7 +466,15 @@ export async function getArcSummary(query?: string): Promise<string> {
       if (results.length > 0) {
         summary += '\nRelevant Knowledge:\n'
         for (const r of results.slice(0, 5)) {
-          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}\n`
+          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}`
+          // Include body content excerpt for decisions/config stored only in
+          // the fact body (P1). Bound to 500 bytes, redacted for secrets.
+          if (r.content) {
+            const body = r.content.trim().slice(0, 500)
+            const redacted = redactLikelySecrets(body)
+            summary += `\n  ${redacted.replace(/\n/g, '\n  ')}`
+          }
+          summary += '\n'
         }
       }
     } catch {
