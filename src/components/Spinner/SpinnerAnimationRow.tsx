@@ -171,19 +171,34 @@ export function SpinnerAnimationRow({
   // messageWidth = glimmer text + spinner glyph (width: 2).
   // Base parens chrome is 4: glimmer trailing space + "(" + ")" + safety.
   // Leader spins may also reserve mode glyph (width 2) + separator.
+  // Physical bare chrome (no safety) is 3 — used for exact-fit recovery so
+  // higher-value status (tokens/thinking) appears as soon as it actually fits.
   const messageWidth = glimmerMessageWidth + 2;
   const sep = SEP_WIDTH;
   const MODE_GLYPH_RESERVE = 2 + SEP_WIDTH;
   const BASE_PARENS_WIDTH = 4;
+  const PHYSICAL_BARE_PARENS = 3;
+  // Full glyph+thinking chrome budget includes +1 safety vs physical Ink width.
+  const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
   const suffixWidth = spinnerSuffix ? stringWidth(spinnerSuffix) + sep : 0;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimer = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS;
   const wantsTokens = true;
+  const fullThinkingText = thinkingText;
+  const fullThinkingWidth = thinkingWidthValue;
   // Prefer layout with the mode glyph when it fits alongside other status.
   let reserveModeGlyph = !hasRunningTeammates;
   let parensWidth = BASE_PARENS_WIDTH + (reserveModeGlyph ? MODE_GLYPH_RESERVE : 0);
   let availableSpace = columns - messageWidth - parensWidth;
+  // Try full effort text against the looser leader glyph chrome before shrinking,
+  // so "(↓ · thinking with high effort)" wins when it physically fits.
   let showThinking = wantsThinking && availableSpace > suffixWidth + thinkingWidthValue;
+  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && reserveModeGlyph) {
+    const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
+    if (leaderThinkingAvailable >= fullThinkingWidth) {
+      showThinking = true;
+    }
+  }
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
     if (availableSpace > suffixWidth + THINKING_BARE_WIDTH) {
       thinkingText = 'thinking';
@@ -196,51 +211,100 @@ export function SpinnerAnimationRow({
   let usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   let showTokens = wantsTokens && hasTokenContent && availableSpace > usedAfterTimer + tokensWidth;
   // Re-check without the glyph. Keep it when it fits alongside the same
-  // content, but prefer timer/token status when reserving the glyph hides it.
+  // content, but prefer higher-value status when reserving the glyph hides it.
+  // Use physical bare chrome for recovery so exact-fit columns are not rejected
+  // by the +1 safety margin that primary gating already applied.
   if (reserveModeGlyph) {
-    const bareAvailableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
-    let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + thinkingWidthValue;
+    const bareAvailableSpace = columns - messageWidth - PHYSICAL_BARE_PARENS;
+    let bareThinkingText = fullThinkingText;
+    let bareThinkingWidth = fullThinkingWidth;
+    let bareShowThinking = wantsThinking && bareAvailableSpace > suffixWidth + bareThinkingWidth;
     if (!bareShowThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
       if (bareAvailableSpace > suffixWidth + THINKING_BARE_WIDTH) {
-        thinkingText = 'thinking';
-        thinkingWidthValue = THINKING_BARE_WIDTH;
+        bareThinkingText = 'thinking';
+        bareThinkingWidth = THINKING_BARE_WIDTH;
         bareShowThinking = true;
       }
     }
-    const bareUsedAfterThinking = suffixWidth + (bareShowThinking ? thinkingWidthValue + sep : 0);
+    const bareUsedAfterThinking = suffixWidth + (bareShowThinking ? bareThinkingWidth + sep : 0);
     const bareShowTimer = wantsTimer && bareAvailableSpace > bareUsedAfterThinking + timerWidth;
     const bareUsedAfterTimer = bareUsedAfterThinking + (bareShowTimer ? timerWidth + sep : 0);
-    const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace > bareUsedAfterTimer + tokensWidth;
-    const bareShowTokensWithTimer = wantsTokens && hasTokenContent && bareAvailableSpace >= bareUsedAfterTimer + tokensWidth;
+    const bareShowTokens = wantsTokens && hasTokenContent && bareAvailableSpace >= bareUsedAfterTimer + tokensWidth;
+    const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailableSpace >= tokensWidth;
+    const timerAndTokensFitBare = wantsTimer && hasTokenContent && bareAvailableSpace >= timerWidth + sep + tokensWidth;
     // Thinking-only recovery stays in the dedicated second-chance block below
     // so full "(↓ · thinking)" chrome still wins when it fits.
-    const glyphHidesContent = bareShowTimer && !showTimer || bareShowTokens && !showTokens;
-    // Do not swap already-visible tokens for a timer that only fits without the glyph.
-    const glyphRecoveryLosesTokens = showTokens && !bareShowTokens;
-    // Timer may already show with the glyph while tokens only fit after dropping it.
-    const glyphRecoveryAddsTokens = showTimer && !showTokens && bareShowTokensWithTimer;
-    if ((glyphHidesContent || glyphRecoveryAddsTokens) && !glyphRecoveryLosesTokens) {
+    const glyphHidesThinking = bareShowThinking && !showThinking;
+    const glyphHidesTimer = bareShowTimer && !showTimer;
+    const glyphHidesTokens = bareShowTokens && !showTokens;
+    // Timer under glyph with no tokens: prefer tokens alone (or timer+tokens)
+    // over timer-only / glyph+timer chrome.
+    const preferTokensOverTimerOnly = Boolean(showTimer && !showTokens && tokensFitBareAlone);
+    // Active thinking hidden behind glyph+timer: prefer thinking (drop timer if needed).
+    const preferThinkingOverTimerOnly = Boolean(showTimer && !showThinking && bareShowThinking && thinkingStatus === 'thinking');
+    // Do not swap already-visible tokens for a timer that only fits without the glyph,
+    // unless we are explicitly choosing tokens-over-timer-only below.
+    const glyphRecoveryLosesTokens = showTokens && !bareShowTokens && !preferTokensOverTimerOnly;
+    if ((glyphHidesThinking || glyphHidesTimer || glyphHidesTokens || preferTokensOverTimerOnly || preferThinkingOverTimerOnly) && !glyphRecoveryLosesTokens) {
       reserveModeGlyph = false;
       parensWidth = BASE_PARENS_WIDTH;
-      availableSpace = bareAvailableSpace;
-      showThinking = bareShowThinking;
-      usedAfterThinking = bareUsedAfterThinking;
-      showTimer = bareShowTimer;
-      usedAfterTimer = bareUsedAfterTimer;
-      showTokens = glyphRecoveryAddsTokens ? bareShowTokensWithTimer : bareShowTokens;
+      availableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
+      if (preferTokensOverTimerOnly) {
+        // Keep tokens; include timer only when both fit without the glyph.
+        showThinking = false;
+        showTimer = Boolean(wantsTimer && timerAndTokensFitBare);
+        showTokens = true;
+        thinkingText = fullThinkingText;
+        thinkingWidthValue = fullThinkingWidth;
+        usedAfterThinking = suffixWidth;
+        usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
+      } else if (preferThinkingOverTimerOnly && !bareShowTimer) {
+        // Thinking fits bare; timer does not fit alongside — drop timer.
+        thinkingText = bareThinkingText ?? fullThinkingText;
+        thinkingWidthValue = bareThinkingWidth;
+        showThinking = true;
+        showTimer = false;
+        showTokens = false;
+        usedAfterThinking = suffixWidth + thinkingWidthValue + sep;
+        usedAfterTimer = usedAfterThinking;
+      } else {
+        thinkingText = bareThinkingText ?? fullThinkingText;
+        thinkingWidthValue = bareThinkingWidth;
+        showThinking = bareShowThinking;
+        usedAfterThinking = bareUsedAfterThinking;
+        showTimer = bareShowTimer;
+        usedAfterTimer = bareUsedAfterTimer;
+        showTokens = bareShowTokens;
+      }
+    }
+  }
+  // Prefer live streaming tokens over numeric post-thinking duration when both
+  // cannot fit (including when primary already chose duration under the glyph).
+  let suppressModeGlyphForBareThinking = false;
+  if (typeof thinkingStatus === 'number' && hasTokenContent && showThinking && !showTokens && !spinnerSuffix) {
+    const physicalBare = columns - messageWidth - PHYSICAL_BARE_PARENS;
+    const tokensFitBareAlone = physicalBare >= tokensWidth;
+    const thinkingAndTokensFit = physicalBare >= thinkingWidthValue + sep + tokensWidth;
+    if (tokensFitBareAlone && !thinkingAndTokensFit) {
+      showThinking = false;
+      showTokens = true;
+      showTimer = false;
+      reserveModeGlyph = false;
+      suppressModeGlyphForBareThinking = true;
+      usedAfterThinking = suffixWidth;
+      usedAfterTimer = usedAfterThinking;
     }
   }
   // Leader thinking-only prefers the mode glyph inside outer parens
   // ("(↓ · thinking)") when both fit. When full chrome does not fit, fall
   // back to bare "(thinking)" without the glyph (same band as pre-glyph
   // layout) rather than empty glyph-only status.
-  // Full chrome budget includes +1 safety vs physical Ink width.
-  const leaderThinkingOnlyChrome = 2 + 2 + SEP_WIDTH + 1;
-  let suppressModeGlyphForBareThinking = false;
   if (!showThinking && wantsThinking && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
     if (reserveModeGlyph) {
       const leaderThinkingAvailable = columns - messageWidth - leaderThinkingOnlyChrome;
-      if (leaderThinkingAvailable >= thinkingWidthValue) {
+      if (leaderThinkingAvailable >= fullThinkingWidth) {
+        thinkingText = fullThinkingText;
+        thinkingWidthValue = fullThinkingWidth;
         showThinking = true;
       } else if (thinkingStatus === 'thinking' && effortSuffix && leaderThinkingAvailable >= THINKING_BARE_WIDTH) {
         thinkingText = 'thinking';
@@ -250,14 +314,16 @@ export function SpinnerAnimationRow({
     }
     if (!showThinking) {
       // Bare chrome: glimmer trailing space + "(" + ")" (matches physical row).
-      const bareAvailable = columns - messageWidth - 3;
-      const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailable > tokensWidth;
-      const thinkingAndTokensFitBare = bareAvailable > thinkingWidthValue + sep + tokensWidth;
+      const bareAvailable = columns - messageWidth - PHYSICAL_BARE_PARENS;
+      const tokensFitBareAlone = wantsTokens && hasTokenContent && bareAvailable >= tokensWidth;
+      const thinkingAndTokensFitBare = bareAvailable >= fullThinkingWidth + sep + tokensWidth;
       if (typeof thinkingStatus === 'number' && tokensFitBareAlone && !thinkingAndTokensFitBare && !showTokens) {
         showTokens = true;
         suppressModeGlyphForBareThinking = true;
         reserveModeGlyph = false;
-      } else if (bareAvailable >= thinkingWidthValue) {
+      } else if (bareAvailable >= fullThinkingWidth) {
+        thinkingText = fullThinkingText;
+        thinkingWidthValue = fullThinkingWidth;
         showThinking = true;
         suppressModeGlyphForBareThinking = true;
         reserveModeGlyph = false;

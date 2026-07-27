@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test'
 import figures from 'figures'
-import { createRef } from 'react'
 import { renderToString } from '../../utils/staticRender.js'
 import {
   getCurrentResponseTokenCount,
@@ -8,21 +7,33 @@ import {
   type SpinnerAnimationRowProps,
 } from './SpinnerAnimationRow.js'
 
+/** Match Spinner.tsx production message shape: verb + ellipsis. */
+const PROD_MESSAGE = 'Thinking…'
+
+function frozenElapsedRefs(elapsedMs: number): Pick<
+  SpinnerAnimationRowProps,
+  'loadingStartTimeRef' | 'totalPausedMsRef' | 'pauseStartTimeRef'
+> {
+  const start = 1_000_000
+  return {
+    loadingStartTimeRef: { current: start },
+    totalPausedMsRef: { current: 0 },
+    pauseStartTimeRef: { current: start + elapsedMs },
+  }
+}
+
 function baseProps(
   overrides: Partial<SpinnerAnimationRowProps> = {},
 ): SpinnerAnimationRowProps {
-  const now = Date.now()
   return {
     mode: 'responding',
     reducedMotion: true,
     hasActiveTools: false,
     responseLengthRef: { current: 0 },
-    message: 'Thinking',
+    message: PROD_MESSAGE,
     messageColor: 'text',
     shimmerColor: 'text',
-    loadingStartTimeRef: { current: now },
-    totalPausedMsRef: { current: 0 },
-    pauseStartTimeRef: createRef<number | null>(),
+    ...frozenElapsedRefs(0),
     verbose: false,
     columns: 120,
     hasRunningTeammates: false,
@@ -34,7 +45,7 @@ function baseProps(
   }
 }
 
-/** ANSI-stripped non-empty rows from a static Ink render. */
+/** Non-empty rows from a static Ink render (`renderToString` strips ANSI). */
 function visibleRows(output: string): string[] {
   return output
     .split(/\r?\n/)
@@ -54,47 +65,79 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown}  · 1.0k tokens)`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 1.0k tokens)`,
     ])
   })
 
   it('prefers token count over glyph-only status on mid-narrow terminals', async () => {
-    // Full glyph+tokens chrome fails primary gate around cols 26–30 for message
-    // "Thinking"; content recovery drops the glyph so tokens still show.
+    // Full glyph+tokens chrome fails primary gate around cols 27–31 for
+    // production "Thinking…"; content recovery drops the glyph so tokens show.
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           responseLength: 4_000,
-          columns: 28,
+          columns: 29,
         })}
       />,
-      28,
+      29,
     )
 
     const rows = visibleRows(output)
-    expect(rows).toEqual(['● Thinking (1.0k tokens)'])
+    expect(rows).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
     expect(rows[0]).not.toContain(figures.arrowDown)
   })
 
   it('drops the glyph when it would hide tokens behind a visible timer', async () => {
-    for (const columns of [30, 31]) {
+    for (const columns of [31, 32]) {
       const output = await renderToString(
         <SpinnerAnimationRow
           {...baseProps({
             responseLength: 4_000,
             verbose: true,
-            loadingStartTimeRef: { current: Date.now() - 6_000 },
+            ...frozenElapsedRefs(6_000),
             columns,
           })}
         />,
         columns,
       )
 
-      const rows = visibleRows(output)
-      expect(rows).toHaveLength(1)
-      expect(rows[0]).toMatch(/^● Thinking \(\d+s · 1\.0k tokens\)$/)
-      expect(rows[0]).not.toContain(figures.arrowDown)
+      expect(visibleRows(output)).toEqual([
+        `● ${PROD_MESSAGE} (6s · 1.0k tokens)`,
+      ])
     }
+  })
+
+  it('keeps tokens when the elapsed timer becomes eligible on mid-narrow rows', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 4_000,
+          columns: 29,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      29,
+    )
+
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
+  })
+
+  it('keeps timer and tokens when timer text widens on mid-narrow rows', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 4_000,
+          verbose: true,
+          columns: 31,
+          ...frozenElapsedRefs(10_000),
+        })}
+      />,
+      31,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (10s · 1.0k tokens)`,
+    ])
   })
 
   it('shows zero tokens as soon as the first response character arrives', async () => {
@@ -104,7 +147,7 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown}  · 0 tokens)`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 0 tokens)`,
     ])
   })
 
@@ -114,14 +157,14 @@ describe('SpinnerAnimationRow', () => {
         {...baseProps({
           responseLengthRef: { current: 4_000 },
           spinnerSuffix: 'running stop hooks… 1/1',
-          columns: 45,
+          columns: 46,
         })}
       />,
-      45,
+      46,
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown}  · running stop hooks… 1/1)`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · running stop hooks… 1/1)`,
     ])
   })
 
@@ -133,7 +176,7 @@ describe('SpinnerAnimationRow', () => {
 
     // Glyph Box width is 2, so the single-width arrow is padded inside parens.
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowUp} )`,
+      `● ${PROD_MESSAGE} (${figures.arrowUp} )`,
     ])
   })
 
@@ -149,81 +192,78 @@ describe('SpinnerAnimationRow', () => {
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown}  · thinking)`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
     ])
   })
 
   it('keeps thinking text with the mode glyph on moderately narrow terminals', async () => {
-    // Primary gate with full parensWidth rejects ~cols 25–27 for message
-    // "Thinking"; the leader thinking-only second chance must still fit
+    // Primary gate with full parensWidth rejects ~cols 26–28 for production
+    // "Thinking…"; the leader thinking-only second chance must still fit
     // "(↓ · thinking)" so the thinking word is not dropped.
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           mode: 'thinking',
           thinkingStatus: 'thinking',
-          columns: 26,
+          columns: 27,
         })}
       />,
-      26,
+      27,
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown}  · thinking)`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
     ])
   })
 
   it('falls back to bare thinking without glyph when full chrome does not fit', async () => {
-    // Cols 21–25: glyph+thinking chrome does not fit, but bare "(thinking)" does.
-    // Prefer the thinking word over glyph-only empty status.
+    // Cols 22–26: glyph+thinking chrome does not fit, but bare "(thinking)" does.
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           mode: 'thinking',
           thinkingStatus: 'thinking',
-          columns: 23,
+          columns: 24,
         })}
       />,
-      23,
+      24,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (thinking)`])
   })
 
   it('does not enable bare thinking one column short of physical fit', async () => {
-    // bareAvailable = columns - messageWidth - 3; for "Thinking" that is
-    // columns - 13. At columns=20, bareAvailable=7 < 8, so bare must not show.
-    // Residual still allows glyph-only status chrome.
+    // bareAvailable = columns - messageWidth - 3; for "Thinking…" that is
+    // columns - 14. At columns=21, bareAvailable=7 < 8, so bare must not show.
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           mode: 'thinking',
           thinkingStatus: 'thinking',
-          columns: 20,
+          columns: 21,
         })}
       />,
-      20,
+      21,
     )
 
     expect(visibleRows(output)).toEqual([
-      `● Thinking (${figures.arrowDown} )`,
+      `● ${PROD_MESSAGE} (${figures.arrowDown} )`,
     ])
   })
 
   it('omits the mode glyph when residual width cannot fit status chrome', async () => {
-    // messageWidth("Thinking")+2 = 10; residual at columns=14 is 4 (< 5 after
-    // accounting for glimmer trailing space).
+    // messageWidth("Thinking…")+2 = 11; residual at columns=15 is 4 (< 5).
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
           mode: 'requesting',
-          columns: 14,
+          columns: 15,
         })}
       />,
-      14,
+      15,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking'])
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE}`])
   })
 
   it('omits the mode glyph when teammates are running', async () => {
@@ -233,23 +273,18 @@ describe('SpinnerAnimationRow', () => {
           mode: 'responding',
           responseLength: 4_000,
           hasRunningTeammates: true,
+          ...frozenElapsedRefs(0),
         })}
       />,
       120,
     )
 
-    // wantsTimer is true for teammates, so the elapsed timer appears with tokens.
-    // Timer text depends on wall clock (0s vs 0.0s), so match the full row shape.
-    const rows = visibleRows(output)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatch(/^● Thinking \(\d+(?:\.\d+)?s · 1\.0k tokens\)$/)
-    expect(rows[0]).not.toContain(figures.arrowDown)
-    expect(rows[0]).not.toContain(figures.arrowUp)
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (0s · 1.0k tokens)`,
+    ])
   })
 
   it('nests (thinking) for teammate bare status under reduced motion', async () => {
-    // wantsTimer is true with teammates, so use a narrow width that drops the
-    // timer and leaves thinking-only bare status (no mode glyph, no outer parens).
     const output = await renderToString(
       <SpinnerAnimationRow
         {...baseProps({
@@ -257,13 +292,33 @@ describe('SpinnerAnimationRow', () => {
           thinkingStatus: 'thinking',
           hasRunningTeammates: true,
           reducedMotion: true,
-          columns: 26,
+          columns: 27,
         })}
       />,
-      26,
+      27,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (thinking)`])
+  })
+
+  it('nests (thinking) for teammate bare status under shimmer', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          hasRunningTeammates: true,
+          reducedMotion: false,
+          columns: 27,
+        })}
+      />,
+      27,
+    )
+
+    // Spinner glyph frame varies under motion; lock nested teammate thinking.
+    const rows = visibleRows(output)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/^\S Thinking… \(thinking\)$/)
   })
 
   it('omits empty glyph chrome when post-thinking duration does not fit', async () => {
@@ -272,14 +327,13 @@ describe('SpinnerAnimationRow', () => {
         {...baseProps({
           mode: 'responding',
           thinkingStatus: 3_000,
-          columns: 24,
+          columns: 25,
         })}
       />,
-      24,
+      25,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking'])
-    expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE}`])
   })
 
   it('omits empty glyph chrome for requesting spins with numeric thinkingStatus', async () => {
@@ -288,14 +342,13 @@ describe('SpinnerAnimationRow', () => {
         {...baseProps({
           mode: 'requesting',
           thinkingStatus: 3_000,
-          columns: 16,
+          columns: 17,
         })}
       />,
-      16,
+      17,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking'])
-    expect(visibleRows(output)[0]).not.toContain(figures.arrowUp)
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE}`])
   })
 
   it('shows post-thinking duration without glyph when bare chrome fits', async () => {
@@ -304,18 +357,19 @@ describe('SpinnerAnimationRow', () => {
         {...baseProps({
           mode: 'responding',
           thinkingStatus: 3_000,
-          columns: 27,
+          columns: 28,
         })}
       />,
-      27,
+      28,
     )
 
-    expect(visibleRows(output)).toEqual(['● Thinking (thought for 3s)'])
-    expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (thought for 3s)`,
+    ])
   })
 
   it('prefers streaming tokens over post-thinking duration on mid-narrow terminals', async () => {
-    for (const columns of [29, 30]) {
+    for (const columns of [30, 31, 35]) {
       const output = await renderToString(
         <SpinnerAnimationRow
           {...baseProps({
@@ -328,9 +382,61 @@ describe('SpinnerAnimationRow', () => {
         columns,
       )
 
-      expect(visibleRows(output)).toEqual(['● Thinking (1.0k tokens)'])
-      expect(visibleRows(output)[0]).not.toContain('thought for')
+      expect(visibleRows(output)).toEqual([
+        `● ${PROD_MESSAGE} (1.0k tokens)`,
+      ])
     }
+  })
+
+  it('recovers tokens at the exact-fit column boundary', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 4_000,
+          columns: 25,
+        })}
+      />,
+      25,
+    )
+
+    expect(visibleRows(output)).toEqual([`● ${PROD_MESSAGE} (1.0k tokens)`])
+  })
+
+  it('keeps full effort text when it fits with the mode glyph', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          effortSuffix: ' with high effort',
+          columns: 44,
+        })}
+      />,
+      44,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking with high effort)`,
+    ])
+  })
+
+  it('prefers active thinking over timer-only status on mid-narrow rows', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          verbose: true,
+          columns: 27,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      27,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · thinking)`,
+    ])
   })
 
   it('keeps zero tokens when glyph recovery would swap them for timer only', async () => {
@@ -340,15 +446,17 @@ describe('SpinnerAnimationRow', () => {
         {...baseProps({
           responseLength: 1,
           verbose: true,
-          loadingStartTimeRef: { current: Date.now() - tenHoursMs },
-          columns: 28,
+          ...frozenElapsedRefs(tenHoursMs),
+          columns: 29,
         })}
       />,
-      28,
+      29,
     )
 
     const rows = visibleRows(output)
-    expect(rows).toEqual([`● Thinking (${figures.arrowDown}  · 0 tokens)`])
+    expect(rows).toEqual([
+      `● ${PROD_MESSAGE} (${figures.arrowDown}  · 0 tokens)`,
+    ])
     expect(rows[0]).not.toMatch(/\dh\b/)
   })
 
@@ -368,7 +476,7 @@ describe('SpinnerAnimationRow', () => {
     const rows = visibleRows(output)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatch(
-      new RegExp(`^\\S Thinking \\(${figures.arrowDown}  · thinking\\)$`),
+      new RegExp(`^\\S Thinking… \\(${figures.arrowDown}  · thinking\\)$`),
     )
   })
 })
