@@ -143,6 +143,9 @@ export function updateToolFailureLoopGuard(params: {
   const advisories: ToolFailureLoopGuardAdvisory[] = []
   for (const failure of failures) {
     const persistentSignature = `${failure.toolName}\0${failure.errorCategory}`
+    const isNewPersistentSignature = !seenPersistentSignatures.has(
+      persistentSignature,
+    )
     const persistentSignatureCount = incrementCounterOnce(
       params.state.persistentSignatureCounts,
       persistentSignature,
@@ -165,7 +168,11 @@ export function updateToolFailureLoopGuard(params: {
       }
     }
 
-    if (threshold > 1 && persistentSignatureCount === threshold - 1) {
+    if (
+      isNewPersistentSignature &&
+      threshold > 1 &&
+      persistentSignatureCount === threshold - 1
+    ) {
       advisories.push({
         threshold,
         toolName: failure.toolName,

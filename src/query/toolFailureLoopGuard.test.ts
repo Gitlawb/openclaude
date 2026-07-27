@@ -436,6 +436,31 @@ test('parallel different-tool failures of the same category in one turn do not t
   expect(decision.tripped).toBe(false)
 })
 
+test('parallel penultimate failures emit a single advisory per signature', () => {
+  const state = createToolFailureLoopGuardState()
+
+  update(state, [toolUse('a', 'Bash')], [
+    toolResult('a', 'ENOENT: no such file or directory: /a'),
+  ])
+  const decision = update(
+    state,
+    [toolUse('b', 'Bash'), toolUse('c', 'Bash'), toolUse('d', 'Bash')],
+    [
+      toolResult('b', 'ENOENT: no such file or directory: /b'),
+      toolResult('c', 'ENOENT: no such file or directory: /c'),
+      toolResult('d', 'ENOENT: no such file or directory: /d'),
+    ],
+  )
+
+  if (decision.tripped || !decision.advisories) {
+    throw new Error('Expected one advisory for the parallel penultimate batch')
+  }
+  expect(decision.advisories).toHaveLength(1)
+  expect(decision.advisories[0]?.toolName).toBe('Bash')
+  expect(decision.advisories[0]?.errorCategory).toBe('NotFound')
+  expect(decision.advisories[0]?.message).toContain('2/3 times')
+})
+
 test('different tools with different error categories do not trip early', () => {
   const state = createToolFailureLoopGuardState()
 
