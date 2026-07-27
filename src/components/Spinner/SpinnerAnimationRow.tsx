@@ -214,7 +214,9 @@ export function SpinnerAnimationRow({
     // Thinking-only recovery stays in the dedicated second-chance block below
     // so full "(↓ · thinking)" chrome still wins when it fits.
     const glyphHidesContent = bareShowTimer && !showTimer || bareShowTokens && !showTokens;
-    if (glyphHidesContent) {
+    // Do not swap already-visible tokens for a timer that only fits without the glyph.
+    const glyphRecoveryLosesTokens = showTokens && !bareShowTokens;
+    if (glyphHidesContent && !glyphRecoveryLosesTokens) {
       reserveModeGlyph = false;
       parensWidth = BASE_PARENS_WIDTH;
       availableSpace = bareAvailableSpace;
@@ -269,7 +271,11 @@ export function SpinnerAnimationRow({
   // than overflow. Also omit when content recovery or bare-thinking fallback
   // dropped the glyph so higher-value status can show.
   const residualForStatus = columns - messageWidth;
-  const canShowModeGlyph = reserveModeGlyph && !suppressModeGlyphForBareThinking && residualForStatus >= 5;
+  const hasVisibleStatusContent = Boolean(spinnerSuffix) || showTimer || showTokens || showThinking;
+  // Requesting and active "thinking" may show glyph-only chrome; completed-thought
+  // duration and other states must not render an empty "(↓ )" row.
+  const allowGlyphOnlyStatus = mode === 'requesting' || thinkingStatus === 'thinking';
+  const canShowModeGlyph = reserveModeGlyph && !suppressModeGlyphForBareThinking && residualForStatus >= 5 && (hasVisibleStatusContent || allowGlyphOnlyStatus);
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
   // Same sine-wave opacity, but derived from our shared `time` instead of a

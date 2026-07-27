@@ -264,6 +264,57 @@ describe('SpinnerAnimationRow', () => {
     expect(visibleRows(output)).toEqual(['● Thinking (thinking)'])
   })
 
+  it('omits empty glyph chrome when post-thinking duration does not fit', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'responding',
+          thinkingStatus: 3_000,
+          columns: 24,
+        })}
+      />,
+      24,
+    )
+
+    expect(visibleRows(output)).toEqual(['● Thinking'])
+    expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
+  })
+
+  it('shows post-thinking duration without glyph when bare chrome fits', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'responding',
+          thinkingStatus: 3_000,
+          columns: 27,
+        })}
+      />,
+      27,
+    )
+
+    expect(visibleRows(output)).toEqual(['● Thinking (thought for 3s)'])
+    expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
+  })
+
+  it('keeps zero tokens when glyph recovery would swap them for timer only', async () => {
+    const tenHoursMs = 10 * 60 * 60 * 1_000
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          responseLength: 1,
+          verbose: true,
+          loadingStartTimeRef: { current: Date.now() - tenHoursMs },
+          columns: 28,
+        })}
+      />,
+      28,
+    )
+
+    const rows = visibleRows(output)
+    expect(rows).toEqual([`● Thinking (${figures.arrowDown}  · 0 tokens)`])
+    expect(rows[0]).not.toMatch(/\dh\b/)
+  })
+
   it('keeps leader thinking glyph path under reducedMotion false', async () => {
     const output = await renderToString(
       <SpinnerAnimationRow
