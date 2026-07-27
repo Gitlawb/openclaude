@@ -5,7 +5,11 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 
-import { MAX_API_TIMEOUT_MS, parseApiTimeoutMsEnv } from './apiTimeout.js'
+import {
+  describeApiTimeoutEnvForError,
+  MAX_API_TIMEOUT_MS,
+  parseApiTimeoutMsEnv,
+} from './apiTimeout.js'
 
 let saved: string | undefined
 
@@ -80,4 +84,35 @@ test('caps values above the timer maximum instead of passing them through', () =
   expect(withValue(String(Number.MAX_SAFE_INTEGER))).toBe(MAX_API_TIMEOUT_MS)
   expect(withValue(String(MAX_API_TIMEOUT_MS))).toBe(MAX_API_TIMEOUT_MS)
   expect(withValue(String(MAX_API_TIMEOUT_MS - 1))).toBe(MAX_API_TIMEOUT_MS - 1)
+})
+
+function hintFor(value: string | undefined): string | null {
+  if (value === undefined) {
+    delete process.env.API_TIMEOUT_MS
+  } else {
+    process.env.API_TIMEOUT_MS = value
+  }
+  return describeApiTimeoutEnvForError()
+}
+
+test('error hint is absent when the variable is unset', () => {
+  expect(hintFor(undefined)).toBeNull()
+  expect(hintFor('   ')).toBeNull()
+})
+
+test('error hint says a rejected value was ignored, not to increase it', () => {
+  // The whole point of the validation: "30s" never takes effect, so advising
+  // the user to increase it points them away from the real problem.
+  const hint = hintFor('30s')
+  expect(hint).toContain('30s')
+  expect(hint).toContain('ignored')
+  expect(hint).not.toContain('try increasing it')
+})
+
+test('error hint echoes the effective (capped) value for an accepted one', () => {
+  expect(hintFor('600000')).toBe('API_TIMEOUT_MS=600000ms, try increasing it')
+  // A value past the cap is reported as the capped effective timeout, not raw.
+  expect(hintFor('3000000000')).toBe(
+    `API_TIMEOUT_MS=${MAX_API_TIMEOUT_MS}ms, try increasing it`,
+  )
 })

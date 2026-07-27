@@ -37,3 +37,20 @@ export function parseApiTimeoutMsEnv(): number | null {
   if (!Number.isSafeInteger(parsed) || parsed <= 0) return null
   return Math.min(parsed, MAX_API_TIMEOUT_MS)
 }
+
+/**
+ * A note about `API_TIMEOUT_MS` for the timeout-error renderers, or null when
+ * the variable is unset. A value the parser rejects (e.g. "30s") does not take
+ * effect, so telling the user to increase it points them at the wrong thing --
+ * say it was ignored instead. When the value is accepted, echo the effective
+ * timeout (which reflects the cap) rather than the raw string.
+ */
+export function describeApiTimeoutEnvForError(): string | null {
+  const raw = process.env.API_TIMEOUT_MS?.trim()
+  if (!raw) return null
+  const parsed = parseApiTimeoutMsEnv()
+  if (parsed === null) {
+    return `API_TIMEOUT_MS=${raw} is not a positive integer (ms) and was ignored`
+  }
+  return `API_TIMEOUT_MS=${parsed}ms, try increasing it`
+}
