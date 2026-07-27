@@ -1,9 +1,10 @@
-import { afterAll, afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
+import { AimlapiApiError, type AimlapiClient } from './client.js'
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
@@ -14,30 +15,11 @@ import {
 
 const directories: string[] = []
 
-// Captured through a cache-busting query so these are a SECOND, permanently
-// unmocked instance of each module. A plain `import('./client.js')` would return
-// the very instance `mock.module` later replaces, so the captured reference would
-// be corrupted to the stub — and the afterAll restore below would re-install the
-// stub instead of the real module. (Same trap documented in companion.test.ts.)
-const realClientModule = await import(`./client.js?real=${Date.now()}`)
-const realProviderProfileModule = await import(
-  `../../utils/providerProfile.js?real=${Date.now()}`
-)
-
 afterEach(() => {
   setClaudeConfigHomeDirForTesting(undefined)
   for (const directory of directories.splice(0)) {
     rmSync(directory, { force: true, recursive: true })
   }
-})
-
-afterAll(() => {
-  // mock.restore() does NOT undo mock.module(); re-register the real modules so
-  // the client/saveProfileFile stubs cannot bleed into later test files in the
-  // same process (a leaked saveProfileFile would silently swallow real writes).
-  mock.module('./client.js', () => realClientModule)
-  mock.module('../../utils/providerProfile.js', () => realProviderProfileModule)
-  mock.restore()
 })
 
 function useTemporaryConfig(): string {
@@ -86,18 +68,18 @@ function session(overrides: Record<string, unknown> = {}): Record<string, unknow
 type Calls = { createSession: number; getSession: number; pay: number; exchange: number }
 
 /**
- * Load `topup.ts` against a stubbed client. The stub records how often a fresh
- * checkout was opened, which is what the resume behaviour is judged on.
+ * Drive `topup.ts` against a stubbed transport by injecting test doubles (no
+ * process-global module mock, so nothing bleeds into other suites). The stub
+ * records how often a fresh checkout was opened, which is what the resume
+ * behaviour is judged on.
  */
-type ProvisionResult = { apiKey: string; apiKeyId: string; model: string }
-
 async function importTopupWithClient(stub: {
   getSession?: (token: string) => Promise<unknown>
   createSession?: () => Promise<unknown>
   onExchange?: () => void
 }): Promise<{
-  provisionAimlapiKey: (options: unknown) => Promise<ProvisionResult>
-  runAimlapiTopup: (options: unknown) => Promise<void>
+  provisionAimlapiKey: typeof import('./topup.js').provisionAimlapiKey
+  runAimlapiTopup: typeof import('./topup.js').runAimlapiTopup
   calls: Calls
   payBodies: Array<Record<string, unknown>>
   savedProfiles: Array<Record<string, unknown>>
@@ -106,8 +88,6 @@ async function importTopupWithClient(stub: {
   const payBodies: Array<Record<string, unknown>> = []
   const savedProfiles: Array<Record<string, unknown>> = []
   let overrideUsed = false
-  const actualClient = realClientModule
-  const actualProfile = realProviderProfileModule
 
   class StubClient {
     async signup(): Promise<{ token: string; exp: number }> {
@@ -151,21 +131,23 @@ async function importTopupWithClient(stub: {
     }
   }
 
-  mock.module('./client.js', () => ({ ...actualClient, AimlapiClient: StubClient }))
-  mock.module('../../utils/providerProfile.js', () => ({
-    ...actualProfile,
+  // Load a FRESH topup.js instance via a cache-busting query so it is immune to
+  // any `mock.module('../integrations/aimlapi/index.js')` another suite registers
+  // (ProviderManager.test.tsx does) — mocking the barrel replaces the shared
+  // provisionAimlapiKey binding, which would otherwise reach this file too.
+  // Inject the transport through the module's own seam, so there is still no
+  // process-global module mock leaking OUT to client.test.ts.
+  const nonce = `${Date.now()}-${Math.random()}`
+  const topup = (await import(`./topup.js?ts=${nonce}`)) as typeof import('./topup.js')
+  topup.setAimlapiTopupTestDoubles({
+    createClient: () => new StubClient() as unknown as AimlapiClient,
     // Record the profile write instead of touching disk; the CLI flow only needs
     // the returned path.
-    saveProfileFile: (profile: Record<string, unknown>) => {
-      savedProfiles.push(profile)
+    writeProfile: profile => {
+      savedProfiles.push(profile as unknown as Record<string, unknown>)
       return '/tmp/openclaude-profile.json'
     },
-  }))
-  const nonce = `${Date.now()}-${Math.random()}`
-  const topup = (await import(`./topup.js?ts=${nonce}`)) as {
-    provisionAimlapiKey: (options: unknown) => Promise<ProvisionResult>
-    runAimlapiTopup: (options: unknown) => Promise<void>
-  }
+  })
   return {
     provisionAimlapiKey: topup.provisionAimlapiKey,
     runAimlapiTopup: topup.runAimlapiTopup,
@@ -444,7 +426,6 @@ test('a malformed status response preserves the recorded checkout', async () => 
     resumeSessionToken: 'recorded-session',
   })
 
-  const { AimlapiApiError } = await import('./client.js')
   const { provisionAimlapiKey, calls } = await importTopupWithClient({
     // client.getSession throws status 200 for a malformed/empty success body,
     // explicitly as a non-terminal signal.
