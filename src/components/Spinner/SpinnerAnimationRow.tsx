@@ -300,14 +300,12 @@ export function SpinnerAnimationRow({
   // alone against bare parens leaves glyph+suffix rows that Ink truncates mid-string.
   // Prefer dropping the glyph to keep a suffix that still fits under bare parens.
   const physicalBareBudget = columns - messageWidth - PHYSICAL_BARE_PARENS;
-  let glyphDroppedToKeepSuffix = false;
   if (showSuffix) {
     const suffixFitsBare = physicalBareBudget >= suffixTextWidth;
     const suffixFitsWithGlyph = reserveModeGlyph ? physicalBareBudget - MODE_GLYPH_RESERVE >= suffixTextWidth : suffixFitsBare;
     if (!suffixFitsWithGlyph) {
       if (reserveModeGlyph && suffixFitsBare) {
         reserveModeGlyph = false;
-        glyphDroppedToKeepSuffix = true;
         parensWidth = BASE_PARENS_WIDTH;
         availableSpace = columns - messageWidth - BASE_PARENS_WIDTH;
       } else {
@@ -321,9 +319,11 @@ export function SpinnerAnimationRow({
   // widening from overflow-drop to exact suffix-fit swaps higher-value status
   // for suffix-only chrome.
   if (showSuffix) {
-    const tokensWithSuffixFit = !hasTokenContent || physicalBareBudget >= suffixTextWidth + sep + tokensWidth;
     const thinkingWidthForSuffix = thinkingStatus === 'thinking' ? THINKING_BARE_WIDTH : fullThinkingWidth;
-    const thinkingWithSuffixFit = !wantsThinking || physicalBareBudget >= suffixTextWidth + sep + thinkingWidthForSuffix;
+    const tokensWithSuffixFit = !hasTokenContent || physicalBareBudget >= suffixTextWidth + sep + tokensWidth;
+    // Use `>` (not `>=`) so exact-fit suffix+thinking does not keep the suffix
+    // while glyph chrome still cannot show thinking — avoids a one-column cliff.
+    const thinkingWithSuffixFit = !wantsThinking || physicalBareBudget > suffixTextWidth + sep + thinkingWidthForSuffix;
     if (hasTokenContent && physicalBareBudget >= tokensWidth && !tokensWithSuffixFit) {
       showSuffix = false;
       effectiveSuffixWidth = 0;
@@ -479,6 +479,21 @@ export function SpinnerAnimationRow({
       usedAfterTimer = timerWidth + sep + (showTokens ? tokensWidth : 0);
     }
   }
+  // Prefer live tokens over active thinking when both cannot share bare chrome
+  // (same tie-break as preferTokensOverTimerOnly). Prevents a widen cliff where
+  // tokens visible at cols 25–26 disappear once leader thinking unlocks at 27.
+  if (showThinking && !showTokens && thinkingStatus === 'thinking' && hasTokenContent && physicalBareBudget >= tokensWidth) {
+    const thinkingAndTokensFit = physicalBareBudget >= thinkingWidthValue + sep + tokensWidth;
+    if (!thinkingAndTokensFit) {
+      showThinking = false;
+      showTokens = true;
+      showTimer = Boolean(wantsTimer && physicalBareBudget >= timerWidth + sep + tokensWidth);
+      suppressModeGlyphForBareThinking = false;
+      reserveModeGlyph = false;
+      usedAfterThinking = 0;
+      usedAfterTimer = showTimer ? timerWidth + sep : 0;
+    }
+  }
   // If thinking could not claim an empty post-suffix row, recover timer-only
   // rather than leaving blank / empty glyph-only chrome.
   if (!showSuffix && !showThinking && !showTimer && !showTokens && wantsTimer && physicalBareBudget > timerWidth) {
@@ -488,9 +503,9 @@ export function SpinnerAnimationRow({
       reserveModeGlyph = false;
     }
   }
-  // Restore mode glyph only after a suffix-keep cascade that later dropped the
-  // suffix for tokens/thinking — not after intentional content-over-glyph drops.
-  if (glyphDroppedToKeepSuffix && !showSuffix && !hasRunningTeammates && !suppressModeGlyphForBareThinking && !reserveModeGlyph && (showTokens || showTimer || showThinking)) {
+  // Restore mode glyph whenever leader content fits under glyph chrome —
+  // covers suffix-keep cascades and bare recovery that cleared the glyph.
+  if (!showSuffix && !hasRunningTeammates && !suppressModeGlyphForBareThinking && !reserveModeGlyph && (showTokens || showTimer || showThinking)) {
     const withGlyphSpace = columns - messageWidth - BASE_PARENS_WIDTH - MODE_GLYPH_RESERVE;
     let contentW = 0;
     if (showTimer) contentW += timerWidth;
