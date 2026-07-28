@@ -257,10 +257,24 @@ async function resolveCheckoutSession(
   if (recorded.resumeSessionToken !== session.sessionToken) {
     // A peer recorded its session first. Adopt it and abandon the one we just
     // opened (it is unpaid and never shown) so both runs settle on a single
-    // payable checkout instead of charging twice. pay() is idempotent on the
-    // shared payment id, so converging here cannot double-charge.
+    // payable checkout instead of charging twice; pay() is idempotent on the
+    // shared payment id, so converging here cannot double-charge. Re-validate
+    // its live status the same way the initial resume does — a peer session that
+    // reached a terminal state in the race window must fail cleanly, not have
+    // pay() called on a dead session.
     const adopted = await client.getSession(recorded.resumeSessionToken)
-    return { session: adopted, state: recorded }
+    if (RESUMABLE_SESSION_STATUSES.has(adopted.status)) {
+      return { session: adopted, state: recorded }
+    }
+    if (adopted.status === 'exchanged') {
+      throw new Error(SESSION_ALREADY_EXCHANGED_MESSAGE)
+    }
+    // The adopted session is dead too. The slot holds the peer's token, so a
+    // re-run resumes it, sees the terminal status, and opens a fresh checkout;
+    // surface that instead of paying a dead session.
+    throw new Error(
+      'Another AI/ML API checkout claimed this top-up and its session is no longer payable. Re-run to continue.',
+    )
   }
   return { session, state: next }
 }

@@ -263,6 +263,50 @@ test('a session recorded by a peer between claim and createSession is adopted', 
   expect(provisioned.apiKey).toBe('k_issued')
 })
 
+test('an adopted peer session that is already exchanged fails closed', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    createSession: async () => {
+      recordAimlapiCheckoutSession({
+        ...intent,
+        paymentSessionId: claimed.paymentSessionId,
+        resumeSessionToken: 'peer-session',
+      })
+      return session({ sessionToken: 'our-session', status: 'pending_payment' })
+    },
+    // The peer's session was exchanged in the race window; pay() must not run.
+    getSession: async token => session({ sessionToken: token, status: 'exchanged' }),
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/already exchanged/i)
+  expect(calls.createSession).toBe(1)
+  expect(calls.pay).toBe(0)
+})
+
+test('an adopted peer session that is dead fails cleanly instead of paying', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    createSession: async () => {
+      recordAimlapiCheckoutSession({
+        ...intent,
+        paymentSessionId: claimed.paymentSessionId,
+        resumeSessionToken: 'peer-session',
+      })
+      return session({ sessionToken: 'our-session', status: 'pending_payment' })
+    },
+    // The peer's session was cancelled in the race window.
+    getSession: async token => session({ sessionToken: token, status: 'cancelled' }),
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/no longer payable/i)
+  expect(calls.createSession).toBe(1)
+  expect(calls.pay).toBe(0)
+})
+
 test('an ambiguous status error preserves the recorded checkout', async () => {
   useTemporaryConfig()
 
