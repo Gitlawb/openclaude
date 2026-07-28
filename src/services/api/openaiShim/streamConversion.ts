@@ -397,7 +397,12 @@ export async function* openaiStreamToAnthropic(
     // A terminal provider reason is required before exposing a tool call as
     // complete. Finishing a transport-truncated tool stream could otherwise
     // hand a partial command to the executor.
-    if (activeToolCalls.size > 0 || bufferedRawToolCallsText !== null) {
+    if (
+      activeToolCalls.size > 0 ||
+      bufferedRawToolCallsText !== null ||
+      xmlToolCallText !== null ||
+      (isOllamaStream && parseTextToolCalls(accumulatedText).calls.length > 0)
+    ) {
       throw new Error('OpenAI-compatible stream ended before a tool call completed')
     }
 
