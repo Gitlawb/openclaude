@@ -204,13 +204,27 @@ describe('printStartupScreen layout', () => {
     expect(logoLines(renderStartupScreen(ONE_ROW_WIDTH - 1))).toHaveLength(12)
   })
 
-  test('provider info box is centered', () => {
+  test('provider box, tagline, and version line are centered', () => {
     const out = renderStartupScreen(120)
+    const lines = out.split('\n')
+
     // The logo letterforms also contain ╔ — the box's top border is the line
     // that starts with it.
-    const boxTop = out.split('\n').find(line => line.trimStart().startsWith('╔'))
+    const boxTop = lines.find(line => line.trimStart().startsWith('╔'))
     expect(boxTop).toBeDefined()
     expect(boxTop!.indexOf('╔')).toBe(Math.floor((120 - BOX_WIDTH) / 2))
+
+    const tagline = lines.find(line => line.includes('✦'))
+    expect(tagline).toBeDefined()
+    expect(tagline!.indexOf('✦')).toBe(
+      Math.floor((120 - tagline!.trim().length) / 2),
+    )
+
+    const version = lines.find(line => line.includes('openclaude v'))
+    expect(version).toBeDefined()
+    expect(version!.indexOf('openclaude')).toBe(
+      Math.floor((120 - version!.trim().length) / 2),
+    )
   })
 })
 
