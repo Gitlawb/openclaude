@@ -62,12 +62,31 @@ export async function* geminiSseToAnthropic(
   let lastDataTime = Date.now()
   let streamComplete = false
 
+  const emitMessageStart = async function* () {
+    if (hasEmittedStart) return
+    throwIfStreamAborted(signal)
+    yield {
+      type: 'message_start' as const,
+      message: {
+        id: messageId,
+        type: 'message' as const,
+        role: 'assistant' as const,
+        content: [],
+        model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    }
+    hasEmittedStart = true
+  }
+
   const mapFinishReason = (
     reason: string | undefined,
     hasToolUse: boolean,
   ): 'tool_use' | 'max_tokens' | 'end_turn' => {
     if (hasToolUse) return 'tool_use'
-    if (reason === 'MAX_TOKENS') return 'max_tokens'
+    if (reason === 'MAX_TOKENS' || reason === 'SAFETY' || reason === 'RECITATION') return 'max_tokens'
     return 'end_turn'
   }
 
@@ -107,6 +126,7 @@ export async function* geminiSseToAnthropic(
 
         const rawData = dataLines.map(line => line.slice(6)).join('\n')
         if (rawData === '[DONE]') {
+          yield* emitMessageStart()
           if (hasEmittedTextStart || hasEmittedCurrentTool) {
             throwIfStreamAborted(signal)
             yield { type: 'content_block_stop', index: contentBlockIndex }
@@ -134,23 +154,7 @@ export async function* geminiSseToAnthropic(
           continue
         }
 
-        if (!hasEmittedStart) {
-          throwIfStreamAborted(signal)
-          yield {
-            type: 'message_start',
-            message: {
-              id: messageId,
-              type: 'message',
-              role: 'assistant',
-              content: [],
-              model,
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
-            },
-          }
-          hasEmittedStart = true
-        }
+        yield* emitMessageStart()
 
         if (parsed.usageMetadata && typeof parsed.usageMetadata === 'object') {
           const metadata = parsed.usageMetadata as Record<string, number>
@@ -248,6 +252,7 @@ export async function* geminiSseToAnthropic(
       }
     }
 
+    yield* emitMessageStart()
     if (hasEmittedTextStart || hasEmittedCurrentTool) {
       throwIfStreamAborted(signal)
       yield { type: 'content_block_stop', index: contentBlockIndex }

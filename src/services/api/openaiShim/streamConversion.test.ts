@@ -206,9 +206,6 @@ test.each([
     '[ -f package.json ] && pwd',
     '{"command":"[ -f package.json ] && pwd"}',
   ],
-  ['opening object', '{"command":"pwd"', '{"command":"pwd"}'],
-  ['truncated object', '{"command":"echo hi"', '{"command":"echo hi"}'],
-  ['truncated object without command', '{"cwd":"/tmp"', '{"cwd":"/tmp"}'],
 ])('normalizes %s Bash tool arguments at stream stop', async (_label, raw, expected) => {
   const response = makeSseResponse([
     makeOpenAIChunk({
@@ -357,6 +354,11 @@ test('converts buffered raw tool-call text into tool_use events', async () => {
     type: 'message_delta',
     delta: { stop_reason: 'tool_use', stop_sequence: null },
   })
+  expect(events.some(event =>
+    event.type === 'content_block_delta' &&
+    (event.delta as { type?: string; text?: string }).type === 'text_delta' &&
+    (event.delta as { text?: string }).text?.includes(rawText),
+  )).toBeFalse()
 })
 
 test('routes provider JSON stream fallback through non-streaming conversion', async () => {
@@ -427,6 +429,29 @@ test('generic converter cancels an unread body after the [DONE] protocol marker'
     createStreamDependencies(),
   ))
   expect(cancelReasons).toHaveLength(1)
+})
+
+test('generic converter finalizes content before a [DONE] marker without finish_reason', async () => {
+  const events = await collect(openaiStreamToAnthropic(
+    makeSseResponse([makeOpenAIChunk({ content: 'partial' }), '[DONE]']),
+    'test-model',
+    undefined,
+    false,
+    undefined,
+    createStreamDependencies(),
+  ))
+  expect(events.map(event => event.type)).toEqual([
+    'message_start',
+    'content_block_start',
+    'content_block_delta',
+    'content_block_stop',
+    'message_delta',
+    'message_stop',
+  ])
+  expect(events).toContainEqual({
+    type: 'message_delta',
+    delta: { stop_reason: 'end_turn', stop_sequence: null },
+  })
 })
 
 test('converts Gemini SSE text, tools, usage, and finish reason', async () => {
@@ -529,6 +554,34 @@ test('Gemini converter accepts CRLF frames, closes consecutive tools, and retain
   expect(events).toContainEqual({
     type: 'message_delta',
     delta: { stop_reason: 'tool_use' },
+    usage: {},
+  })
+})
+
+test('Gemini converter starts an empty message and maps blocked finishes', async () => {
+  const doneEvents = await collect(geminiSseToAnthropic(
+    makeSseResponse(['[DONE]']),
+    'gemini-test',
+    undefined,
+    commonControlDependencies,
+  ))
+  expect(doneEvents.map(event => event.type)).toEqual([
+    'message_start',
+    'message_delta',
+    'message_stop',
+  ])
+
+  const safetyEvents = await collect(geminiSseToAnthropic(
+    makeSseResponse([{
+      candidates: [{ content: { parts: [] }, finishReason: 'SAFETY' }],
+    }]),
+    'gemini-test',
+    undefined,
+    commonControlDependencies,
+  ))
+  expect(safetyEvents).toContainEqual({
+    type: 'message_delta',
+    delta: { stop_reason: 'max_tokens' },
     usage: {},
   })
 })

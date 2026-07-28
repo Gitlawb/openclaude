@@ -84,6 +84,11 @@ import {
   type ShimCreateParams,
 } from './codexShim.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
+import {
+  convertOpenAIStreamUsage,
+  openaiStreamToAnthropic as convertOpenAIStream,
+} from './openaiShim/streamConversion.js'
+import { geminiSseToAnthropic as convertGeminiStream } from './openaiShim/geminiStreamConversion.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import {
   fetchWithProxyRetry,
@@ -852,8 +857,6 @@ function makeMessageId(): string {
   return `msg_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
-import { convertOpenAIStreamUsage } from './openaiShim/streamConversion.js'
-
 function convertChunkUsage(usage: OpenAIStreamChunk['usage'] | undefined): Partial<AnthropicUsage> | undefined {
   return convertOpenAIStreamUsage(usage as Record<string, unknown> | undefined)
 }
@@ -921,8 +924,6 @@ async function* anthropicSsePassthrough(
  * Transforms Google AI SDK SSE stream into Anthropic-format stream events.
  * Google AI SDK yields frames with { candidates: [{ content: { role, parts } }] }.
  */
-import { geminiSseToAnthropic as convertGeminiStream } from './openaiShim/geminiStreamConversion.js'
-
 async function* geminiSseToAnthropic(
   response: Response,
   model: string,
@@ -966,8 +967,6 @@ function headersWithRequestUrl(headers: Headers, requestUrl?: string): Headers {
 }
 
 // Extraction seam: response metadata | generic stream conversion.
-
-import { openaiStreamToAnthropic as convertOpenAIStream } from './openaiShim/streamConversion.js'
 
 async function* openaiStreamToAnthropic(
   response: Response,

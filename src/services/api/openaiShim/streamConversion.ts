@@ -390,6 +390,55 @@ export async function* openaiStreamToAnthropic(
     }
   }
 
+  const finalizeIncompleteStream = async function* () {
+    if (hasProcessedFinishReason) return
+    hasProcessedFinishReason = true
+
+    if (hasEmittedThinkingStart && !hasClosedThinking) {
+      throwIfStreamAborted(signal)
+      yield { type: 'content_block_stop', index: contentBlockIndex }
+      contentBlockIndex++
+      hasClosedThinking = true
+    }
+
+    let emittedToolUse = activeToolCalls.size > 0
+    if (bufferedRawToolCallsText !== null) {
+      const parsedToolCalls = parseRawToolCallsRequestedText(bufferedRawToolCallsText)
+      if (parsedToolCalls) {
+        yield* emitParsedRawToolCalls(parsedToolCalls)
+        emittedToolUse = true
+      } else {
+        yield* emitTextDelta(bufferedRawToolCallsText)
+      }
+      bufferedRawToolCallsText = null
+    }
+    if (xmlToolCallText !== null) {
+      yield* emitTextDelta(xmlToolCallText)
+      xmlToolCallText = null
+    }
+    if (xmlHoldback) {
+      yield* emitTextDelta(xmlHoldback)
+      xmlHoldback = ''
+    }
+    if (ollamaTextBuffer) {
+      yield* emitTextDelta(ollamaTextBuffer)
+      ollamaTextBuffer = ''
+    }
+    if (hasEmittedContentStart) {
+      yield* closeActiveContentBlock()
+    }
+    for (const [, toolCall] of activeToolCalls) {
+      throwIfStreamAborted(signal)
+      yield { type: 'content_block_stop', index: toolCall.index }
+    }
+    lastStopReason = emittedToolUse ? 'tool_use' : 'end_turn'
+    throwIfStreamAborted(signal)
+    yield {
+      type: 'message_delta',
+      delta: { stop_reason: lastStopReason, stop_sequence: null },
+    }
+  }
+
   try {
     throwIfStreamAborted(signal)
 
@@ -477,7 +526,7 @@ export async function* openaiStreamToAnthropic(
           (response.status ?? 200) as number,
           errorPayload,
           message,
-          response.headers as unknown as Headers,
+          headersWithRequestUrl(response.headers, requestUrl ?? response.url),
         )
       }
 
@@ -1036,6 +1085,7 @@ export async function* openaiStreamToAnthropic(
     }
       if (protocolComplete) break
     }
+    yield* finalizeIncompleteStream()
   } finally {
     if (!streamComplete || signal?.aborted) {
       readerCanceller.cancel(createStreamAbortError())
