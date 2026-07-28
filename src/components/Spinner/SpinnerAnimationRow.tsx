@@ -571,15 +571,21 @@ export function SpinnerAnimationRow({
       reserveModeGlyph = false;
     }
   }
+  // Token recovery can restore content using bare chrome, so a glyph reserved
+  // earlier may no longer fit once tokens are visible. Thinking-only layouts
+  // have their own looser dedicated chrome budget above.
+  const modeGlyphAvailableSpace = columns - messageWidth - BASE_PARENS_WIDTH - MODE_GLYPH_RESERVE;
+  let modeGlyphContentWidth = 0;
+  if (showTimer) modeGlyphContentWidth += timerWidth;
+  if (showTokens) modeGlyphContentWidth += (modeGlyphContentWidth > 0 ? sep : 0) + tokensWidth;
+  if (showThinking) modeGlyphContentWidth += (modeGlyphContentWidth > 0 ? sep : 0) + thinkingWidthValue;
+  if (reserveModeGlyph && showTokens && !(modeGlyphAvailableSpace > modeGlyphContentWidth)) {
+    reserveModeGlyph = false;
+  }
   // Restore mode glyph whenever leader content fits under glyph chrome —
   // covers suffix-keep cascades and bare recovery that cleared the glyph.
   if (!showSuffix && !hasRunningTeammates && !suppressModeGlyphForBareThinking && !reserveModeGlyph && (showTokens || showTimer || showThinking)) {
-    const withGlyphSpace = columns - messageWidth - BASE_PARENS_WIDTH - MODE_GLYPH_RESERVE;
-    let contentW = 0;
-    if (showTimer) contentW += timerWidth;
-    if (showTokens) contentW += (contentW > 0 ? sep : 0) + tokensWidth;
-    if (showThinking) contentW += (contentW > 0 ? sep : 0) + thinkingWidthValue;
-    if (withGlyphSpace > contentW) {
+    if (modeGlyphAvailableSpace > modeGlyphContentWidth) {
       reserveModeGlyph = true;
     }
   }

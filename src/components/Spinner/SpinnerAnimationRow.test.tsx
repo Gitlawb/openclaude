@@ -1013,4 +1013,46 @@ describe('SpinnerAnimationRow', () => {
     ])
     expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
   })
+
+  it('drops a retained glyph when bare recovery adds tokens beside thinking', async () => {
+    const numericOutput = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 3_000,
+          responseLength: 4_000,
+          columns: 42,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      42,
+    )
+
+    const numericRows = visibleRows(numericOutput)
+    expect(numericRows).toHaveLength(1)
+    expect(numericRows[0]).toContain('1.0k tokens')
+    expect(numericRows[0]).toContain('thought for 3s')
+    expect(numericRows[0]).not.toContain(figures.arrowDown)
+
+    const activeOutput = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          effortSuffix: ' with high effort',
+          responseLength: 4_000,
+          verbose: true,
+          columns: 53,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      53,
+    )
+
+    const activeRows = visibleRows(activeOutput)
+    expect(activeRows).toHaveLength(1)
+    expect(activeRows[0]).toContain('1.0k tokens')
+    expect(activeRows[0]).toContain('thinking with high effort')
+    expect(activeRows[0]).not.toContain(figures.arrowDown)
+  })
 })
