@@ -685,18 +685,30 @@ test('a receipt-write failure after exchange still writes the CLI profile', asyn
       writeFileSync(join(directory, 'aimlapi-topup.json'), '{ corrupt', 'utf8')
     },
   })
-  await runAimlapiTopup({
-    email: intent.email,
-    password: 'secret',
-    amountUsd: '25',
-    partnerId: intent.partnerId,
-    partnerName: intent.partnerName,
-    model: 'gpt-4o',
-    noOpen: true,
-  })
+  const logs: string[] = []
+  const originalLog = console.log
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(' '))
+  }
+  try {
+    await runAimlapiTopup({
+      email: intent.email,
+      password: 'secret',
+      amountUsd: '25',
+      partnerId: intent.partnerId,
+      partnerName: intent.partnerName,
+      model: 'gpt-4o',
+      noOpen: true,
+    })
+  } finally {
+    console.log = originalLog
+  }
 
   // The profile (with the key) was written despite the failed receipt write and
   // the failed post-delivery cleanup clear.
   expect(savedProfiles).toHaveLength(1)
   expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_issued' })
+  // The failed cleanup is surfaced to the user (not just --debug), pointing at
+  // the reset escape hatch.
+  expect(logs.join('\n')).toContain('Could not clear the aimlapi.com recovery receipt')
 })

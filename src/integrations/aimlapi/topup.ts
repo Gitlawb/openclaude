@@ -329,6 +329,15 @@ async function finishCliTopup(args: {
     logForDebugging(`Failed to clear the AI/ML API recovery receipt: ${error}`, {
       level: 'warn',
     })
+    // Surface it to the user too (not just --debug): a stranded receipt blocks a
+    // later different-amount/email top-up, and `aimlapi reset` is the escape
+    // hatch — mirroring the GUI warning.
+    console.log(
+      chalk.yellow(
+        '\n  [warn] Could not clear the aimlapi.com recovery receipt. Run ' +
+          '`openclaude aimlapi reset` before starting a different top-up.',
+      ),
+    )
   }
 
   console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
