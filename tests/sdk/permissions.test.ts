@@ -1333,25 +1333,36 @@ describe('permission timeout does not masquerade as a missing callback', () => {
       10,
     )
 
-    const result = await canUseTool(
-      { name: 'TestTool' } as never,
-      {},
-      {} as never,
-      {} as never,
-      'test-id',
-      undefined,
-    )
+    // Drive the timeout off a mocked clock rather than a real 10ms wait, so the
+    // deny is the timer firing deterministically and not a scheduling race.
+    vi.useFakeTimers()
+    try {
+      const pending = canUseTool(
+        { name: 'TestTool' } as never,
+        {},
+        {} as never,
+        {} as never,
+        'test-id',
+        undefined,
+      )
+      vi.advanceTimersByTime(10)
+      const result = await pending
 
-    expect(result.behavior).toBe('deny')
-    expect(result.behavior === 'deny' && result.message).toContain('timed out')
-    // The misleading advice must not be what the model is told.
-    expect(result.behavior === 'deny' && result.message).not.toContain(
-      'no canUseTool or onPermissionRequest callback provided',
-    )
-    // Running the fallback would also burn its one-shot warning latch, so a
-    // genuinely misconfigured later query in the process is never warned.
-    expect(fallback).not.toHaveBeenCalled()
-    expect(onTimeout).toHaveBeenCalledTimes(1)
+      expect(result.behavior).toBe('deny')
+      expect(result.behavior === 'deny' && result.message).toContain(
+        'timed out',
+      )
+      // The misleading advice must not be what the model is told.
+      expect(result.behavior === 'deny' && result.message).not.toContain(
+        'no canUseTool or onPermissionRequest callback provided',
+      )
+      // Running the fallback would also burn its one-shot warning latch, so a
+      // genuinely misconfigured later query in the process is never warned.
+      expect(fallback).not.toHaveBeenCalled()
+      expect(onTimeout).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('a host answering before the timeout is unaffected', async () => {
