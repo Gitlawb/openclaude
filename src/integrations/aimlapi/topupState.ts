@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -181,14 +182,20 @@ function lockTimeoutError(code: string, retries: number): Error {
 
 function ensureOwnerOnlyDir(target: string): void {
   const dir = dirname(target)
-  mkdirSync(dir, { recursive: true, mode: DIR_MODE })
-  // mkdir's mode is masked by umask, and the directory may already exist with a
-  // permissive mode, so tighten it explicitly. Best-effort: platforms without
-  // POSIX modes (Windows) simply ignore this.
-  try {
-    chmodSync(dir, DIR_MODE)
-  } catch {
-    // No POSIX permissions to enforce here.
+  // mkdirSync(recursive) returns the first directory it created, or undefined if
+  // `dir` already existed.
+  const created = mkdirSync(dir, { recursive: true, mode: DIR_MODE })
+  // Only tighten a directory THIS flow created. OPENCLAUDE_CONFIG_DIR may point
+  // at a pre-existing shared/project root (or `/`), and forcing that to 0700
+  // would break other users of it — the state file's own 0600 mode protects the
+  // credential regardless. (mkdir's mode is masked by umask, so re-apply it to
+  // the directory we made. Best-effort: platforms without POSIX modes ignore it.)
+  if (created !== undefined) {
+    try {
+      chmodSync(created, DIR_MODE)
+    } catch {
+      // No POSIX permissions to enforce here.
+    }
   }
 }
 
@@ -370,9 +377,28 @@ function readJsonFile(path: string): unknown {
   }
 }
 
+function corruptCheckoutStateError(path: string): Error {
+  return new Error(
+    `The AI/ML API checkout state at ${path} is unreadable or corrupt. A top-up may ` +
+      `be in progress; inspect it and, once you are sure no checkout is pending, ` +
+      `remove the file to start over.`,
+  )
+}
+
 function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
-  const state = readJsonFile(statePath())
-  return isPersistedTopup(state) ? state : null
+  const path = statePath()
+  const raw = readJsonFile(path)
+  if (raw === null) {
+    // readJsonFile returns null for both an absent file and an unparseable one.
+    // A genuinely absent file is a fresh start, but a present-but-unparseable one
+    // must FAIL CLOSED: treating it as absent would let a claim overwrite an
+    // open/paid checkout or an exchanged key and open a second chargeable one.
+    if (existsSync(path)) throw corruptCheckoutStateError(path)
+    return null
+  }
+  // Parseable but schema-invalid is the same hazard — refuse rather than discard.
+  if (!isPersistedTopup(raw)) throw corruptCheckoutStateError(path)
+  return raw
 }
 
 /**
@@ -551,15 +577,21 @@ function claimStateOperation(intent: AimlapiTopupIntent): AimlapiCheckoutState {
   // represents value in flight:
   if (existing?.apiKey?.trim()) {
     throw new Error(
-      'An unfinished AI/ML API checkout still holds an issued key. Finish or clear it before starting a different one.',
+      'An unfinished AI/ML API checkout still holds an issued key. Finish it, or ' +
+        'discard the checkout (CLI: `openclaude aimlapi reset`; or Start over in ' +
+        'the provider manager) before starting a different one.',
     )
   }
   if (existing?.resumeSessionToken?.trim()) {
-    // A payable session is still open on the provider. Overwriting the slot
-    // would strand that payment page and open a second, separately chargeable
-    // checkout, so make the caller finish or clear it explicitly instead.
+    // A payable session is still open on the provider. Overwriting the slot would
+    // strand that payment page and open a second, separately chargeable checkout.
+    // If that session has since gone terminal (cancelled/expired), this claim has
+    // no client to notice — so point the user at the explicit discard escape
+    // hatch rather than silently abandoning it.
     throw new Error(
-      'An unfinished AI/ML API checkout is still open for a different top-up. Finish or clear it before starting another.',
+      'An unfinished AI/ML API checkout is still open for a different top-up. ' +
+        'Finish it, or discard the checkout (CLI: `openclaude aimlapi reset`; or ' +
+        'Start over in the provider manager) before starting another.',
     )
   }
   const claimed: AimlapiCheckoutState = {
@@ -636,6 +668,32 @@ export function clearAimlapiTopupStateAsync(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): Promise<void> {
   return withStateLockAsync(() => clearStateOperation(expected))
+}
+
+function discardStateOperation(): boolean {
+  const path = statePath()
+  const existed = existsSync(path)
+  rmSync(path, { force: true })
+  return existed
+}
+
+/**
+ * Unconditionally discard the stored checkout, whatever intent or state it holds
+ * — including an unreadable/corrupt file. This is the explicit "start over"
+ * escape hatch surfaced to the CLI and GUI: an interrupted checkout whose
+ * session went terminal keeps a resume token that blocks a *different* top-up
+ * (see `claimAimlapiTopupState`), and a corrupt file fails closed on read; both
+ * can only be cleared out of band. Prefer `clearAimlapiTopupState` for the
+ * normal, intent-scoped retirement after a completed top-up. Returns whether a
+ * stored checkout was actually removed.
+ */
+export function discardAimlapiCheckoutState(): boolean {
+  return withStateLock(discardStateOperation)
+}
+
+/** Non-blocking `discardAimlapiCheckoutState` for the interactive top-up flow. */
+export function discardAimlapiCheckoutStateAsync(): Promise<boolean> {
+  return withStateLockAsync(discardStateOperation)
 }
 
 // --- Sign-in key cache ------------------------------------------------------

@@ -25,6 +25,8 @@ export {
   resetAimlapiCheckoutSession,
   clearAimlapiTopupState,
   clearAimlapiTopupStateAsync,
+  discardAimlapiCheckoutState,
+  discardAimlapiCheckoutStateAsync,
   loadAimlapiTopupState,
   loadAimlapiSignInKey,
   saveAimlapiSignInKey,

@@ -4,9 +4,26 @@ import chalk from 'chalk'
 
 import { AimlapiApiError } from '../../integrations/aimlapi/client.js'
 import {
+  discardAimlapiCheckoutState,
   runAimlapiTopup,
   type AimlapiTopupOptions,
 } from '../../integrations/aimlapi/index.js'
+
+/**
+ * Discard any stored checkout so a new top-up can start. The escape hatch for an
+ * interrupted checkout whose session went terminal (its resume token blocks a
+ * different amount/email) or a checkout-state file that has become corrupt.
+ */
+export function aimlapiReset(): void {
+  const discarded = discardAimlapiCheckoutState()
+  console.log(
+    discarded
+      ? chalk.green(
+          '\n  [OK] Discarded the in-progress AI/ML API checkout. Start a new one with `openclaude aimlapi topup`.',
+        )
+      : chalk.dim('\n  No in-progress AI/ML API checkout to discard.'),
+  )
+}
 
 export async function aimlapiTopup(options: AimlapiTopupOptions): Promise<void> {
   try {

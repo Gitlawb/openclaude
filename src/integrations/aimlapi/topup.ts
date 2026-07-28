@@ -22,6 +22,7 @@
 import chalk from 'chalk'
 
 import { openBrowser } from '../../utils/browser.js'
+import { logForDebugging } from '../../utils/debug.js'
 import { saveProfileFile } from '../../utils/providerProfile.js'
 import {
   AimlapiApiError,
@@ -315,11 +316,20 @@ async function finishCliTopup(args: {
     },
     createdAt: new Date().toISOString(),
   })
-  // The credential is now in the profile, so the recovery record is spent.
-  await clearAimlapiTopupStateAsync({
-    ...args.intent,
-    paymentSessionId: args.paymentSessionId,
-  })
+  // The credential is now in the profile, so the recovery record is spent. This
+  // is cleanup AFTER delivery: a clear failure (lock timeout / fs / corrupt
+  // state) must not fail an otherwise-successful top-up — the stranded receipt is
+  // retired on the next run.
+  try {
+    await clearAimlapiTopupStateAsync({
+      ...args.intent,
+      paymentSessionId: args.paymentSessionId,
+    })
+  } catch (error) {
+    logForDebugging(`Failed to clear the AI/ML API recovery receipt: ${error}`, {
+      level: 'warn',
+    })
+  }
 
   console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
   console.log(`    key      ${chalk.dim(maskKey(args.apiKey))}  (id ${args.apiKeyId})`)
@@ -389,6 +399,39 @@ async function authenticateAimlapiAccount(
     throw new Error(
       `Could not register or log in to AI/ML API. Registration: ${describeAimlapiAuthError(signupError)}. Login: ${describeAimlapiAuthError(loginError)}.`,
     )
+  }
+}
+
+/**
+ * Record the settled recovery receipt for a just-exchanged key, reporting only
+ * whether it landed. The exchange is one-shot, so this MUST NOT abort the flow:
+ * a false compare-and-swap OR a thrown lock-timeout / filesystem error both mean
+ * the receipt was not stored, but the key is in hand and the caller still has to
+ * deliver it (write the profile / return the key). Swallow the error here — the
+ * caller warns off the boolean — rather than stranding a paid-for credential in
+ * an already-exchanged session that can never be re-issued.
+ */
+async function recordSettledReceipt(args: {
+  intent: AimlapiTopupIntent
+  state: AimlapiCheckoutState
+  apiKey: string
+  apiKeyId: string
+  model: string
+}): Promise<boolean> {
+  try {
+    return await saveAimlapiTopupStateAsync({
+      ...args.intent,
+      ...args.state,
+      apiKey: args.apiKey,
+      apiKeyId: args.apiKeyId,
+      model: args.model,
+      settled: true,
+    })
+  } catch (error) {
+    logForDebugging(`Failed to record the AI/ML API recovery receipt: ${error}`, {
+      level: 'warn',
+    })
+    return false
   }
 }
 
@@ -506,19 +549,11 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   console.log(chalk.dim('  -> Provisioning API key...'))
   const { apiKey, apiKeyId } = await client.exchange(token, paid.sessionToken)
   // The exchange is one-shot: record the issued key before touching the profile
-  // so an interruption here does not strand a paid-for credential. A lost
-  // compare-and-swap means the receipt was NOT stored, so say so loudly with the
-  // key in hand rather than continuing as if recovery were possible.
-  if (
-    !(await saveAimlapiTopupStateAsync({
-      ...intent,
-      ...state,
-      apiKey,
-      apiKeyId,
-      model,
-      settled: true,
-    }))
-  ) {
+  // so an interruption here does not strand a paid-for credential. Recording can
+  // fail (a lost compare-and-swap, or a lock-timeout/fs error) — that must not
+  // abort the flow, because the profile write below is the primary delivery; warn
+  // with the key in hand instead of leaving it unrecoverable.
+  if (!(await recordSettledReceipt({ intent, state, apiKey, apiKeyId, model }))) {
     console.log(
       chalk.yellow(
         `\n  [warn] Could not record the recovery receipt for the issued key ${maskKey(apiKey)} (id ${apiKeyId}).` +
@@ -670,22 +705,10 @@ export async function provisionAimlapiKey(
   // The exchange is one-shot and the key is only handed back in memory, so keep
   // a settled receipt rather than clearing here: an interruption before the
   // caller persists it would otherwise lose a paid-for credential permanently.
-  // The receipt is consumed by the shortcut above on the next run, and the
-  // caller clears it once its own persistence succeeds.
-  if (
-    !(await saveAimlapiTopupStateAsync({
-      ...intent,
-      ...state,
-      apiKey,
-      apiKeyId,
-      model,
-      settled: true,
-    }))
-  ) {
-    // Another run claimed the slot, so the receipt was NOT stored and the
-    // shortcut above cannot recover this key. The caller is now the only thing
-    // between a paid-for credential and permanent loss — say so rather than
-    // returning as if recovery were still possible.
+  // Recording can fail (a lost compare-and-swap, or a lock-timeout/fs error);
+  // that must NOT abort delivery — return the key regardless and warn that the
+  // crash-recovery receipt is missing, so the caller can persist it now.
+  if (!(await recordSettledReceipt({ intent, state, apiKey, apiKeyId, model }))) {
     options.onStatus?.(
       'provisioning-key',
       `Could not record the recovery receipt for the issued key (id ${apiKeyId}); persist it immediately.`,
