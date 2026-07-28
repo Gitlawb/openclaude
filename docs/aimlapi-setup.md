@@ -38,6 +38,16 @@ openclaude aimlapi topup --email you@example.com --amount 25 --method card
 
 The issued key is written into OpenClaude's provider profile automatically once payment clears.
 
+### Recovering an interrupted checkout
+
+If a top-up is interrupted — or its checkout session expires or is cancelled — the recorded state can block a *different* top-up (a new amount or email), and a rare unreadable/corrupt state file is refused rather than silently overwritten. Discard the stored checkout to start fresh:
+
+```bash
+openclaude aimlapi reset
+```
+
+In the guided flow (`/provider`), press **Enter** on the top-up error screen to **Start over**. Either action is safe: it only clears OpenClaude's local checkout record — not your AI/ML API account or any already-issued key.
+
 ## Option 3 — Environment variables
 
 Setting `AIMLAPI_API_KEY` alone is enough; OpenClaude auto-detects the AI/ML API route:
