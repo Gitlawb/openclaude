@@ -1001,7 +1001,7 @@ test('ProviderManager can top up aimlapi.com and save the issued key', async () 
     id: 'aimlapi_profile',
     ...payload,
   }))
-  const clearReceipt = mock(() => {})
+  const clearReceipt = mock(async () => {})
   const provisionAimlapiKey = mock(async (options: any) => {
     options.onStatus?.('creating-session')
     options.onStatus?.('opening-checkout', 'https://app.aimlapi.com/checkout/test')

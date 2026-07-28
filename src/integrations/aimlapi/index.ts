@@ -17,10 +17,14 @@ export type {
 // `clearAimlapiTopupState` once it has durably persisted the issued key.
 export {
   claimAimlapiTopupState,
+  claimAimlapiTopupStateAsync,
   saveAimlapiTopupState,
+  saveAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
+  recordAimlapiCheckoutSessionAsync,
   resetAimlapiCheckoutSession,
   clearAimlapiTopupState,
+  clearAimlapiTopupStateAsync,
   loadAimlapiTopupState,
   loadAimlapiSignInKey,
   saveAimlapiSignInKey,
