@@ -55,6 +55,7 @@ export async function* geminiSseToAnthropic(
   let hasEmittedStart = false
   let hasEmittedTextStart = false
   let hasEmittedCurrentTool = false
+  let hasToolUse = false
   let usage: Partial<AnthropicUsage> | undefined
   let finishReason: string | undefined
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
@@ -95,7 +96,7 @@ export async function* geminiSseToAnthropic(
 
       throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
+      const chunks = buffer.split(/\r?\n\r?\n/)
       buffer = chunks.pop() ?? ''
 
       for (const chunk of chunks) {
@@ -116,14 +117,13 @@ export async function* geminiSseToAnthropic(
             delta: {
               stop_reason: mapFinishReason(
                 finishReason,
-                hasEmittedCurrentTool,
+                hasToolUse,
               ),
             },
             usage: usage ?? {},
           }
           throwIfStreamAborted(signal)
           yield { type: 'message_stop' }
-          streamComplete = true
           return
         }
 
@@ -212,6 +212,11 @@ export async function* geminiSseToAnthropic(
               contentBlockIndex++
               hasEmittedTextStart = false
             }
+            if (hasEmittedCurrentTool) {
+              throwIfStreamAborted(signal)
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+            }
             const toolId = `toolu_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
             throwIfStreamAborted(signal)
             yield {
@@ -225,6 +230,7 @@ export async function* geminiSseToAnthropic(
               },
             }
             hasEmittedCurrentTool = true
+            hasToolUse = true
             throwIfStreamAborted(signal)
             yield {
               type: 'content_block_delta',
@@ -250,7 +256,7 @@ export async function* geminiSseToAnthropic(
     yield {
       type: 'message_delta',
       delta: {
-        stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool),
+        stop_reason: mapFinishReason(finishReason, hasToolUse),
       },
       usage: usage ?? {},
     }

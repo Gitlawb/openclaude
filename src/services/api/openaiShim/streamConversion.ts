@@ -153,6 +153,7 @@ export async function* openaiStreamToAnthropic(
   const thinkFilter = createThinkTagFilter()
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
+  let protocolComplete = false
   let hasProcessedFinishReason = false
   // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
   let accumulatedText = ''
@@ -438,7 +439,13 @@ export async function* openaiStreamToAnthropic(
       for (const line of lines) {
       throwIfStreamAborted(signal)
       const trimmed = line.trim()
-      if (!trimmed || trimmed === 'data: [DONE]') continue
+      if (!trimmed) continue
+      if (trimmed === 'data: [DONE]') {
+        // `[DONE]` is protocol completion; do not wait for a transport EOF.
+        // Leave streamComplete false so finally cancels an unread response body.
+        protocolComplete = true
+        break
+      }
       if (!trimmed.startsWith('data: ')) continue
 
       let chunk: OpenAIStreamChunk
@@ -989,6 +996,15 @@ export async function* openaiStreamToAnthropic(
               delta: { type: 'text_delta', text: '\n\n[Response truncated — reached length limit or upstream stalled. Ask the model to continue.]' },
             }
           }
+          if (
+            choice.finish_reason === 'content_filter' ||
+            choice.finish_reason === 'safety' ||
+            choice.finish_reason === 'length'
+          ) {
+            throwIfStreamAborted(signal)
+            yield { type: 'content_block_stop', index: contentBlockIndex }
+            hasEmittedContentStart = false
+          }
           lastStopReason = stopReason
 
           throwIfStreamAborted(signal)
@@ -1018,6 +1034,7 @@ export async function* openaiStreamToAnthropic(
         hasEmittedFinalUsage = true
       }
     }
+      if (protocolComplete) break
     }
   } finally {
     if (!streamComplete || signal?.aborted) {

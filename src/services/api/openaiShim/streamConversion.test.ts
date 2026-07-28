@@ -407,6 +407,28 @@ test('generic converter cancels its reader when the parent signal aborts', async
   expect(cancelReasons).toHaveLength(1)
 })
 
+test('generic converter cancels an unread body after the [DONE] protocol marker', async () => {
+  const encoder = new TextEncoder()
+  const cancelReasons: unknown[] = []
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: [DONE]\n'))
+    },
+    cancel(reason) {
+      cancelReasons.push(reason)
+    },
+  }), { headers: { 'content-type': 'text/event-stream' } })
+  await collect(openaiStreamToAnthropic(
+    response,
+    'test-model',
+    undefined,
+    false,
+    undefined,
+    createStreamDependencies(),
+  ))
+  expect(cancelReasons).toHaveLength(1)
+})
+
 test('converts Gemini SSE text, tools, usage, and finish reason', async () => {
   const events = await collect(
     geminiSseToAnthropic(
@@ -475,4 +497,38 @@ test('Gemini converter cancels its reader when the parent signal aborts', async 
   controller.abort()
   await expect(iterator.next()).rejects.toMatchObject({ name: 'AbortError' })
   expect(cancelReasons).toHaveLength(1)
+})
+
+test('Gemini converter accepts CRLF frames, closes consecutive tools, and retains tool_use after text', async () => {
+  const encoder = new TextEncoder()
+  const frames = [
+    { candidates: [{ content: { parts: [
+      { functionCall: { name: 'Read', args: {} } },
+      { functionCall: { name: 'Write', args: {} } },
+      { text: 'done' },
+    ] }, finishReason: 'STOP' }] },
+    '[DONE]',
+  ]
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const frame of frames) {
+        const data = frame === '[DONE]' ? frame : JSON.stringify(frame)
+        controller.enqueue(encoder.encode(`data: ${data}\r\n\r\n`))
+      }
+      controller.close()
+    },
+  }), { headers: { 'content-type': 'text/event-stream' } })
+  const events = await collect(geminiSseToAnthropic(
+    response,
+    'gemini-test',
+    undefined,
+    commonControlDependencies,
+  ))
+  expect(events.filter(event => event.type === 'content_block_start')).toHaveLength(3)
+  expect(events.filter(event => event.type === 'content_block_stop')).toHaveLength(3)
+  expect(events).toContainEqual({
+    type: 'message_delta',
+    delta: { stop_reason: 'tool_use' },
+    usage: {},
+  })
 })

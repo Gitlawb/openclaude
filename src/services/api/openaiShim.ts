@@ -1766,7 +1766,7 @@ class OpenAIShimMessages {
       if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
         anthropicBody.tools = params.tools
       }
-      if (params.tool_choice) {
+      if (!omitTools.anthropic && params.tool_choice) {
         anthropicBody.tool_choice = params.tool_choice
       }
 
