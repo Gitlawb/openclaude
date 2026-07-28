@@ -400,6 +400,7 @@ describe('SpinnerAnimationRow', () => {
       )
 
       const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
       expect(rows[0]).toContain('thinking')
       expect(rows[0]).not.toContain('running stop hooks')
     }

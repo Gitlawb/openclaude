@@ -332,10 +332,7 @@ export function SpinnerAnimationRow({
           : thinkingWidthValue;
       }
     }
-    const timerWantedVisible =
-      showTimer ||
-      (wantsTimer &&
-        (verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS));
+    const timerWantedVisible = showTimer || wantsTimer;
     let suffixWithAllVisibleFit = suffixTextWidth;
     if (timerWantedVisible) suffixWithAllVisibleFit += sep + timerWidth;
     if (hasTokenContent) suffixWithAllVisibleFit += sep + tokensWidth;
