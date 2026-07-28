@@ -2482,7 +2482,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // save fails, the receipt is the sole recoverable copy, so leave it so a
         // re-run can hand the same key back instead of charging again.
         if (persistDraft(nextDraft, draftProvider, null)) {
-          provisioned.clearReceipt()
+          // Best-effort: the profile is already saved, so a failure to clear the
+          // receipt must not surface as an error. Surfacing it would invite a
+          // retry that re-saves the profile (a duplicate); a stranded receipt is
+          // harmless because the next matching top-up short-circuits to this key.
+          try {
+            await provisioned.clearReceipt()
+          } catch {
+            // The top-up itself succeeded; leave the receipt for a later run.
+          }
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)

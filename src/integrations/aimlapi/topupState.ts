@@ -63,7 +63,15 @@ function statePath(): string {
 
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
-const LOCK_STALE_MS = 30_000
+// Async acquisition retries past the stale window, so a lock orphaned by an
+// interrupted holder is reclaimed once it goes stale rather than timing out
+// while it is still fresh. The async wait yields, so a longer deadline does not
+// block the caller.
+const LOCK_TIMEOUT_ASYNC_MS = 15_000
+// Short enough that a dead holder's lock is recoverable well within the async
+// deadline (our critical sections are sub-millisecond, so a live holder never
+// approaches this; proper-lockfile also refreshes the mtime while held).
+const LOCK_STALE_MS = 8_000
 /** Owner-only file/dir modes; these records hold API credentials. */
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
@@ -100,11 +108,75 @@ const RETRYABLE_LOCK_CODES: ReadonlySet<string> = new Set([
  */
 const EXPECTED_CONTENTION_CODES: ReadonlySet<string> = new Set(['ELOCKED'])
 
+// Jitter so racing acquirers do not retry in lockstep and collide again on the
+// same steal window.
+function jitteredLockDelay(): number {
+  return LOCK_RETRY_MS + Math.floor(Math.random() * LOCK_RETRY_MS)
+}
+
+// Synchronous back-off: blocks the calling thread. Only the sync lock path uses
+// it (see the blocking caveat on withStateLock).
 function waitForLock(): void {
-  // Jitter so racing acquirers do not retry in lockstep and collide again on the
-  // same steal window.
-  const delay = LOCK_RETRY_MS + Math.floor(Math.random() * LOCK_RETRY_MS)
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay)
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, jitteredLockDelay())
+}
+
+// Asynchronous back-off: yields to the event loop so an interactive caller (the
+// Ink GUI top-up) stays responsive while it waits for a contended lock.
+function delayForLock(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, jitteredLockDelay()))
+}
+
+function lockOptions(target: string): Parameters<typeof lockfile.lockSync>[1] {
+  return {
+    lockfilePath: `${target}.lock`,
+    stale: LOCK_STALE_MS,
+    // The state file may not exist yet on the first claim, so skip realpath.
+    realpath: false,
+    // The default handler rethrows from a timer (an unhandled exception). A
+    // compromise means another process stole this lock as stale while we still
+    // believed we held it, so two critical sections could have overlapped:
+    // record it rather than swallowing it silently. Our sections are sub-
+    // millisecond, so this needs a stall longer than LOCK_STALE_MS.
+    onCompromised: (error: Error) => {
+      logForDebugging(`AI/ML API checkout state lock compromised: ${error}`, {
+        level: 'error',
+      })
+    },
+  }
+}
+
+/**
+ * Classify a lock-acquire error: return the code to retry on, or rethrow a
+ * genuine permission/disk failure. Logs each distinct condition the first time
+ * it is swallowed so a real failure is visible immediately instead of looking
+ * like plain contention (logging every pass would bury it under ~100 lines).
+ */
+function classifyLockError(
+  error: unknown,
+  seenCodes: Set<string>,
+  target: string,
+): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : undefined
+  if (!code || !RETRYABLE_LOCK_CODES.has(code)) throw error
+  if (!seenCodes.has(code)) {
+    seenCodes.add(code)
+    logForDebugging(
+      `AI/ML API checkout state lock retrying after ${code} on ${target}`,
+      { level: EXPECTED_CONTENTION_CODES.has(code) ? 'debug' : 'warn' },
+    )
+  }
+  return code
+}
+
+function lockTimeoutError(code: string, retries: number): Error {
+  // Name the condition we kept hitting: a timeout after ELOCKED is a busy peer,
+  // while EPERM/EEXIST points at a stale-steal race worth chasing.
+  return new Error(
+    `Timed out waiting for the AI/ML API checkout state lock (last: ${code}, ${retries} retries).`,
+  )
 }
 
 function ensureOwnerOnlyDir(target: string): void {
@@ -120,20 +192,30 @@ function ensureOwnerOnlyDir(target: string): void {
   }
 }
 
+function logContendedAcquire(retries: number, startedAt: number, lastCode?: string): void {
+  if (retries === 0) return
+  // One line per contended acquire, not per retry: a fully contended wait loops
+  // many times within the deadline, and logging each pass would bury the signal.
+  logForDebugging(
+    `AI/ML API checkout state lock contended: acquired after ${retries} retries in ${Date.now() - startedAt}ms (last: ${lastCode})`,
+    { level: 'debug' },
+  )
+}
+
 /**
  * Serialize checkout-state mutations through the shared `proper-lockfile`
  * wrapper rather than a bespoke advisory lock: its mkdir-based acquire is atomic
  * and its release is ownership-aware, so a holder cannot delete a lock another
- * process re-acquired after ours went stale. We keep a retry-until-deadline loop
- * so contending callers converge on the single stored payment session instead of
- * failing outright.
+ * process re-acquired after ours went stale. Both variants retry until a
+ * deadline so contending callers converge on the single stored payment session
+ * instead of failing outright.
  *
- * BLOCKING: every exported mutator is synchronous, so under contention this
- * parks the calling thread (up to `LOCK_TIMEOUT_MS`) via `Atomics.wait`. On the
- * main thread that freezes timers, the Ink UI and SIGINT handling for that long.
- * Contention only happens with a concurrent OpenClaude process, but an
- * interactive caller should either run these off the UI path or switch to the
- * async `lockfile.lock` API before awaiting them inline.
+ * BLOCKING: this synchronous variant parks the calling thread (up to
+ * `LOCK_TIMEOUT_MS`) via `Atomics.wait`, freezing timers, the Ink UI and SIGINT
+ * for that long. Use it off the interactive path (the CLI's own tests and the
+ * multi-process worker); the interactive top-up flow calls `withStateLockAsync`,
+ * which yields while it waits and retries past the stale window so an
+ * interrupted holder's lock is reclaimed rather than timing out while fresh.
  */
 function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   ensureOwnerOnlyDir(target)
@@ -145,61 +227,62 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   const seenCodes = new Set<string>()
   while (!release) {
     try {
-      release = lockfile.lockSync(target, {
-        lockfilePath: `${target}.lock`,
-        stale: LOCK_STALE_MS,
-        // The state file may not exist yet on the first claim, so skip realpath.
-        realpath: false,
-        // The default handler rethrows from a timer (an unhandled exception).
-        // A compromise means another process stole this lock as stale while we
-        // still believed we held it, so two critical sections could have
-        // overlapped: record it rather than swallowing it silently. Our sections
-        // are sub-millisecond, so this needs a stall longer than LOCK_STALE_MS.
-        onCompromised: error => {
-          logForDebugging(
-            `AI/ML API checkout state lock compromised: ${error}`,
-            { level: 'error' },
-          )
-        },
-      })
+      release = lockfile.lockSync(target, lockOptions(target))
     } catch (error) {
-      const code =
-        typeof error === 'object' && error !== null && 'code' in error
-          ? String(error.code)
-          : undefined
-      if (!code || !RETRYABLE_LOCK_CODES.has(code)) throw error
-      lastCode = code
+      lastCode = classifyLockError(error, seenCodes, target)
       retries += 1
-      if (!seenCodes.has(code)) {
-        seenCodes.add(code)
-        // Report each distinct condition the first time it is swallowed, so a
-        // real permission/disk failure is visible immediately instead of looking
-        // like plain contention. Logging every pass would emit ~100 duplicate
-        // lines per contended acquire and bury exactly this signal.
-        logForDebugging(
-          `AI/ML API checkout state lock retrying after ${code} on ${target}`,
-          { level: EXPECTED_CONTENTION_CODES.has(code) ? 'debug' : 'warn' },
-        )
-      }
-      if (Date.now() >= deadline) {
-        // Name the condition we kept hitting: a timeout after ELOCKED is a busy
-        // peer, while EPERM/EEXIST points at a stale-steal race worth chasing.
-        throw new Error(
-          `Timed out waiting for the AI/ML API checkout state lock (last: ${code}, ${retries} retries).`,
-        )
-      }
+      if (Date.now() >= deadline) throw lockTimeoutError(lastCode, retries)
       waitForLock()
     }
   }
-  if (retries > 0) {
-    // One line per contended acquire, not per retry: a fully contended wait
-    // loops ~100 times within the deadline, and logging each pass would bury the
-    // signal it is meant to surface.
-    logForDebugging(
-      `AI/ML API checkout state lock contended: acquired after ${retries} retries in ${Date.now() - startedAt}ms (last: ${lastCode})`,
-      { level: 'debug' },
-    )
+  logContendedAcquire(retries, startedAt, lastCode)
+  try {
+    return operation()
+  } finally {
+    try {
+      release()
+    } catch {
+      // Already released, or the lock was compromised and re-acquired by another
+      // owner; proper-lockfile will not delete a lock that is no longer ours.
+    }
   }
+}
+
+/**
+ * Non-blocking counterpart to `withStateLock` for the interactive top-up flow.
+ * It acquires with the same synchronous, timer-free `lockSync` (a single mkdir,
+ * sub-millisecond), but on contention YIELDS via `await` between retries instead
+ * of parking the thread, so the Ink UI, timers and SIGINT stay live. Its longer
+ * deadline covers the stale window so a lock orphaned by an interrupted holder
+ * is reclaimed once stale instead of timing out while it is still fresh.
+ *
+ * It deliberately avoids `proper-lockfile.lock` (the async acquire): that keeps
+ * a periodic mtime-refresh timer alive for the lock's lifetime, and our sub-
+ * millisecond sections never need refreshing — the lingering timer only stalls
+ * callers (and test runs) with no benefit.
+ */
+async function withStateLockAsync<T>(
+  operation: () => T,
+  target: string = statePath(),
+): Promise<T> {
+  ensureOwnerOnlyDir(target)
+  const startedAt = Date.now()
+  const deadline = startedAt + LOCK_TIMEOUT_ASYNC_MS
+  let release: (() => void) | undefined
+  let retries = 0
+  let lastCode: string | undefined
+  const seenCodes = new Set<string>()
+  while (!release) {
+    try {
+      release = lockfile.lockSync(target, lockOptions(target))
+    } catch (error) {
+      lastCode = classifyLockError(error, seenCodes, target)
+      retries += 1
+      if (Date.now() >= deadline) throw lockTimeoutError(lastCode, retries)
+      await delayForLock()
+    }
+  }
+  logContendedAcquire(retries, startedAt, lastCode)
   try {
     return operation()
   } finally {
@@ -379,19 +462,28 @@ export function loadAimlapiTopupState(
  * second key — the duplicate this module exists to prevent. Pass an explicit
  * value to change one.
  */
-export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
-  return withStateLock(() => {
-    const current = matchingStateOrNull(state)
-    if (!current) return false
-    writeAimlapiTopupStateUnlocked({
-      ...state,
-      apiKey: state.apiKey ?? current.apiKey,
-      apiKeyId: state.apiKeyId ?? current.apiKeyId,
-      model: state.model ?? current.model,
-      settled: state.settled ?? current.settled,
-    })
-    return true
+function saveStateOperation(state: AimlapiPersistedTopup): boolean {
+  const current = matchingStateOrNull(state)
+  if (!current) return false
+  writeAimlapiTopupStateUnlocked({
+    ...state,
+    apiKey: state.apiKey ?? current.apiKey,
+    apiKeyId: state.apiKeyId ?? current.apiKeyId,
+    model: state.model ?? current.model,
+    settled: state.settled ?? current.settled,
   })
+  return true
+}
+
+export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
+  return withStateLock(() => saveStateOperation(state))
+}
+
+/** Non-blocking `saveAimlapiTopupState` for the interactive top-up flow. */
+export function saveAimlapiTopupStateAsync(
+  state: AimlapiPersistedTopup,
+): Promise<boolean> {
+  return withStateLockAsync(() => saveStateOperation(state))
 }
 
 /**
@@ -407,26 +499,37 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
  * the winning checkout state, or null if the slot no longer belongs to this
  * intent + payment id (a reset/clear happened meanwhile).
  */
+function recordCheckoutSessionOperation(
+  state: AimlapiPersistedTopup,
+): AimlapiCheckoutState | null {
+  const current = matchingStateOrNull(state)
+  if (!current) return null
+  // A peer already recorded a session for this payment id: keep theirs.
+  if (current.resumeSessionToken?.trim()) {
+    return toCheckoutState(current)
+  }
+  const recorded: AimlapiPersistedTopup = {
+    ...state,
+    apiKey: state.apiKey ?? current.apiKey,
+    apiKeyId: state.apiKeyId ?? current.apiKeyId,
+    model: state.model ?? current.model,
+    settled: state.settled ?? current.settled,
+  }
+  writeAimlapiTopupStateUnlocked(recorded)
+  return toCheckoutState(recorded)
+}
+
 export function recordAimlapiCheckoutSession(
   state: AimlapiPersistedTopup,
 ): AimlapiCheckoutState | null {
-  return withStateLock(() => {
-    const current = matchingStateOrNull(state)
-    if (!current) return null
-    // A peer already recorded a session for this payment id: keep theirs.
-    if (current.resumeSessionToken?.trim()) {
-      return toCheckoutState(current)
-    }
-    const recorded: AimlapiPersistedTopup = {
-      ...state,
-      apiKey: state.apiKey ?? current.apiKey,
-      apiKeyId: state.apiKeyId ?? current.apiKeyId,
-      model: state.model ?? current.model,
-      settled: state.settled ?? current.settled,
-    }
-    writeAimlapiTopupStateUnlocked(recorded)
-    return toCheckoutState(recorded)
-  })
+  return withStateLock(() => recordCheckoutSessionOperation(state))
+}
+
+/** Non-blocking `recordAimlapiCheckoutSession` for the interactive top-up flow. */
+export function recordAimlapiCheckoutSessionAsync(
+  state: AimlapiPersistedTopup,
+): Promise<AimlapiCheckoutState | null> {
+  return withStateLockAsync(() => recordCheckoutSessionOperation(state))
 }
 
 /**
@@ -438,45 +541,54 @@ export function recordAimlapiCheckoutSession(
  * worse than making the caller decide — clear it explicitly with
  * `clearAimlapiTopupState` to start over.
  */
+function claimStateOperation(intent: AimlapiTopupIntent): AimlapiCheckoutState {
+  const existing = readAimlapiTopupStateUnlocked()
+  if (existing && matchesIntent(existing, intent)) {
+    return toCheckoutState(existing)
+  }
+  // Reaching here means a stored record exists for a DIFFERENT intent (a
+  // matching one returned above). Refuse to silently discard it while it still
+  // represents value in flight:
+  if (existing?.apiKey?.trim()) {
+    throw new Error(
+      'An unfinished AI/ML API checkout still holds an issued key. Finish or clear it before starting a different one.',
+    )
+  }
+  if (existing?.resumeSessionToken?.trim()) {
+    // A payable session is still open on the provider. Overwriting the slot
+    // would strand that payment page and open a second, separately chargeable
+    // checkout, so make the caller finish or clear it explicitly instead.
+    throw new Error(
+      'An unfinished AI/ML API checkout is still open for a different top-up. Finish or clear it before starting another.',
+    )
+  }
+  const claimed: AimlapiCheckoutState = {
+    paymentSessionId: randomUUID(),
+    resumeSessionToken: '',
+  }
+  writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
+  // Backstop for a racing claimer: if the lock was stolen as stale by two
+  // processes at once (upstream proper-lockfile removes a stale lock without
+  // re-checking ownership), the last write wins. Return what is actually
+  // persisted so both callers converge on one payment session instead of each
+  // trusting the id it minted.
+  const persisted = readAimlapiTopupStateUnlocked()
+  return persisted && matchesIntent(persisted, intent)
+    ? toCheckoutState(persisted)
+    : claimed
+}
+
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
 ): AimlapiCheckoutState {
-  return withStateLock(() => {
-    const existing = readAimlapiTopupStateUnlocked()
-    if (existing && matchesIntent(existing, intent)) {
-      return toCheckoutState(existing)
-    }
-    // Reaching here means a stored record exists for a DIFFERENT intent (a
-    // matching one returned above). Refuse to silently discard it while it still
-    // represents value in flight:
-    if (existing?.apiKey?.trim()) {
-      throw new Error(
-        'An unfinished AI/ML API checkout still holds an issued key. Finish or clear it before starting a different one.',
-      )
-    }
-    if (existing?.resumeSessionToken?.trim()) {
-      // A payable session is still open on the provider. Overwriting the slot
-      // would strand that payment page and open a second, separately chargeable
-      // checkout, so make the caller finish or clear it explicitly instead.
-      throw new Error(
-        'An unfinished AI/ML API checkout is still open for a different top-up. Finish or clear it before starting another.',
-      )
-    }
-    const claimed: AimlapiCheckoutState = {
-      paymentSessionId: randomUUID(),
-      resumeSessionToken: '',
-    }
-    writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
-    // Backstop for a racing claimer: if the lock was stolen as stale by two
-    // processes at once (upstream proper-lockfile removes a stale lock without
-    // re-checking ownership), the last write wins. Return what is actually
-    // persisted so both callers converge on one payment session instead of each
-    // trusting the id it minted.
-    const persisted = readAimlapiTopupStateUnlocked()
-    return persisted && matchesIntent(persisted, intent)
-      ? toCheckoutState(persisted)
-      : claimed
-  })
+  return withStateLock(() => claimStateOperation(intent))
+}
+
+/** Non-blocking `claimAimlapiTopupState` for the interactive top-up flow. */
+export function claimAimlapiTopupStateAsync(
+  intent: AimlapiTopupIntent,
+): Promise<AimlapiCheckoutState> {
+  return withStateLockAsync(() => claimStateOperation(intent))
 }
 
 /**
@@ -505,14 +617,25 @@ export function resetAimlapiCheckoutSession(
   })
 }
 
+function clearStateOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): void {
+  if (matchingStateOrNull(expected)) {
+    rmSync(statePath(), { force: true })
+  }
+}
+
 export function clearAimlapiTopupState(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): void {
-  withStateLock(() => {
-    if (matchingStateOrNull(expected)) {
-      rmSync(statePath(), { force: true })
-    }
-  })
+  withStateLock(() => clearStateOperation(expected))
+}
+
+/** Non-blocking `clearAimlapiTopupState` for the interactive top-up flow. */
+export function clearAimlapiTopupStateAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): Promise<void> {
+  return withStateLockAsync(() => clearStateOperation(expected))
 }
 
 // --- Sign-in key cache ------------------------------------------------------

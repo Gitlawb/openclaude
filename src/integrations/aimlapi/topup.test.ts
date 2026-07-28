@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,14 @@ import {
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
+
+// The top-up flow now acquires the checkout-state lock through the async,
+// yielding path, so these tests hand control back to the event loop at each
+// await. Run alongside the CPU-heavy multi-process lock tests in the same suite,
+// a contended runner can push a fast (<10ms of real work) provisioning past the
+// 5s default. Give the whole file generous headroom so load — not correctness —
+// never trips it.
+setDefaultTimeout(30_000)
 
 const directories: string[] = []
 

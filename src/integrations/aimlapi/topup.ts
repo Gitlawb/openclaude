@@ -41,10 +41,10 @@ import {
 } from './config.js'
 import { promptHidden, promptText } from './prompt.js'
 import {
-  claimAimlapiTopupState,
-  clearAimlapiTopupState,
-  recordAimlapiCheckoutSession,
-  saveAimlapiTopupState,
+  claimAimlapiTopupStateAsync,
+  clearAimlapiTopupStateAsync,
+  recordAimlapiCheckoutSessionAsync,
+  saveAimlapiTopupStateAsync,
   type AimlapiCheckoutState,
   type AimlapiTopupIntent,
 } from './topupState.js'
@@ -73,8 +73,9 @@ export type AimlapiProvisionedKey = {
    * invoke it once it has durably persisted the returned key; until then a
    * second top-up for the same intent short-circuits to this key instead of
    * opening a new checkout. See the contract note on `provisionAimlapiKey`.
+   * Resolves once the receipt is cleared (it acquires the checkout-state lock).
    */
-  clearReceipt: () => void
+  clearReceipt: () => Promise<void>
 }
 
 export type AimlapiTopupStatus =
@@ -233,8 +234,11 @@ async function resolveCheckoutSession(
     }
     // The recorded session cannot be paid anymore. Drop it and claim a new
     // payment identity so the next attempt is not tied to the dead one.
-    clearAimlapiTopupState({ ...intent, paymentSessionId: state.paymentSessionId })
-    state = claimAimlapiTopupState(intent)
+    await clearAimlapiTopupStateAsync({
+      ...intent,
+      paymentSessionId: state.paymentSessionId,
+    })
+    state = await claimAimlapiTopupStateAsync(intent)
   }
 
   const session = await client.createSession({ partnerId, partnerName })
@@ -248,7 +252,7 @@ async function resolveCheckoutSession(
   // either records one; the CAS makes the first writer win. A null result means
   // the slot no longer belongs to this run at all (a reset/clear happened), so
   // it must not proceed to charge.
-  const recorded = recordAimlapiCheckoutSession({ ...intent, ...next })
+  const recorded = await recordAimlapiCheckoutSessionAsync({ ...intent, ...next })
   if (!recorded) {
     throw new Error(
       'Another AI/ML API checkout claimed this top-up. Re-run to continue that one.',
@@ -294,14 +298,14 @@ function maskKey(key: string): string {
  * record, and report success. Shared by the normal exchange path and the
  * settled-receipt resume so both retire the record only after the profile write.
  */
-function finishCliTopup(args: {
+async function finishCliTopup(args: {
   intent: AimlapiTopupIntent
   paymentSessionId: string
   apiKey: string
   apiKeyId: string
   model: string
   baseUrl: string
-}): void {
+}): Promise<void> {
   const profilePath = writeAimlapiProviderProfile({
     profile: 'openai',
     env: {
@@ -312,7 +316,10 @@ function finishCliTopup(args: {
     createdAt: new Date().toISOString(),
   })
   // The credential is now in the profile, so the recovery record is spent.
-  clearAimlapiTopupState({ ...args.intent, paymentSessionId: args.paymentSessionId })
+  await clearAimlapiTopupStateAsync({
+    ...args.intent,
+    paymentSessionId: args.paymentSessionId,
+  })
 
   console.log(chalk.green(`\n  [OK] Balance topped up and provider configured.`))
   console.log(`    key      ${chalk.dim(maskKey(args.apiKey))}  (id ${args.apiKeyId})`)
@@ -425,7 +432,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     appBaseUrl: endpoints.appBaseUrl,
     inferenceBaseUrl: endpoints.inferenceBaseUrl,
   })
-  const checkoutState = claimAimlapiTopupState(intent)
+  const checkoutState = await claimAimlapiTopupStateAsync(intent)
   // A previous run already exchanged the key but was interrupted before (or
   // during) the profile write. Resume from the receipt instead of resolving a
   // checkout: the provider now reports that session as `exchanged`, so going
@@ -433,7 +440,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // charge — a brand-new checkout for a key we already paid for.
   if (checkoutState.settled && checkoutState.apiKey) {
     console.log(chalk.dim('  -> Resuming a previously provisioned key'))
-    finishCliTopup({
+    await finishCliTopup({
       intent,
       paymentSessionId: checkoutState.paymentSessionId,
       apiKey: checkoutState.apiKey,
@@ -503,14 +510,14 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // compare-and-swap means the receipt was NOT stored, so say so loudly with the
   // key in hand rather than continuing as if recovery were possible.
   if (
-    !saveAimlapiTopupState({
+    !(await saveAimlapiTopupStateAsync({
       ...intent,
       ...state,
       apiKey,
       apiKeyId,
       model,
       settled: true,
-    })
+    }))
   ) {
     console.log(
       chalk.yellow(
@@ -522,7 +529,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   }
 
   // 7. Persist into OpenClaude's provider profile and retire the record.
-  finishCliTopup({
+  await finishCliTopup({
     intent,
     paymentSessionId: state.paymentSessionId,
     apiKey,
@@ -590,10 +597,10 @@ export async function provisionAimlapiKey(
   })
   // Bind the receipt-clear to the intent so the caller can retire it without
   // reconstructing the checkout identity itself.
-  const clearReceiptFor = (paymentSessionId: string) => (): void =>
-    clearAimlapiTopupState({ ...intent, paymentSessionId })
+  const clearReceiptFor = (paymentSessionId: string) => (): Promise<void> =>
+    clearAimlapiTopupStateAsync({ ...intent, paymentSessionId })
 
-  const claimed = claimAimlapiTopupState(intent)
+  const claimed = await claimAimlapiTopupStateAsync(intent)
   // A previous run already exchanged the key but was interrupted before the
   // caller persisted it: hand back that credential instead of paying again.
   // The receipt is NOT cleared here — the key is returned only in memory, and
@@ -666,14 +673,14 @@ export async function provisionAimlapiKey(
   // The receipt is consumed by the shortcut above on the next run, and the
   // caller clears it once its own persistence succeeds.
   if (
-    !saveAimlapiTopupState({
+    !(await saveAimlapiTopupStateAsync({
       ...intent,
       ...state,
       apiKey,
       apiKeyId,
       model,
       settled: true,
-    })
+    }))
   ) {
     // Another run claimed the slot, so the receipt was NOT stored and the
     // shortcut above cannot recover this key. The caller is now the only thing

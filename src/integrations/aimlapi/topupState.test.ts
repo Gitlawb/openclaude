@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   claimAimlapiTopupState,
+  claimAimlapiTopupStateAsync,
   clearAimlapiTopupState,
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
@@ -83,6 +84,20 @@ test('a stale lock is stolen so the operation still completes', () => {
   // The stolen lock is released, not left behind as a fresh blocker.
   expect(existsSync(lockPathFor(directory))).toBe(false)
 })
+
+test('the async path recovers a lock orphaned by an interrupted holder', async () => {
+  const directory = useTemporaryConfig()
+  // A fresh orphan (mtime = now), NOT yet stale: exactly the case the sync path
+  // gives up on (its timeout is shorter than the stale window; see the test
+  // below). The async path waits past the stale window and reclaims it, so an
+  // immediate resume after an interruption is not defeated.
+  holdLock(directory, { stale: false })
+
+  const claimed = await claimAimlapiTopupStateAsync(intent)
+  expect(claimed.paymentSessionId).toBeTruthy()
+  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(claimed.paymentSessionId)
+  expect(existsSync(lockPathFor(directory))).toBe(false)
+}, 20_000)
 
 test('a fresh lock held by another process times out instead of corrupting state', () => {
   const directory = useTemporaryConfig()
