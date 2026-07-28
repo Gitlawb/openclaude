@@ -135,6 +135,53 @@ describe('ANTHROPIC_FIRST_PARTY_PROXY_HOSTS loopback allowlist', () => {
     ).toBe(false)
   })
 
+  test('matches a default-port entry against a scheme-default base URL', () => {
+    // Node leaves url.port empty for the scheme default; an explicit :80/:443
+    // entry must still match.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:80',
+      }),
+    ).toBe(true)
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'https://[::1]',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '[::1]:443',
+      }),
+    ).toBe(true)
+    // A default-port entry that does not match the scheme default is rejected.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:443',
+      }),
+    ).toBe(false)
+  })
+
+  test('rejects embedded credentials and non-http(s) schemes', () => {
+    // Userinfo on an otherwise-canonical URL is never first-party.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'https://user:pass@api.anthropic.com',
+      }),
+    ).toBe(false)
+    // Userinfo on a loopback proxy is likewise rejected.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'http://user@127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:47821',
+      }),
+    ).toBe(false)
+    // A non-http(s) loopback scheme does not match the proxy allowlist.
+    expect(
+      isFirstPartyAnthropicBaseUrlForEnv({
+        ANTHROPIC_BASE_URL: 'ftp://127.0.0.1:47821',
+        ANTHROPIC_FIRST_PARTY_PROXY_HOSTS: '127.0.0.1:47821',
+      }),
+    ).toBe(false)
+  })
+
   test('does nothing without the opt-in variable', () => {
     // Default behavior is unchanged: a loopback base URL is still a custom
     // provider unless the allowlist explicitly opts in.

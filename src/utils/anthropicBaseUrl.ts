@@ -61,12 +61,16 @@ function matchesLoopbackProxyAllowlist(
   if (!rawAllowlist || !isLoopbackHost(url.hostname)) return false
 
   const urlHost = normalizeHost(url.hostname)
+  // Compare against the effective port: Node leaves `url.port` empty for the
+  // scheme default, so an explicit `127.0.0.1:80` entry must still match
+  // `http://127.0.0.1`.
+  const urlPort = url.port || (url.protocol === 'https:' ? '443' : '80')
   for (const raw of rawAllowlist.split(',')) {
     const entry = raw.trim()
     if (!entry) continue
     const { host, port } = parseAllowlistEntry(entry)
     if (!LOOPBACK_HOSTNAMES.has(host) || host !== urlHost) continue
-    if (port !== undefined && port !== url.port) continue
+    if (port !== undefined && port !== urlPort) continue
     return true
   }
   return false
@@ -96,6 +100,12 @@ export function isFirstPartyAnthropicBaseUrlForEnv(
 
   try {
     const url = new URL(baseUrl)
+
+    // A first-party endpoint is always a bare http(s) origin. Embedded
+    // credentials (`https://user:pass@host`) or any other scheme are never
+    // treated as first-party, so an OAuth session can't be attached to them.
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    if (url.username || url.password) return false
 
     const allowedHosts = ['api.anthropic.com']
     if (processEnv.USER_TYPE === 'ant') {
