@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
@@ -10,12 +14,19 @@ import {
   saveCurrentProjectConfig,
   saveGlobalConfig,
 } from '../../utils/config.js'
+import { runWithCwdOverride } from '../../utils/cwd.js'
 import {
   addMcpConfig,
   getMcpConfigByName,
   parseMcpConfig,
   removeMcpConfig,
 } from './config.js'
+
+// A hand-authored .mcp.json that fails to parse as a whole (a reserved name
+// plus a valid sibling). JSON.parse creates a true own "__proto__" key.
+const POISONED_MCP_JSON =
+  '{"mcpServers":{"__proto__":{"command":"echo","args":[]},' +
+  '"realone":{"command":"echo","args":[]}}}'
 
 // The MCP `servers` maps are plain objects built from JSON config, so a bare
 // `servers[name]` lookup exposes inherited Object.prototype members. A user
@@ -145,6 +156,73 @@ test('surfaces a __proto__ entry and rejects the whole file', () => {
   // "constructor" does when the schema fails -- so a caller that branches on
   // config cannot start with the bad entry quietly dropped and the error lost.
   expect(config).toBeNull()
+})
+
+test('refuses to add a project server when .mcp.json is fatally poisoned', async () => {
+  // The fatal parse returns config: null, so getProjectMcpConfigsFromCwd reports
+  // an empty map even though `realone` is on disk. Rebuilding the file from that
+  // empty snapshot and writing only the new server would drop the valid sibling,
+  // so the add must refuse and leave the file untouched.
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-add-poison-'))
+  const mcpPath = join(dir, '.mcp.json')
+  writeFileSync(mcpPath, POISONED_MCP_JSON)
+  try {
+    await runWithCwdOverride(dir, async () => {
+      await expect(
+        addMcpConfig('newsrv', { command: 'echo', args: [] }, 'project'),
+      ).rejects.toThrow('Cannot modify .mcp.json')
+    })
+    // The valid sibling survives: the file was not rewritten.
+    expect(readFileSync(mcpPath, 'utf8')).toBe(POISONED_MCP_JSON)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('refuses to remove a project server when .mcp.json is fatally poisoned', async () => {
+  // An empty parsed map is not proof the server is absent, so removal must not
+  // report "not found" (nor clobber the siblings) -- it refuses with the fatal
+  // parse error for both a valid sibling and the reserved key itself.
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-remove-poison-'))
+  const mcpPath = join(dir, '.mcp.json')
+  writeFileSync(mcpPath, POISONED_MCP_JSON)
+  try {
+    await runWithCwdOverride(dir, async () => {
+      await expect(removeMcpConfig('realone', 'project')).rejects.toThrow(
+        'Cannot modify .mcp.json',
+      )
+      await expect(removeMcpConfig('__proto__', 'project')).rejects.toThrow(
+        'Cannot modify .mcp.json',
+      )
+    })
+    expect(readFileSync(mcpPath, 'utf8')).toBe(POISONED_MCP_JSON)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('still adds and removes a project server when .mcp.json is clean', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-clean-'))
+  const mcpPath = join(dir, '.mcp.json')
+  writeFileSync(
+    mcpPath,
+    '{"mcpServers":{"realone":{"command":"echo","args":[]}}}',
+  )
+  try {
+    await runWithCwdOverride(dir, async () => {
+      await addMcpConfig('newsrv', { command: 'echo', args: [] }, 'project')
+      const afterAdd = JSON.parse(readFileSync(mcpPath, 'utf8'))
+      expect(Object.keys(afterAdd.mcpServers).sort()).toEqual([
+        'newsrv',
+        'realone',
+      ])
+      await removeMcpConfig('realone', 'project')
+      const afterRemove = JSON.parse(readFileSync(mcpPath, 'utf8'))
+      expect(Object.keys(afterRemove.mcpServers)).toEqual(['newsrv'])
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('still allows adding and removing a real server name', async () => {

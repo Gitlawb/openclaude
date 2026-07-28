@@ -629,6 +629,26 @@ function expandEnvVars(config: McpServerConfig): {
  * @param scope The configuration scope
  * @throws Error if name is invalid or server already exists, or if the config is invalid
  */
+/**
+ * A fatal parse of `.mcp.json` (a reserved server name such as `__proto__`, or
+ * a schema violation) returns `config: null`, so getProjectMcpConfigsFromCwd
+ * reports an empty server map even though the entries are still on disk.
+ * Rebuilding the file from that empty snapshot would drop every valid sibling,
+ * so refuse to mutate a fatally poisoned file and point the user at the entry to
+ * fix. This restores a clear failure in place of the silent data loss the
+ * empty-map rebuild would otherwise cause.
+ */
+function assertProjectMcpConfigWritable(errors: ValidationError[]): void {
+  const fatal = errors.filter(e => e.mcpErrorMetadata?.severity === 'fatal')
+  if (fatal.length === 0) {
+    return
+  }
+  const detail = fatal.map(e => e.message).join(' ')
+  throw new Error(
+    `Cannot modify .mcp.json: ${detail} Fix or remove the offending entry in .mcp.json, then retry.`,
+  )
+}
+
 export async function addMcpConfig(
   name: string,
   config: unknown,
@@ -698,7 +718,8 @@ export async function addMcpConfig(
   // Check if server already exists in the target scope
   switch (scope) {
     case 'project': {
-      const { servers } = getProjectMcpConfigsFromCwd()
+      const { servers, errors } = getProjectMcpConfigsFromCwd()
+      assertProjectMcpConfigWritable(errors)
       if (Object.hasOwn(servers, name)) {
         throw new Error(`MCP server ${name} already exists in .mcp.json`)
       }
@@ -789,7 +810,11 @@ export async function removeMcpConfig(
 ): Promise<void> {
   switch (scope) {
     case 'project': {
-      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
+      // A fatally poisoned file parses to an empty map, so an empty result is
+      // not proof the server is absent -- refuse rather than treat it as such
+      // (which would also clobber every valid sibling on write-back).
+      assertProjectMcpConfigWritable(errors)
 
       if (!Object.hasOwn(existingServers, name)) {
         throw new Error(`No MCP server found with name: ${name} in .mcp.json`)
