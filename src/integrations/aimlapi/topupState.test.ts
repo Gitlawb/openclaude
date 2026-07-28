@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,7 @@ import {
   clearAimlapiTopupState,
   clearAimlapiTopupStateAsync,
   clearAimlapiSignInKey,
+  discardAimlapiCheckoutState,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
   recordAimlapiCheckoutSessionAsync,
@@ -564,13 +566,70 @@ test('resetAimlapiCheckoutSession returns null for a non-matching or keyless ses
   ).toBeNull()
 })
 
-test('a corrupt top-up state file reads as no state instead of crashing', () => {
+test('a corrupt top-up state file fails closed instead of being overwritten', () => {
   const directory = useTemporaryConfig()
-  writeFileSync(join(directory, 'aimlapi-topup.json'), '{ not valid json', 'utf8')
+  const path = join(directory, 'aimlapi-topup.json')
+  writeFileSync(path, '{ not valid json', 'utf8')
 
+  // A present-but-unreadable file must NOT read as absent: overwriting it could
+  // discard an open/paid checkout or an exchanged key. Both read paths surface
+  // the corruption, and the file is preserved for manual recovery.
+  expect(() => loadAimlapiTopupState(intent)).toThrow(/corrupt/i)
+  expect(() => claimAimlapiTopupState(intent)).toThrow(/corrupt/i)
+  expect(readFileSync(path, 'utf8')).toBe('{ not valid json')
+
+  // The explicit discard escape hatch clears the corrupt slot so a fresh top-up
+  // can start.
+  expect(discardAimlapiCheckoutState()).toBe(true)
   expect(loadAimlapiTopupState(intent)).toBeNull()
-  // The flow recovers by claiming over the unusable file.
   expect(claimAimlapiTopupState(intent).paymentSessionId).toBeTruthy()
+})
+
+test('an existing config directory is not chmod-ed by state operations', () => {
+  // POSIX modes only; Windows ignores chmod.
+  if (process.platform === 'win32') return
+  const directory = useTemporaryConfig()
+  // Simulate a user-provided/shared config root with group/other access.
+  chmodSync(directory, 0o755)
+
+  // A state operation must not tighten a directory it did not create — the state
+  // file's own 0600 mode is what protects the credential.
+  claimAimlapiTopupState(intent)
+  expect(statSync(directory).mode & 0o777).toBe(0o755)
+  expect(statSync(join(directory, 'aimlapi-topup.json')).mode & 0o777).toBe(0o600)
+})
+
+test('a schema-invalid top-up state file also fails closed', () => {
+  const directory = useTemporaryConfig()
+  // Parseable JSON, but not a valid persisted record (missing/blank fields):
+  // the same discard-or-strand hazard, so reads must refuse rather than null.
+  writeFileSync(
+    join(directory, 'aimlapi-topup.json'),
+    JSON.stringify({ email: 'user@example.com' }),
+    'utf8',
+  )
+  expect(() => loadAimlapiTopupState(intent)).toThrow(/corrupt/i)
+  expect(() => claimAimlapiTopupState(intent)).toThrow(/corrupt/i)
+})
+
+test('discarding removes the stored checkout and reports whether one existed', () => {
+  useTemporaryConfig()
+  // Nothing stored yet.
+  expect(discardAimlapiCheckoutState()).toBe(false)
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'open-session',
+  })
+  // A stored checkout (even one that blocks a different intent) is removed.
+  expect(discardAimlapiCheckoutState()).toBe(true)
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+  // A different intent can now claim.
+  expect(
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }).paymentSessionId,
+  ).toBeTruthy()
 })
 
 test('resuming with a differently-cased email reuses the same payment session', () => {

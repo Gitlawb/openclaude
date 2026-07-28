@@ -47,6 +47,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import {
+  discardAimlapiCheckoutStateAsync,
   provisionAimlapiKey,
   type AimlapiTopupStatus,
 } from '../integrations/aimlapi/index.js'
@@ -2083,6 +2084,34 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'aimlapi-topup-progress',
   })
 
+  // Recovery escape hatch: after a failed top-up (e.g. an interrupted checkout
+  // whose session went terminal, which blocks a different amount/email, or a
+  // corrupt state file), discard the stored checkout so a fresh one can start.
+  async function handleStartOverAimlapiTopup(): Promise<void> {
+    if (isAimlapiTopupRunning) {
+      return
+    }
+    setErrorMessage(undefined)
+    try {
+      await discardAimlapiCheckoutStateAsync()
+      setStatusMessage('Discarded the in-progress aimlapi.com checkout; starting over.')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setErrorMessage(`Could not discard the checkout: ${detail}`)
+      return
+    }
+    setCursorOffset(aimlapiTopupAmountUsd.length)
+    setScreen('aimlapi-topup-amount')
+  }
+
+  useKeybinding('confirm:yes', () => void handleStartOverAimlapiTopup(), {
+    context: 'Settings',
+    isActive:
+      screen === 'aimlapi-topup-progress' &&
+      !isAimlapiTopupRunning &&
+      Boolean(errorMessage),
+  })
+
   // xAI OAuth setup renders a TextInput for the manual-code recovery
   // path, which registers its own useInput listener. The child-component
   // useKeybinding inside XaiOAuthSetup ends up racing the input handler
@@ -2482,14 +2511,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // save fails, the receipt is the sole recoverable copy, so leave it so a
         // re-run can hand the same key back instead of charging again.
         if (persistDraft(nextDraft, draftProvider, null)) {
-          // Best-effort: the profile is already saved, so a failure to clear the
-          // receipt must not surface as an error. Surfacing it would invite a
-          // retry that re-saves the profile (a duplicate); a stranded receipt is
-          // harmless because the next matching top-up short-circuits to this key.
-          try {
-            await provisioned.clearReceipt()
-          } catch {
-            // The top-up itself succeeded; leave the receipt for a later run.
+          // The profile is saved, so the top-up succeeded. Retire the recovery
+          // receipt best-effort: a failure must NOT surface as an error (that
+          // would invite a retry which re-saves the profile — a duplicate).
+          // Retry a couple of times in case the state lock was briefly contended,
+          // then, rather than silently swallowing it, surface a NON-blocking
+          // warning so the stranded receipt is not hidden — an uncleared receipt
+          // makes a same-intent top-up return this key without charging and
+          // blocks a different one.
+          let receiptCleared = false
+          for (let attempt = 0; attempt < 3 && !receiptCleared; attempt++) {
+            try {
+              await provisioned.clearReceipt()
+              receiptCleared = true
+            } catch {
+              // Retry; the lock may have been momentarily contended.
+            }
+          }
+          if (!receiptCleared) {
+            setStatusMessage(previous =>
+              `${previous ? `${previous}\n` : ''}Warning: the aimlapi.com recovery ` +
+              'receipt could not be cleared. Run `openclaude aimlapi reset` (or use ' +
+              'Start over) before a different top-up.',
+            )
           }
         }
       } catch (error) {
@@ -2764,7 +2808,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>
           {isAimlapiTopupRunning
             ? 'Complete checkout in the browser. This screen will continue automatically.'
-            : 'Press Esc to go back.'}
+            : errorMessage
+              ? 'Press Enter to discard this checkout and start over, or Esc to go back.'
+              : 'Press Esc to go back.'}
         </Text>
       </Box>
     )

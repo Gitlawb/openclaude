@@ -346,6 +346,7 @@ function mockProviderManagerDependencies(
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
+    discardAimlapiCheckoutStateAsync?: (...args: any[]) => Promise<unknown>
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -466,6 +467,8 @@ function mockProviderManagerDependencies(
       (async () => {
         throw new Error('Unexpected aimlapi.com top-up in test')
       }),
+    discardAimlapiCheckoutStateAsync:
+      options?.discardAimlapiCheckoutStateAsync ?? (async () => true),
   }))
 
   mock.module('./useCodexOAuthFlow.js', () => ({
@@ -1102,6 +1105,82 @@ test('ProviderManager can top up aimlapi.com and save the issued key', async () 
     // later top-up opens a fresh checkout instead of short-circuiting to this key.
     await waitForCondition(() => clearReceipt.mock.calls.length > 0)
     expect(clearReceipt).toHaveBeenCalledTimes(1)
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('a failed receipt retirement is retried and surfaced, keeping the saved profile', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_PASSWORD
+
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+  // Clearing the recovery receipt keeps failing (e.g. a lock timeout).
+  const clearReceipt = mock(async () => {
+    throw new Error('lock timeout')
+  })
+  const provisionAimlapiKey = mock(async (options: any) => {
+    options.onStatus?.('provisioning-key')
+    return {
+      apiKey: 'aimlapi-issued-key',
+      apiKeyId: 'key_test',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+      clearReceipt,
+    }
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Top up and get API key'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com account email'),
+    )
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com password'),
+    )
+    mounted.stdin.write('secret-password')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose a top-up amount in USD') && frame.includes('25'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Payment method') && frame.includes('Card'),
+    )
+    mounted.stdin.write('\r')
+
+    // The profile is saved even though the cleanup keeps failing.
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    // Clearing is retried, not abandoned after one failure.
+    await waitForCondition(() => clearReceipt.mock.calls.length >= 3)
+    // The stranded receipt is surfaced as a warning, not silently swallowed.
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('recovery') && frame.includes('could not be cleared'),
+    )
   } finally {
     await mounted.dispose()
   }

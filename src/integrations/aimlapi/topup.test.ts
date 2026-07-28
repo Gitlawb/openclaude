@@ -1,5 +1,5 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -656,4 +656,47 @@ test('the CLI flow resumes a settled receipt instead of opening a new checkout',
   expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_paid' })
   // The record is spent once the profile write (owned by this flow) succeeds.
   expect(loadAimlapiTopupState(intent)).toBeNull()
+})
+
+test('a receipt-write failure after exchange still returns the issued key', async () => {
+  const directory = useTemporaryConfig()
+  claimAimlapiTopupState(intent)
+
+  const { provisionAimlapiKey } = await importTopupWithClient({
+    // Simulate a lock/fs failure at the settled-receipt write by corrupting the
+    // state file as the key is exchanged; the read-time guard then throws.
+    onExchange: () => {
+      writeFileSync(join(directory, 'aimlapi-topup.json'), '{ corrupt', 'utf8')
+    },
+  })
+
+  // The one-shot key must be delivered despite the failed recovery-receipt write
+  // — aborting here would strand a paid-for credential in an exchanged session.
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+  expect(provisioned.apiKey).toBe('k_issued')
+})
+
+test('a receipt-write failure after exchange still writes the CLI profile', async () => {
+  const directory = useTemporaryConfig()
+  claimAimlapiTopupState(intent)
+
+  const { runAimlapiTopup, savedProfiles } = await importTopupWithClient({
+    onExchange: () => {
+      writeFileSync(join(directory, 'aimlapi-topup.json'), '{ corrupt', 'utf8')
+    },
+  })
+  await runAimlapiTopup({
+    email: intent.email,
+    password: 'secret',
+    amountUsd: '25',
+    partnerId: intent.partnerId,
+    partnerName: intent.partnerName,
+    model: 'gpt-4o',
+    noOpen: true,
+  })
+
+  // The profile (with the key) was written despite the failed receipt write and
+  // the failed post-delivery cleanup clear.
+  expect(savedProfiles).toHaveLength(1)
+  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_issued' })
 })

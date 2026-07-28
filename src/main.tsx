@@ -4042,6 +4042,12 @@ async function run(): Promise<CommanderCommand> {
         noOpen: opts.open === false,
       });
     });
+  aimlapi.command('reset')
+    .description('Discard an in-progress AI/ML API checkout so a different top-up can start')
+    .action(async () => {
+      const { aimlapiReset } = await import('./cli/handlers/aimlapi.js');
+      aimlapiReset();
+    });
 
   /**
    * Helper function to handle marketplace command errors consistently.
