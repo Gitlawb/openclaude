@@ -143,9 +143,17 @@ function quoteProblematicValues(frontmatterText: string): string {
  * prompts untrimmed, so leaving that blank line in would prepend a stray
  * newline to the model instructions. This consumption runs only after a valid
  * line-terminated close, so it cannot revive the mid-document false close.
+ *
+ * The captured block is lazy at the outer level too (`)??`). A greedy `)?`
+ * consumes one YAML line before trying empty, so empty frontmatter followed by
+ * a body horizontal rule (`---\n---\n---\nBody`) reads the second `---` as YAML
+ * and closes on the third, swallowing the rule into the frontmatter. Preferring
+ * the empty capture closes at the first `---` line, as it did before the block
+ * was anchored, while real frontmatter still matches by taking the non-empty
+ * branch on backtrack.
  */
 export const FRONTMATTER_REGEX =
-  /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n\s*|$)/
+  /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)??)---[ \t]*(?:\r?\n\s*|$)/
 
 /**
  * Parses markdown content to extract frontmatter and content

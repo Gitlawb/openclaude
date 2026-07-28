@@ -156,6 +156,24 @@ test('consumes blank and whitespace-only separator lines after the close', () =>
   expect(crlfBlank.content).toBe('Body\r\n')
 })
 
+test('keeps a body horizontal rule out of empty frontmatter', () => {
+  // Empty frontmatter closes at the first `---` line, so a `---` rule that
+  // starts the body must survive as body content -- not be read as YAML.
+  const rule = parseFrontmatter('---\n---\n---\nBody\n')
+  expect(rule.frontmatter).toEqual({})
+  expect(rule.content).toBe('---\nBody\n')
+
+  // The same holds with blank lines between the close and the body rule.
+  const blankThenRule = parseFrontmatter('---\n---\n\n---\nBody\n')
+  expect(blankThenRule.frontmatter).toEqual({})
+  expect(blankThenRule.content).toBe('---\nBody\n')
+
+  // Real frontmatter followed by a body rule is unaffected.
+  const realThenRule = parseFrontmatter('---\nname: a\n---\n---\nBody\n')
+  expect(realThenRule.frontmatter).toEqual({ name: 'a' })
+  expect(realThenRule.content).toBe('---\nBody\n')
+})
+
 test('leaves a file without frontmatter untouched', () => {
   const markdown = 'Just a body.\n\nWith a --- rule in it.\n'
   const { frontmatter, content } = parseFrontmatter(markdown)
