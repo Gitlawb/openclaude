@@ -354,11 +354,14 @@ test('converts buffered raw tool-call text into tool_use events', async () => {
     type: 'message_delta',
     delta: { stop_reason: 'tool_use', stop_sequence: null },
   })
-  expect(events.some(event =>
-    event.type === 'content_block_delta' &&
-    (event.delta as { type?: string; text?: string }).type === 'text_delta' &&
-    (event.delta as { text?: string }).text?.includes(rawText),
-  )).toBeFalse()
+  const emittedText = events
+    .filter(event =>
+      event.type === 'content_block_delta' &&
+      (event.delta as { type?: string }).type === 'text_delta',
+    )
+    .map(event => (event.delta as { text?: string }).text ?? '')
+    .join('')
+  expect(emittedText).not.toContain(rawText)
 })
 
 test('routes provider JSON stream fallback through non-streaming conversion', async () => {
