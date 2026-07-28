@@ -394,6 +394,13 @@ export async function* openaiStreamToAnthropic(
     if (hasProcessedFinishReason) return
     hasProcessedFinishReason = true
 
+    // A terminal provider reason is required before exposing a tool call as
+    // complete. Finishing a transport-truncated tool stream could otherwise
+    // hand a partial command to the executor.
+    if (activeToolCalls.size > 0 || bufferedRawToolCallsText !== null) {
+      throw new Error('OpenAI-compatible stream ended before a tool call completed')
+    }
+
     if (hasEmittedThinkingStart && !hasClosedThinking) {
       throwIfStreamAborted(signal)
       yield { type: 'content_block_stop', index: contentBlockIndex }
@@ -401,17 +408,6 @@ export async function* openaiStreamToAnthropic(
       hasClosedThinking = true
     }
 
-    let emittedToolUse = activeToolCalls.size > 0
-    if (bufferedRawToolCallsText !== null) {
-      const parsedToolCalls = parseRawToolCallsRequestedText(bufferedRawToolCallsText)
-      if (parsedToolCalls) {
-        yield* emitParsedRawToolCalls(parsedToolCalls)
-        emittedToolUse = true
-      } else {
-        yield* emitTextDelta(bufferedRawToolCallsText)
-      }
-      bufferedRawToolCallsText = null
-    }
     if (xmlToolCallText !== null) {
       yield* emitTextDelta(xmlToolCallText)
       xmlToolCallText = null
@@ -427,11 +423,7 @@ export async function* openaiStreamToAnthropic(
     if (hasEmittedContentStart) {
       yield* closeActiveContentBlock()
     }
-    for (const [, toolCall] of activeToolCalls) {
-      throwIfStreamAborted(signal)
-      yield { type: 'content_block_stop', index: toolCall.index }
-    }
-    lastStopReason = emittedToolUse ? 'tool_use' : 'end_turn'
+    lastStopReason = 'end_turn'
     throwIfStreamAborted(signal)
     yield {
       type: 'message_delta',

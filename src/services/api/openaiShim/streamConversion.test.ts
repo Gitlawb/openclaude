@@ -454,6 +454,26 @@ test('generic converter finalizes content before a [DONE] marker without finish_
   })
 })
 
+test('generic converter rejects an incomplete tool call before a [DONE] marker', async () => {
+  await expect(collect(openaiStreamToAnthropic(
+    makeSseResponse([
+      makeOpenAIChunk({
+        tool_calls: [{
+          index: 0,
+          id: 'call_partial',
+          function: { name: 'Bash', arguments: '{"command":"rm' },
+        }],
+      }),
+      '[DONE]',
+    ]),
+    'test-model',
+    undefined,
+    false,
+    undefined,
+    createStreamDependencies(),
+  ))).rejects.toThrow('stream ended before a tool call completed')
+})
+
 test('converts Gemini SSE text, tools, usage, and finish reason', async () => {
   const events = await collect(
     geminiSseToAnthropic(
