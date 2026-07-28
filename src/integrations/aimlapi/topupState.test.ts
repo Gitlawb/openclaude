@@ -18,12 +18,15 @@ import {
   claimAimlapiTopupState,
   claimAimlapiTopupStateAsync,
   clearAimlapiTopupState,
+  clearAimlapiTopupStateAsync,
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
+  recordAimlapiCheckoutSessionAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
+  saveAimlapiTopupStateAsync,
   type AimlapiTopupIntent,
 } from './topupState.js'
 
@@ -59,14 +62,19 @@ function lockPathFor(directory: string): string {
   return join(directory, 'aimlapi-topup.json.lock')
 }
 
-// proper-lockfile represents a held lock as a directory. Pre-create one and,
-// for a stale case, back-date its mtime past the stale window so the next
-// acquirer treats it as abandoned.
-function holdLock(directory: string, options: { stale: boolean }): string {
+// proper-lockfile represents a held lock as a directory. Pre-create one and
+// optionally back-date its mtime. `stale: true` ages it well past the stale
+// window so the next acquirer treats it as abandoned; `ageMs` back-dates by an
+// exact amount (e.g. to just inside the window, so it goes stale soon).
+function holdLock(
+  directory: string,
+  options: { stale: boolean; ageMs?: number },
+): string {
   const lock = lockPathFor(directory)
   mkdirSync(lock)
-  if (options.stale) {
-    const past = new Date(Date.now() - LOCK_STALE_MS * 2)
+  const ageMs = options.ageMs ?? (options.stale ? LOCK_STALE_MS * 2 : 0)
+  if (ageMs > 0) {
+    const past = new Date(Date.now() - ageMs)
     utimesSync(lock, past, past)
   }
   return lock
@@ -85,19 +93,75 @@ test('a stale lock is stolen so the operation still completes', () => {
   expect(existsSync(lockPathFor(directory))).toBe(false)
 })
 
-test('the async path recovers a lock orphaned by an interrupted holder', async () => {
+test('the async path reclaims a lock orphaned by an interrupted holder', async () => {
   const directory = useTemporaryConfig()
-  // A fresh orphan (mtime = now), NOT yet stale: exactly the case the sync path
-  // gives up on (its timeout is shorter than the stale window; see the test
-  // below). The async path waits past the stale window and reclaims it, so an
-  // immediate resume after an interruption is not defeated.
-  holdLock(directory, { stale: false })
+  // A lock left by an interrupted holder, back-dated to just inside the stale
+  // window (the source stale window is 8s) so it goes stale ~1.5s from now. The
+  // async path keeps retrying — yielding between attempts rather than parking
+  // the thread — and reclaims it once stale, so a resume after an interruption
+  // is not defeated. Its deadline is deliberately longer than the stale window
+  // (unlike the shorter sync timeout the test below exercises), so recovery is
+  // not cut off while the orphan is still fresh.
+  holdLock(directory, { stale: false, ageMs: 6_500 })
 
   const claimed = await claimAimlapiTopupStateAsync(intent)
   expect(claimed.paymentSessionId).toBeTruthy()
   expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(claimed.paymentSessionId)
   expect(existsSync(lockPathFor(directory))).toBe(false)
 }, 20_000)
+
+// The async mutators share their inner operations with the sync wrappers, so a
+// thin contract check per variant is enough to lock behaviour the CLI/GUI flow
+// now depends on (the semantics themselves are covered against the sync path).
+test('the async save reports whether the compare-and-swap write landed', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const record = {
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'session-token',
+  }
+  // Matching intent + payment session lands; a stale payment session is refused.
+  expect(await saveAimlapiTopupStateAsync(record)).toBe(true)
+  expect(
+    await saveAimlapiTopupStateAsync({ ...record, paymentSessionId: 'stale' }),
+  ).toBe(false)
+})
+
+test('the async record is a compare-and-swap on the empty resume token', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const base = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // The first writer wins the token; a second recorder adopts it rather than
+  // overwriting; a stale payment session cannot record at all.
+  const first = await recordAimlapiCheckoutSessionAsync({ ...base, resumeSessionToken: 'first' })
+  expect(first?.resumeSessionToken).toBe('first')
+  const second = await recordAimlapiCheckoutSessionAsync({ ...base, resumeSessionToken: 'second' })
+  expect(second?.resumeSessionToken).toBe('first')
+  expect(
+    await recordAimlapiCheckoutSessionAsync({
+      ...intent,
+      paymentSessionId: 'stale',
+      resumeSessionToken: 'x',
+    }),
+  ).toBeNull()
+})
+
+test('the async clear only retires the matching checkout', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+
+  // A mismatched payment session must not clear another flow's record.
+  await clearAimlapiTopupStateAsync({ ...intent, paymentSessionId: 'other' })
+  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(claimed.paymentSessionId)
+  // The matching one retires it.
+  await clearAimlapiTopupStateAsync({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+  })
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+})
 
 test('a fresh lock held by another process times out instead of corrupting state', () => {
   const directory = useTemporaryConfig()
