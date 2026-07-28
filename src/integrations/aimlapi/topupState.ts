@@ -395,6 +395,41 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
 }
 
 /**
+ * Record the resume token for a just-created checkout session — but only while
+ * no token is stored yet for this payment id. This is a compare-and-swap on the
+ * token being empty, distinct from `saveAimlapiTopupState` which overwrites it.
+ *
+ * It lets two processes racing the same intent (they converge on one payment id
+ * via `claimAimlapiTopupState`, then each opens a session before either records
+ * one) settle on a SINGLE payable checkout: the first writer wins, and the
+ * loser gets the winner's token back so it can resume that session and abandon
+ * the one it just opened instead of leaving two chargeable checkouts. Returns
+ * the winning checkout state, or null if the slot no longer belongs to this
+ * intent + payment id (a reset/clear happened meanwhile).
+ */
+export function recordAimlapiCheckoutSession(
+  state: AimlapiPersistedTopup,
+): AimlapiCheckoutState | null {
+  return withStateLock(() => {
+    const current = matchingStateOrNull(state)
+    if (!current) return null
+    // A peer already recorded a session for this payment id: keep theirs.
+    if (current.resumeSessionToken?.trim()) {
+      return toCheckoutState(current)
+    }
+    const recorded: AimlapiPersistedTopup = {
+      ...state,
+      apiKey: state.apiKey ?? current.apiKey,
+      apiKeyId: state.apiKeyId ?? current.apiKeyId,
+      model: state.model ?? current.model,
+      settled: state.settled ?? current.settled,
+    }
+    writeAimlapiTopupStateUnlocked(recorded)
+    return toCheckoutState(recorded)
+  })
+}
+
+/**
  * Adopt the stored checkout for this intent, or start a new one.
  *
  * This is a single slot: claiming a different intent replaces the stored record.

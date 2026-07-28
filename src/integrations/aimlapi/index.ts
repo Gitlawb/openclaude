@@ -18,6 +18,7 @@ export type {
 export {
   claimAimlapiTopupState,
   saveAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   resetAimlapiCheckoutSession,
   clearAimlapiTopupState,
   loadAimlapiTopupState,

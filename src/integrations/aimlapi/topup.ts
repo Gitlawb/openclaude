@@ -43,6 +43,7 @@ import { promptHidden, promptText } from './prompt.js'
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiCheckoutState,
   type AimlapiTopupIntent,
@@ -200,23 +201,20 @@ async function resolveCheckoutSession(
     try {
       existing = await client.getSession(state.resumeSessionToken)
     } catch (error) {
-      // Only a definitive answer may retire the recorded checkout. Preserve it
-      // (surface the error, so a re-run resumes) when the failure says nothing
-      // about the session's fate:
-      //   - transient conditions: network blip, timeout, rate-limit, 5xx;
-      //   - a malformed-but-successful body — client.getSession throws
-      //     AimlapiApiError(..., 200) for that, explicitly as a non-terminal
-      //     signal so retained state is preserved.
-      // Discarding here would open — and charge — a second checkout for a
-      // still-payable one. `pollUntilPaid` draws the same line.
-      if (
-        isTransientHttpError(error) ||
-        (error instanceof AimlapiApiError && error.status === 200)
-      ) {
+      // Only a DEFINITIVE "the session is gone" answer may retire the recorded
+      // checkout. Preserve it (surface the error, so a re-run resumes) for
+      // anything else — a transient blip/timeout/rate-limit/5xx, a malformed-
+      // but-successful body (AimlapiApiError status 200, a non-terminal signal),
+      // or an ambiguous failure such as auth/4xx. Discarding on those would open
+      // — and charge — a second checkout for a still-payable one. Only 404/410
+      // mean the session no longer exists; `pollUntilPaid` never retires either.
+      const sessionIsGone =
+        error instanceof AimlapiApiError &&
+        (error.status === 404 || error.status === 410)
+      if (!sessionIsGone) {
         throw error
       }
-      // A definitive read failure (e.g. 404/410 for a genuinely gone session):
-      // fall through and open a fresh checkout.
+      // Fall through: the recorded session is gone, so open a fresh checkout.
     }
     if (existing) {
       if (RESUMABLE_SESSION_STATUSES.has(existing.status)) {
@@ -244,14 +242,25 @@ async function resolveCheckoutSession(
     ...state,
     resumeSessionToken: session.sessionToken,
   }
-  // Record it before the browser opens: an interruption from here on resumes
-  // this session instead of starting another checkout. A lost compare-and-swap
-  // means another run owns the slot, so this attempt has no resume record and
-  // must not proceed to charge.
-  if (!saveAimlapiTopupState({ ...intent, ...next })) {
+  // Record it before the browser opens, as a compare-and-swap on the resume
+  // token still being empty. Two runs racing the same intent converge on one
+  // payment id (see claimAimlapiTopupState) and can each open a session before
+  // either records one; the CAS makes the first writer win. A null result means
+  // the slot no longer belongs to this run at all (a reset/clear happened), so
+  // it must not proceed to charge.
+  const recorded = recordAimlapiCheckoutSession({ ...intent, ...next })
+  if (!recorded) {
     throw new Error(
       'Another AI/ML API checkout claimed this top-up. Re-run to continue that one.',
     )
+  }
+  if (recorded.resumeSessionToken !== session.sessionToken) {
+    // A peer recorded its session first. Adopt it and abandon the one we just
+    // opened (it is unpaid and never shown) so both runs settle on a single
+    // payable checkout instead of charging twice. pay() is idempotent on the
+    // shared payment id, so converging here cannot double-charge.
+    const adopted = await client.getSession(recorded.resumeSessionToken)
+    return { session: adopted, state: recorded }
   }
   return { session, state: next }
 }
@@ -681,9 +690,14 @@ async function pollUntilPaid(
     try {
       session = await client.getSession(sessionToken)
     } catch (error) {
-      // Transient poll failures (network, timeout, rate-limit, 5xx) shouldn't
-      // abort a payment in progress.
-      if (isTransientHttpError(error)) {
+      // Transient poll failures (network, timeout, rate-limit, 5xx) — and a
+      // malformed-but-successful body (AimlapiApiError status 200, a non-terminal
+      // signal) — shouldn't abort a payment in progress. The resume path treats
+      // a status-200 read the same way.
+      if (
+        isTransientHttpError(error) ||
+        (error instanceof AimlapiApiError && error.status === 200)
+      ) {
         await sleep(POLL_INTERVAL_MS)
         continue
       }
