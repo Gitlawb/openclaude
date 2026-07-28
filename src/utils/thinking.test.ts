@@ -58,14 +58,18 @@ afterEach(() => {
 
 async function importFreshThinkingModule() {
   mock.restore()
-  const originalProviders = await import('./model/providers.js')
+  const nonce = `${Date.now()}-${Math.random()}`
+  const [originalProviders, originalModel] = await Promise.all([
+    import('./model/providers.js'),
+    import(`./model/model.js?thinking-test=${nonce}`),
+  ])
   mock.module('./model/providers.js', () => {
     return {
       ...originalProviders,
       getAPIProvider: () => 'openai',
     }
   })
-  const nonce = `${Date.now()}-${Math.random()}`
+  mock.module('./model/model.js', () => ({ ...originalModel }))
   return import(`./thinking.js?ts=${nonce}`)
 }
 

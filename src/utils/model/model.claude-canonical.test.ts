@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
-import { firstPartyNameToCanonical } from './model.js'
+const { firstPartyNameToCanonical } = await import(
+  `./model.js?claude-canonical-test=${Date.now()}-${Math.random()}`
+)
 
 describe('firstPartyNameToCanonical - Claude 4+', () => {
   test.each([
