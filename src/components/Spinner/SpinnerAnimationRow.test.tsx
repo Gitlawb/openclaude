@@ -210,6 +210,7 @@ describe('SpinnerAnimationRow', () => {
       )
 
       const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
       expect(rows[0]).toContain('1.0k tokens')
       expect(rows[0]).not.toContain('running stop hooks')
     }
@@ -909,5 +910,107 @@ describe('SpinnerAnimationRow', () => {
         `^\\S ${PROD_MESSAGE_RE} \\(${figures.arrowDown}  · thinking\\)$`,
       ),
     )
+  })
+
+  it('keeps elapsed timer monotonic when suffix starts fitting beside thinking', async () => {
+    const suffix = 'running stop hooks… 1/1'
+    for (const columns of [48, 49, 50, 51, 52, 53, 54]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            verbose: true,
+            spinnerSuffix: suffix,
+            columns,
+            ...frozenElapsedRefs(6_000),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('6s')
+      expect(rows[0]).toContain('thinking')
+      if (columns < 54) {
+        expect(rows[0]).not.toContain('running stop hooks')
+      } else {
+        expect(rows[0]).toContain('running stop hooks')
+      }
+    }
+  })
+
+  it('keeps teammate streaming tokens monotonic across the mid-width band', async () => {
+    for (const columns of [35, 36, 37, 38, 39, 40, 41]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            hasRunningTeammates: true,
+            responseLength: 4_000,
+            columns,
+            ...frozenElapsedRefs(0),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('1.0k tokens')
+    }
+  })
+
+  it('keeps streaming tokens when effort suffix and spinner suffix widen', async () => {
+    const suffix = 'running stop hooks… 1/1'
+    for (const columns of [55, 60, 65, 70, 75]) {
+      const output = await renderToString(
+        <SpinnerAnimationRow
+          {...baseProps({
+            mode: 'thinking',
+            thinkingStatus: 'thinking',
+            effortSuffix: ' with high effort',
+            responseLength: 4_000,
+            spinnerSuffix: suffix,
+            verbose: true,
+            columns,
+            ...frozenElapsedRefs(6_000),
+          })}
+        />,
+        columns,
+      )
+
+      const rows = visibleRows(output)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toContain('1.0k tokens')
+      expect(rows[0]).toContain('6s')
+      if (columns >= 75) {
+        expect(rows[0]).toContain('thinking with high effort')
+      }
+    }
+  })
+
+  it('recovers thinking plus tokens without glyph overflow after suffix drop', async () => {
+    const output = await renderToString(
+      <SpinnerAnimationRow
+        {...baseProps({
+          mode: 'thinking',
+          thinkingStatus: 'thinking',
+          responseLength: 4_000,
+          spinnerSuffix: 'running stop hooks… 1/1',
+          columns: 36,
+          verbose: true,
+          ...frozenElapsedRefs(6_000),
+        })}
+      />,
+      36,
+    )
+
+    expect(visibleRows(output)).toEqual([
+      `● ${PROD_MESSAGE} (6s · 1.0k tokens)`,
+    ])
+    expect(visibleRows(output)[0]).not.toContain(figures.arrowDown)
   })
 })

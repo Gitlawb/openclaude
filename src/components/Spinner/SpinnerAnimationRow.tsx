@@ -319,20 +319,77 @@ export function SpinnerAnimationRow({
   // widening from overflow-drop to exact suffix-fit swaps higher-value status
   // for suffix-only chrome.
   if (showSuffix) {
-    const thinkingWidthForSuffix = thinkingStatus === 'thinking' ? THINKING_BARE_WIDTH : fullThinkingWidth;
-    const tokensWithSuffixFit = !hasTokenContent || physicalBareBudget >= suffixTextWidth + sep + tokensWidth;
+    // Budget companions at the widths actually rendered (or about to be).
+    let thinkingWidthForSuffix = 0;
+    if (showThinking || wantsThinking) {
+      if (typeof thinkingStatus === 'number') {
+        thinkingWidthForSuffix = fullThinkingWidth;
+      } else if (thinkingStatus === 'thinking') {
+        // Effort text may be restored after this pass — budget full width so
+        // suffix is not kept when only bare "thinking" fit in the estimate.
+        thinkingWidthForSuffix = effortSuffix
+          ? Math.max(thinkingWidthValue, fullThinkingWidth)
+          : thinkingWidthValue;
+      }
+    }
+    const timerWantedVisible =
+      showTimer ||
+      (wantsTimer &&
+        (verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TIMER_AFTER_MS));
+    const tokensWithSuffixFit =
+      !hasTokenContent || physicalBareBudget >= suffixTextWidth + sep + tokensWidth;
     // Use `>` (not `>=`) so exact-fit suffix+thinking does not keep the suffix
     // while glyph chrome still cannot show thinking — avoids a one-column cliff.
-    const thinkingWithSuffixFit = !wantsThinking || physicalBareBudget > suffixTextWidth + sep + thinkingWidthForSuffix;
-    const tokensWithSuffixAndThinkingFit = !hasTokenContent || !wantsThinking || physicalBareBudget >= suffixTextWidth + sep + thinkingWidthForSuffix + sep + tokensWidth;
-    if (hasTokenContent && physicalBareBudget >= tokensWidth && !tokensWithSuffixFit) {
+    const thinkingWithSuffixFit =
+      !wantsThinking ||
+      physicalBareBudget > suffixTextWidth + sep + thinkingWidthForSuffix;
+    const tokensWithSuffixAndThinkingFit =
+      !hasTokenContent ||
+      !wantsThinking ||
+      physicalBareBudget >=
+        suffixTextWidth + sep + thinkingWidthForSuffix + sep + tokensWidth;
+    const suffixWithTimerAndThinkingFit =
+      !(timerWantedVisible && wantsThinking) ||
+      physicalBareBudget >
+        suffixTextWidth + sep + timerWidth + sep + thinkingWidthForSuffix;
+    let suffixWithAllVisibleFit = suffixTextWidth;
+    if (timerWantedVisible) suffixWithAllVisibleFit += sep + timerWidth;
+    if (hasTokenContent) suffixWithAllVisibleFit += sep + tokensWidth;
+    if (wantsThinking && (showThinking || thinkingWidthForSuffix > 0)) {
+      suffixWithAllVisibleFit += sep + thinkingWidthForSuffix;
+    }
+    const allVisibleFitWithSuffix = physicalBareBudget >= suffixWithAllVisibleFit;
+    if (hasTokenContent && physicalBareBudget >= tokensWidth && !allVisibleFitWithSuffix) {
       showSuffix = false;
       effectiveSuffixWidth = 0;
-    } else if (hasTokenContent && wantsThinking && physicalBareBudget >= tokensWidth && tokensWithSuffixFit && !tokensWithSuffixAndThinkingFit) {
+    } else if (hasTokenContent && physicalBareBudget >= tokensWidth && !tokensWithSuffixFit) {
+      showSuffix = false;
+      effectiveSuffixWidth = 0;
+    } else if (
+      hasTokenContent &&
+      wantsThinking &&
+      physicalBareBudget >= tokensWidth &&
+      tokensWithSuffixFit &&
+      !tokensWithSuffixAndThinkingFit
+    ) {
       // Suffix+thinking would fit without tokens; prefer live tokens over that pair.
       showSuffix = false;
       effectiveSuffixWidth = 0;
-    } else if (!hasTokenContent && wantsThinking && physicalBareBudget >= thinkingWidthForSuffix && !thinkingWithSuffixFit) {
+    } else if (
+      timerWantedVisible &&
+      wantsThinking &&
+      physicalBareBudget >= timerWidth + sep + thinkingWidthForSuffix &&
+      !suffixWithTimerAndThinkingFit
+    ) {
+      // Timer+thinking fit without suffix; keep them and drop suffix until all three fit.
+      showSuffix = false;
+      effectiveSuffixWidth = 0;
+    } else if (
+      !hasTokenContent &&
+      wantsThinking &&
+      physicalBareBudget >= thinkingWidthForSuffix &&
+      !thinkingWithSuffixFit
+    ) {
       showSuffix = false;
       effectiveSuffixWidth = 0;
     }
@@ -367,7 +424,24 @@ export function SpinnerAnimationRow({
       }
     } else if (showTimer && !showTokens && tokensFitBareAlone) {
       // Suffix drop freed budget that primary spent on suffix+timer only.
-      if (timerAndTokensFitBare && physicalBareBudget >= timerWidth + sep + tokensWidth + (showThinking ? sep + thinkingWidthValue : 0)) {
+      const thinkingAndTokensFit =
+        showThinking && physicalBareBudget >= thinkingWidthValue + sep + tokensWidth;
+      const timerThinkingTokensFit =
+        showThinking &&
+        physicalBareBudget >= timerWidth + sep + thinkingWidthValue + sep + tokensWidth;
+      if (showThinking && timerThinkingTokensFit) {
+        showTokens = true;
+        usedAfterTimer = timerWidth + sep + tokensWidth;
+      } else if (thinkingAndTokensFit) {
+        // Prefer tokens + thinking over timer + thinking when timer crowds tokens.
+        showTimer = false;
+        showTokens = true;
+        usedAfterThinking = thinkingWidthValue + sep;
+        usedAfterTimer = 0;
+      } else if (
+        timerAndTokensFitBare &&
+        physicalBareBudget >= timerWidth + sep + tokensWidth + (showThinking ? sep + thinkingWidthValue : 0)
+      ) {
         showTokens = true;
         usedAfterTimer = timerWidth + sep + tokensWidth;
       } else if (!showThinking) {
@@ -383,6 +457,9 @@ export function SpinnerAnimationRow({
       if (showTimer) total += timerWidth + sep;
       if (physicalBareBudget >= total) {
         showTokens = true;
+        if (reserveModeGlyph && !(withGlyphSpace > total)) {
+          reserveModeGlyph = false;
+        }
       }
     } else if (showTokens && !showTimer && wantsTimer) {
       let total = timerWidth + sep + tokensWidth;
