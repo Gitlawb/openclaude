@@ -54,6 +54,7 @@ import {
   type OverageDisabledReason,
 } from '../claudeAiLimits.js'
 import { shouldProcessRateLimits } from '../rateLimitMocking.js' // Used for /mock-limits command
+import { describeApiTimeoutEnvForError } from './apiTimeout.js'
 import { extractConnectionErrorDetails, formatAPIError } from './errorUtils.js'
 import {
   extractOpenAICategoryHost,
@@ -132,11 +133,18 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
         error: 'rate_limit',
       })
 
-    case 'request_timeout':
+    case 'request_timeout': {
+      // Echo the same API_TIMEOUT_MS note the Anthropic SDK timeout path uses:
+      // when the value was rejected, say it was ignored rather than advising the
+      // user to raise a knob that never took effect.
+      const envHint = describeApiTimeoutEnvForError()
       return createAssistantAPIErrorMessage({
-        content: `${API_ERROR_MESSAGE_PREFIX}: Provider request timed out. Local models may be loading or overloaded; retry shortly or increase API_TIMEOUT_MS.`,
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider request timed out. Local models may be loading or overloaded; retry shortly${
+          envHint ? ` (${envHint})` : ' or increase API_TIMEOUT_MS'
+        }.`,
         error: 'unknown',
       })
+    }
 
     case 'context_overflow':
       return createAssistantAPIErrorMessage({
