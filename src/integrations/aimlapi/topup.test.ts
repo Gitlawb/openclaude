@@ -9,6 +9,7 @@ import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
   loadAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
@@ -230,6 +231,96 @@ test('an already-exchanged session with no local receipt fails closed', async ()
   // The record survives, so every re-run keeps failing closed rather than
   // silently minting a fresh checkout later.
   expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('spent-session')
+})
+
+test('a session recorded by a peer between claim and createSession is adopted', async () => {
+  useTemporaryConfig()
+
+  // We claim first, so our in-memory state still carries an empty resume token.
+  const claimed = claimAimlapiTopupState(intent)
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    createSession: async () => {
+      // A peer racing the same intent records ITS session for the shared payment
+      // id in the window after our claim and before we record ours.
+      recordAimlapiCheckoutSession({
+        ...intent,
+        paymentSessionId: claimed.paymentSessionId,
+        resumeSessionToken: 'peer-session',
+      })
+      return session({ sessionToken: 'our-session', status: 'pending_payment' })
+    },
+    // Answers the adopt-resume read, then the later poll settles it.
+    getSession: async token => session({ sessionToken: token, status: 'pending_payment' }),
+  })
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+
+  // We opened a session but adopted the peer's instead of overwriting the slot,
+  // so both runs converge on one payable checkout rather than charging twice.
+  expect(calls.createSession).toBe(1)
+  expect(calls.pay).toBe(1)
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('peer-session')
+  expect(provisioned.apiKey).toBe('k_issued')
+})
+
+test('an ambiguous status error preserves the recorded checkout', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'recorded-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    // A 403 says nothing about whether the session is still payable, so it must
+    // not retire the record and open a second, separately chargeable checkout.
+    getSession: async () => {
+      throw new AimlapiApiError('forbidden', 403, '')
+    },
+  })
+
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('forbidden')
+  expect(calls.createSession).toBe(0)
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
+})
+
+test('a gone recorded session (404) is replaced with a fresh checkout', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'gone-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({
+    // 404 is a definitive "the session no longer exists", so open a fresh one.
+    getSession: async () => {
+      throw new AimlapiApiError('gone', 404, '')
+    },
+  })
+  await provisionAimlapiKey(provisionOptions)
+
+  expect(calls.createSession).toBe(1)
+})
+
+test('payment polling retries a malformed status body instead of aborting', async () => {
+  useTemporaryConfig()
+  claimAimlapiTopupState(intent)
+
+  const { provisionAimlapiKey } = await importTopupWithClient({
+    // The first poll read is a malformed-but-successful body (status 200); the
+    // wait must keep polling rather than abort, matching the resume path.
+    getSession: async () => {
+      throw new AimlapiApiError('malformed', 200, '')
+    },
+  })
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+
+  expect(provisioned.apiKey).toBe('k_issued')
 })
 
 test('a settled receipt returns the issued key without paying again', async () => {
