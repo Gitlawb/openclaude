@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/openclaude-wordmark.svg" alt="OpenClaude — Open terminal for any LLM" width="830">
+  <img src="docs/assets/openclaude-wordmark.png" alt="OpenClaude — Open terminal for any LLM" width="830">
 
   <p>
     <a href="https://trendshift.io/repositories/25807?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-25807" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/25807/daily?language=TypeScript" alt="Gitlawb%2Fopenclaude | Trendshift" width="250" height="55"/></a>
@@ -23,9 +23,9 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 OpenClaude is also mirrored to GitLawb:
 [gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
 
-[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Development](#development) | [VS Code Extension](#vs-code-extension) | [Sponsors](#sponsors) | [Community](#community)
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Development](#development) | [VS Code Extension](#vs-code-extension) | [Partners](#partners) | [Community](#community)
 
-## Sponsors
+## Partners
 
 <table align="center">
   <tr>
@@ -61,6 +61,25 @@ OpenClaude is also mirrored to GitLawb:
     <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
     <td align="center"><a href="https://mimo.mi.com"><strong>Xiaomi MiMo</strong></a></td>
     <td align="center"><a href="https://www.atlascloud.ai/"><strong>Atlas Cloud</strong></a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150" height="80">
+      <a href="https://aimlapi.com/">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/aimlapi-logo-dark.svg">
+          <img src="docs/assets/aimlapi-logo.svg" alt="AI/ML API logo" width="136">
+        </picture>
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://novita.ai/">
+        <img src="docs/assets/novita-logo.png" alt="Novita AI logo" width="120">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://aimlapi.com/"><strong>AI/ML API</strong></a></td>
+    <td align="center"><a href="https://novita.ai/"><strong>Novita AI</strong></a></td>
   </tr>
 </table>
 
