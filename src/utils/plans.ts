@@ -25,6 +25,20 @@ import { generateWordSlug } from './words.js'
 
 const MAX_SLUG_RETRIES = 10
 
+/**
+ * Encoded agent plans live in this dedicated subdirectory of the plans dir so
+ * their filenames can never collide with a legacy (pre-escape) plan written
+ * directly under it. Two distinct teammates `writer@a/b` and `writer@a%2Fb`
+ * otherwise both map onto `{slug}-agent-writer@a%2Fb.md` -- one as the new
+ * escaped name, the other as its raw legacy name -- and read or clobber each
+ * other's plan. A real path separator is the one thing a raw single-component
+ * legacy name can never contain, so a subdirectory is what makes the escaped
+ * and legacy namespaces provably disjoint.
+ *
+ * Exported so the permission carve-out recognizes the same location.
+ */
+export const AGENT_PLANS_SUBDIR = 'agents'
+
 export function getDefaultPlansDirectory({
   configDirEnv = resolveConfigDirEnv({
     openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
@@ -151,7 +165,8 @@ export function encodeAgentIdForPlanFile(agentId: string): string {
  * Get the file path for a session's plan
  * @param agentId Optional agent ID for subagents. If not provided, returns main session plan.
  * For main conversation (no agentId), returns {planSlug}.md
- * For subagents (agentId provided), returns {planSlug}-agent-{agentId}.md
+ * For subagents (agentId provided), returns
+ * {AGENT_PLANS_SUBDIR}/{planSlug}-agent-{encodedAgentId}.md
  */
 export function getPlanFilePath(agentId?: AgentId): string {
   const planSlug = getPlanSlug(getSessionId())
@@ -161,9 +176,16 @@ export function getPlanFilePath(agentId?: AgentId): string {
     return join(getPlansDirectory(), `${planSlug}.md`)
   }
 
-  // Subagents: include agent ID
+  // Subagents: include agent ID, in the dedicated subdirectory that keeps the
+  // escaped filename namespace disjoint from legacy plans (see AGENT_PLANS_SUBDIR).
+  const agentPlansDir = join(getPlansDirectory(), AGENT_PLANS_SUBDIR)
+  try {
+    getFsImplementation().mkdirSync(agentPlansDir)
+  } catch (error) {
+    logError(error)
+  }
   return join(
-    getPlansDirectory(),
+    agentPlansDir,
     `${planSlug}-agent-${encodeAgentIdForPlanFile(agentId)}.md`,
   )
 }
@@ -185,21 +207,6 @@ export function getPlan(agentId?: AgentId): string | null {
   }
 }
 
-/**
- * Recover a plan written before agent IDs were escaped into the filename.
- *
- * Team names have always accepted arbitrary nonblank text, so plans for ids
- * like `writer@a/b` or `writer@100%` are already on disk under the raw name.
- * Every reader now builds the escaped name, so without this the teammate's plan
- * reads as missing on upgrade and a second file is created beside it.
- *
- * Moving it is what makes the recovery stick: the escaped name is the one the
- * permission carve-out recognizes, so a plan left at the old path would keep
- * falling through to ordinary permission handling on every later write.
- * A failed move is not fatal -- the content was already read.
- *
- * Exported for testing.
- */
 /**
  * Whether a legacy plan path (built from an unescaped, attacker-influenced
  * agent id) still resolves inside the plans directory after `..` collapse.
@@ -229,6 +236,15 @@ export function readAndMigrateLegacyPlan(
     return null
   }
 
+  // No-clobber: never rename a legacy file over a plan that already exists at
+  // the escaped path. getPlan only reaches recovery after the escaped read
+  // missed, but a concurrent writer can create it in between; overwriting it
+  // would lose a live plan. The legacy contents were already read, so return
+  // them without migrating.
+  if (getFsImplementation().existsSync(escapedPath)) {
+    return contents
+  }
+
   try {
     getFsImplementation().renameSync(legacyPath, escapedPath)
   } catch (error) {
@@ -240,21 +256,34 @@ export function readAndMigrateLegacyPlan(
   return contents
 }
 
-function readLegacyUnescapedPlan(
+/**
+ * Recover a plan written before agent IDs were escaped into the filename,
+ * confining the read/rename to a legitimate per-agent slot inside the plans dir.
+ *
+ * Exported for testing.
+ */
+export function readLegacyUnescapedPlan(
   agentId: AgentId | undefined,
   escapedPath: string,
+  plansDir: string = getPlansDirectory(),
+  slug: string = getPlanSlug(getSessionId()),
 ): string | null {
   if (!agentId) return null
-  const plansDir = getPlansDirectory()
-  const legacyPath = join(
-    plansDir,
-    `${getPlanSlug(getSessionId())}-agent-${agentId}.md`,
-  )
   // SECURITY: agentId is intentionally left unescaped here so the pre-escape
-  // filename can be recovered, so it can still carry `/`, `\`, or `..`. Once
-  // join() collapses those the path can land outside plansDir, and the migrate
-  // step reads then renames it -- moving an arbitrary file.
+  // filename can be recovered, so it can still carry `/`, `\`, or `..`. A `..`
+  // segment lets join() climb back into the plans dir onto a *different* plan
+  // (`a/../{slug}` -> the main plan; `a/../{slug}-agent-victim` -> a sibling),
+  // which the migrate step would then read and rename -- moving another agent's
+  // file. Reject any traversal segment before building the path.
+  if (agentId.split(/[/\\]/).includes('..')) return null
+
+  const legacyPath = join(plansDir, `${slug}-agent-${agentId}.md`)
+  // Defense in depth: the legacy file must still sit inside the plans dir and
+  // under this session's `{slug}-agent-` prefix after separator collapse, so a
+  // stray path can never resolve onto the main plan or another agent's file.
+  const agentPrefix = join(plansDir, `${slug}-agent-`)
   if (!isPathWithinPlansDir(legacyPath, plansDir)) return null
+  if (!legacyPath.startsWith(agentPrefix)) return null
   return readAndMigrateLegacyPlan(legacyPath, escapedPath)
 }
 

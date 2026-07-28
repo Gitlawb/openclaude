@@ -10,11 +10,15 @@ import {
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+import type { AgentId } from 'src/types/ids.js'
+
 import { isPlanFilePath } from './filesystem.js'
 import {
+  AGENT_PLANS_SUBDIR,
   encodeAgentIdForPlanFile,
   isPathWithinPlansDir,
   readAndMigrateLegacyPlan,
+  readLegacyUnescapedPlan,
 } from '../plans.js'
 
 // isPlanFilePath gates two permission carve-outs in checkEditableInternalPath /
@@ -28,10 +32,23 @@ test('accepts the main plan file', () => {
   expect(isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}.md`))).toBe(true)
 })
 
-test('accepts an agent plan file', () => {
+test('accepts an agent plan file in the agents subdirectory', () => {
+  expect(
+    isPlanFilePath(
+      PLANS,
+      SLUG,
+      join(PLANS, AGENT_PLANS_SUBDIR, `${SLUG}-agent-abc123.md`),
+    ),
+  ).toBe(true)
+})
+
+test('rejects a legacy flat agent plan path (agent plans now live in the subdir)', () => {
+  // getPlanFilePath no longer emits agent plans directly under plansDir, so the
+  // carve-out must not auto-allow that shape -- a legacy file is only ever
+  // touched by recovery, which migrates it into the subdir.
   expect(
     isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}-agent-abc123.md`)),
-  ).toBe(true)
+  ).toBe(false)
 })
 
 test('rejects a sibling whose name merely begins with the slug', () => {
@@ -53,25 +70,26 @@ test('rejects a sibling directory whose name begins with the slug', () => {
 })
 
 test('rejects a lookalike agent directory', () => {
-  // {slug}-agent-evil/ is a sibling directory, not an agent plan file. Matching
-  // it would auto-allow unprompted reads and writes to everything beneath it.
+  // {subdir}/{slug}-agent-evil/ is a sibling directory, not an agent plan file.
+  // Matching it would auto-allow unprompted reads and writes beneath it.
+  const sub = join(PLANS, AGENT_PLANS_SUBDIR)
   expect(
-    isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}-agent-evil`, 'x.md')),
+    isPlanFilePath(PLANS, SLUG, join(sub, `${SLUG}-agent-evil`, 'x.md')),
   ).toBe(false)
   expect(
-    isPlanFilePath(
-      PLANS,
-      SLUG,
-      join(PLANS, `${SLUG}-agent-a`, 'b', 'deep.md'),
-    ),
+    isPlanFilePath(PLANS, SLUG, join(sub, `${SLUG}-agent-a`, 'b', 'deep.md')),
   ).toBe(false)
 })
 
 test('rejects an agent plan file with an empty agent id', () => {
   // getPlanFilePath never emits this shape.
-  expect(isPlanFilePath(PLANS, SLUG, join(PLANS, `${SLUG}-agent-.md`))).toBe(
-    false,
-  )
+  expect(
+    isPlanFilePath(
+      PLANS,
+      SLUG,
+      join(PLANS, AGENT_PLANS_SUBDIR, `${SLUG}-agent-.md`),
+    ),
+  ).toBe(false)
 })
 
 test('rejects a different session slug', () => {
@@ -100,6 +118,7 @@ test('accepts every plan path the producer can emit for a real agent id', () => 
   ]) {
     const emitted = join(
       PLANS,
+      AGENT_PLANS_SUBDIR,
       `${SLUG}-agent-${encodeAgentIdForPlanFile(agentId)}.md`,
     )
     expect(isPlanFilePath(PLANS, SLUG, emitted)).toBe(true)
@@ -142,8 +161,10 @@ describe('legacy plan file recovery', () => {
     const legacy = join(legacyDir, 'b.md')
     const escaped = join(
       dir,
+      AGENT_PLANS_SUBDIR,
       `${SLUG}-agent-${encodeAgentIdForPlanFile('writer@a/b')}.md`,
     )
+    mkdirSync(join(dir, AGENT_PLANS_SUBDIR), { recursive: true })
     writeFileSync(legacy, 'the plan')
 
     expect(readAndMigrateLegacyPlan(legacy, escaped)).toBe('the plan')
@@ -154,6 +175,20 @@ describe('legacy plan file recovery', () => {
     expect(readFileSync(escaped, 'utf-8')).toBe('the plan')
     // And the migrated path is one the predicate accepts.
     expect(isPlanFilePath(dir, SLUG, escaped)).toBe(true)
+  })
+
+  test('does not overwrite a plan already at the escaped path (no-clobber)', () => {
+    const legacy = join(dir, `${SLUG}-agent-writer@team.md`)
+    const escaped = join(dir, AGENT_PLANS_SUBDIR, `${SLUG}-agent-fresh.md`)
+    mkdirSync(join(dir, AGENT_PLANS_SUBDIR), { recursive: true })
+    writeFileSync(legacy, 'legacy plan')
+    writeFileSync(escaped, 'live plan')
+
+    // The legacy contents come back, but the live plan at the escaped path is
+    // left intact rather than clobbered by the rename.
+    expect(readAndMigrateLegacyPlan(legacy, escaped)).toBe('legacy plan')
+    expect(readFileSync(escaped, 'utf-8')).toBe('live plan')
+    expect(existsSync(legacy)).toBe(true)
   })
 
   test('returns null when there is no legacy file', () => {
@@ -194,5 +229,55 @@ describe('legacy plan file recovery', () => {
     writeFileSync(path, 'plan')
     expect(readAndMigrateLegacyPlan(path, path)).toBeNull()
     expect(existsSync(path)).toBe(true)
+  })
+
+  // Exercise the guard through readLegacyUnescapedPlan itself (not just
+  // isPathWithinPlansDir in isolation), so a future regression that drops the
+  // check inside the recovery flow is caught.
+  test('readLegacyUnescapedPlan refuses traversal-shaped ids and touches nothing', () => {
+    const plansDir = join(dir, 'plans')
+    mkdirSync(plansDir, { recursive: true })
+    // A file the traversal ids would resolve onto if the guard were missing.
+    const victim = join(plansDir, `${SLUG}.md`)
+    writeFileSync(victim, 'main plan')
+    const escaped = join(
+      plansDir,
+      AGENT_PLANS_SUBDIR,
+      `${SLUG}-agent-x.md`,
+    )
+
+    for (const agentId of [
+      `writer@a/../${SLUG}`,
+      `writer@a/../${SLUG}-agent-victim`,
+      '../../../etc/passwd',
+      'a/../../..//tmp/evil',
+    ]) {
+      expect(
+        readLegacyUnescapedPlan(agentId as AgentId, escaped, plansDir, SLUG),
+      ).toBeNull()
+    }
+
+    // Nothing was read into a migration or renamed: the victim survives and no
+    // escaped file was created.
+    expect(readFileSync(victim, 'utf-8')).toBe('main plan')
+    expect(existsSync(escaped)).toBe(false)
+  })
+
+  test('readLegacyUnescapedPlan recovers a legitimate legacy plan into the subdir', () => {
+    const plansDir = join(dir, 'plans')
+    mkdirSync(join(plansDir, AGENT_PLANS_SUBDIR), { recursive: true })
+    const legacy = join(plansDir, `${SLUG}-agent-writer@team.md`)
+    writeFileSync(legacy, 'legacy body')
+    const escaped = join(
+      plansDir,
+      AGENT_PLANS_SUBDIR,
+      `${SLUG}-agent-writer@team.md`,
+    )
+
+    expect(readLegacyUnescapedPlan('writer@team' as AgentId, escaped, plansDir, SLUG)).toBe(
+      'legacy body',
+    )
+    expect(existsSync(escaped)).toBe(true)
+    expect(existsSync(legacy)).toBe(false)
   })
 })

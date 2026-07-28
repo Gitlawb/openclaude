@@ -37,7 +37,11 @@ import {
   getDirectoryForPath,
   sanitizePath,
 } from '../path.js'
-import { getPlanSlug, getPlansDirectory } from '../plans.js'
+import {
+  AGENT_PLANS_SUBDIR,
+  getPlanSlug,
+  getPlansDirectory,
+} from '../plans.js'
 import { getPlatform } from '../platform.js'
 import { getProjectDir } from '../sessionStorage.js'
 import { SETTING_SOURCES } from '../settings/constants.js'
@@ -260,7 +264,7 @@ function isClaudeConfigFilePath(filePath: string): boolean {
 
 // Pure predicate for the two legitimate plan-file shapes getPlanFilePath emits:
 //   Main plan file:  {plansDir}/{planSlug}.md
-//   Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
+//   Agent plan file: {plansDir}/{AGENT_PLANS_SUBDIR}/{planSlug}-agent-{agentId}.md
 // Anchored on those exact delimiters. A bare startsWith on {plansDir}/{slug}
 // also matches any sibling whose name merely begins with the slug
 // ({slug}nova.md, {slug}-other.md, {slug}dir/x.md), which would silently
@@ -280,14 +284,16 @@ export function isPlanFilePath(
   if (normalizedPath === expectedPrefix + '.md') {
     return true
   }
-  const agentPrefix = expectedPrefix + '-agent-'
+  // Agent plans live in the dedicated subdirectory that keeps their escaped
+  // filenames from colliding with legacy plans written directly under plansDir.
+  const agentPrefix = join(plansDir, AGENT_PLANS_SUBDIR, `${planSlug}-agent-`)
   if (!normalizedPath.startsWith(agentPrefix)) {
     return false
   }
   // SECURITY: The remainder must be exactly one nonempty agent id followed by
   // `.md`. Accepting the bare prefix would also allow a lookalike sibling
-  // *directory* ({slug}-agent-evil/anything.md), granting unprompted read and
-  // write to arbitrary files beneath it, as well as the malformed
+  // *directory* ({subdir}/{slug}-agent-evil/anything.md), granting unprompted
+  // read and write to arbitrary files beneath it, as well as the malformed
   // {slug}-agent-.md that getPlanFilePath never emits.
   //
   // This stays compatible with every path getPlanFilePath produces because it
