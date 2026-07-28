@@ -273,6 +273,68 @@ test('doctorAllServers surfaces a finding for a name that produced no server rep
   assert.equal(report.summary.blocking, 1)
 })
 
+const PROTO_RESERVED_ERROR: ValidationError = {
+  file: '.mcp.json',
+  path: 'mcpServers.__proto__',
+  message: 'Invalid MCP server name "__proto__": this name is reserved.',
+  suggestion: 'Rename the "__proto__" entry under mcpServers.',
+  mcpErrorMetadata: {
+    scope: 'project',
+    serverName: '__proto__',
+    severity: 'fatal',
+  },
+}
+
+test('doctorServer surfaces a poisoned sibling scope while reporting another target', async () => {
+  // `mcp doctor realserver` with realserver in user settings but a poisoned
+  // project .mcp.json must not exit 0 with the fatal project error hidden. The
+  // reserved-name finding is keyed by a name that never survives parsing, so
+  // only the orphan fold surfaces it.
+  const deps = makeDependencies({
+    getAllMcpConfigs: async () =>
+      allConfig({ realserver: stdioConfig('user', 'node') }),
+    getMcpConfigsByScope: scope =>
+      scope === 'user'
+        ? scopeConfig({ realserver: stdioConfig('user', 'node') })
+        : scope === 'project'
+          ? scopeConfig({}, [PROTO_RESERVED_ERROR])
+          : scopeConfig(),
+  })
+
+  const report = await doctorServer('realserver', { configOnly: true }, deps)
+
+  const reserved = report.findings.find(f => f.serverName === '__proto__')
+  assert.ok(reserved, 'poisoned sibling finding must surface')
+  assert.equal(reserved?.blocking, true)
+  assert.ok(report.summary.blocking >= 1)
+})
+
+test('doctorServer does not add not_found when a reserved-name finding already explains the target', async () => {
+  // `mcp doctor __proto__` against a file that still carries that entry attaches
+  // the fatal reserved-name finding; pushing state.not_found on top would report
+  // two blocking findings with contradictory messages.
+  const deps = makeDependencies({
+    getMcpConfigsByScope: scope =>
+      scope === 'project'
+        ? scopeConfig({}, [PROTO_RESERVED_ERROR])
+        : scopeConfig(),
+  })
+
+  const report = await doctorServer('__proto__', { configOnly: true }, deps)
+
+  const server = report.servers[0]
+  assert.ok(
+    server?.findings.some(f => f.serverName === '__proto__' && f.blocking),
+    'reserved-name finding should explain the target',
+  )
+  assert.equal(
+    server?.findings.some(f => f.code === 'state.not_found'),
+    false,
+    'not_found must not double up on the reserved-name finding',
+  )
+  assert.equal(report.summary.blocking, 1)
+})
+
 test('doctorServer explains same-name shadowing across scopes', async () => {
   const localConfig = stdioConfig('local', 'node-local')
   const userConfig = stdioConfig('user', 'node-user')

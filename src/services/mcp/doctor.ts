@@ -584,13 +584,23 @@ async function buildServerReport(
       ? activeConfig
       : undefined
 
+  const nameValidationFindings = validationFindingsByName.get(name) ?? []
   const findings: McpDoctorFinding[] = [
-    ...(validationFindingsByName.get(name) ?? []),
+    ...nameValidationFindings,
     ...buildShadowingFindings(definitions),
     ...buildStateFindings(definitions),
   ]
 
-  if (definitions.length === 0 && !shouldAddObservedDefinition) {
+  // A reserved-name target (`__proto__`/`constructor`) never survives parsing,
+  // so it has no definition -- but its fatal validation finding already names
+  // the problem. Adding `state.not_found` on top would report two blocking
+  // findings with contradictory messages, so skip it when validation already
+  // explains this name.
+  if (
+    definitions.length === 0 &&
+    !shouldAddObservedDefinition &&
+    nameValidationFindings.length === 0
+  ) {
     findings.push({
       blocking: true,
       code: 'state.not_found',
@@ -714,6 +724,14 @@ export async function doctorServer(
     deps,
   )
   report.servers = [server]
-  report.findings = globalFindings
+  // Mirror the orphan fold in doctorAllServers: a fatal reserved-name finding is
+  // keyed by a name that never survives parsing, so unless it happens to be the
+  // requested target it is built into no report. Promote any finding for a name
+  // other than the one reported so a poisoned sibling scope is not hidden --
+  // e.g. `mcp doctor realserver` while `.mcp.json` still carries `__proto__`.
+  const orphanedFindings = Array.from(serverFindingsByName.entries())
+    .filter(([findingName]) => findingName !== name)
+    .flatMap(([, findings]) => findings)
+  report.findings = [...globalFindings, ...orphanedFindings]
   return summarizeReport(report)
 }
