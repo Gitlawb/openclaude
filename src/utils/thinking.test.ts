@@ -131,6 +131,10 @@ describe('modelSupportsAdaptiveThinking — Claude allowlist', () => {
     expect(modelSupportsAdaptiveThinking('claude-opus-4-7')).toBe(true)
     // A non-allowlisted Claude 4 opus is still excluded on non-1P providers.
     expect(modelSupportsAdaptiveThinking('claude-opus-4-2')).toBe(false)
+    expect(modelSupportsAdaptiveThinking('claude-opus-50')).toBe(false)
+    expect(modelSupportsAdaptiveThinking('claude-opus-5x')).toBe(false)
+    expect(modelSupportsAdaptiveThinking('claude-opus-4-80')).toBe(false)
+    expect(modelSupportsAdaptiveThinking('openai-opus-5')).toBe(false)
   })
 })
 

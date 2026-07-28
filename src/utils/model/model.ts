@@ -460,6 +460,18 @@ export function getDefaultMainLoopModel(): ModelName {
 }
 
 // @[MODEL LAUNCH]: Add a canonical name mapping for the new model below.
+function matchesCanonicalModelId(name: string, canonical: string): boolean {
+  const index = name.indexOf(canonical)
+  if (index === -1) {
+    return false
+  }
+
+  // Provider IDs may prefix the canonical ID. Constrain the suffix so a
+  // future version such as `claude-opus-50` cannot match `claude-opus-5`.
+  const next = name[index + canonical.length]
+  return next === undefined || next === '-' || next === '['
+}
+
 /**
  * Pure string-match that strips date/provider suffixes from a first-party model
  * name. Input must already be a 1P-format ID (e.g. 'claude-3-7-sonnet-20250219',
@@ -470,37 +482,37 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
   // Special cases for Claude 4+ models to differentiate versions
   // Order matters: check more specific versions first (5 before 4-8 before 4-7 before 4-6 before 4-5 before 4)
-  if (name.includes('claude-opus-5')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-5')) {
     return 'claude-opus-5'
   }
-  if (name.includes('claude-opus-4-8')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4-8')) {
     return 'claude-opus-4-8'
   }
-  if (name.includes('claude-opus-4-7')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4-7')) {
     return 'claude-opus-4-7'
   }
-  if (name.includes('claude-opus-4-6')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4-6')) {
     return 'claude-opus-4-6'
   }
-  if (name.includes('claude-opus-4-5')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4-5')) {
     return 'claude-opus-4-5'
   }
-  if (name.includes('claude-opus-4-1')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4-1')) {
     return 'claude-opus-4-1'
   }
-  if (name.includes('claude-opus-4')) {
+  if (matchesCanonicalModelId(name, 'claude-opus-4')) {
     return 'claude-opus-4'
   }
-  if (name.includes('claude-sonnet-4-6')) {
+  if (matchesCanonicalModelId(name, 'claude-sonnet-4-6')) {
     return 'claude-sonnet-4-6'
   }
-  if (name.includes('claude-sonnet-4-5')) {
+  if (matchesCanonicalModelId(name, 'claude-sonnet-4-5')) {
     return 'claude-sonnet-4-5'
   }
-  if (name.includes('claude-sonnet-4')) {
+  if (matchesCanonicalModelId(name, 'claude-sonnet-4')) {
     return 'claude-sonnet-4'
   }
-  if (name.includes('claude-haiku-4-5')) {
+  if (matchesCanonicalModelId(name, 'claude-haiku-4-5')) {
     return 'claude-haiku-4-5'
   }
   // Claude 3.x models use a different naming scheme (claude-3-{family})

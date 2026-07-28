@@ -156,6 +156,14 @@ export function modelSupportsThinking(model: string): boolean {
 }
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports adaptive thinking.
+const ADAPTIVE_THINKING_MODELS = new Set([
+  'claude-opus-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+])
+
 export function modelSupportsAdaptiveThinking(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'adaptive_thinking')
   if (supported3P !== undefined) {
@@ -163,7 +171,7 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   }
   const canonical = getCanonicalName(model)
   // Supported by a subset of Claude models
-  if (canonical.includes('opus-5') || canonical.includes('opus-4-8') || canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
+  if (ADAPTIVE_THINKING_MODELS.has(canonical)) {
     return true
   }
   // Exclude any other known legacy models (allowlist above catches 4-6 variants first)
