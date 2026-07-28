@@ -7,7 +7,7 @@ import { stringWidth } from '../../ink/stringWidth.js';
 import { getLayoutMode, calculateLayoutDimensions, calculateOptimalLeftWidth, formatWelcomeMessage, truncatePath, getRecentActivitySync, getRecentReleaseNotesSync, getLogoDisplayData } from '../../utils/logoV2Utils.js';
 import { truncate } from '../../utils/format.js';
 import { getDisplayPath } from '../../utils/file.js';
-import { BRAND_TAGLINE, WORDMARK_CLAUDE, WORDMARK_OPEN } from '../../constants/brand.js';
+import { BRAND_TAGLINE, WORDMARK_ACCENT_LEFT, WORDMARK_ACCENT_RIGHT, WORDMARK_CLAUDE, WORDMARK_OPEN } from '../../constants/brand.js';
 import { Clawd } from './Clawd.js';
 import { FeedColumn } from './FeedColumn.js';
 import { createRecentActivityFeed, createWhatsNewFeed, createProjectOnboardingFeed, createGuestPassesFeed } from './feedConfigs.js';
@@ -374,7 +374,7 @@ export function LogoV2() {
   const t17 = 1;
   let t18;
   if ($[46] !== welcomeMessage_0) {
-    t18 = <Box marginTop={1} flexDirection="column" alignItems="center"><Text><Text color="brandShimmer">{WORDMARK_OPEN[0]}</Text><Text color="brand"> {WORDMARK_CLAUDE[0]}</Text></Text><Text><Text color="brandShimmer">{WORDMARK_OPEN[1]}</Text><Text color="brand"> {WORDMARK_CLAUDE[1]}</Text></Text><Text dimColor={true}>{BRAND_TAGLINE}</Text><Text color="inactive">•</Text><Text bold={true}>{welcomeMessage_0}</Text></Box>;
+    t18 = <Box marginTop={1} flexDirection="column" alignItems="center"><Text><Text color="brandShimmer">{WORDMARK_ACCENT_LEFT} </Text><Text bold={true} color="brandShimmer">{WORDMARK_OPEN}</Text><Text bold={true} color="brand"> {WORDMARK_CLAUDE}</Text><Text color="brand"> {WORDMARK_ACCENT_RIGHT}</Text></Text><Text dimColor={true}>{BRAND_TAGLINE}</Text><Text color="inactive">•</Text><Text bold={true}>{welcomeMessage_0}</Text></Box>;
     $[46] = welcomeMessage_0;
     $[47] = t18;
   } else {
