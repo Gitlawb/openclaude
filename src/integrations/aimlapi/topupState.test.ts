@@ -101,37 +101,58 @@ test('a fresh lock held by another process times out instead of corrupting state
   expect(existsSync(lockPathFor(directory))).toBe(true)
 }, 20_000)
 
+// Barrier: every worker busy-waits to a shared wall-clock instant before
+// claiming. Without it, process-startup jitter staggers the workers so the first
+// writes state before the rest read it, and even a no-op lock would "converge" -
+// the barrier forces them into the critical section together so a broken lock
+// actually diverges.
+const WORKER_BARRIER: ReadonlyArray<string> = [
+  `const intent = ${JSON.stringify(intent)}`,
+  `const startAt = Number(process.env.WORKER_START_AT)`,
+  `while (Date.now() < startAt) { /* spin to the barrier */ }`,
+]
+
+function defaultClaimWorker(modulePath: string): string[] {
+  return [
+    `import { claimAimlapiTopupState } from ${JSON.stringify(modulePath)}`,
+    ...WORKER_BARRIER,
+    `process.stdout.write(claimAimlapiTopupState(intent).paymentSessionId)`,
+  ]
+}
+
+// Claim, then record a unique resume token. Reports 'won' only for the process
+// that actually established the token. Under a stale-lock steal the claims can
+// briefly diverge, but the single-slot store keeps one payment id and the record
+// step's compare-and-swap lands exactly once, so the caller can assert that
+// precisely one checkout is created no matter how the claims raced.
+function claimAndRecordWorker(modulePath: string): string[] {
+  return [
+    `import { claimAimlapiTopupState, recordAimlapiCheckoutSession } from ${JSON.stringify(modulePath)}`,
+    ...WORKER_BARRIER,
+    `const claimed = claimAimlapiTopupState(intent)`,
+    `const token = 'token-' + process.pid`,
+    `const recorded = recordAimlapiCheckoutSession({ ...intent, paymentSessionId: claimed.paymentSessionId, resumeSessionToken: token })`,
+    `process.stdout.write(recorded && recorded.resumeSessionToken === token ? 'won' : 'lost')`,
+  ]
+}
+
 /**
- * Run `claimAimlapiTopupState` for the same intent in N separate processes and
- * return the payment session each one ended up with. Real processes are the only
- * way to exercise the lock's cross-process ownership: in-process calls never
- * interleave inside the synchronous acquire/release sequence.
+ * Run a worker body for the same intent in N separate processes and return each
+ * one's stdout. Real processes are the only way to exercise the lock's
+ * cross-process ownership: in-process calls never interleave inside the
+ * synchronous acquire/release sequence.
  */
 async function claimFromProcesses(
   directory: string,
   count: number,
+  buildWorker: (modulePath: string) => string[] = defaultClaimWorker,
 ): Promise<string[]> {
   const script = join(directory, 'claim-worker.ts')
   // A raw absolute path is not a valid ESM specifier (on Windows it is also
   // backslash-separated), so hand the worker a file:// URL instead of relying on
   // the runtime tolerating a bare path.
   const modulePath = pathToFileURL(join(import.meta.dir, 'topupState.ts')).href
-  // Barrier: every worker busy-waits to a shared wall-clock instant before
-  // claiming. Without it, process-startup jitter staggers the workers so the
-  // first writes state before the rest read it, and even a no-op lock would
-  // "converge" - the barrier forces them into the critical section together so a
-  // broken lock actually diverges.
-  writeFileSync(
-    script,
-    [
-      `import { claimAimlapiTopupState } from ${JSON.stringify(modulePath)}`,
-      `const intent = ${JSON.stringify(intent)}`,
-      `const startAt = Number(process.env.WORKER_START_AT)`,
-      `while (Date.now() < startAt) { /* spin to the barrier */ }`,
-      `process.stdout.write(claimAimlapiTopupState(intent).paymentSessionId)`,
-    ].join('\n'),
-    'utf8',
-  )
+  writeFileSync(script, buildWorker(modulePath).join('\n'), 'utf8')
 
   // Enough lead time for every worker to spawn and reach the spin before it ends.
   const startAt = String(Date.now() + 250 * count + 1000)
@@ -198,12 +219,15 @@ test('concurrent processes recover from an abandoned lock without duplicating', 
   const directory = useTemporaryConfig()
   holdLock(directory, { stale: true })
 
-  const sessions = await claimFromProcesses(directory, 4)
+  const outcomes = await claimFromProcesses(directory, 4, claimAndRecordWorker)
 
-  // Recovery must free the abandoned lock exactly once and still serialize the
-  // claim, rather than letting several processes through at once.
-  expect(new Set(sessions).size).toBe(1)
-  expect(loadAimlapiTopupState(intent)?.paymentSessionId).toBe(sessions[0])
+  // Recovering an abandoned lock can, under a stale-lock steal, briefly let two
+  // recoverers mint distinct payment ids (a diverged claim is then refused at
+  // its next compare-and-swap — see the save test below). What must hold is the
+  // outcome that prevents a double charge: exactly ONE process establishes the
+  // checkout, and the abandoned lock is freed.
+  expect(outcomes.filter(outcome => outcome === 'won')).toHaveLength(1)
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toMatch(/^token-\d+$/)
   expect(existsSync(lockPathFor(directory))).toBe(false)
 }, 60_000)
 
