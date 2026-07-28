@@ -46,8 +46,12 @@ export function parsePositiveIntArg(name: string, value: string): number {
  * was typed, so the enforced cap silently shifts. A double round-trips only
  * ~15 significant decimal digits, so a fractional input carrying more than that
  * is rejected. (Whole-number precision is already bounded by MAX_SAFE_INTEGER,
- * which legitimately carries 16 digits, so the digit check is gated on a
- * decimal point to avoid rejecting the boundary integer itself.)
+ * which legitimately carries 16 digits, so the digit check is gated on the
+ * input denoting a fractional value to avoid rejecting the boundary integer
+ * itself.) Integrality is read from the string spelling, not from the coerced
+ * double: `90071992547409905e-1` and `9007199254740990.5` denote the same
+ * precision-losing fraction even though one carries no `.`, while
+ * `9007199254740991.0` denotes the boundary integer and must still pass.
  */
 export function parsePositiveAmountArg(name: string, value: string): number {
   const parsed = Number(value)
@@ -60,12 +64,35 @@ export function parsePositiveAmountArg(name: string, value: string): number {
       `${name} must be a positive number greater than 0`,
     )
   }
-  if (value.includes('.') && significantDigitCount(value) > 15) {
+  if (hasFractionalPart(value) && significantDigitCount(value) > 15) {
     throw new InvalidArgumentError(
       `${name} has more precision than can be represented exactly`,
     )
   }
   return parsed
+}
+
+/**
+ * Whether a numeric string denotes a value with a nonzero fractional component,
+ * reading the digits and the decimal point's effective position (after any
+ * exponent) rather than trusting the coerced double, which may already have
+ * dropped the fraction. `9007199254740990.5` and `90071992547409905e-1` both
+ * report true; `9007199254740991.0`, `1.5e3`, and `90071992547409910e-1` report
+ * false. Used to decide whether the precision guard applies.
+ */
+function hasFractionalPart(value: string): boolean {
+  const trimmed = value.trim().replace(/^[+-]/, '')
+  const expMatch = trimmed.match(/[eE]([+-]?\d+)$/)
+  const exp = expMatch ? parseInt(expMatch[1], 10) : 0
+  const mantissa = expMatch ? trimmed.slice(0, expMatch.index) : trimmed
+  const dot = mantissa.indexOf('.')
+  const intPart = dot >= 0 ? mantissa.slice(0, dot) : mantissa
+  const fracPart = dot >= 0 ? mantissa.slice(dot + 1) : ''
+  const digits = intPart + fracPart
+  // Index in `digits` where the decimal point lands after applying the exponent.
+  const pointPos = intPart.length + exp
+  const fractionDigits = pointPos <= 0 ? digits : digits.slice(pointPos)
+  return /[1-9]/.test(fractionDigits)
 }
 
 /**

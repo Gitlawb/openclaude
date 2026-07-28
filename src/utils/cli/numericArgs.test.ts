@@ -120,6 +120,31 @@ test('parsePositiveAmountArg rejects a decimal cap that loses precision', () => 
   expect(parsePositiveAmountArg('--max-budget-usd', '0.000001')).toBe(0.000001)
 })
 
+test('parsePositiveAmountArg rejects precision-losing scientific notation', () => {
+  // The same value as 9007199254740990.5, spelled without a decimal point, must
+  // not slip past the guard just because the string carries no `.`.
+  expect(() =>
+    parsePositiveAmountArg('--max-budget-usd', '90071992547409905e-1'),
+  ).toThrow(InvalidArgumentError)
+  expect(() =>
+    parsePositiveAmountArg('--max-budget-usd', '12345678901234567e-7'),
+  ).toThrow(InvalidArgumentError)
+  // Scientific notation that denotes a representable value is still accepted.
+  expect(parsePositiveAmountArg('--max-budget-usd', '1.5e3')).toBe(1500)
+  expect(parsePositiveAmountArg('--max-budget-usd', '2.5e-1')).toBe(0.25)
+})
+
+test('parsePositiveAmountArg accepts the boundary integer spelled with a fraction', () => {
+  // 9007199254740991.0 denotes exactly MAX_SAFE_INTEGER, which round-trips; the
+  // precision guard must not reject an integer just because it carries a `.0`.
+  expect(parsePositiveAmountArg('--max-budget-usd', '9007199254740991.0')).toBe(
+    Number.MAX_SAFE_INTEGER,
+  )
+  expect(
+    parsePositiveAmountArg('--max-budget-usd', '90071992547409910e-1'),
+  ).toBe(Number.MAX_SAFE_INTEGER)
+})
+
 test('parsePositiveAmountArg names the option in the error message', () => {
   expect(() => parsePositiveAmountArg('--max-budget-usd', 'abc')).toThrow(
     '--max-budget-usd must be a positive number greater than 0',
