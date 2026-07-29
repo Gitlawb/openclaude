@@ -153,6 +153,8 @@ describe('npmFreshnessFailure', () => {
   test('skips on a malformed registry response', async () => {
     expect(await npmFreshnessFailure(fetchReturning({}))).toBeNull()
     expect(await npmFreshnessFailure(fetchReturning({ version: 'not-semver' }))).toBeNull()
+    expect(await npmFreshnessFailure(fetchReturning({ version: '01.2.3' }))).toBeNull()
+    expect(await npmFreshnessFailure(fetchReturning({ version: '999.00.0' }))).toBeNull()
     expect(await npmFreshnessFailure(fetchReturning({}, false))).toBeNull()
   })
 })

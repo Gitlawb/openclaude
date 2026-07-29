@@ -111,7 +111,7 @@ export async function npmFreshnessFailure(fetchImpl: typeof fetch = fetch): Prom
   } catch {
     return null
   }
-  if (!/^\d+\.\d+\.\d+$/.test(published)) return null
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(published)) return null
   if (newerThan(published, SITE.version))
     return `npm latest ${published} is newer than site version ${SITE.version} — add it to src/data/releases.ts`
   return null
