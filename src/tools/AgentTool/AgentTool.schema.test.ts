@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   AgentTool,
   assertAgentToolCwdAllowed,
@@ -16,6 +19,15 @@ const baseInput = {
   description: 'Run check',
   prompt: 'Check the implementation',
 }
+
+const existingCwd = mkdtempSync(join(tmpdir(), 'openclaude-agent-cwd-'))
+process.on('exit', () => {
+  try {
+    rmSync(existingCwd, { recursive: true, force: true })
+  } catch {
+    // best-effort cleanup
+  }
+})
 
 describe('AgentTool input schema model override', () => {
   test('accepts aliases and custom provider-supported model IDs', () => {
@@ -97,14 +109,14 @@ describe('AgentTool input schema isolation contract', () => {
       fullInputSchema().safeParse({
         ...baseInput,
         isolation: 'worktree',
-        cwd: '/tmp/openclaude-agent',
+        cwd: existingCwd,
       }).success,
     ).toBe(true)
     expect(
       inputSchema().safeParse({
         ...baseInput,
         isolation: 'worktree',
-        cwd: '/tmp/openclaude-agent',
+        cwd: existingCwd,
       }).success,
     ).toBe(true)
   })
@@ -113,7 +125,7 @@ describe('AgentTool input schema isolation contract', () => {
     expect(
       fullInputSchema().safeParse({
         ...baseInput,
-        cwd: '/tmp/openclaude-agent',
+        cwd: existingCwd,
       }).success,
     ).toBe(true)
   })
@@ -123,7 +135,7 @@ describe('AgentTool input schema isolation contract', () => {
     expect(
       inputSchema().safeParse({
         ...baseInput,
-        cwd: '/tmp/openclaude-child-repo',
+        cwd: existingCwd,
       }).success,
     ).toBe(true)
   })
@@ -142,10 +154,10 @@ describe('AgentTool input schema isolation contract', () => {
 
   test('allows absolute cwd with or without worktree isolation', () => {
     expect(() =>
-      assertAgentToolCwdAllowed('/tmp/openclaude-agent', 'worktree'),
+      assertAgentToolCwdAllowed(existingCwd, 'worktree'),
     ).not.toThrow()
     expect(() =>
-      assertAgentToolCwdAllowed('/tmp/openclaude-agent', undefined),
+      assertAgentToolCwdAllowed(existingCwd, undefined),
     ).not.toThrow()
   })
 
@@ -161,6 +173,12 @@ describe('AgentTool input schema isolation contract', () => {
     )
   })
 
+  test('rejects nonexistent absolute cwd paths', () => {
+    expect(() =>
+      assertAgentToolCwdAllowed('/tmp/openclaude-missing-cwd-2052', undefined),
+    ).toThrow('cwd must be an existing directory.')
+  })
+
   test('detects missing-git worktree errors for fallback', () => {
     expect(
       isMissingGitAgentWorktreeError(
@@ -172,13 +190,11 @@ describe('AgentTool input schema isolation contract', () => {
 
   test('prefers worktree cwd over explicit cwd when both are present defensively', () => {
     expect(
-      resolveAgentToolCwdOverride('/tmp/openclaude-agent', {
+      resolveAgentToolCwdOverride(existingCwd, {
         worktreePath: '/tmp/openclaude-worktree',
       }),
     ).toBe('/tmp/openclaude-worktree')
-    expect(resolveAgentToolCwdOverride('/tmp/openclaude-agent', null)).toBe(
-      '/tmp/openclaude-agent',
-    )
+    expect(resolveAgentToolCwdOverride(existingCwd, null)).toBe(existingCwd)
   })
 })
 

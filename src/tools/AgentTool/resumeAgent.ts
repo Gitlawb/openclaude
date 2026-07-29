@@ -203,9 +203,11 @@ export async function resumeAgentBackground({
     // original fork. Re-supplying it would cause duplicate tool_use IDs.
     forkContextMessages: undefined,
     ...(isResumedFork && { useExactTools: true }),
-    // Re-persist so metadata survives runAgent's writeAgentMetadata overwrite
+    // Re-persist so metadata survives runAgent's writeAgentMetadata overwrite.
+    // Always keep the original meta.cwd string even if a transient stat check
+    // failed for execution — a later resume may still be able to use it.
     worktreePath: resumedWorktreePath,
-    cwd: resumedCwdOverride,
+    cwd: meta?.cwd,
     description: meta?.description,
     contentReplacementState: resumedReplacementState,
   }

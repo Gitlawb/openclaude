@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle';
+import { statSync } from 'fs';
 import { isAbsolute } from 'path';
 import * as React from 'react';
 import { buildTool, type ToolDef, toolMatchesName } from 'src/Tool.js';
@@ -166,6 +167,7 @@ export function resolveAgentToolEffectiveIsolation(
  * cwd may be combined with worktree isolation: it names the repository used
  * as the worktree base when the session itself is outside a git repo.
  * Relative paths are rejected so tool callers cannot depend on ambient cwd.
+ * The path must exist and be a directory so spawn fails closed on typos.
  */
 export function assertAgentToolCwdAllowed(
   cwd: string | undefined,
@@ -176,6 +178,16 @@ export function assertAgentToolCwdAllowed(
   }
   if (!isAbsolute(cwd)) {
     throw new Error('cwd must be an absolute path.');
+  }
+  try {
+    if (!statSync(cwd).isDirectory()) {
+      throw new Error('cwd must be an existing directory.');
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'cwd must be an existing directory.') {
+      throw error;
+    }
+    throw new Error('cwd must be an existing directory.');
   }
 }
 
