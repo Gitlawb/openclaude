@@ -115,7 +115,7 @@ export const flagGroups: FlagGroup[] = [
       { flag: '--ide', description: 'Automatically connect to your IDE on startup if exactly one valid IDE is available.' },
       { flag: '--chrome', description: 'Enable Claude in Chrome integration.' },
       { flag: '--no-chrome', description: 'Disable Claude in Chrome integration.' },
-      { flag: '--disable-slash-commands', description: 'Disable all skills.' },
+      { flag: '--disable-slash-commands', description: 'Disable all slash commands, including skill-backed ones.' },
       { flag: '--provider-env-file', arg: '<path>', description: 'Load provider environment variables from a file before validation (repeatable; existing values win).' },
       { flag: '--file', arg: '<specs...>', description: 'File resources to download at startup, as file_id:relative_path.' },
     ],
