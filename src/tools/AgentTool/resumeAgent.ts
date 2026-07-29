@@ -85,7 +85,7 @@ export async function resumeAgentBackground({
         s => (s.isDirectory() ? meta.worktreePath : undefined),
         () => {
           logForDebugging(
-            `Resumed worktree ${meta.worktreePath} no longer exists; falling back to parent cwd`,
+            `Resumed worktree ${meta.worktreePath} no longer exists; falling back to persisted cwd or parent cwd`,
           )
           return undefined
         },

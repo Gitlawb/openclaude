@@ -55,5 +55,6 @@ describe('AgentTool prompt isolation contract', () => {
     expect(prompt).toContain('parent folder that contains multiple git repos')
     expect(prompt).toContain('set `cwd` to the absolute path of the target child repository')
     expect(prompt).toContain('the agent still runs with that `cwd` override instead of failing')
+    expect(prompt).toContain('If worktree creation fails only because no git repository is available')
   })
 })
