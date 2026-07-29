@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle';
+import { isAbsolute } from 'path';
 import * as React from 'react';
 import { buildTool, type ToolDef, toolMatchesName } from 'src/Tool.js';
 import type { Message as MessageType, NormalizedUserMessage } from 'src/types/message.js';
@@ -104,11 +105,8 @@ export const fullInputSchema = lazySchema(() => {
     mode: permissionModeSchema().optional().describe('Permission mode for spawned teammate (e.g., "plan" to require plan approval).')
   });
   return baseInputSchema().merge(multiAgentInputSchema).extend({
-    isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.'),
-    cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. Mutually exclusive with isolation: "worktree".')
-  }).refine(input => !(input.isolation === 'worktree' && input.cwd !== undefined), {
-    path: ['cwd'],
-    message: 'cwd is mutually exclusive with isolation: "worktree".'
+    isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. When the session is outside a git repository (for example a parent of multiple repos), pass cwd set to the target repository root so the worktree is created from that repo.'),
+    cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. When isolation is "worktree", cwd selects which git repository to create the worktree from — use this when the session cwd is not itself a git repo (for example a folder parenting multiple repos).')
   });
 });
 
@@ -119,9 +117,9 @@ export const fullInputSchema = lazySchema(() => {
 // type, but call() destructures via the explicit AgentToolInput type below
 // which always includes all optional fields.
 export const inputSchema = lazySchema(() => {
-  const schema = feature('KAIROS') ? fullInputSchema() : fullInputSchema().omit({
-    cwd: true
-  });
+  // cwd stays available in the open build so multi-repo parent sessions can
+  // pin subagents (and worktree isolation) to a child repository (#2052).
+  const schema = fullInputSchema();
 
   // GrowthBook-in-lazySchema is acceptable here (unlike subagent_type, which
   // was removed in 906da6c723): the divergence window is one-session-per-
@@ -137,7 +135,7 @@ export const inputSchema = lazySchema(() => {
 type InputSchema = ReturnType<typeof inputSchema>;
 
 // Explicit type widens the schema inference to always include all optional
-// fields even when .omit() strips them for gating (cwd, run_in_background).
+// fields even when .omit() strips them for gating (run_in_background).
 // subagent_type is optional; call() defaults it to general-purpose when the
 // fork gate is off, or routes to the fork path when the gate is on.
 type AgentToolInput = z.infer<ReturnType<typeof baseInputSchema>> & {
@@ -161,12 +159,20 @@ export function resolveAgentToolEffectiveIsolation(
     : undefined;
 }
 
+/**
+ * cwd may be combined with worktree isolation: it names the repository used
+ * as the worktree base when the session itself is outside a git repo.
+ * Relative paths are rejected so tool callers cannot depend on ambient cwd.
+ */
 export function assertAgentToolCwdAllowed(
   cwd: string | undefined,
-  effectiveIsolation: AgentToolIsolation,
+  _effectiveIsolation?: AgentToolIsolation,
 ): void {
-  if (cwd !== undefined && effectiveIsolation === 'worktree') {
-    throw new Error('cwd is mutually exclusive with isolation: "worktree".');
+  if (cwd === undefined) {
+    return;
+  }
+  if (!isAbsolute(cwd)) {
+    throw new Error('cwd must be an absolute path.');
   }
 }
 
@@ -175,6 +181,11 @@ export function resolveAgentToolCwdOverride(
   worktreeInfo: AgentToolWorktreeInfo,
 ): string | undefined {
   return worktreeInfo?.worktreePath ?? cwd;
+}
+
+/** True when worktree creation failed only because no git root was available. */
+export function isMissingGitAgentWorktreeError(message: string): boolean {
+  return message.includes('Cannot create agent worktree: not in a git repository');
 }
 
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
@@ -545,8 +556,8 @@ export const AgentTool = buildTool({
       is_fork: isForkPath
     });
 
-    // Agent frontmatter can force worktree isolation too, so validate cwd
-    // against the effective mode instead of only the raw tool input.
+    // Agent frontmatter can force worktree isolation too; cwd may still be
+    // supplied as the repository root for that worktree (#2052).
     const effectiveIsolation = resolveAgentToolEffectiveIsolation(
       isolation,
       selectedAgent.isolation,
@@ -672,14 +683,21 @@ export const AgentTool = buildTool({
     if (effectiveIsolation === 'worktree') {
       const slug = `agent-${earlyAgentId.slice(0, 8)}`;
       try {
-        worktreeInfo = await createAgentWorktree(slug);
+        // When the session is outside a git repo (e.g. a parent of multiple
+        // repos), cwd names the child repository used as the worktree base.
+        worktreeInfo = await createAgentWorktree(slug, cwd ? { cwd } : undefined);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('Cannot create agent worktree: not in a git repository')) {
-          if (isolation === 'worktree') {
-            throw error;
-          }
-          logForDebugging('Agent worktree isolation unavailable outside a git repository; falling back to the current working directory.');
+        if (isMissingGitAgentWorktreeError(message)) {
+          // Fall back for both explicit and agent-definition isolation so
+          // multi-repo parent sessions can still spawn subagents (#2052).
+          // Prefer the caller-supplied cwd when present so the agent still
+          // lands inside the target child repository without a worktree.
+          logForDebugging(
+            cwd
+              ? `Agent worktree isolation unavailable outside a git repository; falling back to cwd override ${cwd}.`
+              : 'Agent worktree isolation unavailable outside a git repository; falling back to the current working directory.',
+          );
         } else {
           throw error;
         }
@@ -731,7 +749,7 @@ export const AgentTool = buildTool({
     };
 
     // Helper to wrap execution with a cwd override. Worktree wins if present;
-    // cwd is rejected for worktree isolation above, but keep this defensive.
+    // otherwise an explicit cwd pins the agent to a child repo / directory.
     const cwdOverridePath = resolveAgentToolCwdOverride(cwd, worktreeInfo);
     const wrapWithCwd = <T,>(fn: () => T): T => cwdOverridePath ? runWithCwdOverride(cwdOverridePath, fn) : fn();
 

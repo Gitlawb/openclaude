@@ -4,6 +4,7 @@ import {
   assertAgentToolCwdAllowed,
   fullInputSchema,
   inputSchema,
+  isMissingGitAgentWorktreeError,
   outputSchema,
   resolveAgentToolCwdOverride,
   resolveAgentToolEffectiveIsolation,
@@ -91,14 +92,21 @@ describe('AgentTool input schema isolation contract', () => {
     ).toBe(false)
   })
 
-  test('rejects cwd together with worktree isolation in the full schema', () => {
+  test('accepts cwd together with worktree isolation for multi-repo parents', () => {
     expect(
       fullInputSchema().safeParse({
         ...baseInput,
         isolation: 'worktree',
         cwd: '/tmp/openclaude-agent',
       }).success,
-    ).toBe(false)
+    ).toBe(true)
+    expect(
+      inputSchema().safeParse({
+        ...baseInput,
+        isolation: 'worktree',
+        cwd: '/tmp/openclaude-agent',
+      }).success,
+    ).toBe(true)
   })
 
   test('accepts cwd without worktree isolation in the full schema', () => {
@@ -106,6 +114,16 @@ describe('AgentTool input schema isolation contract', () => {
       fullInputSchema().safeParse({
         ...baseInput,
         cwd: '/tmp/openclaude-agent',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('exposes cwd on the open-build input schema', () => {
+    expect(inputSchema().shape.cwd).toBeDefined()
+    expect(
+      inputSchema().safeParse({
+        ...baseInput,
+        cwd: '/tmp/openclaude-child-repo',
       }).success,
     ).toBe(true)
   })
@@ -122,13 +140,28 @@ describe('AgentTool input schema isolation contract', () => {
     )
   })
 
-  test('rejects cwd for any effective worktree isolation source', () => {
+  test('allows absolute cwd with or without worktree isolation', () => {
     expect(() =>
       assertAgentToolCwdAllowed('/tmp/openclaude-agent', 'worktree'),
-    ).toThrow('cwd is mutually exclusive with isolation: "worktree".')
+    ).not.toThrow()
     expect(() =>
       assertAgentToolCwdAllowed('/tmp/openclaude-agent', undefined),
     ).not.toThrow()
+  })
+
+  test('rejects relative cwd paths', () => {
+    expect(() => assertAgentToolCwdAllowed('relative/path', undefined)).toThrow(
+      'cwd must be an absolute path.',
+    )
+  })
+
+  test('detects missing-git worktree errors for fallback', () => {
+    expect(
+      isMissingGitAgentWorktreeError(
+        'Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured.',
+      ),
+    ).toBe(true)
+    expect(isMissingGitAgentWorktreeError('some other failure')).toBe(false)
   })
 
   test('prefers worktree cwd over explicit cwd when both are present defensively', () => {

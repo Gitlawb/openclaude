@@ -52,5 +52,7 @@ describe('AgentTool prompt isolation contract', () => {
 
     expect(prompt).toContain('isolation: "worktree"')
     expect(prompt).not.toContain('isolation: "remote"')
+    expect(prompt).toContain('parent folder that contains multiple git repos')
+    expect(prompt).toContain('set `cwd` to the absolute path of the target child repository')
   })
 })
