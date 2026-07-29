@@ -88,8 +88,9 @@ describe('verifyDist', () => {
   })
 
   test('flags a missing sprite asset', () => {
-    const failures = withFixture(dist => rmSync(join(dist, 'buddy', 'robinhood.svg')))
-    expect(failures).toContain('missing sprite asset /buddy/robinhood.svg')
+    const hero = heroes[0]!
+    const failures = withFixture(dist => rmSync(join(dist, 'buddy', `${hero.id}.svg`)))
+    expect(failures).toContain(`missing sprite asset /buddy/${hero.id}.svg`)
   })
 
   test('flags a stale landing page missing a partner link', () => {
