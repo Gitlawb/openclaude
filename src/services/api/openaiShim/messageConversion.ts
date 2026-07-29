@@ -1,4 +1,7 @@
-import { TOOL_RESULT_SEMANTIC_PLACEHOLDER } from '../providerConfig.js'
+import {
+  isToolResultSemanticPlaceholderEcho,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
+} from '../providerConfig.js'
 
 export type OpenAIContentPart =
   | { type: 'text'; text: string }
@@ -22,7 +25,7 @@ function isPlaceholderOnlyAssistantContent(
   content: ConvertedOpenAIMessage['content'],
 ): boolean {
   if (typeof content !== 'string') return false
-  return content.trim() === TOOL_RESULT_SEMANTIC_PLACEHOLDER
+  return isToolResultSemanticPlaceholderEcho(content)
 }
 
 export function convertSystemPrompt(system: unknown): string {

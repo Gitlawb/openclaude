@@ -168,6 +168,15 @@ test('semantic tool-result boundary is Mistral-only and never local', () => {
       processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
     }),
   ).toBe(true)
+
+  // Ollama endpoints are excluded even when the hostname is not loopback.
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://ollama:11434/v1',
+      model: 'mistral:latest',
+      processEnv: {},
+    }),
+  ).toBe(false)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

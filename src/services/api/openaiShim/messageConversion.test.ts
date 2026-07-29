@@ -234,6 +234,22 @@ test('strips prior placeholder-only assistant echoes from converted history', ()
   expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
 })
 
+test('strips punctuated and quoted placeholder-only assistant echoes from converted history', () => {
+  for (const echo of [
+    '[Tool results received].',
+    '"[Tool results received]"',
+    '[tool results received]',
+  ]) {
+    const messages = convert([
+      { role: 'user', content: 'Start' },
+      { role: 'assistant', content: echo },
+      { role: 'user', content: 'Continue the task' },
+    ])
+    expect(messages.map(message => message.role)).toEqual(['user'])
+    expect(messages.some(message => String(message.content ?? '').includes('Tool results'))).toBe(false)
+  }
+})
+
 test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', () => {
   const messages = convert(toolExchange([
     { type: 'text', text: 'line one' },

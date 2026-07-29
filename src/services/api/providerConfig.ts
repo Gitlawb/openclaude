@@ -70,9 +70,9 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
     processEnv.OPENAI_BASE_URL ??
     ''
 
-  // Local servers must never receive the synthetic assistant filler, even when
-  // the model id looks Mistral-class or CLAUDE_CODE_USE_MISTRAL is stale.
-  if (isLocalProviderUrl(baseUrl)) {
+  // Local / Ollama servers must never receive the synthetic assistant filler,
+  // even when the model id looks Mistral-class or CLAUDE_CODE_USE_MISTRAL is stale.
+  if (isLocalProviderUrl(baseUrl) || isLikelyOllamaEndpoint(baseUrl)) {
     return false
   }
 
