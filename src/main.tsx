@@ -4044,9 +4044,10 @@ async function run(): Promise<CommanderCommand> {
     });
   aimlapi.command('reset')
     .description('Discard an in-progress AI/ML API checkout so a different top-up can start')
-    .action(async () => {
+    .option('--force', 'Discard even a settled checkout whose issued key was not saved (the key is lost)')
+    .action(async (opts: { force?: boolean }) => {
       const { aimlapiReset } = await import('./cli/handlers/aimlapi.js');
-      aimlapiReset();
+      aimlapiReset({ force: opts.force === true });
     });
 
   /**

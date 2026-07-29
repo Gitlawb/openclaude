@@ -2091,15 +2091,27 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (isAimlapiTopupRunning) {
       return
     }
-    setErrorMessage(undefined)
+    let result: Awaited<ReturnType<typeof discardAimlapiCheckoutStateAsync>>
     try {
-      await discardAimlapiCheckoutStateAsync()
-      setStatusMessage('Discarded the in-progress aimlapi.com checkout; starting over.')
+      result = await discardAimlapiCheckoutStateAsync()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       setErrorMessage(`Could not discard the checkout: ${detail}`)
       return
     }
+    if (result === 'kept-settled') {
+      // The checkout already issued a key that was not saved. Discarding it would
+      // lose the paid-for key, so refuse and point back at the recovering retry
+      // (Esc, then re-run the top-up — it resumes the key without charging again).
+      setErrorMessage(
+        'This top-up already issued an API key that has not been saved yet. Press ' +
+          'Esc and re-run the top-up to recover it — you will not be charged again. ' +
+          'It cannot be discarded here without losing the key.',
+      )
+      return
+    }
+    setErrorMessage(undefined)
+    setStatusMessage('Discarded the in-progress aimlapi.com checkout; starting over.')
     setCursorOffset(aimlapiTopupAmountUsd.length)
     setScreen('aimlapi-topup-amount')
   }

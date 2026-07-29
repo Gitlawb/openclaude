@@ -18,6 +18,12 @@ export type AimlapiTopupIntent = {
   email: string
   amountUsdMinor: number
   autoTopUp: boolean
+  /**
+   * Payment rail (`card` / `crypto`). Part of the identity because it is bound
+   * into the checkout via the reused `paymentSessionId` idempotency key: a
+   * different rail must open its own checkout rather than adopt the prior one.
+   */
+  method: string
   partnerId: string
   partnerName: string
   appBaseUrl: string
@@ -80,6 +86,7 @@ const INTENT_KEYS: ReadonlyArray<keyof AimlapiTopupIntent> = [
   'email',
   'amountUsdMinor',
   'autoTopUp',
+  'method',
   'partnerId',
   'partnerName',
   'appBaseUrl',
@@ -331,6 +338,8 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     Number.isSafeInteger(state.amountUsdMinor) &&
     state.amountUsdMinor >= 0 &&
     typeof state.autoTopUp === 'boolean' &&
+    typeof state.method === 'string' &&
+    Boolean(state.method.trim()) &&
     typeof state.partnerId === 'string' &&
     Boolean(state.partnerId.trim()) &&
     typeof state.partnerName === 'string' &&
@@ -670,30 +679,49 @@ export function clearAimlapiTopupStateAsync(
   return withStateLockAsync(() => clearStateOperation(expected))
 }
 
-function discardStateOperation(): boolean {
+/**
+ * Outcome of a discard: the checkout was removed, kept because it holds an
+ * unsaved issued key (a settled receipt), or there was nothing stored.
+ */
+export type AimlapiDiscardResult = 'discarded' | 'kept-settled' | 'none'
+
+function discardStateOperation(force: boolean): AimlapiDiscardResult {
   const path = statePath()
-  const existed = existsSync(path)
+  if (!existsSync(path)) return 'none'
+  // Read leniently (readJsonFile, not the fail-closed reader): a settled record
+  // is the ONLY copy of a paid-for, one-shot key that the provider will not
+  // re-issue. Refuse to delete it unless the caller forces the discard —
+  // otherwise "start over" would strand the credential. A corrupt or non-settled
+  // record has no recoverable key, so it is safe to remove.
+  const raw = readJsonFile(path)
+  const holdsUnsavedKey =
+    isPersistedTopup(raw) && Boolean(raw.settled) && Boolean(raw.apiKey?.trim())
+  if (holdsUnsavedKey && !force) return 'kept-settled'
   rmSync(path, { force: true })
-  return existed
+  return 'discarded'
 }
 
 /**
- * Unconditionally discard the stored checkout, whatever intent or state it holds
- * — including an unreadable/corrupt file. This is the explicit "start over"
- * escape hatch surfaced to the CLI and GUI: an interrupted checkout whose
- * session went terminal keeps a resume token that blocks a *different* top-up
- * (see `claimAimlapiTopupState`), and a corrupt file fails closed on read; both
- * can only be cleared out of band. Prefer `clearAimlapiTopupState` for the
- * normal, intent-scoped retirement after a completed top-up. Returns whether a
- * stored checkout was actually removed.
+ * Discard the stored checkout, whatever intent it holds — including an
+ * unreadable/corrupt file. This is the explicit "start over" escape hatch
+ * surfaced to the CLI and GUI: an interrupted checkout whose session went
+ * terminal keeps a resume token that blocks a *different* top-up (see
+ * `claimAimlapiTopupState`), and a corrupt file fails closed on read; both can
+ * only be cleared out of band. Prefer `clearAimlapiTopupState` for the normal,
+ * intent-scoped retirement after a completed top-up.
+ *
+ * A SETTLED receipt (one holding an issued key not yet written to a profile) is
+ * kept — deleting it would lose the paid-for key — unless `force` is set.
  */
-export function discardAimlapiCheckoutState(): boolean {
-  return withStateLock(discardStateOperation)
+export function discardAimlapiCheckoutState(force = false): AimlapiDiscardResult {
+  return withStateLock(() => discardStateOperation(force))
 }
 
 /** Non-blocking `discardAimlapiCheckoutState` for the interactive top-up flow. */
-export function discardAimlapiCheckoutStateAsync(): Promise<boolean> {
-  return withStateLockAsync(discardStateOperation)
+export function discardAimlapiCheckoutStateAsync(
+  force = false,
+): Promise<AimlapiDiscardResult> {
+  return withStateLockAsync(() => discardStateOperation(force))
 }
 
 // --- Sign-in key cache ------------------------------------------------------
@@ -701,6 +729,11 @@ export function discardAimlapiCheckoutStateAsync(): Promise<boolean> {
 // before the top-up amount (and therefore the full checkout intent) is known.
 // This lightweight per-email cache retains that key so a restart before/without
 // completing the checkout reuses it instead of minting another one.
+//
+// SCOPE: this is a persistence primitive for that guided passwordless flow,
+// which lands in a follow-up PR. It has no in-tree consumer in this stack yet
+// (only its own tests), and is deliberately NOT re-exported from ./index.js
+// until the flow that mints the key is wired — see the note there.
 
 type AimlapiSignInKey = { email: string; apiKey: string; apiKeyId: string }
 

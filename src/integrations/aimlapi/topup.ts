@@ -163,6 +163,7 @@ function isTransientHttpError(error: unknown): boolean {
 function buildTopupIntent(args: {
   email: string
   amountUsdMinor: number
+  method: PaymentMethod
   partnerId: string
   partnerName: string
   appBaseUrl: string
@@ -174,6 +175,10 @@ function buildTopupIntent(args: {
     // The password flow has no auto-top-up toggle; it is part of the intent so a
     // later flow that does offer it cannot adopt this checkout by accident.
     autoTopUp: false,
+    // The payment rail is bound into the checkout via the reused payment id, so a
+    // card→crypto (or reverse) restart must open its own checkout, not adopt the
+    // prior one and reuse its idempotency identity.
+    method: args.method,
     partnerId: args.partnerId,
     partnerName: args.partnerName,
     appBaseUrl: args.appBaseUrl,
@@ -479,6 +484,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   const intent = buildTopupIntent({
     email,
     amountUsdMinor,
+    method,
     partnerId,
     partnerName,
     appBaseUrl: endpoints.appBaseUrl,
@@ -634,6 +640,7 @@ export async function provisionAimlapiKey(
   const intent = buildTopupIntent({
     email,
     amountUsdMinor,
+    method,
     partnerId,
     partnerName,
     appBaseUrl: endpoints.appBaseUrl,
