@@ -84,6 +84,9 @@ test('treats private IPv6 endpoints as local', () => {
   expect(isLocalProviderUrl('http://[fd00::1]:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://[fe80::1]:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://[::1]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:127.0.0.1]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:10.0.0.5]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:100.64.1.5]:11434/v1')).toBe(true)
 })
 
 test('treats public hosts as remote', () => {

@@ -651,6 +651,14 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       return firstOctet === 127 || isPrivateIpv4Address(hostname)
     }
     if (ipVersion === 6) {
+      // Unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1) so dual-stack URLs keep
+      // the same local classification as their IPv4 form.
+      const mapped = hostname.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+      if (mapped?.[1]) {
+        const v4 = mapped[1]
+        const firstOctet = Number.parseInt(v4.split('.', 1)[0] ?? '', 10)
+        return firstOctet === 127 || isPrivateIpv4Address(v4)
+      }
       return isPrivateIpv6Address(hostname)
     }
 
