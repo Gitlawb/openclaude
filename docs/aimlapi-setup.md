@@ -46,7 +46,7 @@ If a top-up is interrupted — or its checkout session expires or is cancelled �
 openclaude aimlapi reset
 ```
 
-In the guided flow (`/provider`), press **Enter** on the top-up error screen to **Start over**. Either action is safe: it only clears OpenClaude's local checkout record — not your AI/ML API account or any already-issued key.
+In the guided flow (`/provider`), press **r** on the top-up error screen to **Start over**. Either action is safe: it only clears OpenClaude's local checkout record — not your AI/ML API account or any already-issued key.
 
 ## Option 3 — Environment variables
 

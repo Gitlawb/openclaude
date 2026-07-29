@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
+  acquireAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   claimAimlapiTopupStateAsync,
   clearAimlapiTopupState,
@@ -25,6 +26,7 @@ import {
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
   recordAimlapiCheckoutSessionAsync,
+  releaseAimlapiExchangeLeaseAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
@@ -748,4 +750,120 @@ test('sign-in key clear leaves a newer cached record intact', () => {
   // The owning flow still clears its own record.
   clearAimlapiSignInKey('other@example.com', 'id_other')
   expect(loadAimlapiSignInKey('other@example.com')).toBeNull()
+})
+
+// --- exchange lease (electing a single one-shot exchanger) ------------------
+
+// The public mutators do not expose the exchange-lease fields, so seed a full
+// persisted record straight to disk to control the lease owner/age.
+function seedPersistedState(
+  directory: string,
+  overrides: Record<string, unknown>,
+): void {
+  const record = {
+    ...intent,
+    paymentSessionId: 'pay_seed',
+    resumeSessionToken: 'resume_seed',
+    ...overrides,
+  }
+  writeFileSync(
+    join(directory, 'aimlapi-topup.json'),
+    `${JSON.stringify(record, null, 2)}\n`,
+    'utf8',
+  )
+}
+
+function readRawState(directory: string): Record<string, unknown> {
+  return JSON.parse(
+    readFileSync(join(directory, 'aimlapi-topup.json'), 'utf8'),
+  ) as Record<string, unknown>
+}
+
+const leaseExpected = { ...intent, paymentSessionId: 'pay_seed' }
+
+test('the exchange lease is granted to the first caller and persisted', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {})
+
+  const lease = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+  expect(lease.status).toBe('acquired')
+  // Recorded on disk so a peer sees it and backs off.
+  expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-a')
+})
+
+test('a fresh lease held by a peer blocks a second exchanger', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {})
+
+  await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+  const second = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-b')
+
+  // Only one process may run the non-idempotent exchange; the peer must wait.
+  expect(second).toMatchObject({ status: 'held', owner: 'owner-a' })
+  // The live holder's lease is untouched.
+  expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-a')
+})
+
+test('a stale lease left by a crashed holder is reclaimed', async () => {
+  const directory = useTemporaryConfig()
+  // A lease from a holder that died mid-exchange, aged past the 75s window.
+  seedPersistedState(directory, {
+    exchangeLeaseOwner: 'dead-owner',
+    exchangeLeaseAt: Date.now() - 80_000,
+  })
+
+  const lease = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-b')
+
+  // The abandoned lease is stolen so the exchange can still complete.
+  expect(lease.status).toBe('acquired')
+  expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-b')
+})
+
+test('a settled receipt short-circuits the exchange lease', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {
+    apiKey: 'k_done',
+    apiKeyId: 'id_done',
+    settled: true,
+    // A leftover fresh lease must not matter once the key is recorded.
+    exchangeLeaseOwner: 'someone',
+    exchangeLeaseAt: Date.now(),
+  })
+
+  const lease = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-b')
+
+  // The peer already minted and recorded the key — resume from it, do not exchange.
+  expect(lease.status).toBe('settled')
+  expect(lease).toMatchObject({ state: { apiKey: 'k_done', apiKeyId: 'id_done' } })
+})
+
+test('the exchange lease is gone when the checkout was reset meanwhile', async () => {
+  useTemporaryConfig()
+  // No state on disk: a concurrent reset/clear removed the checkout.
+  const lease = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+  expect(lease.status).toBe('gone')
+})
+
+test('releasing the exchange lease frees it for a prompt retry', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {})
+  await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+
+  await releaseAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+
+  // The owner is cleared, so the next caller acquires at once instead of waiting
+  // out the stale window.
+  expect(readRawState(directory).exchangeLeaseOwner).toBeUndefined()
+  const next = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-b')
+  expect(next.status).toBe('acquired')
+})
+
+test('releasing a lease owned by a peer is a no-op', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {})
+  await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+
+  // A late loser must not wipe the live holder's lease.
+  await releaseAimlapiExchangeLeaseAsync(leaseExpected, 'owner-b')
+  expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-a')
 })
