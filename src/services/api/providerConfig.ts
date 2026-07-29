@@ -53,6 +53,10 @@ export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
 /**
  * Whether to inject {@link TOOL_RESULT_SEMANTIC_PLACEHOLDER} between `tool`
  * and `user` roles in OpenAI chat conversion. Default is off.
+ *
+ * Local OpenAI-compatible backends (llama.cpp, Ollama, vLLM, loopback) never
+ * inject — quantized models echo the placeholder and stall (#2039, #2059).
+ * Mistral cloud / CLAUDE_CODE_USE_MISTRAL still inject for Jinja sequencing.
  */
 export function shouldInjectToolResultSemanticBoundary(options?: {
   baseUrl?: string
@@ -60,15 +64,22 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
   processEnv?: NodeJS.ProcessEnv
 }): boolean {
   const processEnv = options?.processEnv ?? process.env
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
-    return true
-  }
-
   const baseUrl =
     options?.baseUrl ??
     processEnv.MISTRAL_BASE_URL ??
     processEnv.OPENAI_BASE_URL ??
     ''
+
+  // Local servers must never receive the synthetic assistant filler, even when
+  // the model id looks Mistral-class or CLAUDE_CODE_USE_MISTRAL is stale.
+  if (isLocalProviderUrl(baseUrl)) {
+    return false
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return true
+  }
+
   // Hostname only — avoid false positives like https://mistral.ai-proxy.example/v1
   try {
     const host = new URL(baseUrl).hostname.toLowerCase()
@@ -90,6 +101,18 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
     ''
   ).toLowerCase()
   return /\b(devstral|mistral|ministral|codestral)\b/.test(model)
+}
+
+/** True when assistant text is only the transport tool-result placeholder. */
+export function isToolResultSemanticPlaceholderEcho(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    // Local models often append terminal punctuation to short echoes.
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[.!?…]+$/g, '')
+    .trim()
+  return normalized === TOOL_RESULT_SEMANTIC_PLACEHOLDER.toLowerCase()
 }
 
 const warnedUndefinedEnvNames = new Set<string>()

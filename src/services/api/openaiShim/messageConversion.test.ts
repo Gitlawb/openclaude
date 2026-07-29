@@ -200,6 +200,40 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(messages[2]?.content).not.toContain('interrupted')
 })
 
+test('does not inject placeholder after tool result when next user message is snip-only reminder', () => {
+  const messages = convert([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'pwd' } }],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '/tmp' }],
+    },
+    {
+      role: 'user',
+      content: '<system-reminder>snip_id=abc123</system-reminder>',
+    },
+  ])
+
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+  expect(String(messages[2]?.content)).toContain('snip_id=abc123')
+})
+
+test('strips prior placeholder-only assistant echoes from converted history', () => {
+  const messages = convert([
+    { role: 'user', content: 'Start' },
+    { role: 'assistant', content: '[Tool results received]' },
+    { role: 'user', content: 'Continue the task' },
+  ])
+
+  expect(messages.map(message => message.role)).toEqual(['user'])
+  expect(String(messages[0]?.content)).toContain('Start')
+  expect(String(messages[0]?.content)).toContain('Continue the task')
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+})
+
 test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', () => {
   const messages = convert(toolExchange([
     { type: 'text', text: 'line one' },

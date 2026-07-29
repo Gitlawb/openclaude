@@ -1,4 +1,5 @@
 import { tokenCountWithEstimation } from './tokens.js'
+import { isToolResultSemanticPlaceholderEcho } from '../services/api/providerConfig.js'
 
 /**
  * Heuristics to detect if the agent intends to continue its task
@@ -112,10 +113,8 @@ export type ContinuationResult = {
 
 /**
  * Exact match for the OpenAI-shim Mistral tool→user boundary placeholder when
- * a model echoes it as a real assistant reply (issues #2039, #2059). Keep in
- * sync with TOOL_RESULT_SEMANTIC_PLACEHOLDER in providerConfig.ts.
+ * a model echoes it as a real assistant reply (issues #2039, #2059).
  */
-const TOOL_RESULT_SEMANTIC_PLACEHOLDER_ECHO = '[tool results received]'
 
 export const UNFINISHED_SENTIMENT_SIGNALS = [
   // English trailing connectors
@@ -141,7 +140,7 @@ export function analyzeContinuationIntent(
 
   // 0. Model echoed the transport-only tool-result placeholder as its entire
   // reply (finish_reason=stop). Treat as a stall and nudge continuation.
-  if (lowerText === TOOL_RESULT_SEMANTIC_PLACEHOLDER_ECHO) {
+  if (isToolResultSemanticPlaceholderEcho(lastText)) {
     return { shouldNudge: true, reason: 'tool_result_placeholder_echo' }
   }
 

@@ -118,6 +118,8 @@ describe('Agent loop continuation nudge', () => {
       reason: 'tool_result_placeholder_echo',
     })
     expect(analyzeContinuationIntent('  [Tool results received]  ').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('[Tool results received].').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('"[Tool results received]"').shouldNudge).toBe(true)
     expect(
       analyzeContinuationIntent('Done. [Tool results received] and more text').shouldNudge,
     ).toBe(false)

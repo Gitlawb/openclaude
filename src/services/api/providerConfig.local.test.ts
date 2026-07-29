@@ -92,7 +92,7 @@ test('treats public hosts as remote', () => {
   expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(false)
 })
 
-test('semantic tool-result boundary is Mistral-only', () => {
+test('semantic tool-result boundary is Mistral-only and never local', () => {
   expect(TOOL_RESULT_SEMANTIC_PLACEHOLDER).toBe('[Tool results received]')
 
   expect(
@@ -128,13 +128,14 @@ test('semantic tool-result boundary is Mistral-only', () => {
     }),
   ).toBe(false)
 
+  // Local hosts never inject, even for Mistral-class model names.
   expect(
     shouldInjectToolResultSemanticBoundary({
       baseUrl: 'http://127.0.0.1:8080/v1',
       model: 'devstral-small',
       processEnv: {},
     }),
-  ).toBe(true)
+  ).toBe(false)
 
   expect(
     shouldInjectToolResultSemanticBoundary({
@@ -142,13 +143,29 @@ test('semantic tool-result boundary is Mistral-only', () => {
       model: 'qwen',
       processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
     }),
-  ).toBe(true)
+  ).toBe(false)
 
   expect(
     shouldInjectToolResultSemanticBoundary({
       baseUrl: 'https://api.mistral.ai/v1',
       model: 'qwen',
       processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'qwen',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
     }),
   ).toBe(true)
 })

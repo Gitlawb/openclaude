@@ -233,11 +233,11 @@ export OPENAI_BASE_URL=http://127.0.0.1:8080/v1
 export OPENAI_MODEL=/models/your-model.gguf
 ```
 
-OpenClaude only inserts the Mistral/Devstral tool-boundary placeholder
-(`[Tool results received]`) when the active route is Mistral-class. Local
-servers such as llama.cpp, Ollama, and vLLM keep a plain `tool` → `user`
-history so quantized models do not imitate that placeholder and end the turn
-early.
+OpenClaude never inserts the Mistral/Devstral tool-boundary placeholder
+(`[Tool results received]`) for local OpenAI-compatible hosts (loopback,
+RFC1918, `.local`, Ollama). That filler is reserved for Mistral cloud routes
+and `CLAUDE_CODE_USE_MISTRAL=1` on non-local endpoints so quantized local
+models do not imitate it and end the turn early.
 
 If a local model still echoes short repeated phrases, enable server-side
 `repeat_penalty` / DRY sampling (llama.cpp defaults often leave
