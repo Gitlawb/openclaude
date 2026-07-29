@@ -724,10 +724,10 @@ export const AgentTool = buildTool({
     // so it appears as the most recent guidance the child sees.
     if (isForkPath && worktreeInfo) {
       promptMessages.push(createUserMessage({
-        // Prefer the child-repo cwd when the session itself is outside git
-        // (multi-repo parents), so path-translation guidance matches the
-        // repository the worktree was created from.
-        content: buildWorktreeNotice(cwd ?? getCwd(), worktreeInfo.worktreePath)
+        // parentCwd must remain the session cwd: inherited context paths are
+        // relative to the parent agent, even when worktree creation used a
+        // child-repo cwd override for multi-repo parents.
+        content: buildWorktreeNotice(getCwd(), worktreeInfo.worktreePath)
       }));
     }
     const runAgentParams: Parameters<typeof runAgent>[0] = {
