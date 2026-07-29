@@ -12,13 +12,21 @@ import { join } from 'path'
 
 import type { AgentId } from 'src/types/ids.js'
 
+import { getSessionId } from '../../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { isPlanFilePath } from './filesystem.js'
 import {
   AGENT_PLANS_SUBDIR,
   encodeAgentIdForPlanFile,
+  getPlan,
+  getPlansDirectory,
   isPathWithinPlansDir,
   readAndMigrateLegacyPlan,
   readLegacyUnescapedPlan,
+  setPlanSlug,
 } from '../plans.js'
 
 // isPlanFilePath gates two permission carve-outs in checkEditableInternalPath /
@@ -279,5 +287,47 @@ describe('legacy plan file recovery', () => {
     )
     expect(existsSync(escaped)).toBe(true)
     expect(existsSync(legacy)).toBe(false)
+  })
+
+  // Wire-through coverage: the whole user-visible fix is getPlan() falling back
+  // to recovery on ENOENT. Drive the real getPlan() (not the helper) so a
+  // regression in that branch can't hide behind green helper tests.
+  test('getPlan recovers a legacy plan on ENOENT and migrates it into the subdir', async () => {
+    await acquireSharedMutationLock('utils/permissions/planFilePath.test.ts')
+    const savedCfg = process.env.OPENCLAUDE_CONFIG_DIR
+    const configDir = mkdtempSync(join(tmpdir(), 'plancfg-'))
+    process.env.OPENCLAUDE_CONFIG_DIR = configDir
+    // getPlansDirectory is memoized; clear it so it recomputes under the temp
+    // config dir, and again on teardown so later tests are unaffected.
+    ;(getPlansDirectory as unknown as { cache: Map<string, string> }).cache.clear()
+    try {
+      const plansDir = getPlansDirectory()
+      setPlanSlug(getSessionId(), SLUG)
+      // A pre-escape legacy plan for an id that needs escaping, at the flat root.
+      const legacy = join(plansDir, `${SLUG}-agent-writer@team.md`)
+      writeFileSync(legacy, 'legacy body')
+
+      // getPlan builds the escaped subdir path, misses (ENOENT), and recovers.
+      expect(getPlan('writer@team' as AgentId)).toBe('legacy body')
+
+      const escaped = join(
+        plansDir,
+        AGENT_PLANS_SUBDIR,
+        `${SLUG}-agent-writer@team.md`,
+      )
+      expect(existsSync(escaped)).toBe(true)
+      expect(existsSync(legacy)).toBe(false)
+    } finally {
+      if (savedCfg === undefined) {
+        delete process.env.OPENCLAUDE_CONFIG_DIR
+      } else {
+        process.env.OPENCLAUDE_CONFIG_DIR = savedCfg
+      }
+      ;(
+        getPlansDirectory as unknown as { cache: Map<string, string> }
+      ).cache.clear()
+      rmSync(configDir, { recursive: true, force: true })
+      releaseSharedMutationLock()
+    }
   })
 })
