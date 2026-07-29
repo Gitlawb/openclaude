@@ -1186,6 +1186,113 @@ test('a failed receipt retirement is retried and surfaced, keeping the saved pro
   }
 })
 
+// Navigate the guided flow to submit a top-up; the provisionAimlapiKey mock
+// decides whether it succeeds or fails.
+async function driveAimlapiTopupSubmit(
+  mounted: Awaited<ReturnType<typeof mountProviderManager>>,
+): Promise<void> {
+  await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+  await navigateToPreset(mounted.stdin, 'aimlapi.com')
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Top up and get API key'))
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Enter your aimlapi.com account email'),
+  )
+  mounted.stdin.write('user@example.com')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Enter your aimlapi.com password'),
+  )
+  mounted.stdin.write('secret-password')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Choose a top-up amount in USD') && frame.includes('25'),
+  )
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Payment method') && frame.includes('Card'),
+  )
+  mounted.stdin.write('\r')
+}
+
+test('Start over on a failed top-up discards the checkout and returns to the amount step', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_PASSWORD
+
+  const provisionAimlapiKey = mock(async () => {
+    throw new Error('provider unavailable')
+  })
+  const discardAimlapiCheckoutStateAsync = mock(async () => 'discarded' as const)
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+    discardAimlapiCheckoutStateAsync,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await driveAimlapiTopupSubmit(mounted)
+    // The top-up failed; the progress screen offers Start over.
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Could not finish aimlapi.com top-up'),
+    )
+    // 'r' = Start over.
+    mounted.stdin.write('r')
+    await waitForCondition(() => discardAimlapiCheckoutStateAsync.mock.calls.length > 0)
+    // A non-settled checkout is discarded and the flow returns to the amount step.
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose a top-up amount in USD'),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('Start over refuses to discard a settled receipt and warns to retry', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_PASSWORD
+
+  const provisionAimlapiKey = mock(async () => {
+    throw new Error('provider unavailable')
+  })
+  // The stored checkout holds an unsaved issued key.
+  const discardAimlapiCheckoutStateAsync = mock(async () => 'kept-settled' as const)
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+    discardAimlapiCheckoutStateAsync,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await driveAimlapiTopupSubmit(mounted)
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Could not finish aimlapi.com top-up'),
+    )
+    mounted.stdin.write('r')
+    await waitForCondition(() => discardAimlapiCheckoutStateAsync.mock.calls.length > 0)
+    // The settled key is protected: discard is refused with a recovering-retry hint.
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('has not been saved yet'),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint and type', async () => {
   const addProviderProfile = mock((payload: any) => ({
     id: 'minimax_profile',

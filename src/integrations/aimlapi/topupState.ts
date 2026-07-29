@@ -640,22 +640,33 @@ export function claimAimlapiTopupStateAsync(
  * another. Returns the refreshed checkout, or null when no matching keyed state
  * exists (callers clear the state instead).
  */
+function resetCheckoutSessionOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): AimlapiCheckoutState | null {
+  const current = matchingStateOrNull(expected)
+  if (!current || !current.apiKey?.trim()) return null
+  const next: AimlapiPersistedTopup = {
+    ...current,
+    paymentSessionId: randomUUID(),
+    resumeSessionToken: '',
+  }
+  writeAimlapiTopupStateUnlocked(next)
+  // `next` keeps model/settled on disk, so return them too: a caller working
+  // from this result rather than re-reading must not lose them.
+  return toCheckoutState(next)
+}
+
 export function resetAimlapiCheckoutSession(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): AimlapiCheckoutState | null {
-  return withStateLock(() => {
-    const current = matchingStateOrNull(expected)
-    if (!current || !current.apiKey?.trim()) return null
-    const next: AimlapiPersistedTopup = {
-      ...current,
-      paymentSessionId: randomUUID(),
-      resumeSessionToken: '',
-    }
-    writeAimlapiTopupStateUnlocked(next)
-    // `next` keeps model/settled on disk, so return them too: a caller working
-    // from this result rather than re-reading must not lose them.
-    return toCheckoutState(next)
-  })
+  return withStateLock(() => resetCheckoutSessionOperation(expected))
+}
+
+/** Non-blocking `resetAimlapiCheckoutSession` for the interactive top-up flow. */
+export function resetAimlapiCheckoutSessionAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): Promise<AimlapiCheckoutState | null> {
+  return withStateLockAsync(() => resetCheckoutSessionOperation(expected))
 }
 
 function clearStateOperation(
