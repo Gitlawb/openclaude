@@ -1,0 +1,124 @@
+// Curated release highlights for the /changelog page. Full notes live on
+// GitHub releases; this list is the hand-picked "what actually matters"
+// per minor version. Newest first.
+
+export interface Release {
+  version: string
+  date: string
+  /** one-line theme of the release */
+  theme: string
+  highlights: string[]
+}
+
+export const RELEASES_URL = 'https://github.com/Gitlawb/openclaude/releases'
+
+export function releaseUrl(version: string): string {
+  return `${RELEASES_URL}/tag/v${version}`
+}
+
+export const releases: Release[] = [
+  {
+    version: '0.26.0',
+    date: '2026-07-27',
+    theme: 'polish — steadier long turns, sharper streaming feedback',
+    highlights: [
+      'long-running tools stay active instead of tripping the query guard',
+      'streaming token counts appear immediately, not after the first chunk',
+      'AI/ML API client hardening: passwordless methods and response-shape guards',
+      'windows: tolerate EPERM from mkdir on drive roots',
+      'slash-command arguments insert literally — no more accidental regex references',
+    ],
+  },
+  {
+    version: '0.25.0',
+    date: '2026-07-20',
+    theme: 'buddy companions, GPT-5.6, and a leaner install',
+    highlights: [
+      'buddy: pixel-art hero companions with signature Enter animations — /buddy to hatch one',
+      'GPT-5.6 family models on Codex, routed through the OpenAI Responses API',
+      'first-run onboarding experience for third-party providers',
+      'token optimization: universal tool compression, doom-loop detection, configurable compaction',
+      'zero-warning npm install, enforced by a release gate and daily 3-OS checks',
+      'context bar shows live token counts — ctx 74K/200K (37%)',
+      'new providers: LongCat, AI/ML API foundation, Kimi K3 context variants',
+    ],
+  },
+  {
+    version: '0.24.0',
+    date: '2026-07-14',
+    theme: 'effort control and per-model tuning',
+    highlights: [
+      'ultrathink keyword detection and the ultracode effort level',
+      'Cloudflare Workers AI provider integration',
+      'per-model context_window and max_output_tokens overrides in settings',
+      'Codex OAuth: manual callback URL paste for SSH and remote sessions',
+      '/doctor gains WebSearch backend diagnostics',
+      '/model surfaces inactive provider profiles',
+    ],
+  },
+  {
+    version: '0.23.0',
+    date: '2026-07-07',
+    theme: 'codebase intelligence and skills everywhere',
+    highlights: [
+      'repo map codebase intelligence',
+      'smart auto-routing: per-turn simple-vs-strong model selection',
+      'AI/ML API joins as a first-class provider',
+      'local skill CLI support plus a native-TypeScript PDF generation skill',
+      'ship a zero-warning, minimal install',
+      'openclaude config fully isolated from Claude Code',
+    ],
+  },
+  {
+    version: '0.22.0',
+    date: '2026-07-06',
+    theme: 'honest feedback and LSP visibility',
+    highlights: [
+      'LSP diagnostics captured and exposed to the agent',
+      'task reports render as markdown',
+      'honest-feedback UX pass: visible retries, statusline truncation marker, hint grace period',
+      'resume picker groups branched sessions',
+    ],
+  },
+  {
+    version: '0.21.0',
+    date: '2026-06-30',
+    theme: 'session branching and effort routing',
+    highlights: [
+      '/branch forks a conversation into a new session',
+      '/set-context-window and /clear-context-window commands',
+      'model-level reasoning effort routing',
+      'per-agent step limits and deterministic session task reports',
+      'Claude Opus 4.8 support; ClinePass gateway provider',
+      'recover GLM/Qwen tool calls emitted as XML text',
+      'perf: minified CLI bundle and lazy provider catalog loading',
+    ],
+  },
+  {
+    version: '0.20.0',
+    date: '2026-06-24',
+    theme: 'background sessions and the bughunter goes public',
+    highlights: [
+      'local background sessions — run agents while you keep typing',
+      '/bughunter public, with /bughunter-security and /bughunter-perf variants',
+      'per-agent model assignment from the /agents menu',
+      '/update command with package-manager auto-detection',
+      'auto-detect and persist project conventions to the wiki',
+      'OpenAI-compatible credential pool failover; OPENCLAUDE_CONFIG_DIR override',
+      'GLM 5.2 across Z.AI, Fireworks, Atlas Cloud, and Opengateway',
+    ],
+  },
+  {
+    version: '0.19.0',
+    date: '2026-06-16',
+    theme: 'context visibility and new backends',
+    highlights: [
+      '/ctx context-window visualization and token bars in /cost',
+      'NEAR AI provider integration',
+      'native Gemini Vertex client and auth helpers',
+      'compactModel option — use a separate model for compaction',
+      'auto-compact prompt on /resume with a determinate progress bar',
+      'redacted diagnostic issue reports',
+    ],
+  },
+]
