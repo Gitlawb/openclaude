@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   claimAimlapiTopupState,
   loadAimlapiTopupState,
+  saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from '../../integrations/aimlapi/topupState.js'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
@@ -15,6 +16,7 @@ const intent: AimlapiTopupIntent = {
   email: 'user@example.com',
   amountUsdMinor: 2500,
   autoTopUp: false,
+  method: 'card',
   partnerId: 'part_test',
   partnerName: 'OpenClaude',
   appBaseUrl: 'https://app.example.test',
@@ -62,4 +64,27 @@ test('aimlapi reset reports when there is nothing to discard', () => {
 
   expect(output).toContain('No in-progress')
   expect(output).not.toContain('Discarded')
+})
+
+test('aimlapi reset keeps a settled receipt and warns, unless --force', () => {
+  const claimed = claimAimlapiTopupState(intent)
+  // A settled receipt: the paid key was issued but not yet saved to a profile.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'spent-session',
+    apiKey: 'k_paid',
+    apiKeyId: 'id_paid',
+    settled: true,
+  })
+
+  // A plain reset must not delete the only copy of the paid-for key.
+  const warned = captureLog(() => aimlapiReset())
+  expect(warned).toContain('reset --force')
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('k_paid')
+
+  // --force discards it (the user accepts losing the key).
+  const forced = captureLog(() => aimlapiReset({ force: true }))
+  expect(forced).toContain('Discarded')
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })

@@ -43,6 +43,7 @@ const intent: AimlapiTopupIntent = {
   email: 'user@example.com',
   amountUsdMinor: 2500,
   autoTopUp: false,
+  method: 'card',
   partnerId: 'part_test',
   partnerName: 'OpenClaude',
   appBaseUrl: 'https://app.aimlapi.com',
@@ -213,6 +214,31 @@ test('a dead recorded session is replaced rather than resumed', async () => {
   // The expired session was inspected, then a fresh checkout was opened.
   expect(calls.createSession).toBe(1)
   expect(loadAimlapiTopupState(intent)).toMatchObject({ settled: true })
+})
+
+test('restarting with a different payment method does not adopt the prior checkout', async () => {
+  useTemporaryConfig()
+
+  // A card checkout is recorded and its payment page is still open.
+  const claimed = claimAimlapiTopupState(intent) // intent.method === 'card'
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'card-session',
+  })
+
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({})
+
+  // A crypto restart is a DIFFERENT intent now that `method` is part of the
+  // identity, so it must not adopt the card session (and reuse its idempotency
+  // id on the wrong rail). The open card checkout blocks it until it is reset.
+  await expect(
+    provisionAimlapiKey({ ...provisionOptions, method: 'crypto' }),
+  ).rejects.toThrow(/still open for a different top-up/i)
+  expect(calls.createSession).toBe(0)
+  expect(calls.getSession).toBe(0)
+  // The card checkout is untouched.
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('card-session')
 })
 
 test('an already-exchanged session with no local receipt fails closed', async () => {

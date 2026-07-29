@@ -28,10 +28,12 @@ export {
   discardAimlapiCheckoutState,
   discardAimlapiCheckoutStateAsync,
   loadAimlapiTopupState,
-  loadAimlapiSignInKey,
-  saveAimlapiSignInKey,
-  clearAimlapiSignInKey,
   type AimlapiTopupIntent,
   type AimlapiPersistedTopup,
   type AimlapiCheckoutState,
 } from './topupState.js'
+// NOTE: the sign-in-key cache (`{load,save,clear}AimlapiSignInKey`) is defined
+// in ./topupState.js but intentionally NOT re-exported here: it is a persistence
+// primitive for the guided passwordless flow that lands in a follow-up PR, and
+// has no in-tree consumer yet. It is exposed publicly only once that flow wires
+// it, to keep this stack's API surface to what it actually uses.

@@ -12,17 +12,34 @@ import {
 /**
  * Discard any stored checkout so a new top-up can start. The escape hatch for an
  * interrupted checkout whose session went terminal (its resume token blocks a
- * different amount/email) or a checkout-state file that has become corrupt.
+ * different amount/email) or a checkout-state file that has become corrupt. A
+ * settled receipt (an issued key not yet saved to a profile) is kept unless
+ * `--force` is passed, since deleting it would lose the paid-for key.
  */
-export function aimlapiReset(): void {
-  const discarded = discardAimlapiCheckoutState()
-  console.log(
-    discarded
-      ? chalk.green(
+export function aimlapiReset(options: { force?: boolean } = {}): void {
+  const result = discardAimlapiCheckoutState(options.force ?? false)
+  switch (result) {
+    case 'discarded':
+      console.log(
+        chalk.green(
           '\n  [OK] Discarded the in-progress AI/ML API checkout. Start a new one with `openclaude aimlapi topup`.',
-        )
-      : chalk.dim('\n  No in-progress AI/ML API checkout to discard.'),
-  )
+        ),
+      )
+      break
+    case 'kept-settled':
+      console.log(
+        chalk.yellow(
+          '\n  [warn] This checkout already issued an API key that has not been saved to a\n' +
+            '         provider profile yet. Re-run `openclaude aimlapi topup` to recover it\n' +
+            '         (you will NOT be charged again). To discard it anyway and lose the key,\n' +
+            '         run `openclaude aimlapi reset --force`.',
+        ),
+      )
+      break
+    case 'none':
+      console.log(chalk.dim('\n  No in-progress AI/ML API checkout to discard.'))
+      break
+  }
 }
 
 export async function aimlapiTopup(options: AimlapiTopupOptions): Promise<void> {

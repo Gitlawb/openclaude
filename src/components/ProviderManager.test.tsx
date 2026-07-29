@@ -468,7 +468,7 @@ function mockProviderManagerDependencies(
         throw new Error('Unexpected aimlapi.com top-up in test')
       }),
     discardAimlapiCheckoutStateAsync:
-      options?.discardAimlapiCheckoutStateAsync ?? (async () => true),
+      options?.discardAimlapiCheckoutStateAsync ?? (async () => 'discarded'),
   }))
 
   mock.module('./useCodexOAuthFlow.js', () => ({

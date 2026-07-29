@@ -52,6 +52,7 @@ const intent: AimlapiTopupIntent = {
   email: 'user@example.com',
   amountUsdMinor: 2500,
   autoTopUp: false,
+  method: 'card',
   partnerId: 'part_test',
   partnerName: 'OpenClaude',
   appBaseUrl: 'https://app.example.test',
@@ -580,7 +581,7 @@ test('a corrupt top-up state file fails closed instead of being overwritten', ()
 
   // The explicit discard escape hatch clears the corrupt slot so a fresh top-up
   // can start.
-  expect(discardAimlapiCheckoutState()).toBe(true)
+  expect(discardAimlapiCheckoutState()).toBe('discarded')
   expect(loadAimlapiTopupState(intent)).toBeNull()
   expect(claimAimlapiTopupState(intent).paymentSessionId).toBeTruthy()
 })
@@ -612,10 +613,10 @@ test('a schema-invalid top-up state file also fails closed', () => {
   expect(() => claimAimlapiTopupState(intent)).toThrow(/corrupt/i)
 })
 
-test('discarding removes the stored checkout and reports whether one existed', () => {
+test('discarding removes a non-settled checkout and reports the outcome', () => {
   useTemporaryConfig()
   // Nothing stored yet.
-  expect(discardAimlapiCheckoutState()).toBe(false)
+  expect(discardAimlapiCheckoutState()).toBe('none')
 
   const claimed = claimAimlapiTopupState(intent)
   saveAimlapiTopupState({
@@ -624,12 +625,34 @@ test('discarding removes the stored checkout and reports whether one existed', (
     resumeSessionToken: 'open-session',
   })
   // A stored checkout (even one that blocks a different intent) is removed.
-  expect(discardAimlapiCheckoutState()).toBe(true)
+  expect(discardAimlapiCheckoutState()).toBe('discarded')
   expect(loadAimlapiTopupState(intent)).toBeNull()
   // A different intent can now claim.
   expect(
     claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }).paymentSessionId,
   ).toBeTruthy()
+})
+
+test('discarding keeps a settled receipt (its paid key) unless forced', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  // A settled receipt: the key was exchanged but not yet saved to a profile.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'spent-session',
+    apiKey: 'k_paid',
+    apiKeyId: 'id_paid',
+    settled: true,
+  })
+
+  // An unforced discard must NOT delete the only copy of the paid-for key.
+  expect(discardAimlapiCheckoutState()).toBe('kept-settled')
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('k_paid')
+
+  // Forcing it through removes the record (the caller accepts losing the key).
+  expect(discardAimlapiCheckoutState(true)).toBe('discarded')
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
 test('resuming with a differently-cased email reuses the same payment session', () => {
