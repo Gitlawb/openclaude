@@ -391,10 +391,13 @@ describe('Claude API lifecycle tracking', () => {
         },
       })
 
-      const first = await generator.next()
-      expect(first.done).toBe(false)
-      expect(requestBody?.thinking).toEqual({ type: 'adaptive' })
-      await generator.return(undefined)
+      try {
+        const first = await generator.next()
+        expect(first.done).toBe(false)
+        expect(requestBody?.thinking).toEqual({ type: 'adaptive' })
+      } finally {
+        await generator.return(undefined)
+      }
     },
   )
 
