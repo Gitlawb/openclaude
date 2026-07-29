@@ -1,7 +1,13 @@
 /** AI/ML API passwordless onboarding and partner-checkout HTTP client. */
 
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
-import type { AimlapiEndpoints } from './config.js'
+import {
+  AIMLAPI_SOURCE,
+  PARTNER_HEADER_NAME,
+  resolvePartnerId,
+  SOURCE_HEADER_NAME,
+  type AimlapiEndpoints,
+} from './config.js'
 
 export type PartnerCheckoutSessionStatus =
   | 'pending_auth'
@@ -39,11 +45,6 @@ export type TopUpByKeyResult = PayResult
 
 export type ExchangeResult = { apiKey: string; apiKeyId: string }
 export type AuthResult = { token: string; exp: number }
-/**
- * Payment method for the password-based checkout. The passwordless flow always
- * pays by card; this is retained while the top-up flow still offers the choice.
- */
-export type PaymentMethod = 'card' | 'crypto'
 export type AccountCheckResult = {
   action: 'sign-in' | 'sign-up'
   provider?: string | null
@@ -287,45 +288,6 @@ export class AimlapiApiError extends Error {
 export class AimlapiClient {
   constructor(private readonly endpoints: AimlapiEndpoints) {}
 
-  /** Register a password account -> access (Bearer) token. */
-  async signup(
-    input: { email: string; password: string; inviteCode?: string },
-    signal?: AbortSignal,
-  ): Promise<AuthResult> {
-    const result = await this.request<unknown>(
-      `${this.endpoints.authBaseUrl}/v1/auth/account`,
-      {
-        method: 'POST',
-        body: {
-          email: input.email,
-          password: input.password,
-          ...(input.inviteCode ? { inviteCode: input.inviteCode } : {}),
-        },
-        signal,
-        secrets: [input.password, input.inviteCode],
-      },
-    )
-    if (!isAuthResult(result)) {
-      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
-    }
-    return result
-  }
-
-  /** Sign in with email + password -> access (Bearer) token. */
-  async login(
-    email: string,
-    password: string,
-    signal?: AbortSignal,
-  ): Promise<AuthResult> {
-    const result = await this.request<unknown>(
-      `${this.endpoints.authBaseUrl}/v1/auth/account`,
-      { method: 'PUT', body: { email, password }, signal, secrets: [password] },
-    )
-    if (!isAuthResult(result)) {
-      throw new AimlapiApiError('aimlapi.com did not return an auth token.', 200, '')
-    }
-    return result
-  }
 
   async checkAccount(email: string, signal?: AbortSignal): Promise<AccountCheckResult> {
     const url = `${this.endpoints.authBaseUrl}/v1/auth/account`
@@ -454,8 +416,6 @@ export class AimlapiClient {
       amountUsdMinor: number
       /** Supplied by the passwordless flow to make the charge idempotent. */
       paymentSessionId?: string
-      /** Password flow lets the user choose; the passwordless flow uses card. */
-      method?: PaymentMethod
       successUrl?: string
       cancelUrl?: string
       autoTopUp?: boolean
@@ -471,7 +431,8 @@ export class AimlapiClient {
         ...(input.paymentSessionId
           ? { paymentSessionId: input.paymentSessionId }
           : {}),
-        method: input.method ?? 'card',
+        // Card is the only supported rail; the backend still expects the field.
+        method: 'card',
         ...(input.successUrl ? { successUrl: input.successUrl } : {}),
         ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
         ...(input.autoTopUp ? { autoTopUp: true } : {}),
@@ -567,7 +528,14 @@ export class AimlapiClient {
       redacted.name = error.name
       return redacted
     }
-    const headers: Record<string, string> = { Accept: 'application/json' }
+    // Every aimlapi request (auth / checkout / catalog) carries both mandatory
+    // attribution headers: the integration source and the partner id. These go
+    // to aimlapi.com hosts only — client requests never target a user proxy.
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      [SOURCE_HEADER_NAME]: AIMLAPI_SOURCE,
+      [PARTNER_HEADER_NAME]: resolvePartnerId(),
+    }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer.trim()}`
 
