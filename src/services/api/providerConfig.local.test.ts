@@ -81,7 +81,10 @@ test('treats .local hostnames as local', () => {
   expect(isLocalProviderUrl('http://llm.localhost:8080/v1')).toBe(true)
   expect(isLocalProviderUrl('http://vllm.home.arpa:8080/v1')).toBe(true)
   expect(isLocalProviderUrl('http://gpu.lan:8080/v1')).toBe(true)
-  expect(isLocalProviderUrl('http://proxy.internal:8080/v1')).toBe(true)
+  // Corporate/custom proxy suffixes must remain non-local.
+  expect(isLocalProviderUrl('http://proxy.internal:8080/v1')).toBe(false)
+  expect(isLocalProviderUrl('http://proxy.intranet:8080/v1')).toBe(false)
+  expect(isLocalProviderUrl('https://my-proxy.internal/v1')).toBe(false)
 })
 
 test('treats private IPv6 endpoints as local', () => {

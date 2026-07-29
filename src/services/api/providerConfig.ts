@@ -640,13 +640,13 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
     if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
-    // Align with cacheMetrics self-hosted host classification (RFC 6761/6762/8375).
+    // RFC reserved / home-network TLDs. Do not include de-facto corporate
+    // suffixes like `.internal` / `.intranet` here — those are common custom
+    // proxy hostnames and must stay non-local for provider detection.
     if (
       hostname.endsWith('.localhost') ||
       hostname.endsWith('.local') ||
       hostname.endsWith('.lan') ||
-      hostname.endsWith('.internal') ||
-      hostname.endsWith('.intranet') ||
       hostname.endsWith('.home.arpa')
     ) {
       return true
@@ -659,17 +659,8 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       return firstOctet === 127 || isPrivateIpv4Address(hostname)
     }
     if (ipVersion === 6) {
-      // Unwrap IPv4-mapped IPv6 so dual-stack URLs keep the same local
-      // classification as their IPv4 form. URL parsers may keep dotted
-      // decimal (::ffff:127.0.0.1) or expand to hextets (::ffff:7f00:1).
-      const mappedDotted = hostname
-        .toLowerCase()
-        .match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
-      if (mappedDotted?.[1]) {
-        const v4 = mappedDotted[1]
-        const firstOctet = Number.parseInt(v4.split('.', 1)[0] ?? '', 10)
-        return firstOctet === 127 || isPrivateIpv4Address(v4)
-      }
+      // Unwrap IPv4-mapped IPv6. `new URL(...).hostname` normalizes dotted
+      // forms like ::ffff:127.0.0.1 to hextets (::ffff:7f00:1).
       const mappedHex = hostname.toLowerCase().match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
       if (mappedHex?.[1] && mappedHex[2]) {
         const hi = Number.parseInt(mappedHex[1], 16)
