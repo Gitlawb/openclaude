@@ -334,6 +334,16 @@ test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
   expect(bare.reasoning).toEqual({ effort: 'high' })
 })
 
+test('resolveProviderRequest keeps the implicit Codex fallback on Sol with high reasoning', () => {
+  expect(resolveProviderRequest({ processEnv: {} })).toMatchObject({
+    requestedModel: 'codexplan',
+    resolvedModel: 'gpt-5.6-sol',
+    transport: 'codex_responses',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    reasoning: { effort: 'high' },
+  })
+})
+
 test('resolveProviderRequest honors reasoning query overrides on GPT-5.6 aliases', () => {
   const request = resolveProviderRequest({
     model: 'gpt-5.6-sol?reasoning=medium',
@@ -353,10 +363,12 @@ test('resolveProviderRequest scopes GPT-5.6 alias effort defaults to the Codex t
     OPENAI_API_KEY: 'test-key',
   }
 
-  const plain = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv })
-  expect(plain.resolvedModel).toBe('gpt-5.6-sol')
-  expect(plain.transport).not.toBe('codex_responses')
-  expect(plain.reasoning).toBeUndefined()
+  for (const model of ['gpt-5.6', 'gpt-5.6-sol']) {
+    const plain = resolveProviderRequest({ model, processEnv })
+    expect(plain.resolvedModel).toBe('gpt-5.6-sol')
+    expect(plain.transport).not.toBe('codex_responses')
+    expect(plain.reasoning).toBeUndefined()
+  }
 
   const codexplan = resolveProviderRequest({ model: 'codexplan', processEnv })
   expect(codexplan.resolvedModel).toBe('gpt-5.6-sol')

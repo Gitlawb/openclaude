@@ -33,6 +33,12 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
     expect(has1mContext(parseUserSpecifiedModel('codexspark'))).toBe(false)
   })
 
+  test('codexplan reasoning queries stay symbolic for Codex routing', () => {
+    expect(parseUserSpecifiedModel('codexplan?reasoning=medium')).toBe(
+      'codexplan?reasoning=medium',
+    )
+  })
+
   test('the tag is case-insensitive and not duplicated', () => {
     const tagged = parseUserSpecifiedModel('codexplan[1m]')
     expect(parseUserSpecifiedModel('CODEXPLAN[1M]')).toBe(tagged)
