@@ -1,7 +1,15 @@
 import { expect, test } from 'bun:test'
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
+import { findGitRoot } from './git.js'
 
 // Regression for #2052 — sessions started in a non-git parent of multiple
 // child repos must still be able to create agent worktrees when cwd points
@@ -23,9 +31,30 @@ function git(cwd: string, ...args: string[]): string {
 
 const FIXTURE = join(import.meta.dir, 'worktree.multiRepoParent.fixture.ts')
 
-// /tmp and the workspace tree both have ancestor .git directories on this
-// machine; /var/tmp does not, so findGitRoot stops with null for the parent.
-const SANDBOX_ROOT = '/var/tmp'
+/**
+ * Pick a sandbox root with no ancestor .git so the multi-repo parent truly
+ * has a null findGitRoot. Prefer os.tmpdir(), then /var/tmp, then a private
+ * dir under the home directory.
+ */
+function resolveSandboxRoot(): string {
+  const candidates = [tmpdir(), '/var/tmp', join(process.env.HOME ?? '', '.cache')]
+  for (const candidate of candidates) {
+    if (!candidate || !existsSync(candidate)) continue
+    try {
+      const probe = mkdtempSync(join(candidate, 'openclaude-2052-probe-'))
+      const parentHasGit = findGitRoot(probe) !== null
+      rmSync(probe, { recursive: true, force: true })
+      if (!parentHasGit) {
+        return candidate
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  throw new Error(
+    'No sandbox root without an ancestor .git was available for the multi-repo parent regression test',
+  )
+}
 
 function runCreateAgentWorktree(
   cfgDir: string,
@@ -47,8 +76,9 @@ function runCreateAgentWorktree(
 test(
   'createAgentWorktree fails for a non-git multi-repo parent, succeeds for a child repo cwd',
   () => {
-    const root = mkdtempSync(join(SANDBOX_ROOT, 'openclaude-2052-'))
-    const cfgDir = mkdtempSync(join(SANDBOX_ROOT, 'openclaude-2052-cfg-'))
+    const sandboxRoot = resolveSandboxRoot()
+    const root = mkdtempSync(join(sandboxRoot, 'openclaude-2052-'))
+    const cfgDir = mkdtempSync(join(sandboxRoot, 'openclaude-2052-cfg-'))
     const parent = join(root, 'parent')
     const repoA = join(parent, 'repo-a')
     const repoB = join(parent, 'repo-b')
@@ -63,6 +93,8 @@ test(
         git(repo, 'add', '.')
         git(repo, 'commit', '-m', 'init')
       }
+
+      expect(findGitRoot(parent)).toBeNull()
 
       const parentResult = runCreateAgentWorktree(
         cfgDir,

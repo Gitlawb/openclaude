@@ -149,7 +149,13 @@ describe('AgentTool input schema isolation contract', () => {
     ).not.toThrow()
   })
 
-  test('rejects relative cwd paths', () => {
+  test('rejects relative cwd paths in the schema and helper', () => {
+    expect(
+      inputSchema().safeParse({
+        ...baseInput,
+        cwd: 'relative/path',
+      }).success,
+    ).toBe(false)
     expect(() => assertAgentToolCwdAllowed('relative/path', undefined)).toThrow(
       'cwd must be an absolute path.',
     )

@@ -107,6 +107,9 @@ export const fullInputSchema = lazySchema(() => {
   return baseInputSchema().merge(multiAgentInputSchema).extend({
     isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. When the session is outside a git repository (for example a parent of multiple repos), pass cwd set to the target repository root so the worktree is created from that repo.'),
     cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. When isolation is "worktree", cwd selects which git repository to create the worktree from — use this when the session cwd is not itself a git repo (for example a folder parenting multiple repos).')
+  }).refine(input => input.cwd === undefined || isAbsolute(input.cwd), {
+    path: ['cwd'],
+    message: 'cwd must be an absolute path.',
   });
 });
 
@@ -744,6 +747,9 @@ export const AgentTool = buildTool({
         useExactTools: true
       }),
       worktreePath: worktreeInfo?.worktreePath,
+      // Persist cwd for resume when worktree isolation was unavailable
+      // (multi-repo parent sessions with an explicit child-repo cwd).
+      cwd: worktreeInfo ? undefined : cwd,
       description,
       agentName: name,
     };

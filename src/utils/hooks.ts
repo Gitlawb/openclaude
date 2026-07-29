@@ -5184,9 +5184,11 @@ export function hasWorktreeCreateHook(): boolean {
  */
 export async function executeWorktreeCreateHook(
   name: string,
+  options?: { cwd?: string },
 ): Promise<{ worktreePath: string }> {
   const hookInput = {
     ...createBaseHookInput(undefined),
+    ...(options?.cwd ? { cwd: options.cwd } : {}),
     hook_event_name: 'WorktreeCreate' as const,
     name,
   }

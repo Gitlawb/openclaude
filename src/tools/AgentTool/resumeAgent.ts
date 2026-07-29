@@ -78,7 +78,8 @@ export async function resumeAgentBackground({
     transcript.contentReplacements,
   )
   // Best-effort: if the original worktree was removed externally, fall back
-  // to parent cwd rather than crashing on chdir later.
+  // to a persisted cwd override (multi-repo parent sessions) or parent cwd
+  // rather than crashing on chdir later.
   const resumedWorktreePath = meta?.worktreePath
     ? await fsp.stat(meta.worktreePath).then(
         s => (s.isDirectory() ? meta.worktreePath : undefined),
@@ -95,6 +96,20 @@ export async function resumeAgentBackground({
     const now = new Date()
     await fsp.utimes(resumedWorktreePath, now, now)
   }
+  const resumedCwdOverride = resumedWorktreePath
+    ? undefined
+    : meta?.cwd
+      ? await fsp.stat(meta.cwd).then(
+          s => (s.isDirectory() ? meta.cwd : undefined),
+          () => {
+            logForDebugging(
+              `Resumed cwd override ${meta.cwd} no longer exists; falling back to parent cwd`,
+            )
+            return undefined
+          },
+        )
+      : undefined
+  const resumedCwdPath = resumedWorktreePath ?? resumedCwdOverride
 
   // Skip filterDeniedAgents re-gating — original spawn already passed permission checks
   let selectedAgent: AgentDefinition
@@ -179,7 +194,7 @@ export async function resumeAgentBackground({
     model: undefined,
     // Fork resume: pass parent's system prompt (cache-identical prefix).
     // Non-fork: undefined → runAgent recomputes under wrapWithCwd so
-    // getCwd() sees resumedWorktreePath.
+    // getCwd() sees resumedWorktreePath / resumed cwd override.
     override: isResumedFork
       ? { systemPrompt: forkParentSystemPrompt }
       : undefined,
@@ -190,6 +205,7 @@ export async function resumeAgentBackground({
     ...(isResumedFork && { useExactTools: true }),
     // Re-persist so metadata survives runAgent's writeAgentMetadata overwrite
     worktreePath: resumedWorktreePath,
+    cwd: resumedCwdOverride,
     description: meta?.description,
     contentReplacementState: resumedReplacementState,
   }
@@ -225,7 +241,7 @@ export async function resumeAgentBackground({
   }
 
   const wrapWithCwd = <T>(fn: () => T): T =>
-    resumedWorktreePath ? runWithCwdOverride(resumedWorktreePath, fn) : fn()
+    resumedCwdPath ? runWithCwdOverride(resumedCwdPath, fn) : fn()
 
   void runWithAgentContext(asyncAgentContext, () =>
     wrapWithCwd(() =>
