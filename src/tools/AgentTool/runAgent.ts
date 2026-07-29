@@ -318,8 +318,9 @@ export async function* runAgent({
   /** Worktree path if the agent was spawned with isolation: "worktree".
    * Persisted to metadata so resume can restore the correct cwd. */
   worktreePath?: string
-  /** Explicit cwd override when the agent was spawned without a worktree
-   * (e.g. multi-repo parent sessions). Persisted for resume. */
+  /** Explicit cwd override for the agent's working directory. Persisted for
+   * resume even when a worktree exists, so multi-repo parent sessions can
+   * fall back to the child-repo path after worktree cleanup. */
   cwd?: string
   /** Original task description from AgentTool input. Persisted to metadata
    * so a resumed agent's notification can show the original description. */
