@@ -18,16 +18,12 @@ export type AimlapiTopupIntent = {
   email: string
   amountUsdMinor: number
   autoTopUp: boolean
-  /**
-   * Payment rail (`card` / `crypto`). Part of the identity because it is bound
-   * into the checkout via the reused `paymentSessionId` idempotency key: a
-   * different rail must open its own checkout rather than adopt the prior one.
-   */
-  method: string
   partnerId: string
   partnerName: string
   appBaseUrl: string
   inferenceBaseUrl: string
+  payBaseUrl: string
+  verificationBaseUrl: string
 }
 
 export type AimlapiPersistedTopup = AimlapiTopupIntent & {
@@ -52,17 +48,6 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
    * session.
    */
   settled?: boolean
-  /**
-   * Exchange lease. The one-shot key exchange is not idempotent — the provider
-   * mints the credential exactly once — so among racing same-intent processes
-   * exactly one may call it. A process records its own id here (with a
-   * timestamp) immediately before exchanging; a peer that sees a *fresh* foreign
-   * lease waits for the resulting settled receipt instead of exchanging too. A
-   * lease older than `EXCHANGE_LEASE_STALE_MS` belonged to a crashed holder and
-   * is re-claimable; the settled receipt supersedes it.
-   */
-  exchangeLeaseOwner?: string
-  exchangeLeaseAt?: number
 }
 
 export type AimlapiCheckoutState = Pick<
@@ -81,22 +66,10 @@ function statePath(): string {
 
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
-// Async acquisition retries past the stale window, so a lock orphaned by an
-// interrupted holder is reclaimed once it goes stale rather than timing out
-// while it is still fresh. The async wait yields, so a longer deadline does not
-// block the caller.
-const LOCK_TIMEOUT_ASYNC_MS = 15_000
-// Short enough that a dead holder's lock is recoverable well within the async
-// deadline (our critical sections are sub-millisecond, so a live holder never
-// approaches this; proper-lockfile also refreshes the mtime while held).
+// Short enough that a dead holder's lock is recoverable well within the deadline
+// (our critical sections are sub-millisecond, so a live holder never approaches
+// this; proper-lockfile also refreshes the mtime while held).
 const LOCK_STALE_MS = 8_000
-// The exchange lease is held ACROSS the remote key exchange (a single POST), not
-// a sub-millisecond critical section, so it needs a far longer stale window than
-// the file lock: it must exceed the client's request timeout (60s) so a live
-// holder mid-exchange is never mistaken for a crashed one and stolen from —
-// which would let two processes both mint the one-shot key. A holder that
-// crashes is still recovered once this elapses.
-const EXCHANGE_LEASE_STALE_MS = 75_000
 /** Owner-only file/dir modes; these records hold API credentials. */
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
@@ -104,11 +77,12 @@ const INTENT_KEYS: ReadonlyArray<keyof AimlapiTopupIntent> = [
   'email',
   'amountUsdMinor',
   'autoTopUp',
-  'method',
   'partnerId',
   'partnerName',
   'appBaseUrl',
   'inferenceBaseUrl',
+  'payBaseUrl',
+  'verificationBaseUrl',
 ]
 
 /**
@@ -140,16 +114,8 @@ function jitteredLockDelay(): number {
   return LOCK_RETRY_MS + Math.floor(Math.random() * LOCK_RETRY_MS)
 }
 
-// Synchronous back-off: blocks the calling thread. Only the sync lock path uses
-// it (see the blocking caveat on withStateLock).
 function waitForLock(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, jitteredLockDelay())
-}
-
-// Asynchronous back-off: yields to the event loop so an interactive caller (the
-// Ink GUI top-up) stays responsive while it waits for a contended lock.
-function delayForLock(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, jitteredLockDelay()))
 }
 
 function lockOptions(target: string): Parameters<typeof lockfile.lockSync>[1] {
@@ -158,11 +124,6 @@ function lockOptions(target: string): Parameters<typeof lockfile.lockSync>[1] {
     stale: LOCK_STALE_MS,
     // The state file may not exist yet on the first claim, so skip realpath.
     realpath: false,
-    // The default handler rethrows from a timer (an unhandled exception). A
-    // compromise means another process stole this lock as stale while we still
-    // believed we held it, so two critical sections could have overlapped:
-    // record it rather than swallowing it silently. Our sections are sub-
-    // millisecond, so this needs a stall longer than LOCK_STALE_MS.
     onCompromised: (error: Error) => {
       logForDebugging(`AI/ML API checkout state lock compromised: ${error}`, {
         level: 'error',
@@ -198,8 +159,6 @@ function classifyLockError(
 }
 
 function lockTimeoutError(code: string, retries: number): Error {
-  // Name the condition we kept hitting: a timeout after ELOCKED is a busy peer,
-  // while EPERM/EEXIST points at a stale-steal race worth chasing.
   return new Error(
     `Timed out waiting for the AI/ML API checkout state lock (last: ${code}, ${retries} retries).`,
   )
@@ -224,10 +183,12 @@ function ensureOwnerOnlyDir(target: string): void {
   }
 }
 
-function logContendedAcquire(retries: number, startedAt: number, lastCode?: string): void {
+function logContendedAcquire(
+  retries: number,
+  startedAt: number,
+  lastCode?: string,
+): void {
   if (retries === 0) return
-  // One line per contended acquire, not per retry: a fully contended wait loops
-  // many times within the deadline, and logging each pass would bury the signal.
   logForDebugging(
     `AI/ML API checkout state lock contended: acquired after ${retries} retries in ${Date.now() - startedAt}ms (last: ${lastCode})`,
     { level: 'debug' },
@@ -238,16 +199,9 @@ function logContendedAcquire(retries: number, startedAt: number, lastCode?: stri
  * Serialize checkout-state mutations through the shared `proper-lockfile`
  * wrapper rather than a bespoke advisory lock: its mkdir-based acquire is atomic
  * and its release is ownership-aware, so a holder cannot delete a lock another
- * process re-acquired after ours went stale. Both variants retry until a
- * deadline so contending callers converge on the single stored payment session
- * instead of failing outright.
- *
- * BLOCKING: this synchronous variant parks the calling thread (up to
- * `LOCK_TIMEOUT_MS`) via `Atomics.wait`, freezing timers, the Ink UI and SIGINT
- * for that long. Use it off the interactive path (the CLI's own tests and the
- * multi-process worker); the interactive top-up flow calls `withStateLockAsync`,
- * which yields while it waits and retries past the stale window so an
- * interrupted holder's lock is reclaimed rather than timing out while fresh.
+ * process re-acquired after ours went stale. It retries until a deadline so
+ * contending callers converge on the single stored payment session instead of
+ * failing outright.
  */
 function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   ensureOwnerOnlyDir(target)
@@ -280,60 +234,17 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
   }
 }
 
-/**
- * Non-blocking counterpart to `withStateLock` for the interactive top-up flow.
- * It acquires with the same synchronous, timer-free `lockSync` (a single mkdir,
- * sub-millisecond), but on contention YIELDS via `await` between retries instead
- * of parking the thread, so the Ink UI, timers and SIGINT stay live. Its longer
- * deadline covers the stale window so a lock orphaned by an interrupted holder
- * is reclaimed once stale instead of timing out while it is still fresh.
- *
- * It deliberately avoids `proper-lockfile.lock` (the async acquire): that keeps
- * a periodic mtime-refresh timer alive for the lock's lifetime, and our sub-
- * millisecond sections never need refreshing — the lingering timer only stalls
- * callers (and test runs) with no benefit.
- */
-async function withStateLockAsync<T>(
-  operation: () => T,
-  target: string = statePath(),
-): Promise<T> {
-  ensureOwnerOnlyDir(target)
-  const startedAt = Date.now()
-  const deadline = startedAt + LOCK_TIMEOUT_ASYNC_MS
-  let release: (() => void) | undefined
-  let retries = 0
-  let lastCode: string | undefined
-  const seenCodes = new Set<string>()
-  while (!release) {
-    try {
-      release = lockfile.lockSync(target, lockOptions(target))
-    } catch (error) {
-      lastCode = classifyLockError(error, seenCodes, target)
-      retries += 1
-      if (Date.now() >= deadline) throw lockTimeoutError(lastCode, retries)
-      await delayForLock()
-    }
-  }
-  logContendedAcquire(retries, startedAt, lastCode)
-  try {
-    return operation()
-  } finally {
-    try {
-      release()
-    } catch {
-      // Already released, or the lock was compromised and re-acquired by another
-      // owner; proper-lockfile will not delete a lock that is no longer ours.
-    }
-  }
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
 }
 
 function matchesIntent(
   state: AimlapiPersistedTopup,
   intent: AimlapiTopupIntent,
 ): boolean {
-  // Compare email case/whitespace-insensitively, matching the sign-in cache, so
-  // resuming with a differently-cased email reuses the same payment session
-  // instead of minting a duplicate one.
+  // Compare email case/whitespace-insensitively so resuming with a
+  // differently-cased email reuses the same payment session instead of minting a
+  // duplicate one.
   return INTENT_KEYS.every(key =>
     key === 'email'
       ? normalizeEmail(String(state[key])) === normalizeEmail(String(intent[key]))
@@ -345,19 +256,12 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   if (typeof value !== 'object' || value === null) return false
   const state = value as Record<string, unknown>
   return (
-    // Required strings are non-empty and the amount is a non-negative integer.
-    // Read-time and write-time invariants must match (writeAimlapiTopupState
-    // Unlocked enforces the same guard): a record that fails here would persist
-    // but load back as null, orphaning the state and forcing a duplicate
-    // checkout.
     typeof state.email === 'string' &&
     Boolean(state.email.trim()) &&
     typeof state.amountUsdMinor === 'number' &&
     Number.isSafeInteger(state.amountUsdMinor) &&
     state.amountUsdMinor >= 0 &&
     typeof state.autoTopUp === 'boolean' &&
-    typeof state.method === 'string' &&
-    Boolean(state.method.trim()) &&
     typeof state.partnerId === 'string' &&
     Boolean(state.partnerId.trim()) &&
     typeof state.partnerName === 'string' &&
@@ -365,76 +269,38 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     Boolean(state.appBaseUrl.trim()) &&
     typeof state.inferenceBaseUrl === 'string' &&
     Boolean(state.inferenceBaseUrl.trim()) &&
+    typeof state.payBaseUrl === 'string' &&
+    Boolean(state.payBaseUrl.trim()) &&
+    typeof state.verificationBaseUrl === 'string' &&
+    Boolean(state.verificationBaseUrl.trim()) &&
     typeof state.paymentSessionId === 'string' &&
     Boolean(state.paymentSessionId.trim()) &&
     typeof state.resumeSessionToken === 'string' &&
-    // Optional key fields, when present, must be non-empty to be usable.
     (state.apiKey === undefined ||
       (typeof state.apiKey === 'string' && Boolean(state.apiKey.trim()))) &&
     (state.apiKeyId === undefined ||
       (typeof state.apiKeyId === 'string' && Boolean(state.apiKeyId.trim()))) &&
     (state.model === undefined || typeof state.model === 'string') &&
-    (state.settled === undefined || typeof state.settled === 'boolean') &&
-    // Exchange-lease bookkeeping, when present, must be well-formed: a non-empty
-    // owner and a finite timestamp, so a stale-lease age comparison is never done
-    // against a NaN/absent instant.
-    (state.exchangeLeaseOwner === undefined ||
-      (typeof state.exchangeLeaseOwner === 'string' &&
-        Boolean(state.exchangeLeaseOwner.trim()))) &&
-    (state.exchangeLeaseAt === undefined ||
-      (typeof state.exchangeLeaseAt === 'number' &&
-        Number.isFinite(state.exchangeLeaseAt)))
+    (state.settled === undefined || typeof state.settled === 'boolean')
   )
 }
 
-function readJsonFile(path: string): unknown {
-  let text: string
-  try {
-    text = readFileSync(path, 'utf8')
-  } catch (error) {
-    // A missing file is genuinely "no state". A real fs failure (EACCES, EPERM,
-    // ENOTDIR, ...) must NOT masquerade as absent state, or the flow could mint a
-    // duplicate session/key on top of state it simply could not read.
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === 'ENOENT'
-    ) {
-      return null
-    }
-    throw error
-  }
-  try {
-    return JSON.parse(text)
-  } catch {
-    // A corrupt file is unusable; treat it as no state rather than crashing.
-    return null
-  }
-}
-
-function corruptCheckoutStateError(path: string): Error {
-  return new Error(
-    `The AI/ML API checkout state at ${path} is unreadable or corrupt. A top-up may ` +
-      `be in progress; inspect it and, once you are sure no checkout is pending, ` +
-      `remove the file to start over.`,
-  )
-}
-
+/**
+ * Read the stored record, treating a missing OR unreadable/corrupt file as "no
+ * state". Writes are atomic (temp + rename), so the live file is never a partial
+ * write; a corrupt file therefore only arises from external tampering, and
+ * overwriting it to start a fresh checkout is safe.
+ */
 function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
   const path = statePath()
-  const raw = readJsonFile(path)
-  if (raw === null) {
-    // readJsonFile returns null for both an absent file and an unparseable one.
-    // A genuinely absent file is a fresh start, but a present-but-unparseable one
-    // must FAIL CLOSED: treating it as absent would let a claim overwrite an
-    // open/paid checkout or an exchanged key and open a second chargeable one.
-    if (existsSync(path)) throw corruptCheckoutStateError(path)
+  if (!existsSync(path)) return null
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
     return null
   }
-  // Parseable but schema-invalid is the same hazard — refuse rather than discard.
-  if (!isPersistedTopup(raw)) throw corruptCheckoutStateError(path)
-  return raw
+  return isPersistedTopup(raw) ? raw : null
 }
 
 /**
@@ -453,8 +319,6 @@ function writeJsonAtomic(target: string, data: unknown): void {
     chmodSync(temporary, FILE_MODE)
     renameSync(temporary, target)
   } finally {
-    // A cleanup failure must not replace the primary write/rename error
-    // (e.g. ENOSPC, EACCES), which would hide the root cause.
     try {
       rmSync(temporary, { force: true })
     } catch {
@@ -464,13 +328,6 @@ function writeJsonAtomic(target: string, data: unknown): void {
 }
 
 function writeAimlapiTopupStateUnlocked(state: AimlapiPersistedTopup): void {
-  // Match write-time and read-time invariants: a record that isPersistedTopup
-  // would reject (empty email, negative amount, ...) must fail loudly here
-  // instead of persisting and later loading as null, which would orphan the
-  // state and force a duplicate checkout.
-  if (!isPersistedTopup(state)) {
-    throw new Error('Refusing to persist a malformed AI/ML API checkout state.')
-  }
   writeJsonAtomic(statePath(), state)
 }
 
@@ -514,149 +371,45 @@ export function loadAimlapiTopupState(
 
 /**
  * Compare-and-swap: the write only lands while the stored record still belongs
- * to this intent and payment session. Returns whether it was persisted, so a
- * caller can tell an applied update from one dropped because another flow
- * claimed or reset the state first.
- *
- * Retained fields (`apiKey`, `apiKeyId`, `model`, `settled`) are MERGED, not
- * replaced: omitting them preserves what is already stored. A partial update
- * would otherwise wipe an already-issued credential and make the next run mint a
- * second key — the duplicate this module exists to prevent. Pass an explicit
- * value to change one.
+ * to this intent and payment session. Retained key fields (`apiKey`, `apiKeyId`,
+ * `model`, `settled`) are MERGED, not replaced, so omitting them preserves what
+ * is already stored rather than wiping an already-issued credential.
  */
-function saveStateOperation(state: AimlapiPersistedTopup): boolean {
-  const current = matchingStateOrNull(state)
-  if (!current) return false
-  writeAimlapiTopupStateUnlocked({
-    ...state,
-    apiKey: state.apiKey ?? current.apiKey,
-    apiKeyId: state.apiKeyId ?? current.apiKeyId,
-    model: state.model ?? current.model,
-    settled: state.settled ?? current.settled,
+export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
+  withStateLock(() => {
+    const current = matchingStateOrNull(state)
+    if (!current) return
+    writeAimlapiTopupStateUnlocked({
+      ...state,
+      apiKey: state.apiKey ?? current.apiKey,
+      apiKeyId: state.apiKeyId ?? current.apiKeyId,
+      model: state.model ?? current.model,
+      settled: state.settled ?? current.settled,
+    })
   })
-  return true
-}
-
-export function saveAimlapiTopupState(state: AimlapiPersistedTopup): boolean {
-  return withStateLock(() => saveStateOperation(state))
-}
-
-/** Non-blocking `saveAimlapiTopupState` for the interactive top-up flow. */
-export function saveAimlapiTopupStateAsync(
-  state: AimlapiPersistedTopup,
-): Promise<boolean> {
-  return withStateLockAsync(() => saveStateOperation(state))
 }
 
 /**
- * Record the resume token for a just-created checkout session — but only while
- * no token is stored yet for this payment id. This is a compare-and-swap on the
- * token being empty, distinct from `saveAimlapiTopupState` which overwrites it.
- *
- * It lets two processes racing the same intent (they converge on one payment id
- * via `claimAimlapiTopupState`, then each opens a session before either records
- * one) settle on a SINGLE payable checkout: the first writer wins, and the
- * loser gets the winner's token back so it can resume that session and abandon
- * the one it just opened instead of leaving two chargeable checkouts. Returns
- * the winning checkout state, or null if the slot no longer belongs to this
- * intent + payment id (a reset/clear happened meanwhile).
+ * Adopt the stored checkout for this intent, or start a new one. This is a
+ * single slot: claiming a different intent replaces the stored record (the
+ * identity includes amount/partner/endpoints, so a changed intent is genuinely a
+ * different checkout).
  */
-function recordCheckoutSessionOperation(
-  state: AimlapiPersistedTopup,
-): AimlapiCheckoutState | null {
-  const current = matchingStateOrNull(state)
-  if (!current) return null
-  // A peer already recorded a session for this payment id: keep theirs.
-  if (current.resumeSessionToken?.trim()) {
-    return toCheckoutState(current)
-  }
-  const recorded: AimlapiPersistedTopup = {
-    ...state,
-    apiKey: state.apiKey ?? current.apiKey,
-    apiKeyId: state.apiKeyId ?? current.apiKeyId,
-    model: state.model ?? current.model,
-    settled: state.settled ?? current.settled,
-  }
-  writeAimlapiTopupStateUnlocked(recorded)
-  return toCheckoutState(recorded)
-}
-
-export function recordAimlapiCheckoutSession(
-  state: AimlapiPersistedTopup,
-): AimlapiCheckoutState | null {
-  return withStateLock(() => recordCheckoutSessionOperation(state))
-}
-
-/** Non-blocking `recordAimlapiCheckoutSession` for the interactive top-up flow. */
-export function recordAimlapiCheckoutSessionAsync(
-  state: AimlapiPersistedTopup,
-): Promise<AimlapiCheckoutState | null> {
-  return withStateLockAsync(() => recordCheckoutSessionOperation(state))
-}
-
-/**
- * Adopt the stored checkout for this intent, or start a new one.
- *
- * This is a single slot: claiming a different intent replaces the stored record.
- * It refuses to do so while that record still carries an issued key, because
- * silently discarding a provisioned (possibly already paid for) credential is
- * worse than making the caller decide — clear it explicitly with
- * `clearAimlapiTopupState` to start over.
- */
-function claimStateOperation(intent: AimlapiTopupIntent): AimlapiCheckoutState {
-  const existing = readAimlapiTopupStateUnlocked()
-  if (existing && matchesIntent(existing, intent)) {
-    return toCheckoutState(existing)
-  }
-  // Reaching here means a stored record exists for a DIFFERENT intent (a
-  // matching one returned above). Refuse to silently discard it while it still
-  // represents value in flight:
-  if (existing?.apiKey?.trim()) {
-    throw new Error(
-      'An unfinished AI/ML API checkout still holds an issued key. Finish it, or ' +
-        'discard the checkout (CLI: `openclaude aimlapi reset`; or Start over in ' +
-        'the provider manager) before starting a different one.',
-    )
-  }
-  if (existing?.resumeSessionToken?.trim()) {
-    // A payable session is still open on the provider. Overwriting the slot would
-    // strand that payment page and open a second, separately chargeable checkout.
-    // If that session has since gone terminal (cancelled/expired), this claim has
-    // no client to notice — so point the user at the explicit discard escape
-    // hatch rather than silently abandoning it.
-    throw new Error(
-      'An unfinished AI/ML API checkout is still open for a different top-up. ' +
-        'Finish it, or discard the checkout (CLI: `openclaude aimlapi reset`; or ' +
-        'Start over in the provider manager) before starting another.',
-    )
-  }
-  const claimed: AimlapiCheckoutState = {
-    paymentSessionId: randomUUID(),
-    resumeSessionToken: '',
-  }
-  writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
-  // Backstop for a racing claimer: if the lock was stolen as stale by two
-  // processes at once (upstream proper-lockfile removes a stale lock without
-  // re-checking ownership), the last write wins. Return what is actually
-  // persisted so both callers converge on one payment session instead of each
-  // trusting the id it minted.
-  const persisted = readAimlapiTopupStateUnlocked()
-  return persisted && matchesIntent(persisted, intent)
-    ? toCheckoutState(persisted)
-    : claimed
-}
-
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
 ): AimlapiCheckoutState {
-  return withStateLock(() => claimStateOperation(intent))
-}
-
-/** Non-blocking `claimAimlapiTopupState` for the interactive top-up flow. */
-export function claimAimlapiTopupStateAsync(
-  intent: AimlapiTopupIntent,
-): Promise<AimlapiCheckoutState> {
-  return withStateLockAsync(() => claimStateOperation(intent))
+  return withStateLock(() => {
+    const existing = readAimlapiTopupStateUnlocked()
+    if (existing && matchesIntent(existing, intent)) {
+      return toCheckoutState(existing)
+    }
+    const claimed: AimlapiCheckoutState = {
+      paymentSessionId: randomUUID(),
+      resumeSessionToken: '',
+    }
+    writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
+    return claimed
+  })
 }
 
 /**
@@ -667,203 +420,30 @@ export function claimAimlapiTopupStateAsync(
  * another. Returns the refreshed checkout, or null when no matching keyed state
  * exists (callers clear the state instead).
  */
-function resetCheckoutSessionOperation(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-): AimlapiCheckoutState | null {
-  const current = matchingStateOrNull(expected)
-  if (!current || !current.apiKey?.trim()) return null
-  const next: AimlapiPersistedTopup = {
-    ...current,
-    paymentSessionId: randomUUID(),
-    resumeSessionToken: '',
-  }
-  writeAimlapiTopupStateUnlocked(next)
-  // `next` keeps model/settled on disk, so return them too: a caller working
-  // from this result rather than re-reading must not lose them.
-  return toCheckoutState(next)
-}
-
 export function resetAimlapiCheckoutSession(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): AimlapiCheckoutState | null {
-  return withStateLock(() => resetCheckoutSessionOperation(expected))
-}
-
-/** Non-blocking `resetAimlapiCheckoutSession` for the interactive top-up flow. */
-export function resetAimlapiCheckoutSessionAsync(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-): Promise<AimlapiCheckoutState | null> {
-  return withStateLockAsync(() => resetCheckoutSessionOperation(expected))
-}
-
-/**
- * Outcome of an exchange-lease acquisition (see `exchangeLeaseOwner`):
- * - `acquired`: the caller holds the lease and is the sole process cleared to
- *   run the one-shot key exchange.
- * - `settled`: a peer already exchanged and recorded the key — resume from it.
- * - `held`: a live peer holds a fresh lease and is exchanging — wait for its
- *   settled receipt rather than exchanging in parallel.
- * - `gone`: the checkout for this intent + payment id was cleared/reset meanwhile.
- */
-export type AimlapiExchangeLease =
-  | { status: 'acquired'; state: AimlapiCheckoutState }
-  | { status: 'settled'; state: AimlapiCheckoutState }
-  | { status: 'held'; owner: string; ageMs: number }
-  | { status: 'gone' }
-
-function acquireExchangeLeaseOperation(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-  owner: string,
-): AimlapiExchangeLease {
-  const current = matchingStateOrNull(expected)
-  if (!current) return { status: 'gone' }
-  // A peer already completed the one-shot exchange and recorded the key.
-  if (current.settled && current.apiKey?.trim()) {
-    return { status: 'settled', state: toCheckoutState(current) }
-  }
-  const now = Date.now()
-  const leaseOwner = current.exchangeLeaseOwner
-  const heldAt = current.exchangeLeaseAt
-  const ageMs =
-    typeof heldAt === 'number' ? now - heldAt : Number.POSITIVE_INFINITY
-  // A fresh lease held by another process: it is exchanging right now, so back
-  // off. A stale lease (crashed holder) or our own is reclaimed below.
-  if (
-    typeof leaseOwner === 'string' &&
-    leaseOwner !== owner &&
-    ageMs < EXCHANGE_LEASE_STALE_MS
-  ) {
-    return { status: 'held', owner: leaseOwner, ageMs }
-  }
-  // No fresh foreign lease (absent, already ours, or stale): claim it. Writing
-  // under the state lock is the compare-and-swap that elects a single exchanger.
-  writeAimlapiTopupStateUnlocked({
-    ...current,
-    exchangeLeaseOwner: owner,
-    exchangeLeaseAt: now,
+  return withStateLock(() => {
+    const current = matchingStateOrNull(expected)
+    if (!current || !current.apiKey?.trim()) return null
+    const next: AimlapiPersistedTopup = {
+      ...current,
+      paymentSessionId: randomUUID(),
+      resumeSessionToken: '',
+    }
+    writeAimlapiTopupStateUnlocked(next)
+    return toCheckoutState(next)
   })
-  return { status: 'acquired', state: toCheckoutState(current) }
-}
-
-/**
- * Elect a single process to perform the non-idempotent key exchange for a
- * checkout, serializing racing same-intent processes onto one exchange. See
- * `AimlapiExchangeLease`. Interactive-flow (async) only — the exchange happens on
- * the top-up path, which must not block the Ink event loop.
- */
-export function acquireAimlapiExchangeLeaseAsync(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-  owner: string,
-): Promise<AimlapiExchangeLease> {
-  return withStateLockAsync(() => acquireExchangeLeaseOperation(expected, owner))
-}
-
-function releaseExchangeLeaseOperation(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-  owner: string,
-): void {
-  const current = matchingStateOrNull(expected)
-  // Only clear a lease we still own and that a settled receipt has not already
-  // superseded — never one a peer re-claimed after ours went stale.
-  if (!current || current.exchangeLeaseOwner !== owner || current.settled) return
-  writeAimlapiTopupStateUnlocked({
-    ...current,
-    exchangeLeaseOwner: undefined,
-    exchangeLeaseAt: undefined,
-  })
-}
-
-/**
- * Release the exchange lease after a FAILED exchange (the key was not minted, or
- * the outcome is unknown) so a retry proceeds promptly instead of waiting out the
- * stale window. Best-effort and ownership-aware. Never called on success — the
- * settled receipt supersedes the lease there.
- */
-export function releaseAimlapiExchangeLeaseAsync(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-  owner: string,
-): Promise<void> {
-  return withStateLockAsync(() => releaseExchangeLeaseOperation(expected, owner))
-}
-
-function clearStateOperation(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-): void {
-  if (matchingStateOrNull(expected)) {
-    rmSync(statePath(), { force: true })
-  }
 }
 
 export function clearAimlapiTopupState(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): void {
-  withStateLock(() => clearStateOperation(expected))
-}
-
-/** Non-blocking `clearAimlapiTopupState` for the interactive top-up flow. */
-export function clearAimlapiTopupStateAsync(
-  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
-): Promise<void> {
-  return withStateLockAsync(() => clearStateOperation(expected))
-}
-
-/**
- * Outcome of a discard: the checkout was removed; kept because it holds an
- * unsaved issued key (a settled receipt); kept because it is unreadable and might
- * hold one; or there was nothing stored.
- */
-export type AimlapiDiscardResult =
-  | 'discarded'
-  | 'kept-settled'
-  | 'kept-unreadable'
-  | 'none'
-
-function discardStateOperation(force: boolean): AimlapiDiscardResult {
-  const path = statePath()
-  if (!existsSync(path)) return 'none'
-  // Read leniently (readJsonFile, not the fail-closed reader) so we can inspect
-  // even a record the normal path refuses.
-  const raw = readJsonFile(path)
-  if (isPersistedTopup(raw)) {
-    // A settled record is the ONLY copy of a paid-for, one-shot key the provider
-    // will not re-issue; refuse to delete it unless forced. A non-settled record
-    // holds no recoverable credential, so it is safe to remove.
-    const holdsUnsavedKey = Boolean(raw.settled) && Boolean(raw.apiKey?.trim())
-    if (holdsUnsavedKey && !force) return 'kept-settled'
-    rmSync(path, { force: true })
-    return 'discarded'
-  }
-  // Unreadable / schema-invalid: we CANNOT prove it does not hold a settled key
-  // (an externally corrupted or partially written receipt looks the same as
-  // garbage), and reset promises never to lose an issued key. Protect it too —
-  // only an explicit `--force` removes it.
-  if (!force) return 'kept-unreadable'
-  rmSync(path, { force: true })
-  return 'discarded'
-}
-
-/**
- * Discard the stored checkout, whatever intent it holds. This is the explicit
- * "start over" escape hatch surfaced to the CLI and GUI: an interrupted checkout
- * whose session went terminal keeps a resume token that blocks a *different*
- * top-up (see `claimAimlapiTopupState`), and a corrupt file fails closed on read;
- * both can only be cleared out of band. Prefer `clearAimlapiTopupState` for the
- * normal, intent-scoped retirement after a completed top-up.
- *
- * Anything that might still hold a paid-for key is kept unless `force` is set:
- * a SETTLED receipt (an issued key not yet written to a profile), AND an
- * UNREADABLE/corrupt file (which could be a damaged receipt) — deleting either
- * unforced could silently lose a one-shot key the provider will not re-issue.
- */
-export function discardAimlapiCheckoutState(force = false): AimlapiDiscardResult {
-  return withStateLock(() => discardStateOperation(force))
-}
-
-/** Non-blocking `discardAimlapiCheckoutState` for the interactive top-up flow. */
-export function discardAimlapiCheckoutStateAsync(
-  force = false,
-): Promise<AimlapiDiscardResult> {
-  return withStateLockAsync(() => discardStateOperation(force))
+  withStateLock(() => {
+    if (matchingStateOrNull(expected)) {
+      rmSync(statePath(), { force: true })
+    }
+  })
 }
 
 // --- Sign-in key cache ------------------------------------------------------
@@ -871,20 +451,11 @@ export function discardAimlapiCheckoutStateAsync(
 // before the top-up amount (and therefore the full checkout intent) is known.
 // This lightweight per-email cache retains that key so a restart before/without
 // completing the checkout reuses it instead of minting another one.
-//
-// SCOPE: this is a persistence primitive for that guided passwordless flow,
-// which lands in a follow-up PR. It has no in-tree consumer in this stack yet
-// (only its own tests), and is deliberately NOT re-exported from ./index.js
-// until the flow that mints the key is wired — see the note there.
 
 type AimlapiSignInKey = { email: string; apiKey: string; apiKeyId: string }
 
 function signInKeyPath(): string {
   return join(getClaudeConfigHomeDir(), 'aimlapi-signin-key.json')
-}
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase()
 }
 
 // A cached receipt is only useful if it can bypass createKey, which needs both
@@ -903,8 +474,14 @@ function isSignInKey(value: unknown): value is AimlapiSignInKey {
 }
 
 function readSignInKeyUnlocked(): AimlapiSignInKey | null {
-  const raw = readJsonFile(signInKeyPath())
-  return isSignInKey(raw) ? raw : null
+  const path = signInKeyPath()
+  if (!existsSync(path)) return null
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return isSignInKey(raw) ? raw : null
+  } catch {
+    return null
+  }
 }
 
 export function loadAimlapiSignInKey(
