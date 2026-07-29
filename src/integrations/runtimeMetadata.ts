@@ -420,6 +420,14 @@ function findCachedCatalogEntryForApiName(
   }
 
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
+  const discoveryHeaders: Record<string, string> = {
+    ...parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
+  }
+  const authHeader = runtimeEnv.OPENAI_AUTH_HEADER?.trim()
+  const authHeaderValue = runtimeEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
+  if (authHeader && /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(authHeader) && authHeaderValue) {
+    discoveryHeaders[authHeader] = authHeaderValue
+  }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
     apiKey: firstUsableCredential(
@@ -429,7 +437,7 @@ function findCachedCatalogEntryForApiName(
         processEnv: runtimeEnv,
       }),
     ),
-    headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
+    headers: discoveryHeaders,
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
 
