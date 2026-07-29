@@ -41,7 +41,7 @@ type OpenAIStreamConverter = (
 export type ClientDispatchDependencies = {
   processEnv?: NodeJS.ProcessEnv
   providerOverride?: ProviderOverride
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   doRequest(
     request: ResolvedProviderRequest,
     params: ShimCreateParams,
