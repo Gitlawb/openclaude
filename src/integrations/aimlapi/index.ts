@@ -23,6 +23,7 @@ export {
   recordAimlapiCheckoutSession,
   recordAimlapiCheckoutSessionAsync,
   resetAimlapiCheckoutSession,
+  resetAimlapiCheckoutSessionAsync,
   clearAimlapiTopupState,
   clearAimlapiTopupStateAsync,
   discardAimlapiCheckoutState,
@@ -31,6 +32,7 @@ export {
   type AimlapiTopupIntent,
   type AimlapiPersistedTopup,
   type AimlapiCheckoutState,
+  type AimlapiDiscardResult,
 } from './topupState.js'
 // NOTE: the sign-in-key cache (`{load,save,clear}AimlapiSignInKey`) is defined
 // in ./topupState.js but intentionally NOT re-exported here: it is a persistence

@@ -2116,7 +2116,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setScreen('aimlapi-topup-amount')
   }
 
-  useKeybinding('confirm:yes', () => void handleStartOverAimlapiTopup(), {
+  // 'r' (settings:retry) — the Settings context does not bind confirm:yes, and
+  // Enter there closes the panel, so 'r' is the free recovery key here.
+  useKeybinding('settings:retry', () => void handleStartOverAimlapiTopup(), {
     context: 'Settings',
     isActive:
       screen === 'aimlapi-topup-progress' &&
@@ -2537,7 +2539,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               await provisioned.clearReceipt()
               receiptCleared = true
             } catch {
-              // Retry; the lock may have been momentarily contended.
+              // Back off before retrying: an immediate retry is unlikely to
+              // outlast a lock-contention window, which is the failure this loop
+              // is meant to ride out. Skip the wait after the final attempt.
+              if (attempt < 2) {
+                await new Promise<void>(resolve => setTimeout(resolve, 150))
+              }
             }
           }
           if (!receiptCleared) {
@@ -2821,7 +2828,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           {isAimlapiTopupRunning
             ? 'Complete checkout in the browser. This screen will continue automatically.'
             : errorMessage
-              ? 'Press Enter to discard this checkout and start over, or Esc to go back.'
+              ? 'Press r to discard this checkout and start over, or Esc to go back.'
               : 'Press Esc to go back.'}
         </Text>
       </Box>

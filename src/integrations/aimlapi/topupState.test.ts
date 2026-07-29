@@ -59,7 +59,11 @@ const intent: AimlapiTopupIntent = {
   inferenceBaseUrl: 'https://api.example.test/v1',
 }
 
-const LOCK_STALE_MS = 30_000
+// An age comfortably past the module's stale window (8s in topupState.ts) so a
+// `stale: true` lock is treated as abandoned regardless of small tuning. This is
+// NOT the source stale window itself — see the `ageMs` callers, which pick a
+// value relative to that 8s window.
+const LOCK_AGE_WELL_PAST_STALE_MS = 30_000
 
 function lockPathFor(directory: string): string {
   return join(directory, 'aimlapi-topup.json.lock')
@@ -75,7 +79,8 @@ function holdLock(
 ): string {
   const lock = lockPathFor(directory)
   mkdirSync(lock)
-  const ageMs = options.ageMs ?? (options.stale ? LOCK_STALE_MS * 2 : 0)
+  const ageMs =
+    options.ageMs ?? (options.stale ? LOCK_AGE_WELL_PAST_STALE_MS : 0)
   if (ageMs > 0) {
     const past = new Date(Date.now() - ageMs)
     utimesSync(lock, past, past)
