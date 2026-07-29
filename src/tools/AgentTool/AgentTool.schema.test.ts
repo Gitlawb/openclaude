@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -21,7 +21,7 @@ const baseInput = {
 }
 
 const existingCwd = mkdtempSync(join(tmpdir(), 'openclaude-agent-cwd-'))
-process.on('exit', () => {
+afterAll(() => {
   try {
     rmSync(existingCwd, { recursive: true, force: true })
   } catch {
@@ -176,7 +176,7 @@ describe('AgentTool input schema isolation contract', () => {
   test('rejects nonexistent absolute cwd paths', () => {
     expect(() =>
       assertAgentToolCwdAllowed('/tmp/openclaude-missing-cwd-2052', undefined),
-    ).toThrow('cwd must be an existing directory.')
+    ).toThrow(/cwd must be an existing directory \(.+\)\./)
   })
 
   test('detects missing-git worktree errors for fallback', () => {

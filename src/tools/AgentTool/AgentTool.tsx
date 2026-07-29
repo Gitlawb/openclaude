@@ -179,14 +179,14 @@ export function assertAgentToolCwdAllowed(
   if (!isAbsolute(cwd)) {
     throw new Error('cwd must be an absolute path.');
   }
+  let stats;
   try {
-    if (!statSync(cwd).isDirectory()) {
-      throw new Error('cwd must be an existing directory.');
-    }
+    stats = statSync(cwd);
   } catch (error) {
-    if (error instanceof Error && error.message === 'cwd must be an existing directory.') {
-      throw error;
-    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`cwd must be an existing directory (${reason}).`);
+  }
+  if (!stats.isDirectory()) {
     throw new Error('cwd must be an existing directory.');
   }
 }
