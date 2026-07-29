@@ -225,6 +225,42 @@ test('still adds and removes a project server when .mcp.json is clean', async ()
   }
 })
 
+test('refuses user add/remove when the user scope is fatally poisoned', async () => {
+  // A hand-authored ~/.openclaude.json can carry an own "__proto__" server. The
+  // scope then parses to config: null, so an add would claim success while the
+  // scope loads nothing, and a remove would mutate siblings in a raw map that
+  // stays unloadable. Both must refuse.
+  saveGlobalConfig(config => ({
+    ...config,
+    mcpServers: JSON.parse(
+      '{"__proto__":{"command":"echo","args":[]},' +
+        '"realuser":{"command":"echo","args":[]}}',
+    ),
+  }))
+  await expect(
+    addMcpConfig('newsrv', { command: 'echo', args: [] }, 'user'),
+  ).rejects.toThrow('Cannot modify user config')
+  await expect(removeMcpConfig('realuser', 'user')).rejects.toThrow(
+    'Cannot modify user config',
+  )
+})
+
+test('refuses local add/remove when the local scope is fatally poisoned', async () => {
+  saveCurrentProjectConfig(config => ({
+    ...config,
+    mcpServers: JSON.parse(
+      '{"__proto__":{"command":"echo","args":[]},' +
+        '"reallocal":{"command":"echo","args":[]}}',
+    ),
+  }))
+  await expect(
+    addMcpConfig('newsrv', { command: 'echo', args: [] }, 'local'),
+  ).rejects.toThrow('Cannot modify local config')
+  await expect(removeMcpConfig('reallocal', 'local')).rejects.toThrow(
+    'Cannot modify local config',
+  )
+})
+
 test('still allows adding and removing a real server name', async () => {
   await addMcpConfig('addedserver', { command: 'echo', args: [] }, 'user')
   expect(getMcpConfigByName('addedserver')).not.toBeNull()

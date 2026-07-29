@@ -630,22 +630,24 @@ function expandEnvVars(config: McpServerConfig): {
  * @throws Error if name is invalid or server already exists, or if the config is invalid
  */
 /**
- * A fatal parse of `.mcp.json` (a reserved server name such as `__proto__`, or
- * a schema violation) returns `config: null`, so getProjectMcpConfigsFromCwd
+ * A fatal parse of a scope's MCP config (a reserved server name such as
+ * `__proto__`, or a schema violation) returns `config: null`, so the scope
  * reports an empty server map even though the entries are still on disk.
- * Rebuilding the file from that empty snapshot would drop every valid sibling,
- * so refuse to mutate a fatally poisoned file and point the user at the entry to
- * fix. This restores a clear failure in place of the silent data loss the
- * empty-map rebuild would otherwise cause.
+ * Rebuilding from that empty snapshot would drop every valid sibling, and an
+ * add would report success for a scope that then loads nothing -- so refuse to
+ * mutate a fatally poisoned scope and point the user at the entry to fix.
  */
-function assertProjectMcpConfigWritable(errors: ValidationError[]): void {
+function assertMcpScopeWritable(
+  errors: ValidationError[],
+  scopeLabel: string,
+): void {
   const fatal = errors.filter(e => e.mcpErrorMetadata?.severity === 'fatal')
   if (fatal.length === 0) {
     return
   }
   const detail = fatal.map(e => e.message).join(' ')
   throw new Error(
-    `Cannot modify .mcp.json: ${detail} Fix or remove the offending entry in .mcp.json, then retry.`,
+    `Cannot modify ${scopeLabel}: ${detail} Fix or remove the offending entry, then retry.`,
   )
 }
 
@@ -719,13 +721,16 @@ export async function addMcpConfig(
   switch (scope) {
     case 'project': {
       const { servers, errors } = getProjectMcpConfigsFromCwd()
-      assertProjectMcpConfigWritable(errors)
+      assertMcpScopeWritable(errors, '.mcp.json')
       if (Object.hasOwn(servers, name)) {
         throw new Error(`MCP server ${name} already exists in .mcp.json`)
       }
       break
     }
     case 'user': {
+      // A fatally poisoned user scope parses to an empty map, so the add would
+      // silently write into a config that then loads no servers at all.
+      assertMcpScopeWritable(getMcpConfigsByScope('user').errors, 'user config')
       const globalConfig = getGlobalConfig()
       if (Object.hasOwn(globalConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in user config`)
@@ -733,6 +738,10 @@ export async function addMcpConfig(
       break
     }
     case 'local': {
+      assertMcpScopeWritable(
+        getMcpConfigsByScope('local').errors,
+        'local config',
+      )
       const projectConfig = getCurrentProjectConfig()
       if (Object.hasOwn(projectConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in local config`)
@@ -750,7 +759,11 @@ export async function addMcpConfig(
   // Add based on scope
   switch (scope) {
     case 'project': {
-      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
+      // Re-check the exact snapshot we are about to rebuild from: the file may
+      // have become fatally invalid since the existence check above, and writing
+      // from the resulting empty map would drop every valid sibling.
+      assertMcpScopeWritable(errors, '.mcp.json')
 
       const mcpServers: Record<string, McpServerConfig> = {}
       for (const [serverName, serverConfig] of Object.entries(
@@ -814,7 +827,7 @@ export async function removeMcpConfig(
       // A fatally poisoned file parses to an empty map, so an empty result is
       // not proof the server is absent -- refuse rather than treat it as such
       // (which would also clobber every valid sibling on write-back).
-      assertProjectMcpConfigWritable(errors)
+      assertMcpScopeWritable(errors, '.mcp.json')
 
       if (!Object.hasOwn(existingServers, name)) {
         throw new Error(`No MCP server found with name: ${name} in .mcp.json`)
@@ -840,6 +853,10 @@ export async function removeMcpConfig(
     }
 
     case 'user': {
+      // An empty parsed map from a fatally poisoned scope is not proof of
+      // absence; refuse rather than mutate a sibling in the raw map while the
+      // scope stays unloadable.
+      assertMcpScopeWritable(getMcpConfigsByScope('user').errors, 'user config')
       const config = getGlobalConfig()
       if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
         throw new Error(`No user-scoped MCP server found with name: ${name}`)
@@ -855,6 +872,10 @@ export async function removeMcpConfig(
     }
 
     case 'local': {
+      assertMcpScopeWritable(
+        getMcpConfigsByScope('local').errors,
+        'local config',
+      )
       // Check if server exists before updating
       const config = getCurrentProjectConfig()
       if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
@@ -1559,12 +1580,12 @@ export function parseMcpConfigFromFilePath(params: {
 }
 
 export const doesEnterpriseMcpConfigExist = memoize((): boolean => {
-  const { config } = parseMcpConfigFromFilePath({
-    filePath: getEnterpriseMcpFilePath(),
-    expandVars: true,
-    scope: 'enterprise',
-  })
-  return config !== null
+  // Engage enterprise exclusive control on the managed file's PRESENCE, not on a
+  // successful parse. A fatally poisoned managed-mcp.json (e.g. a reserved
+  // `__proto__` entry now rejects the whole file) must not silently disable the
+  // policy lock and let user/project/local servers take over -- fail safe by
+  // keeping enterprise mode engaged while the file exists on disk.
+  return getFsImplementation().existsSync(getEnterpriseMcpFilePath())
 })
 
 /**
