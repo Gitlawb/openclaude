@@ -422,13 +422,21 @@ async function authenticateAimlapiAccount(
 }
 
 /**
- * Record the settled recovery receipt for a just-exchanged key, reporting only
- * whether it landed. The exchange is one-shot, so this MUST NOT abort the flow:
- * a false compare-and-swap OR a thrown lock-timeout / filesystem error both mean
- * the receipt was not stored, but the key is in hand and the caller still has to
- * deliver it (write the profile / return the key). Swallow the error here — the
- * caller warns off the boolean — rather than stranding a paid-for credential in
- * an already-exchanged session that can never be re-issued.
+ * Outcome of recording the settled recovery receipt:
+ * - `recorded`: the compare-and-swap landed; the checkout still belongs to us.
+ * - `superseded`: the CAS missed because the stored slot no longer holds this
+ *   intent + payment id — the checkout was reset or replaced by another top-up.
+ *   Delivering our key now would clobber that peer, so the caller must fence.
+ * - `errored`: a lock-timeout / filesystem error; whether we still own the slot
+ *   is unknown, so the caller still delivers rather than strand a paid-for key.
+ */
+type ReceiptOutcome = 'recorded' | 'superseded' | 'errored'
+
+/**
+ * Record the settled recovery receipt for a just-exchanged key. The exchange is
+ * one-shot, so a transient failure MUST NOT abort delivery (the key is in hand);
+ * but a compare-and-swap MISS is different — it proves another checkout now owns
+ * the slot, so the caller fences instead of overwriting it. See `ReceiptOutcome`.
  */
 async function recordSettledReceipt(args: {
   intent: AimlapiTopupIntent
@@ -436,9 +444,9 @@ async function recordSettledReceipt(args: {
   apiKey: string
   apiKeyId: string
   model: string
-}): Promise<boolean> {
+}): Promise<ReceiptOutcome> {
   try {
-    return await saveAimlapiTopupStateAsync({
+    const stored = await saveAimlapiTopupStateAsync({
       ...args.intent,
       ...args.state,
       apiKey: args.apiKey,
@@ -446,11 +454,12 @@ async function recordSettledReceipt(args: {
       model: args.model,
       settled: true,
     })
+    return stored ? 'recorded' : 'superseded'
   } catch (error) {
     logForDebugging(`Failed to record the AI/ML API recovery receipt: ${error}`, {
       level: 'warn',
     })
-    return false
+    return 'errored'
   }
 }
 
@@ -467,6 +476,11 @@ const EXCHANGE_WAIT_POLL_MS = 250
 type LeasedExchange = {
   apiKey: string
   apiKeyId: string
+  /**
+   * The model to configure for this key: on a resume, the one the ORIGINAL run
+   * provisioned (stored in the receipt), not this run's possibly-different arg.
+   */
+  model: string
   /** Whether the settled recovery receipt is on disk (minted here, or by a peer). */
   recorded: boolean
   /** True when the key came from a peer's settled receipt rather than our exchange. */
@@ -505,10 +519,12 @@ async function exchangeLeasedKey(args: {
     }
     if (lease.status === 'settled') {
       // A peer minted and recorded the key first — resume from its receipt
-      // instead of exchanging the (now spent) session.
+      // instead of exchanging the (now spent) session. Honour the model the peer
+      // provisioned (stored in the receipt), not this run's own arg.
       return {
         apiKey: lease.state.apiKey ?? '',
         apiKeyId: lease.state.apiKeyId ?? '',
+        model: lease.state.model?.trim() || model,
         recorded: true,
         resumed: true,
       }
@@ -529,17 +545,29 @@ async function exchangeLeasedKey(args: {
         }
         throw error
       }
-      const recorded = await recordSettledReceipt({
+      const outcome = await recordSettledReceipt({
         intent,
         state,
         apiKey: exchanged.apiKey,
         apiKeyId: exchanged.apiKeyId,
         model,
       })
+      if (outcome === 'superseded') {
+        // The checkout slot was reset/replaced (by an explicit reset, or a fresh
+        // top-up) while we were exchanging: we are an abandoned flow. Delivering
+        // this key would clobber the profile the current checkout will write, so
+        // fence — the key is orphaned but rotatable, which beats a wrong key.
+        throw new Error(
+          `The AI/ML API checkout was reset while the key was being provisioned, so the ` +
+            `issued key ${maskKey(exchanged.apiKey)} (id ${exchanged.apiKeyId}) was not saved — ` +
+            `rotate it from the AI/ML API dashboard. Your current top-up was left untouched.`,
+        )
+      }
       return {
         apiKey: exchanged.apiKey,
         apiKeyId: exchanged.apiKeyId,
-        recorded,
+        model,
+        recorded: outcome === 'recorded',
         resumed: false,
       }
     }
@@ -686,7 +714,12 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // a paid-for credential; a failed record must NOT abort the flow (the profile
   // write below is the primary delivery), so warn with the key in hand instead.
   console.log(chalk.dim('  -> Provisioning API key...'))
-  const { apiKey, apiKeyId, recorded } = await exchangeLeasedKey({
+  const {
+    apiKey,
+    apiKeyId,
+    model: provisionedModel,
+    recorded,
+  } = await exchangeLeasedKey({
     client,
     token,
     intent,
@@ -708,13 +741,14 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     )
   }
 
-  // 7. Persist into OpenClaude's provider profile and retire the record.
+  // 7. Persist into OpenClaude's provider profile and retire the record. Use the
+  // provisioned model (the receipt's, when a peer completed the exchange).
   await finishCliTopup({
     intent,
     paymentSessionId: state.paymentSessionId,
     apiKey,
     apiKeyId,
-    model,
+    model: provisionedModel,
     baseUrl: endpoints.inferenceBaseUrl,
   })
 }
@@ -861,7 +895,12 @@ export async function provisionAimlapiKey(
   // receipt rather than clearing here — an interruption before the caller
   // persists it would otherwise lose a paid-for credential permanently. A failed
   // record must NOT abort delivery; warn instead so the caller persists now.
-  const { apiKey, apiKeyId, recorded } = await exchangeLeasedKey({
+  const {
+    apiKey,
+    apiKeyId,
+    model: provisionedModel,
+    recorded,
+  } = await exchangeLeasedKey({
     client,
     token,
     intent,
@@ -885,7 +924,8 @@ export async function provisionAimlapiKey(
     apiKey,
     apiKeyId,
     baseUrl: endpoints.inferenceBaseUrl,
-    model,
+    // The provisioned model (the receipt's, when a peer completed the exchange).
+    model: provisionedModel,
     clearReceipt: clearReceiptFor(state.paymentSessionId),
   }
 }

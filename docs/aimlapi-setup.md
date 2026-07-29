@@ -46,7 +46,13 @@ If a top-up is interrupted — or its checkout session expires or is cancelled �
 openclaude aimlapi reset
 ```
 
-In the guided flow (`/provider`), press **r** on the top-up error screen to **Start over**. Either action is safe: it only clears OpenClaude's local checkout record — not your AI/ML API account or any already-issued key.
+`reset` is safe: it only clears OpenClaude's local checkout record — not your AI/ML API account or any already-issued key. So it can never lose a paid-for key, it will **not** remove a checkout that still holds an unsaved issued key, nor an unreadable/corrupt state file (which could be a damaged receipt). To remove one of those anyway — accepting that a key may be lost (rotate it from the dashboard) — add `--force`:
+
+```bash
+openclaude aimlapi reset --force
+```
+
+In the guided flow (`/provider`), press **r** on the top-up error screen to **Start over**. This clears an ordinary interrupted checkout; if the stored state holds an unsaved key or is unreadable it is kept, and you are pointed at `openclaude aimlapi reset --force`.
 
 ## Option 3 — Environment variables
 
