@@ -164,6 +164,14 @@ test('semantic tool-result boundary is Mistral-only and never local', () => {
   expect(
     shouldInjectToolResultSemanticBoundary({
       baseUrl: 'https://api.example.com/v1',
+      model: 'mixtral-8x7b-instruct',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
       model: 'qwen',
       processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
     }),

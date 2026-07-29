@@ -44,9 +44,10 @@ export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 /**
  * Synthetic assistant content used only for Mistral/Devstral Jinja role
  * sequencing when a `tool` message must be followed by `assistant` before
- * `user`. Never inject this for llama.cpp / Ollama / vLLM / OpenAI — those
- * backends treat it as real assistant text and often echo it, ending the
- * agent turn early (issues #2039, #2059).
+ * `user`. Never inject this for local-classified OpenAI-compatible hosts
+ * (loopback, RFC1918, `.local`) or Ollama — those backends often treat it as
+ * real assistant text and echo it, ending the agent turn early
+ * (issues #2039, #2059).
  */
 export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
 
@@ -100,7 +101,9 @@ export function shouldInjectToolResultSemanticBoundary(options?: {
     processEnv.OPENAI_MODEL ??
     ''
   ).toLowerCase()
-  return /\b(devstral|mistral|ministral|codestral)\b/.test(model)
+  return /\b(devstral|mistral|mixtral|ministral|magistral|mathstral|codestral)\b/.test(
+    model,
+  )
 }
 
 /** True when assistant text is only the transport tool-result placeholder. */
