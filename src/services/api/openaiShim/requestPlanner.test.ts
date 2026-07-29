@@ -358,7 +358,58 @@ describe('serialization and retry state', () => {
     expect(planner.buildAnthropicMessagesBody()).not.toHaveProperty('tool_choice')
     planner.omitTools.gemini = true
     expect(planner.buildGeminiBody()).not.toHaveProperty('tools')
-    expect(planner.buildGeminiBody()).not.toHaveProperty('tool_choice')
+  })
+
+  test('serializeBody routes transport bodies and honors omit flags on rebuild', () => {
+    const payloads: unknown[] = []
+    const stableStringifyJson = (value: unknown) => {
+      payloads.push(value)
+      return JSON.stringify(value)
+    }
+
+    const responsesPlanner = createPlanner({
+      effectiveTransport: 'responses',
+      params: { messages: [], tools: [{ name: 'Read' }] },
+      stableStringifyJson,
+    })
+    responsesPlanner.serializeBody()
+    expect(payloads.at(-1)).toHaveProperty('tools')
+    responsesPlanner.omitTools.responses = true
+    responsesPlanner.serializeBody()
+    expect(payloads.at(-1)).not.toHaveProperty('tools')
+
+    const anthropicPlanner = createPlanner({
+      effectiveTransport: 'anthropic_messages',
+      params: {
+        messages: [{ role: 'user', content: 'hello' }],
+        tools: [{ name: 'Read' }],
+        tool_choice: { type: 'auto' },
+      },
+      stableStringifyJson,
+    })
+    anthropicPlanner.serializeBody()
+    expect(payloads.at(-1)).toMatchObject({
+      tools: [{ name: 'Read' }],
+      tool_choice: { type: 'auto' },
+    })
+    anthropicPlanner.omitTools.anthropic = true
+    anthropicPlanner.serializeBody()
+    expect(payloads.at(-1)).not.toHaveProperty('tools')
+    expect(payloads.at(-1)).not.toHaveProperty('tool_choice')
+
+    const geminiPlanner = createPlanner({
+      effectiveTransport: 'gemini',
+      params: {
+        messages: [],
+        tools: [{ name: 'Read', description: 'read' }],
+      },
+      stableStringifyJson,
+    })
+    geminiPlanner.serializeBody()
+    expect(payloads.at(-1)).toHaveProperty('tools')
+    geminiPlanner.omitTools.gemini = true
+    geminiPlanner.serializeBody()
+    expect(payloads.at(-1)).not.toHaveProperty('tools')
   })
 
   test('uses native JSON serialization only when the fast path opts out', () => {
