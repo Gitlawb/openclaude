@@ -23,10 +23,18 @@ describe('firstPartyNameToCanonical - Claude 4+', () => {
 
   test.each([
     ['claude-opus-5[1m]', 'claude-opus-5'],
+    ['claude-opus-5?thinking=enabled', 'claude-opus-5'],
+    ['claude-opus-5?reasoning=high', 'claude-opus-5'],
     ['us.anthropic.claude-opus-5-v1:0', 'claude-opus-5'],
     ['opencode-claude-opus-4-8', 'claude-opus-4-8'],
     ['anthropic/claude-sonnet-4-6', 'claude-sonnet-4-6'],
     ['claude-haiku-4-5-20251001', 'claude-haiku-4-5'],
+    ['claude-haiku-4-5@20251001', 'claude-haiku-4-5'],
+    ['claude-sonnet-4@20250514', 'claude-sonnet-4'],
+    ['claude-sonnet-4-5@20250929', 'claude-sonnet-4-5'],
+    ['claude-opus-4@20250514', 'claude-opus-4'],
+    ['claude-opus-4-1@20250805', 'claude-opus-4-1'],
+    ['claude-opus-4-5@20251101', 'claude-opus-4-5'],
   ])('canonicalizes provider or suffix variant %s', (model, canonical) => {
     expect(firstPartyNameToCanonical(model)).toBe(canonical)
   })

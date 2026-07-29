@@ -151,8 +151,12 @@ export function modelSupportsThinking(model: string): boolean {
       return false
     }
   }
-  // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
-  return canonical.includes('sonnet-4') || canonical.includes('opus-4')
+  // 3P (Bedrock/Vertex): only Opus 4+, Opus 5, and Sonnet 4+
+  return (
+    canonical === 'claude-opus-5' ||
+    canonical.includes('sonnet-4') ||
+    canonical.includes('opus-4')
+  )
 }
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports adaptive thinking.

@@ -56,7 +56,7 @@ afterEach(() => {
   }
 })
 
-async function importFreshThinkingModule() {
+async function importFreshThinkingModule(provider = 'openai') {
   mock.restore()
   const nonce = `${Date.now()}-${Math.random()}`
   const [originalProviders, originalModel] = await Promise.all([
@@ -66,7 +66,7 @@ async function importFreshThinkingModule() {
   mock.module('./model/providers.js', () => {
     return {
       ...originalProviders,
-      getAPIProvider: () => 'openai',
+      getAPIProvider: () => provider,
     }
   })
   mock.module('./model/model.js', () => ({ ...originalModel }))
@@ -139,6 +139,24 @@ describe('modelSupportsAdaptiveThinking — Claude allowlist', () => {
     expect(modelSupportsAdaptiveThinking('claude-opus-5x')).toBe(false)
     expect(modelSupportsAdaptiveThinking('claude-opus-4-80')).toBe(false)
     expect(modelSupportsAdaptiveThinking('openai-opus-5')).toBe(false)
+  })
+})
+
+describe('Claude Opus 5 thinking — third-party providers', () => {
+  test.each([
+    ['bedrock', 'us.anthropic.claude-opus-5-v1:0'],
+    ['vertex', 'claude-opus-5'],
+  ])('enables adaptive thinking on %s', async (provider, model) => {
+    const {
+      modelSupportsAdaptiveThinking,
+      modelSupportsThinking,
+      shouldUseThinkingForModel,
+    } = await importFreshThinkingModule(provider)
+    const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
+
+    expect(modelSupportsThinking(model)).toBe(true)
+    expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+    expect(shouldUseThinkingForModel(model, enabledThinking)).toBe(true)
   })
 })
 

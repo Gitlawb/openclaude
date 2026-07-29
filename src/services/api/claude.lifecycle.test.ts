@@ -38,6 +38,8 @@ const envKeys = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+  'CLAUDE_CODE_SKIP_VERTEX_AUTH',
   'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
   'CLAUDE_FEATURE_FLAGS_FILE',
   'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
@@ -47,6 +49,8 @@ const envKeys = [
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENCLAUDE_MAX_RETRIES',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
+  'CLOUD_ML_REGION',
   'VCR_RECORD',
 ] as const
 const originalEnv = { ...process.env }
@@ -337,6 +341,63 @@ afterEach(() => {
 })
 
 describe('Claude API lifecycle tracking', () => {
+  test.each([
+    [
+      'bedrock',
+      'CLAUDE_CODE_USE_BEDROCK',
+      'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+      'us.anthropic.claude-opus-5-v1:0',
+    ],
+    [
+      'vertex',
+      'CLAUDE_CODE_USE_VERTEX',
+      'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+      'claude-opus-5',
+    ],
+  ])(
+    'sends adaptive thinking for Opus 5 through %s',
+    async (_provider, providerEnv, skipAuthEnv, model) => {
+      setClientTestEnv()
+      process.env.OPENCLAUDE_MAX_RETRIES = '0'
+      process.env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = '1'
+      process.env[providerEnv] = '1'
+      process.env[skipAuthEnv] = '1'
+      process.env.ANTHROPIC_VERTEX_PROJECT_ID = 'test-project'
+      process.env.CLOUD_ML_REGION = 'us-east5'
+
+      let requestBody: Record<string, unknown> | undefined
+      const fetchOverride: FetchOverride = async (_input, init) => {
+        requestBody = parseRequestBody(init)
+        return makeErrorResponse(500, 'request captured')
+      }
+      const queryLifecycle = new QueryLifecycleOperationTracker()
+      const generator = queryModelWithStreaming({
+        messages: [
+          {
+            type: 'user',
+            uuid: '00000000-0000-0000-0000-000000000000',
+            timestamp: '2026-07-29T00:00:00.000Z',
+            message: { role: 'user', content: 'hello' },
+          } as Message,
+        ],
+        systemPrompt: asSystemPrompt([]),
+        thinkingConfig: { type: 'enabled', budgetTokens: 1024 },
+        tools: [],
+        signal: new AbortController().signal,
+        options: {
+          ...makeOptions(queryLifecycle),
+          model,
+          fetchOverride,
+        },
+      })
+
+      const first = await generator.next()
+      expect(first.done).toBe(false)
+      expect(requestBody?.thinking).toEqual({ type: 'adaptive' })
+      await generator.return(undefined)
+    },
+  )
+
   test('ends a failed streaming dispatch before retry backoff is reported', async () => {
     setClientTestEnv()
     process.env.OPENCLAUDE_MAX_RETRIES = '1'

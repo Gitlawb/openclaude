@@ -466,10 +466,16 @@ function matchesCanonicalModelId(name: string, canonical: string): boolean {
     return false
   }
 
-  // Provider IDs may prefix the canonical ID. Constrain the suffix so a
-  // future version such as `claude-opus-50` cannot match `claude-opus-5`.
+  // Provider IDs may prefix the canonical ID. Only accept suffix delimiters
+  // used by provider versions, Vertex dates, query options, and context tags.
   const next = name[index + canonical.length]
-  return next === undefined || next === '-' || next === '['
+  return (
+    next === undefined ||
+    next === '-' ||
+    next === '@' ||
+    next === '?' ||
+    next === '['
+  )
 }
 
 /**
