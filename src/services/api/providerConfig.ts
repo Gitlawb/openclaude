@@ -79,7 +79,7 @@ const CODEX_ALIAS_MODELS: Record<
   }
 > = {
   codexplan: {
-    model: 'gpt-5.5',
+    model: 'gpt-5.6-sol',
     reasoningEffort: 'high',
   },
   // GPT-5.6 family (July 2026). `gpt-5.6` follows the Codex CLI convention of
@@ -1132,18 +1132,17 @@ export function resolveProviderRequest(options?: {
         ? requestedApiFormat
         : 'chat_completions'
 
-  // The gpt-5.6 alias defaults are Codex-transport-only: off the Codex
+  // Explicit gpt-5.6 alias defaults are Codex-transport-only: off the Codex
   // transport the 5.6 family's effort metadata is owned by the route catalog
   // (#1961), and an OPENAI_API_BASE gateway must not inherit the first-party
   // default. Explicit picks (the /effort override or a ?reasoning= query)
-  // still flow on every transport, and the older aliases (gpt-5.4/5.5,
-  // codexplan) keep the pre-5.6 legacy behavior of carrying their default
-  // effort everywhere.
+  // still flow on every transport, and codexplan keeps its existing behavior
+  // of carrying its high default effort everywhere.
   const requestedReasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoningFromAlias &&
         transport !== 'codex_responses' &&
-        /^gpt-5\.6/.test(descriptor.baseModel)
+        /^gpt-5\.6(?:-|$|[?[])/i.test(requestedModel.trim())
       ? undefined
       : descriptor.reasoning
   const catalogReasoningLevels =

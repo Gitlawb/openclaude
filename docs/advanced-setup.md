@@ -48,7 +48,7 @@ export OPENAI_MODEL=gpt-4o
 
 ### Codex via ChatGPT auth
 
-`codexplan` maps to GPT-5.5 on the Codex backend with high reasoning.
+`codexplan` maps to GPT-5.6 Sol on the Codex backend with high reasoning.
 `codexspark` maps to GPT-5.3 Codex Spark for faster loops.
 
 If you use the in-app provider wizard, choose `Codex OAuth` to open ChatGPT sign-in in your browser and let OpenClaude store Codex credentials securely.

@@ -115,7 +115,7 @@ describe('providerConfig — Codex alias lookup is prototype-safe', () => {
       model: 'codexplan?reasoning=medium',
       processEnv: {},
     })
-    expect(resolvedModel).toBe('gpt-5.5')
+    expect(resolvedModel).toBe('gpt-5.6-sol')
   })
 
   test('resolveProviderRequest still resolves a genuine Codex alias', () => {
@@ -123,6 +123,6 @@ describe('providerConfig — Codex alias lookup is prototype-safe', () => {
       model: 'codexplan',
       processEnv: {},
     })
-    expect(resolvedModel).toBe('gpt-5.5')
+    expect(resolvedModel).toBe('gpt-5.6-sol')
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { has1mContext } from '../context.js'
-import { parseUserSpecifiedModel } from './model.js'
+import { parseUserSpecifiedModel, renderModelSetting } from './model.js'
 
 // Regression: the Codex aliases (codexplan/codexspark) dropped the `[1m]`
 // (1M-context) tag while every Claude alias (opus/sonnet/haiku/best) preserved
@@ -26,8 +26,8 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
     expect(has1mContext(tagged)).toBe(true)
   })
 
-  test('the bare codex aliases are unchanged and carry no 1M tag', () => {
-    expect(parseUserSpecifiedModel('codexplan')).toBe('gpt-5.5')
+  test('the bare codex aliases resolve and carry no 1M tag', () => {
+    expect(parseUserSpecifiedModel('codexplan')).toBe('gpt-5.6-sol')
     expect(parseUserSpecifiedModel('codexspark')).toBe('gpt-5.3-codex-spark')
     expect(has1mContext(parseUserSpecifiedModel('codexplan'))).toBe(false)
     expect(has1mContext(parseUserSpecifiedModel('codexspark'))).toBe(false)
@@ -37,6 +37,10 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
     const tagged = parseUserSpecifiedModel('codexplan[1m]')
     expect(parseUserSpecifiedModel('CODEXPLAN[1M]')).toBe(tagged)
     expect(tagged.match(/\[1m]/gi)?.length).toBe(1)
+  })
+
+  test('codexplan display identifies the Sol model', () => {
+    expect(renderModelSetting('codexplan')).toBe('codexplan (gpt-5.6-sol)')
   })
 })
 
@@ -50,6 +54,7 @@ describe('parseUserSpecifiedModel — bare gpt-5.6 resolves to Sol', () => {
   })
 
   test('explicit tier ids pass through unchanged', () => {
+    expect(parseUserSpecifiedModel('gpt-5.5')).toBe('gpt-5.5')
     expect(parseUserSpecifiedModel('gpt-5.6-sol')).toBe('gpt-5.6-sol')
     expect(parseUserSpecifiedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra')
     expect(parseUserSpecifiedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna')

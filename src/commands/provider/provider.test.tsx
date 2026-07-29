@@ -12,6 +12,7 @@ import {
   buildCurrentProviderSummary,
   buildProfileSaveMessage,
   buildProviderManagerCompletion,
+  CodexCredentialStep,
   getProviderWizardDefaults,
   ProviderWizard,
   TextEntryDialog,
@@ -768,6 +769,27 @@ test('getProviderWizardDefaults ignores poisoned current provider values', () =>
   expect(defaults.openAIModel).toBe('gpt-4o')
   expect(defaults.openAIBaseUrl).toBe('https://api.openai.com/v1')
   expect(defaults.geminiModel).toBe('gemini-3-flash-preview')
+})
+
+test('CodexCredentialStep renders the codexplan Sol description', async () => {
+  const previousApiKey = process.env.CODEX_API_KEY
+  try {
+    process.env.CODEX_API_KEY = 'codex-test-key'
+    const output = await renderFinalFrame(
+      <CodexCredentialStep
+        onSave={() => {}}
+        onBack={() => {}}
+        onCancel={() => {}}
+      />,
+    )
+
+    expect(output).toContain(
+      'GPT-5.6 Sol with higher reasoning on the Codex backend',
+    )
+  } finally {
+    if (previousApiKey === undefined) delete process.env.CODEX_API_KEY
+    else process.env.CODEX_API_KEY = previousApiKey
+  }
 })
 
 test('ProviderWizard hides Codex OAuth while running in bare mode', async () => {

@@ -358,6 +358,12 @@ test('resolveProviderRequest scopes GPT-5.6 alias effort defaults to the Codex t
   expect(plain.transport).not.toBe('codex_responses')
   expect(plain.reasoning).toBeUndefined()
 
+  const codexplan = resolveProviderRequest({ model: 'codexplan', processEnv })
+  expect(codexplan.resolvedModel).toBe('gpt-5.6-sol')
+  expect(codexplan.baseUrl).toBe('https://gateway.example/v1')
+  expect(codexplan.transport).not.toBe('codex_responses')
+  expect(codexplan.reasoning).toEqual({ effort: 'high' })
+
   const explicit = resolveProviderRequest({
     model: 'gpt-5.6-sol?reasoning=medium',
     processEnv,

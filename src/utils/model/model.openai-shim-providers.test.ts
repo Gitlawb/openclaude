@@ -195,6 +195,33 @@ test('codex provider reads OPENAI_MODEL, not stale settings.model', async () => 
   expect(model).toBe('codexplan')
 })
 
+test('Codex runtime fallbacks use Sol and honor OPENAI_MODEL', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+
+  const {
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+    getDefaultMainLoopModel,
+  } = await importFreshModelModule()
+  const helpers = [
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+    getDefaultMainLoopModel,
+  ]
+
+  for (const helper of helpers) {
+    expect(helper()).toBe('gpt-5.6-sol')
+  }
+
+  process.env.OPENAI_MODEL = 'gpt-5.6-terra'
+  for (const helper of helpers) {
+    expect(helper()).toBe('gpt-5.6-terra')
+  }
+})
+
 test('nvidia-nim provider reads OPENAI_MODEL, not stale settings.model', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'kimi-k2.6' }))
   process.env.NVIDIA_NIM = '1'
