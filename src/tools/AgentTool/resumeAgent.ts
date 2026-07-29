@@ -96,19 +96,19 @@ export async function resumeAgentBackground({
     const now = new Date()
     await fsp.utimes(resumedWorktreePath, now, now)
   }
-  const resumedCwdOverride = resumedWorktreePath
-    ? undefined
-    : meta?.cwd
-      ? await fsp.stat(meta.cwd).then(
-          s => (s.isDirectory() ? meta.cwd : undefined),
-          () => {
-            logForDebugging(
-              `Resumed cwd override ${meta.cwd} no longer exists; falling back to parent cwd`,
-            )
-            return undefined
-          },
-        )
-      : undefined
+  const resumedCwdOverride = meta?.cwd
+    ? await fsp.stat(meta.cwd).then(
+        s => (s.isDirectory() ? meta.cwd : undefined),
+        () => {
+          logForDebugging(
+            `Resumed cwd override ${meta.cwd} no longer exists; falling back to parent cwd`,
+          )
+          return undefined
+        },
+      )
+    : undefined
+  // Prefer the live worktree when present; otherwise land in the persisted
+  // child-repo cwd (multi-repo parents) before falling back to the session cwd.
   const resumedCwdPath = resumedWorktreePath ?? resumedCwdOverride
 
   // Skip filterDeniedAgents re-gating — original spawn already passed permission checks
