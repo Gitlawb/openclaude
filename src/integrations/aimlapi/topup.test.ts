@@ -844,15 +844,33 @@ test('two racing exchangers mint the one-shot key once; the loser resumes the re
     getSession: async token => session({ sessionToken: token, status: 'paid' }),
   })
 
+  let announceLoserWaiting: () => void = () => {}
+  const loserObservedHeldLease = new Promise<void>(resolve => {
+    announceLoserWaiting = resolve
+  })
+  let loserWaited = false
+
   const winnerRun = winner.provisionAimlapiKey(provisionOptions)
   await winnerHoldsLease // the winner now holds the lease and is mid-exchange
-  const loserRun = loser.provisionAimlapiKey(provisionOptions)
-  // Let the loser reach its wait loop and see the fresh peer lease, then release
-  // the winner so it records the settled receipt the loser resumes from.
-  await new Promise(resolve => setTimeout(resolve, 400))
+  // The loser reports when it observes the held lease and enters the wait loop.
+  const loserRun = loser.provisionAimlapiKey({
+    ...provisionOptions,
+    onStatus: (_status: string, detail?: string) => {
+      if (detail?.includes('finishing this checkout')) {
+        loserWaited = true
+        announceLoserWaiting()
+      }
+    },
+  })
+  // Gate on the loser's own "waiting" signal, not a wall-clock sleep: it has now
+  // seen the fresh peer lease and is in the wait loop. Release the winner so it
+  // records the settled receipt the loser resumes from.
+  await loserObservedHeldLease
   releaseWinner()
 
   const [winnerKey, loserKey] = await Promise.all([winnerRun, loserRun])
+  // The loser genuinely took the wait path, not a lucky straight-to-settled read.
+  expect(loserWaited).toBe(true)
   // The non-idempotent exchange ran exactly once across both processes.
   expect(winner.calls.exchange + loser.calls.exchange).toBe(1)
   // Both still obtain the key: the winner minted it, the loser resumed the receipt.

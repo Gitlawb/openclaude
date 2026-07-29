@@ -31,6 +31,7 @@ import {
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
   saveAimlapiTopupStateAsync,
+  type AimlapiPersistedTopup,
   type AimlapiTopupIntent,
 } from './topupState.js'
 
@@ -758,7 +759,9 @@ test('sign-in key clear leaves a newer cached record intact', () => {
 // persisted record straight to disk to control the lease owner/age.
 function seedPersistedState(
   directory: string,
-  overrides: Record<string, unknown>,
+  // Typed so a misspelled key or wrong-typed value is a typecheck failure rather
+  // than a record that fails isPersistedTopup and silently reroutes the test.
+  overrides: Partial<AimlapiPersistedTopup>,
 ): void {
   const record = {
     ...intent,
@@ -788,6 +791,18 @@ test('the exchange lease is granted to the first caller and persisted', async ()
   const lease = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
   expect(lease.status).toBe('acquired')
   // Recorded on disk so a peer sees it and backs off.
+  expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-a')
+})
+
+test('re-acquiring your own lease refreshes it rather than self-blocking', async () => {
+  const directory = useTemporaryConfig()
+  seedPersistedState(directory, {})
+  await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+
+  // The `leaseOwner !== owner` guard means a caller never mistakes its OWN fresh
+  // lease for a live peer's and waits out the 75s stale window — it re-acquires.
+  const again = await acquireAimlapiExchangeLeaseAsync(leaseExpected, 'owner-a')
+  expect(again.status).toBe('acquired')
   expect(readRawState(directory).exchangeLeaseOwner).toBe('owner-a')
 })
 
