@@ -651,13 +651,26 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       return firstOctet === 127 || isPrivateIpv4Address(hostname)
     }
     if (ipVersion === 6) {
-      // Unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1) so dual-stack URLs keep
-      // the same local classification as their IPv4 form.
-      const mapped = hostname.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-      if (mapped?.[1]) {
-        const v4 = mapped[1]
+      // Unwrap IPv4-mapped IPv6 so dual-stack URLs keep the same local
+      // classification as their IPv4 form. URL parsers may keep dotted
+      // decimal (::ffff:127.0.0.1) or expand to hextets (::ffff:7f00:1).
+      const mappedDotted = hostname
+        .toLowerCase()
+        .match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
+      if (mappedDotted?.[1]) {
+        const v4 = mappedDotted[1]
         const firstOctet = Number.parseInt(v4.split('.', 1)[0] ?? '', 10)
         return firstOctet === 127 || isPrivateIpv4Address(v4)
+      }
+      const mappedHex = hostname.toLowerCase().match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+      if (mappedHex?.[1] && mappedHex[2]) {
+        const hi = Number.parseInt(mappedHex[1], 16)
+        const lo = Number.parseInt(mappedHex[2], 16)
+        if (!Number.isNaN(hi) && !Number.isNaN(lo)) {
+          const v4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+          const firstOctet = Number.parseInt(v4.split('.', 1)[0] ?? '', 10)
+          return firstOctet === 127 || isPrivateIpv4Address(v4)
+        }
       }
       return isPrivateIpv6Address(hostname)
     }
