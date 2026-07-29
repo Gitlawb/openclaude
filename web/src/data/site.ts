@@ -1,4 +1,4 @@
-import pkg from '../../../package.json'
+import { latestVersion } from './releases'
 
 export const SITE = {
   url: 'https://openclaude.gitlawb.com',
@@ -11,7 +11,7 @@ export const SITE = {
   github: 'https://github.com/Gitlawb/openclaude',
   gitlawb: 'https://gitlawb.com',
   gitlawbRepo: 'https://gitlawb.com/node/repos/z6MkqDnb/openclaude',
-  version: pkg.version,
+  version: latestVersion,
   ogDefault: '/og/default.png',
   ogDocs: '/og/docs.png',
 } as const
