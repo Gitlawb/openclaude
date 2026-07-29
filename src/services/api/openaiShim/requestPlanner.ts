@@ -40,7 +40,11 @@ export function hydrateOpenAIShimCompatibilityEnv(
 }
 
 type RequestTransport =
-  'responses' | 'responses_compat' | 'anthropic_messages' | 'gemini' | string
+  | 'responses'
+  | 'responses_compat'
+  | 'anthropic_messages'
+  | 'gemini'
+  | (string & {})
 
 type ToolDefinition = {
   name?: string
@@ -176,13 +180,7 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
     }
 
     if (!omitTools.responses && params.tools && params.tools.length > 0) {
-      const convertedTools = convertToolsToResponsesTools(
-        params.tools as Array<{
-          name?: string
-          description?: string
-          input_schema?: Record<string, unknown>
-        }>,
-      )
+      const convertedTools = convertToolsToResponsesTools(params.tools)
       if (convertedTools.length > 0) {
         responsesBody.tools = convertedTools
       }
@@ -234,7 +232,7 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
     if (!omitTools.anthropic && params.tools && params.tools.length > 0) {
       anthropicBody.tools = params.tools
     }
-    if (params.tool_choice) {
+    if (!omitTools.anthropic && params.tool_choice) {
       anthropicBody.tool_choice = params.tool_choice
     }
 
@@ -413,15 +411,6 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
     return geminiBody
   }
 
-  // WHY: byte-identity required for implicit prefix caching in
-  // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
-  // depth so spurious insertion-order differences across rebuilds of
-  // `body` (spread-merge, conditional assignments above) don't bust
-  // the provider's prefix hash.
-  //
-  // Local backends do not implement prefix caching, so the deep key-sort
-  // is pure CPU overhead per request (issue #1016). Drop to the native
-  // `JSON.stringify` fast path when the fast-path config opts out.
   const buildOllamaChatBody = (): Record<string, unknown> => {
     const options: Record<string, unknown> = {
       num_ctx: getOllamaNumCtx(),
@@ -455,6 +444,8 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
           : effectiveTransport === 'gemini'
             ? buildGeminiBody()
             : body
+    // Byte-identical serialization preserves implicit prefix caching for
+    // OpenAI/Kimi/DeepSeek. Local backends can opt out of the key sort.
     return fastPath.skipStableStringify
       ? JSON.stringify(payload)
       : stableStringifyJson(payload)

@@ -347,11 +347,18 @@ describe('serialization and retry state', () => {
       params: {
         messages: [],
         tools: [{ name: 'Read' }],
+        tool_choice: { type: 'tool', name: 'Read' },
       },
     })
     expect(planner.buildResponsesBody()).toHaveProperty('tools')
     planner.omitTools.responses = true
     expect(planner.buildResponsesBody()).not.toHaveProperty('tools')
+    planner.omitTools.anthropic = true
+    expect(planner.buildAnthropicMessagesBody()).not.toHaveProperty('tools')
+    expect(planner.buildAnthropicMessagesBody()).not.toHaveProperty('tool_choice')
+    planner.omitTools.gemini = true
+    expect(planner.buildGeminiBody()).not.toHaveProperty('tools')
+    expect(planner.buildGeminiBody()).not.toHaveProperty('tool_choice')
   })
 
   test('uses native JSON serialization only when the fast path opts out', () => {

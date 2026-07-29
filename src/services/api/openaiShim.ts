@@ -1458,8 +1458,7 @@ class OpenAIShimMessages {
       getOllamaNumCtx, normalizeOllamaNativeMessages, useNativeOllamaChat,
       fastPath, stableStringifyJson, omitTools,
     })
-    const { buildResponsesBody, buildAnthropicMessagesBody, buildGeminiBody,
-      buildOllamaChatBody, serializeBody } = planner
+    const { buildResponsesBody, serializeBody } = planner
 
     // Extraction boundary: request planning | request execution.
     // The prepared body builders above are executor inputs, not executor-owned logic.
@@ -1833,11 +1832,7 @@ class OpenAIShimMessages {
       return hasImages
     }
 
-    // Extraction boundary: executor preparation | request serialization.
-    // Native Ollama/body serialization remains request-planner-owned.
-    // Keep this marker stable so executor and planner extractions stay disjoint.
-    // Extraction boundary: request serialization | executor attempt loop.
-    // The executor consumes the serialized body through a lazy rebuild callback.
+    // Extraction boundary: the executor lazily rebuilds planner-owned request bodies.
     // Keep this marker stable so executor and planner extractions stay disjoint.
     serializedBody = serializeBody()
 
