@@ -179,10 +179,15 @@ describe('AgentTool input schema isolation contract', () => {
     ).toThrow('cwd must be an existing directory.')
   })
 
-  test('detects missing-git worktree errors for fallback', () => {
+  test('detects missing-git and WorktreeCreate hook worktree errors for fallback', () => {
     expect(
       isMissingGitAgentWorktreeError(
         'Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured.',
+      ),
+    ).toBe(true)
+    expect(
+      isMissingGitAgentWorktreeError(
+        'WorktreeCreate hook failed: no successful output',
       ),
     ).toBe(true)
     expect(isMissingGitAgentWorktreeError('some other failure')).toBe(false)

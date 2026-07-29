@@ -1066,26 +1066,17 @@ export async function createAgentWorktree(
 
   // Try hook-based worktree creation first (allows user-configured VCS).
   // Forward sessionCwd so hooks operating from a multi-repo parent can target
-  // the selected child repository (#2052). If the hook fails but the cwd is a
-  // git repo, fall through to the git worktree path instead of hard-failing.
+  // the selected child repository (#2052). Hook failure remains terminal here —
+  // AgentTool decides whether to fall back to a cwd override.
   if (hasWorktreeCreateHook()) {
-    try {
-      const hookResult = await executeWorktreeCreateHook(slug, {
-        cwd: sessionCwd,
-      })
-      logForDebugging(
-        `Created hook-based agent worktree at: ${hookResult.worktreePath}`,
-      )
+    const hookResult = await executeWorktreeCreateHook(slug, {
+      cwd: sessionCwd,
+    })
+    logForDebugging(
+      `Created hook-based agent worktree at: ${hookResult.worktreePath}`,
+    )
 
-      return { worktreePath: hookResult.worktreePath, hookBased: true }
-    } catch (error) {
-      if (!findCanonicalGitRoot(sessionCwd)) {
-        throw error
-      }
-      logForDebugging(
-        `WorktreeCreate hook failed; falling back to git worktree at ${sessionCwd}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    return { worktreePath: hookResult.worktreePath, hookBased: true }
   }
 
   // Fall back to git worktree
