@@ -198,14 +198,9 @@ export function resolveAgentToolCwdOverride(
   return worktreeInfo?.worktreePath ?? cwd;
 }
 
-/** True when worktree creation failed in a way AgentTool can recover from by
- * falling back to a cwd override (missing git root, or WorktreeCreate hook
- * failure in a non-git / multi-repo parent session). */
+/** True when worktree creation failed only because no git root was available. */
 export function isMissingGitAgentWorktreeError(message: string): boolean {
-  return (
-    message.includes('Cannot create agent worktree: not in a git repository') ||
-    message.includes('WorktreeCreate hook failed:')
-  );
+  return message.includes('Cannot create agent worktree: not in a git repository');
 }
 
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
