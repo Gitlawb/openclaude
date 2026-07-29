@@ -23,9 +23,9 @@ async function collect(stream: AsyncIterable<AnthropicStreamEvent>) {
   return events
 }
 
-function makeParams(stream: boolean): ShimCreateParams {
+function makeParams(stream: boolean, model = 'test-model'): ShimCreateParams {
   return {
-    model: 'test-model',
+    model,
     messages: [{ role: 'user', content: 'hello' }],
     max_tokens: 32,
     stream,
@@ -50,6 +50,9 @@ function makeDependencies(
     doRequest: async () => response,
     convertNonStreamingResponse: data => ({ converted: 'openai', data }),
     convertGeminiResponse: data => ({ converted: 'gemini', data }),
+    codexStreamToAnthropic: converter('codex'),
+    collectCodexCompletedResponse: async () => ({}) as never,
+    convertCodexResponseToAnthropicMessage: data => ({ converted: 'codex', data }),
     createStreamAbortError: () => new DOMException('Aborted', 'AbortError'),
     anthropicSsePassthrough: converter('messages'),
     geminiSseToAnthropic: converter('gemini'),
@@ -131,6 +134,7 @@ test('OpenAIShimStream aborts its controller when a consumer returns early', asy
 test.each([
   ['messages', 'https://provider.example/v1/messages'],
   ['gemini', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent'],
+  ['codex', 'https://provider.example/v1/responses'],
   ['openai', 'https://provider.example/v1/chat/completions'],
 ])('dispatches a %s stream by response URL', async (expected, url) => {
   const calls: string[] = []
@@ -147,6 +151,21 @@ test.each([
   const stream = await request as AsyncIterable<AnthropicStreamEvent>
   expect((await collect(stream)).map(event => event.type)).toEqual([expected])
   expect(calls).toEqual([expected])
+})
+
+test('dispatches a Codex transport stream through the injected converter', async () => {
+  const calls: string[] = []
+  const stream = await createShimRequest(
+    makeParams(true, 'gpt-5.6-sol'),
+    undefined,
+    makeDependencies(
+      responseAt('https://api.openai.com/v1/chat/completions'),
+      calls,
+      { providerOverride: undefined, processEnv: {} },
+    ),
+  ) as AsyncIterable<AnthropicStreamEvent>
+  expect((await collect(stream)).map(event => event.type)).toEqual(['codex'])
+  expect(calls).toEqual(['codex'])
 })
 
 test('passes Anthropic Messages JSON through without conversion', async () => {
@@ -194,6 +213,41 @@ test('dispatches Gemini and generic non-streaming JSON conversion', async () => 
     ),
   )
   expect(openai).toEqual({ converted: 'openai', data: { choices: [] } })
+})
+
+test('dispatches Responses JSON with output through the injected Codex converter', async () => {
+  const calls: string[] = []
+  const result = await createShimRequest(
+    makeParams(false),
+    undefined,
+    makeDependencies(
+      responseAt(
+        'https://provider.example/v1/responses',
+        '{"output":[]}',
+        { headers: { 'content-type': 'application/json' } },
+      ),
+      calls,
+    ),
+  )
+  expect(result).toEqual({ converted: 'codex', data: { output: [] } })
+  expect(calls).toEqual([])
+})
+
+test('dispatches a Codex response through the injected collector', async () => {
+  const result = await createShimRequest(
+    makeParams(false, 'gpt-5.6-sol'),
+    undefined,
+    makeDependencies(
+      responseAt('https://api.openai.com/v1/chat/completions'),
+      [],
+      {
+        providerOverride: undefined,
+        processEnv: {},
+        collectCodexCompletedResponse: async () => ({ output: [] }) as never,
+      },
+    ),
+  )
+  expect(result).toEqual({ converted: 'codex', data: { output: [] } })
 })
 
 test('withResponse exposes the exact HTTP response and request id', async () => {

@@ -1,12 +1,6 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
-import {
-  codexStreamToAnthropic,
-  collectCodexCompletedResponse,
-  convertCodexResponseToAnthropicMessage,
-  type AnthropicStreamEvent,
-  type ShimCreateParams,
-} from '../codexShim.js'
+import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
   isLikelyOllamaEndpoint,
   resolveProviderRequest,
@@ -50,6 +44,9 @@ export type ClientDispatchDependencies = {
   ): Promise<Response>
   convertNonStreamingResponse(data: unknown, model: string): unknown
   convertGeminiResponse(data: unknown, model: string): unknown
+  codexStreamToAnthropic: typeof import('../codexShim.js').codexStreamToAnthropic
+  collectCodexCompletedResponse: typeof import('../codexShim.js').collectCodexCompletedResponse
+  convertCodexResponseToAnthropicMessage: typeof import('../codexShim.js').convertCodexResponseToAnthropicMessage
   createStreamAbortError(): DOMException
   anthropicSsePassthrough: StreamConverter
   geminiSseToAnthropic: StreamConverter
@@ -159,6 +156,55 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   }
 }
 
+function selectStreamConverter(
+  request: ResolvedProviderRequest,
+  response: Response,
+  dependencies: Pick<
+    ClientDispatchDependencies,
+    | 'anthropicSsePassthrough'
+    | 'codexStreamToAnthropic'
+    | 'geminiSseToAnthropic'
+    | 'openaiStreamToAnthropic'
+  >,
+): (signal: AbortSignal) => AsyncGenerator<AnthropicStreamEvent> {
+  const isResponsesStream = response.url?.includes('/responses')
+  const isMessagesStream = response.url?.includes('/messages')
+  const isGeminiStream = response.url?.includes('/models/gemini-')
+
+  if (
+    request.transport === 'codex_responses' ||
+    request.transport === 'responses' ||
+    isResponsesStream
+  ) {
+    return signal => dependencies.codexStreamToAnthropic(
+      response,
+      request.resolvedModel,
+      signal,
+    )
+  }
+  if (isMessagesStream) {
+    return signal => dependencies.anthropicSsePassthrough(
+      response,
+      request.resolvedModel,
+      signal,
+    )
+  }
+  if (isGeminiStream) {
+    return signal => dependencies.geminiSseToAnthropic(
+      response,
+      request.resolvedModel,
+      signal,
+    )
+  }
+  return signal => dependencies.openaiStreamToAnthropic(
+    response,
+    request.resolvedModel,
+    signal,
+    isLikelyOllamaEndpoint(request.baseUrl),
+    response.url || undefined,
+  )
+}
+
 export function createShimRequest(
   params: ShimCreateParams,
   options: CreateOptions | undefined,
@@ -166,6 +212,9 @@ export function createShimRequest(
 ): ShimRequestPromise {
   const {
     anthropicSsePassthrough,
+    codexStreamToAnthropic,
+    collectCodexCompletedResponse,
+    convertCodexResponseToAnthropicMessage,
     convertGeminiResponse,
     convertNonStreamingResponse,
     createStreamAbortError,
@@ -192,29 +241,16 @@ export function createShimRequest(
       httpResponse = response
 
       if (params.stream) {
-        const isResponsesStream = response.url?.includes('/responses')
-        const isMessagesStream = response.url?.includes('/messages')
-        const isGeminiStream = response.url?.includes('/models/gemini-')
         const cancelBeforeIteration = () => {
           void response.body?.cancel(createStreamAbortError()).catch(() => {})
         }
         return new OpenAIShimStream(
-          streamSignal =>
-            (
-              request.transport === 'codex_responses' ||
-              request.transport === 'responses' ||
-              isResponsesStream
-            )
-              ? codexStreamToAnthropic(
-                  response,
-                  request.resolvedModel,
-                  streamSignal,
-                )
-              : isMessagesStream
-                ? anthropicSsePassthrough(response, request.resolvedModel, streamSignal)
-                : isGeminiStream
-                  ? geminiSseToAnthropic(response, request.resolvedModel, streamSignal)
-                  : openaiStreamToAnthropic(response, request.resolvedModel, streamSignal, isLikelyOllamaEndpoint(request.baseUrl), response.url || undefined),
+          selectStreamConverter(request, response, {
+            anthropicSsePassthrough,
+            codexStreamToAnthropic,
+            geminiSseToAnthropic,
+            openaiStreamToAnthropic,
+          }),
           options?.signal,
           cancelBeforeIteration,
         )
