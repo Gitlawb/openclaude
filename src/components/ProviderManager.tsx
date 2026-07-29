@@ -2110,6 +2110,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       )
       return
     }
+    if (result === 'kept-unreadable') {
+      // The stored checkout is corrupt and might be a damaged receipt holding an
+      // issued key, so it is not deleted here. Removing it needs the explicit CLI
+      // force, which acknowledges the possible key loss.
+      setErrorMessage(
+        'The stored aimlapi.com checkout is unreadable and might hold an issued API ' +
+          'key, so it was not discarded. Run `openclaude aimlapi reset --force` from a ' +
+          'terminal to remove it (this may lose a key — rotate it from the dashboard).',
+      )
+      return
+    }
     setErrorMessage(undefined)
     setStatusMessage('Discarded the in-progress aimlapi.com checkout; starting over.')
     setCursorOffset(aimlapiTopupAmountUsd.length)

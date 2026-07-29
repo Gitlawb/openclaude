@@ -36,6 +36,16 @@ export function aimlapiReset(options: { force?: boolean } = {}): void {
         ),
       )
       break
+    case 'kept-unreadable':
+      console.log(
+        chalk.yellow(
+          '\n  [warn] The stored AI/ML API checkout is unreadable and might hold an issued\n' +
+            '         API key. It was NOT removed, so a paid-for key is not silently lost.\n' +
+            '         Inspect it, then run `openclaude aimlapi reset --force` to remove it\n' +
+            '         (this may discard a key — rotate it from the dashboard if unsure).',
+        ),
+      )
+      break
     case 'none':
       console.log(chalk.dim('\n  No in-progress AI/ML API checkout to discard.'))
       break

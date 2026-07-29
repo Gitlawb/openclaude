@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -87,4 +87,20 @@ test('aimlapi reset keeps a settled receipt and warns, unless --force', () => {
   const forced = captureLog(() => aimlapiReset({ force: true }))
   expect(forced).toContain('Discarded')
   expect(loadAimlapiTopupState(intent)).toBeNull()
+})
+
+test('aimlapi reset keeps an unreadable checkout and warns, unless --force', () => {
+  const path = join(directory, 'aimlapi-topup.json')
+  // A corrupt state file that could be a partially written / damaged receipt.
+  writeFileSync(path, '{ not valid json', 'utf8')
+
+  // A plain reset must not delete it — it might hold an issued key.
+  const warned = captureLog(() => aimlapiReset())
+  expect(warned).toContain('unreadable')
+  expect(warned).toContain('reset --force')
+  expect(readFileSync(path, 'utf8')).toBe('{ not valid json')
+
+  // --force removes the corrupt slot.
+  const forced = captureLog(() => aimlapiReset({ force: true }))
+  expect(forced).toContain('Discarded')
 })

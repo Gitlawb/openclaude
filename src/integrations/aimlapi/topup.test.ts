@@ -498,13 +498,12 @@ test('a fresh run records its checkout and leaves a settled receipt for the call
   })
 })
 
-test('a lost receipt write is surfaced instead of returning as if recoverable', async () => {
+test('a checkout superseded mid-exchange fences the key instead of clobbering the new one', async () => {
   useTemporaryConfig()
 
-  const statuses: Array<[string, string | undefined]> = []
   const { provisionAimlapiKey } = await importTopupWithClient({
-    // Another run claims the slot while the key is being exchanged, so the
-    // settled receipt can no longer be written for this attempt.
+    // The checkout is reset and a fresh top-up claims the slot while our key is
+    // being exchanged, so our settled-receipt compare-and-swap misses.
     onExchange: () => {
       clearAimlapiTopupState({
         ...intent,
@@ -514,17 +513,12 @@ test('a lost receipt write is surfaced instead of returning as if recoverable', 
     },
   })
 
-  const provisioned = await provisionAimlapiKey({
-    ...provisionOptions,
-    onStatus: (status: string, detail?: string) => statuses.push([status, detail]),
-  })
-
-  // The key still comes back - throwing here would strand it - but the failure
-  // to record recovery is reported rather than swallowed.
-  expect(provisioned.apiKey).toBe('k_issued')
-  expect(
-    statuses.some(([, detail]) => detail?.includes('Could not record the recovery receipt')),
-  ).toBe(true)
+  // Our key must NOT be delivered: writing it to the profile would overwrite the
+  // credential the fresh checkout provisions. The flow fences (rejects) and points
+  // the user at rotating the now-orphaned key, rather than silently clobbering.
+  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(
+    /reset while the key was being provisioned|rotate/i,
+  )
 })
 
 test('a transient getSession failure preserves the recorded checkout', async () => {
@@ -850,11 +844,13 @@ test('two racing exchangers mint the one-shot key once; the loser resumes the re
   })
   let loserWaited = false
 
-  const winnerRun = winner.provisionAimlapiKey(provisionOptions)
+  // The winner provisions gpt-4o; the loser asks for a DIFFERENT model.
+  const winnerRun = winner.provisionAimlapiKey({ ...provisionOptions, model: 'gpt-4o' })
   await winnerHoldsLease // the winner now holds the lease and is mid-exchange
   // The loser reports when it observes the held lease and enters the wait loop.
   const loserRun = loser.provisionAimlapiKey({
     ...provisionOptions,
+    model: 'gpt-4.1',
     onStatus: (_status: string, detail?: string) => {
       if (detail?.includes('finishing this checkout')) {
         loserWaited = true
@@ -876,4 +872,7 @@ test('two racing exchangers mint the one-shot key once; the loser resumes the re
   // Both still obtain the key: the winner minted it, the loser resumed the receipt.
   expect(winnerKey.apiKey).toBe('k_issued')
   expect(loserKey.apiKey).toBe('k_issued')
+  // The loser configures the model the winner PROVISIONED (from the receipt), not
+  // its own --model — a resume honours the original run's parameters.
+  expect(loserKey.model).toBe('gpt-4o')
 }, 20_000)

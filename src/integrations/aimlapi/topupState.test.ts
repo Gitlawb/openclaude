@@ -587,9 +587,13 @@ test('a corrupt top-up state file fails closed instead of being overwritten', ()
   expect(() => claimAimlapiTopupState(intent)).toThrow(/corrupt/i)
   expect(readFileSync(path, 'utf8')).toBe('{ not valid json')
 
-  // The explicit discard escape hatch clears the corrupt slot so a fresh top-up
-  // can start.
-  expect(discardAimlapiCheckoutState()).toBe('discarded')
+  // An unforced discard must NOT delete a corrupt file: it could be a damaged
+  // receipt holding a paid-for key, and reset promises never to lose one.
+  expect(discardAimlapiCheckoutState()).toBe('kept-unreadable')
+  expect(readFileSync(path, 'utf8')).toBe('{ not valid json')
+
+  // The explicit force clears the corrupt slot so a fresh top-up can start.
+  expect(discardAimlapiCheckoutState(true)).toBe('discarded')
   expect(loadAimlapiTopupState(intent)).toBeNull()
   expect(claimAimlapiTopupState(intent).paymentSessionId).toBeTruthy()
 })

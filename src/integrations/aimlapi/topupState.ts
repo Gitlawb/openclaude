@@ -808,38 +808,52 @@ export function clearAimlapiTopupStateAsync(
 }
 
 /**
- * Outcome of a discard: the checkout was removed, kept because it holds an
- * unsaved issued key (a settled receipt), or there was nothing stored.
+ * Outcome of a discard: the checkout was removed; kept because it holds an
+ * unsaved issued key (a settled receipt); kept because it is unreadable and might
+ * hold one; or there was nothing stored.
  */
-export type AimlapiDiscardResult = 'discarded' | 'kept-settled' | 'none'
+export type AimlapiDiscardResult =
+  | 'discarded'
+  | 'kept-settled'
+  | 'kept-unreadable'
+  | 'none'
 
 function discardStateOperation(force: boolean): AimlapiDiscardResult {
   const path = statePath()
   if (!existsSync(path)) return 'none'
-  // Read leniently (readJsonFile, not the fail-closed reader): a settled record
-  // is the ONLY copy of a paid-for, one-shot key that the provider will not
-  // re-issue. Refuse to delete it unless the caller forces the discard —
-  // otherwise "start over" would strand the credential. A corrupt or non-settled
-  // record has no recoverable key, so it is safe to remove.
+  // Read leniently (readJsonFile, not the fail-closed reader) so we can inspect
+  // even a record the normal path refuses.
   const raw = readJsonFile(path)
-  const holdsUnsavedKey =
-    isPersistedTopup(raw) && Boolean(raw.settled) && Boolean(raw.apiKey?.trim())
-  if (holdsUnsavedKey && !force) return 'kept-settled'
+  if (isPersistedTopup(raw)) {
+    // A settled record is the ONLY copy of a paid-for, one-shot key the provider
+    // will not re-issue; refuse to delete it unless forced. A non-settled record
+    // holds no recoverable credential, so it is safe to remove.
+    const holdsUnsavedKey = Boolean(raw.settled) && Boolean(raw.apiKey?.trim())
+    if (holdsUnsavedKey && !force) return 'kept-settled'
+    rmSync(path, { force: true })
+    return 'discarded'
+  }
+  // Unreadable / schema-invalid: we CANNOT prove it does not hold a settled key
+  // (an externally corrupted or partially written receipt looks the same as
+  // garbage), and reset promises never to lose an issued key. Protect it too —
+  // only an explicit `--force` removes it.
+  if (!force) return 'kept-unreadable'
   rmSync(path, { force: true })
   return 'discarded'
 }
 
 /**
- * Discard the stored checkout, whatever intent it holds — including an
- * unreadable/corrupt file. This is the explicit "start over" escape hatch
- * surfaced to the CLI and GUI: an interrupted checkout whose session went
- * terminal keeps a resume token that blocks a *different* top-up (see
- * `claimAimlapiTopupState`), and a corrupt file fails closed on read; both can
- * only be cleared out of band. Prefer `clearAimlapiTopupState` for the normal,
- * intent-scoped retirement after a completed top-up.
+ * Discard the stored checkout, whatever intent it holds. This is the explicit
+ * "start over" escape hatch surfaced to the CLI and GUI: an interrupted checkout
+ * whose session went terminal keeps a resume token that blocks a *different*
+ * top-up (see `claimAimlapiTopupState`), and a corrupt file fails closed on read;
+ * both can only be cleared out of band. Prefer `clearAimlapiTopupState` for the
+ * normal, intent-scoped retirement after a completed top-up.
  *
- * A SETTLED receipt (one holding an issued key not yet written to a profile) is
- * kept — deleting it would lose the paid-for key — unless `force` is set.
+ * Anything that might still hold a paid-for key is kept unless `force` is set:
+ * a SETTLED receipt (an issued key not yet written to a profile), AND an
+ * UNREADABLE/corrupt file (which could be a damaged receipt) — deleting either
+ * unforced could silently lose a one-shot key the provider will not re-issue.
  */
 export function discardAimlapiCheckoutState(force = false): AimlapiDiscardResult {
   return withStateLock(() => discardStateOperation(force))
