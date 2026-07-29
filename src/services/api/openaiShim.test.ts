@@ -8543,6 +8543,54 @@ test('does not inject semantic assistant message for non-Mistral OpenAI-compatib
   expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user'])
   expect(messages.some(m => m.content === '[Tool results received]')).toBe(false)
 })
+
+test('providerOverride does not inherit parent CLAUDE_CODE_USE_MISTRAL for semantic boundary', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-4',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'Qwen3.6-35B-A3B',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+  process.env.OPENAI_API_KEY = 'local'
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'Qwen3.6-35B-A3B',
+      baseURL: 'http://127.0.0.1:8080/v1',
+      apiKey: 'override-local',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }],
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(m => m.content === '[Tool results received]')).toBe(false)
+})
 // openaiShim test extraction seam 136 end
 
 

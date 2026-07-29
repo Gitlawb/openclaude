@@ -1046,8 +1046,16 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ) {
+    // A provider override is a complete route, so it must not inherit an
+    // Azure-style escape hatch or Mistral selector intended for the parent.
+    // Otherwise a Mistral parent still injects [Tool results received] into a
+    // Qwen/llama override and reintroduces the post-tool stall (#2039/#2059).
     const requestProcessEnv = this.providerOverride
-      ? { ...process.env, OPENAI_AZURE_STYLE: undefined }
+      ? {
+          ...process.env,
+          OPENAI_AZURE_STYLE: undefined,
+          CLAUDE_CODE_USE_MISTRAL: undefined,
+        }
       : process.env
     return createShimRequest(params, options, {
       providerOverride: this.providerOverride,
