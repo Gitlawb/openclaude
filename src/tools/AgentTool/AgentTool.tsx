@@ -712,7 +712,10 @@ export const AgentTool = buildTool({
     // so it appears as the most recent guidance the child sees.
     if (isForkPath && worktreeInfo) {
       promptMessages.push(createUserMessage({
-        content: buildWorktreeNotice(getCwd(), worktreeInfo.worktreePath)
+        // Prefer the child-repo cwd when the session itself is outside git
+        // (multi-repo parents), so path-translation guidance matches the
+        // repository the worktree was created from.
+        content: buildWorktreeNotice(cwd ?? getCwd(), worktreeInfo.worktreePath)
       }));
     }
     const runAgentParams: Parameters<typeof runAgent>[0] = {
@@ -747,9 +750,9 @@ export const AgentTool = buildTool({
         useExactTools: true
       }),
       worktreePath: worktreeInfo?.worktreePath,
-      // Persist cwd for resume when worktree isolation was unavailable
-      // (multi-repo parent sessions with an explicit child-repo cwd).
-      cwd: worktreeInfo ? undefined : cwd,
+      // Always persist an explicit child-repo cwd so resume can fall back to
+      // it if the worktree is later removed or cleaned up (#2052).
+      cwd,
       description,
       agentName: name,
     };
@@ -787,11 +790,12 @@ export const AgentTool = buildTool({
         if (!changed) {
           await removeAgentWorktree(worktreePath, worktreeBranch, gitRoot);
           // Clear worktreePath from metadata so resume doesn't try to use
-          // a deleted directory. Fire-and-forget to match runAgent's
-          // writeAgentMetadata handling.
+          // a deleted directory, but keep an explicit child-repo cwd when
+          // present so resume can still land in the target repository.
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
-            description
+            ...(cwd && { cwd }),
+            ...(description && { description }),
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));
           return {};
         }

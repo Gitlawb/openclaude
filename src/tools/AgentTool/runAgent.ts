@@ -786,8 +786,9 @@ export async function* runAgent({
   void writeAgentMetadata(agentId, {
     agentType: agentDefinition.agentType,
     ...(worktreePath && { worktreePath }),
-    // Persist cwd only when there is no worktree — resume prefers worktreePath.
-    ...(!worktreePath && cwd && { cwd }),
+    // Keep explicit cwd even when a worktree exists so resume can fall back
+    // to the child repo if the worktree is later removed.
+    ...(cwd && { cwd }),
     ...(description && { description }),
   }).catch(_err => logForDebugging(`Failed to write agent metadata: ${_err}`))
 
