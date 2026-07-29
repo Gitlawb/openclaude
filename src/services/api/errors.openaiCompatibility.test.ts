@@ -1,6 +1,10 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { getAssistantMessageFromError } from './errors.js'
 
 function getFirstText(message: ReturnType<typeof getAssistantMessageFromError>): string {
@@ -147,7 +151,13 @@ test('maps tool_stream_unsupported without promising a retry after failure', () 
   expect(text).not.toContain('Retrying')
 })
 
-test('request_timeout echoes the API_TIMEOUT_MS note from describeApiTimeoutEnvForError', () => {
+test('request_timeout echoes the API_TIMEOUT_MS note from describeApiTimeoutEnvForError', async () => {
+  // Serialize against the other suites that mutate this process-global env var
+  // (apiTimeout.test.ts, openaiShim.test.ts) so no parallel test observes the
+  // temporary values.
+  await acquireSharedMutationLock(
+    'services/api/errors.openaiCompatibility.test.ts',
+  )
   const saved = process.env.API_TIMEOUT_MS
   const makeMessage = () => {
     const error = APIError.generate(
@@ -184,5 +194,6 @@ test('request_timeout echoes the API_TIMEOUT_MS note from describeApiTimeoutEnvF
     } else {
       process.env.API_TIMEOUT_MS = saved
     }
+    releaseSharedMutationLock()
   }
 })
