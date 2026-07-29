@@ -185,6 +185,22 @@ test('semantic tool-result boundary is Mistral-only and never local', () => {
       processEnv: {},
     }),
   ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://host.docker.internal:8080/v1',
+      model: 'mistral-7b-instruct',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://100.64.1.5:8080/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(false)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

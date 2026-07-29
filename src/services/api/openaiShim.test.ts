@@ -8560,13 +8560,13 @@ test('providerOverride does not inherit parent CLAUDE_CODE_USE_MISTRAL for seman
   }) as unknown as FetchType
 
   process.env.CLAUDE_CODE_USE_MISTRAL = '1'
-  process.env.OPENAI_API_KEY = 'local'
+  process.env.OPENAI_API_KEY = 'remote-key'
 
   const client = createOpenAIShimClient({
     providerOverride: {
       model: 'Qwen3.6-35B-A3B',
-      baseURL: 'http://127.0.0.1:8080/v1',
-      apiKey: 'override-local',
+      baseURL: 'https://api.example.com/v1',
+      apiKey: 'override-remote',
     },
   }) as OpenAIShimClient
 

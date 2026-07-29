@@ -120,6 +120,7 @@ describe('Agent loop continuation nudge', () => {
     expect(analyzeContinuationIntent('  [Tool results received]  ').shouldNudge).toBe(true)
     expect(analyzeContinuationIntent('[Tool results received].').shouldNudge).toBe(true)
     expect(analyzeContinuationIntent('"[Tool results received]"').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('[Tool results received],').shouldNudge).toBe(true)
     expect(
       analyzeContinuationIntent('Done. [Tool results received] and more text').shouldNudge,
     ).toBe(false)

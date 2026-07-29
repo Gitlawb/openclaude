@@ -113,7 +113,7 @@ export function isToolResultSemanticPlaceholderEcho(text: string): boolean {
     .toLowerCase()
     // Local models often append terminal punctuation to short echoes.
     .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/[.!?…]+$/g, '')
+    .replace(/[.!?…,;:]+$/g, '')
     .trim()
   return normalized === TOOL_RESULT_SEMANTIC_PLACEHOLDER.toLowerCase()
 }
@@ -273,7 +273,13 @@ type ModelDescriptor = {
   }
 }
 
-const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
+const LOCALHOST_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  'host.docker.internal',
+  'gateway.docker.internal',
+])
 
 function hashCacheScopePartition(value: unknown): string {
   return createHash('sha256')
@@ -295,7 +301,9 @@ function isPrivateIpv4Address(hostname: string): boolean {
   return (
     octets[0] === 10 ||
     (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168)
+    (octets[0] === 192 && octets[1] === 168) ||
+    // CGNAT / Tailscale (100.64.0.0/10)
+    (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
   )
 }
 

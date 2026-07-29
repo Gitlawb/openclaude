@@ -200,7 +200,7 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(messages[2]?.content).not.toContain('interrupted')
 })
 
-test('does not inject placeholder after tool result when next user message is snip-only reminder', () => {
+test('default conversion keeps tool then snip reminder without placeholder', () => {
   const messages = convert([
     {
       role: 'assistant',
