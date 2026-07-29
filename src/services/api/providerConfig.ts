@@ -640,7 +640,15 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
     if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
-    if (hostname.endsWith('.local')) {
+    // Align with cacheMetrics self-hosted host classification (RFC 6761/6762/8375).
+    if (
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.lan') ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.intranet') ||
+      hostname.endsWith('.home.arpa')
+    ) {
       return true
     }
 
