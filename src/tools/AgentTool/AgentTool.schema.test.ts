@@ -5,6 +5,8 @@ import { join } from 'path'
 import {
   AgentTool,
   assertAgentToolCwdAllowed,
+  buildWorktreeIsolationFallbackNotice,
+  formatWorktreeIsolationFallbackResultText,
   fullInputSchema,
   inputSchema,
   isMissingGitAgentWorktreeError,
@@ -174,9 +176,10 @@ describe('AgentTool input schema isolation contract', () => {
   })
 
   test('rejects nonexistent absolute cwd paths', () => {
-    expect(() =>
-      assertAgentToolCwdAllowed('/tmp/openclaude-missing-cwd-2052', undefined),
-    ).toThrow(/cwd must be an existing directory \(.+\)\./)
+    const missingCwd = join(tmpdir(), 'openclaude-missing-cwd-2052')
+    expect(() => assertAgentToolCwdAllowed(missingCwd, undefined)).toThrow(
+      /cwd must be an existing directory \(.+\)\./,
+    )
   })
 
   test('detects missing-git worktree errors for fallback', () => {
@@ -193,12 +196,22 @@ describe('AgentTool input schema isolation contract', () => {
     expect(isMissingGitAgentWorktreeError('some other failure')).toBe(false)
   })
 
+  test('surfaces a clear notice when worktree isolation falls back', () => {
+    const notice = buildWorktreeIsolationFallbackNotice(existingCwd)
+    expect(notice).toContain('running without worktree isolation')
+    expect(notice).toContain(existingCwd)
+    expect(formatWorktreeIsolationFallbackResultText()).toContain(
+      'worktreeIsolationFallback: true',
+    )
+  })
+
   test('prefers worktree cwd over explicit cwd when both are present defensively', () => {
+    const worktreePath = join(tmpdir(), 'openclaude-worktree')
     expect(
       resolveAgentToolCwdOverride(existingCwd, {
-        worktreePath: '/tmp/openclaude-worktree',
+        worktreePath,
       }),
-    ).toBe('/tmp/openclaude-worktree')
+    ).toBe(worktreePath)
     expect(resolveAgentToolCwdOverride(existingCwd, null)).toBe(existingCwd)
   })
 })
@@ -221,7 +234,7 @@ describe('AgentTool output status contract', () => {
         agentId: 'agent-1',
         description: baseInput.description,
         prompt: baseInput.prompt,
-        outputFile: '/tmp/openclaude-agent-output.txt',
+        outputFile: join(tmpdir(), 'openclaude-agent-output.txt'),
         canReadOutputFile: true,
       },
       'toolu_1',
@@ -230,7 +243,64 @@ describe('AgentTool output status contract', () => {
     expect(block.type).toBe('tool_result')
     const text = block.content[0]?.type === 'text' ? block.content[0].text : ''
     expect(text).toContain('Async agent launched successfully')
-    expect(text).toContain('output_file: /tmp/openclaude-agent-output.txt')
+    expect(text).toContain('output_file:')
+    expect(text).not.toContain('worktreeIsolationFallback: true')
+  })
+
+  test('surfaces worktree isolation fallback on async-launched tool results', () => {
+    const block = AgentTool.mapToolResultToToolResultBlockParam(
+      {
+        status: 'async_launched',
+        agentId: 'agent-1',
+        description: baseInput.description,
+        prompt: baseInput.prompt,
+        outputFile: join(tmpdir(), 'openclaude-agent-output.txt'),
+        canReadOutputFile: false,
+        worktreeIsolationFallback: true,
+      },
+      'toolu_1',
+    )
+
+    const text = block.content[0]?.type === 'text' ? block.content[0].text : ''
+    expect(text).toContain('worktreeIsolationFallback: true')
+    expect(text).toContain('ran without an isolated worktree')
+  })
+
+  test('surfaces worktree isolation fallback on completed tool results', () => {
+    const block = AgentTool.mapToolResultToToolResultBlockParam(
+      {
+        status: 'completed',
+        prompt: baseInput.prompt,
+        agentId: 'agent-1',
+        agentType: 'general-purpose',
+        content: [{ type: 'text', text: 'done' }],
+        totalToolUseCount: 1,
+        totalDurationMs: 10,
+        totalTokens: 5,
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+          server_tool_use: null,
+          service_tier: null,
+          cache_creation: null,
+        },
+        worktreeIsolationFallback: true,
+      },
+      'toolu_1',
+    )
+
+    const texts = Array.isArray(block.content)
+      ? block.content
+          .filter(
+            (c): c is { type: 'text'; text: string } => c.type === 'text',
+          )
+          .map(c => c.text)
+          .join('\n')
+      : ''
+    expect(texts).toContain('worktreeIsolationFallback: true')
+    expect(texts).toContain('ran without an isolated worktree')
   })
 
   test('throws for unsupported output statuses', () => {
@@ -250,7 +320,7 @@ describe('AgentTool output status contract', () => {
           agentId: 'agent-1',
           description: baseInput.description,
           prompt: baseInput.prompt,
-          outputFile: '/tmp/openclaude-agent-output.txt',
+          outputFile: join(tmpdir(), 'openclaude-agent-output.txt'),
           canReadOutputFile: true,
         },
         [],

@@ -203,11 +203,25 @@ export function isMissingGitAgentWorktreeError(message: string): boolean {
   return message.includes('Cannot create agent worktree: not in a git repository');
 }
 
+/**
+ * User/model-visible notice when worktree isolation was requested but could
+ * not be created (missing git). Edits are not isolated in a worktree copy.
+ */
+export function buildWorktreeIsolationFallbackNotice(cwdPath: string): string {
+  return `Worktree isolation was requested but could not be created because no git repository is available. This agent is running without worktree isolation — edits modify files directly in ${cwdPath}, not an isolated worktree copy.`;
+}
+
+/** Trailer line(s) for tool results when worktree isolation fell back. */
+export function formatWorktreeIsolationFallbackResultText(): string {
+  return 'worktreeIsolationFallback: true\nnote: Worktree isolation was unavailable; this agent ran without an isolated worktree (edits are not sandboxed in a worktree).';
+}
+
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
 export const outputSchema = lazySchema(() => {
   const syncOutputSchema = agentToolResultSchema().extend({
     status: z.literal('completed'),
-    prompt: z.string()
+    prompt: z.string(),
+    worktreeIsolationFallback: z.boolean().optional().describe('True when worktree isolation was requested but fell back because no git repository was available'),
   });
   const asyncOutputSchema = z.object({
     status: z.literal('async_launched'),
@@ -215,7 +229,8 @@ export const outputSchema = lazySchema(() => {
     description: z.string().describe('The description of the task'),
     prompt: z.string().describe('The prompt for the agent'),
     outputFile: z.string().describe('Path to the output file for checking agent progress'),
-    canReadOutputFile: z.boolean().optional().describe('Whether the calling agent has Read/Bash tools to check progress')
+    canReadOutputFile: z.boolean().optional().describe('Whether the calling agent has Read/Bash tools to check progress'),
+    worktreeIsolationFallback: z.boolean().optional().describe('True when worktree isolation was requested but fell back because no git repository was available'),
   });
   return z.union([syncOutputSchema, asyncOutputSchema]);
 });
@@ -695,6 +710,7 @@ export const AgentTool = buildTool({
       gitRoot?: string;
       hookBased?: boolean;
     } | null = null;
+    let worktreeIsolationFallback = false;
     if (effectiveIsolation === 'worktree') {
       const slug = `agent-${earlyAgentId.slice(0, 8)}`;
       try {
@@ -708,6 +724,7 @@ export const AgentTool = buildTool({
           // multi-repo parent sessions can still spawn subagents (#2052).
           // Prefer the caller-supplied cwd when present so the agent still
           // lands inside the target child repository without a worktree.
+          worktreeIsolationFallback = true;
           logForDebugging(
             cwd
               ? `Agent worktree isolation unavailable outside a git repository; falling back to cwd override ${cwd}.`
@@ -728,6 +745,12 @@ export const AgentTool = buildTool({
         // relative to the parent agent, even when worktree creation used a
         // child-repo cwd override for multi-repo parents.
         content: buildWorktreeNotice(getCwd(), worktreeInfo.worktreePath)
+      }));
+    }
+    // Missing-git soft-fallback: tell the child edits are not worktree-isolated.
+    if (worktreeIsolationFallback) {
+      promptMessages.push(createUserMessage({
+        content: buildWorktreeIsolationFallbackNotice(cwd ?? getCwd())
       }));
     }
     const runAgentParams: Parameters<typeof runAgent>[0] = {
@@ -894,7 +917,8 @@ export const AgentTool = buildTool({
           description: description,
           prompt: prompt,
           outputFile: getTaskOutputPath(agentBackgroundTask.agentId),
-          canReadOutputFile
+          canReadOutputFile,
+          ...(worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
         }
       };
     } else {
@@ -1400,7 +1424,8 @@ export const AgentTool = buildTool({
             status: 'completed' as const,
             prompt,
             ...agentResult,
-            ...worktreeResult
+            ...worktreeResult,
+            ...(worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
           }
         };
       }));
@@ -1460,7 +1485,10 @@ The agent is now running and will receive instructions via mailbox.`
     if (data.status === 'async_launched') {
       const prefix = `Async agent launched successfully.\nagentId: ${data.agentId} (internal ID - do not mention to user. Use SendMessage with to: '${data.agentId}' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes.`;
       const instructions = data.canReadOutputFile ? `Do not duplicate this agent's work — avoid working with the same files or topics it is using. Briefly tell the user what you launched and end your response — agent results will arrive in a subsequent message. You may continue first ONLY if you have other tasks on clearly different files that this agent is not touching.\noutput_file: ${data.outputFile}\nIf asked, you can check progress before completion by using ${FILE_READ_TOOL_NAME} or ${BASH_TOOL_NAME} tail on the output file.` : `Briefly tell the user what you launched and end your response. Do not generate any other text — agent results will arrive in a subsequent message.`;
-      const text = `${prefix}\n${instructions}`;
+      const isolationFallbackText = data.worktreeIsolationFallback
+        ? `\n${formatWorktreeIsolationFallbackResultText()}`
+        : '';
+      const text = `${prefix}\n${instructions}${isolationFallbackText}`;
       return {
         tool_use_id: toolUseID,
         type: 'tool_result',
@@ -1473,6 +1501,9 @@ The agent is now running and will receive instructions via mailbox.`
     if (data.status === 'completed') {
       const worktreeData = data as Record<string, unknown>;
       const worktreeInfoText = worktreeData.worktreePath ? `\nworktreePath: ${worktreeData.worktreePath}\nworktreeBranch: ${worktreeData.worktreeBranch}` : '';
+      const isolationFallbackText = worktreeData.worktreeIsolationFallback
+        ? `\n${formatWorktreeIsolationFallbackResultText()}`
+        : '';
       // If the subagent completes with no content, the tool_result is just the
       // agentId/usage trailer below — a metadata-only block at the prompt tail.
       // Some models read that as "nothing to act on" and end their turn
@@ -1486,7 +1517,9 @@ The agent is now running and will receive instructions via mailbox.`
       // 34M Explore runs/week ≈ 1-2 Gtok/week). Telemetry doesn't parse this
       // block (it uses logEvent in finalizeAgentTool), so dropping is safe.
       // agentType is optional for resume compat — missing means show trailer.
-      if (data.agentType && ONE_SHOT_BUILTIN_AGENT_TYPES.has(data.agentType) && !worktreeInfoText) {
+      // Keep the trailer when isolation fell back so the parent sees that
+      // edits were not worktree-isolated.
+      if (data.agentType && ONE_SHOT_BUILTIN_AGENT_TYPES.has(data.agentType) && !worktreeInfoText && !isolationFallbackText) {
         return {
           tool_use_id: toolUseID,
           type: 'tool_result',
@@ -1498,7 +1531,7 @@ The agent is now running and will receive instructions via mailbox.`
         type: 'tool_result',
         content: [...contentOrMarker, {
           type: 'text',
-          text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}
+          text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}${isolationFallbackText}
 <usage>total_tokens: ${data.totalTokens}
 tool_uses: ${data.totalToolUseCount}
 duration_ms: ${data.totalDurationMs}</usage>`
