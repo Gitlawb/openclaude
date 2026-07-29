@@ -40,6 +40,58 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const DEFAULT_CLINEPASS_API_BASE_URL = `${DEFAULT_CLINEPASS_BASE_URL}/api/v1`
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
+
+/**
+ * Synthetic assistant content used only for Mistral/Devstral Jinja role
+ * sequencing when a `tool` message must be followed by `assistant` before
+ * `user`. Never inject this for llama.cpp / Ollama / vLLM / OpenAI — those
+ * backends treat it as real assistant text and often echo it, ending the
+ * agent turn early (issues #2039, #2059).
+ */
+export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
+
+/**
+ * Whether to inject {@link TOOL_RESULT_SEMANTIC_PLACEHOLDER} between `tool`
+ * and `user` roles in OpenAI chat conversion. Default is off.
+ */
+export function shouldInjectToolResultSemanticBoundary(options?: {
+  baseUrl?: string
+  model?: string
+  processEnv?: NodeJS.ProcessEnv
+}): boolean {
+  const processEnv = options?.processEnv ?? process.env
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return true
+  }
+
+  const baseUrl =
+    options?.baseUrl ??
+    processEnv.MISTRAL_BASE_URL ??
+    processEnv.OPENAI_BASE_URL ??
+    ''
+  // Hostname only — avoid false positives like https://mistral.ai-proxy.example/v1
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    if (
+      host === 'mistral.ai' ||
+      host === 'api.mistral.ai' ||
+      host.endsWith('.mistral.ai')
+    ) {
+      return true
+    }
+  } catch {
+    // Invalid URL — fall through to model-name detection.
+  }
+
+  const model = (
+    options?.model ??
+    processEnv.MISTRAL_MODEL ??
+    processEnv.OPENAI_MODEL ??
+    ''
+  ).toLowerCase()
+  return /\b(devstral|mistral|ministral|codestral)\b/.test(model)
+}
+
 const warnedUndefinedEnvNames = new Set<string>()
 
 function asGithubEnterpriseEnvUrl(value: string | undefined): string | undefined {

@@ -43,6 +43,7 @@ const originalEnv = {
   GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -553,6 +554,7 @@ afterEach(() => {
     restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
     restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
     restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
     restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
@@ -8359,11 +8361,10 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
   
-  // Actually, the semantic message IS injected here because the user block with orphan 
-  // tool result is converted to:
+  // Mistral model name triggers the Mistral-only tool→user semantic boundary.
   // 1. Tool result (valid_call_1) -> role 'tool'
   // 2. User content ("What happened?") -> role 'user'
-  // This triggers the tool -> assistant injection.
+  // This triggers the tool -> assistant injection for Mistral.
   const assistantMessages = messages.filter(m => m.role === 'assistant')
   expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(true)
 })
@@ -8497,6 +8498,50 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(semanticMsg.content).toBe('[Tool results received]')
   expect(semanticMsg.content).not.toContain('interrupted')
   expect(semanticMsg.content).not.toContain('user')
+})
+
+test('does not inject semantic assistant message for non-Mistral OpenAI-compatible models', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-3',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'Qwen3.6-35B-A3B',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
+  process.env.OPENAI_API_KEY = 'local'
+  process.env.OPENAI_MODEL = 'Qwen3.6-35B-A3B'
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'Qwen3.6-35B-A3B',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }],
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(m => m.content === '[Tool results received]')).toBe(false)
 })
 // openaiShim test extraction seam 136 end
 

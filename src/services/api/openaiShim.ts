@@ -107,6 +107,8 @@ import {
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
   type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
@@ -765,6 +767,8 @@ function convertMessages(
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
     supportsImageInputs?: boolean
+    injectToolResultSemanticBoundary?: boolean
+    toolResultSemanticPlaceholder?: string
   },
 ): OpenAIMessage[] {
   return convertAnthropicMessages(messages, system, {
@@ -1281,6 +1285,12 @@ class OpenAIShimMessages {
           request.baseUrl,
         ),
         supportsImageInputs: shimConfig.supportsImageInputs,
+        injectToolResultSemanticBoundary: shouldInjectToolResultSemanticBoundary({
+          baseUrl: request.baseUrl,
+          model: request.resolvedModel,
+          processEnv: requestProcessEnv,
+        }),
+        toolResultSemanticPlaceholder: TOOL_RESULT_SEMANTIC_PLACEHOLDER,
       }),
     )
 

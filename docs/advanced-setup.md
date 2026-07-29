@@ -225,6 +225,24 @@ export OPENAI_BASE_URL=http://localhost:1234/v1
 export OPENAI_MODEL=your-model-name
 ```
 
+### llama.cpp / vLLM / other local OpenAI-compatible servers
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://127.0.0.1:8080/v1
+export OPENAI_MODEL=/models/your-model.gguf
+```
+
+OpenClaude only inserts the Mistral/Devstral tool-boundary placeholder
+(`[Tool results received]`) when the active route is Mistral-class. Local
+servers such as llama.cpp, Ollama, and vLLM keep a plain `tool` → `user`
+history so quantized models do not imitate that placeholder and end the turn
+early.
+
+If a local model still echoes short repeated phrases, enable server-side
+`repeat_penalty` / DRY sampling (llama.cpp defaults often leave
+`--repeat-penalty` at `1.0` and `dry_multiplier` at `0.0`).
+
 ### Together AI
 
 ```bash

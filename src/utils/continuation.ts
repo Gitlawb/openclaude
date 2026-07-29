@@ -104,8 +104,18 @@ export const COMPLETION_MARKERS = /\b(done|finished|completed|complete|summary|t
 
 export type ContinuationResult = {
   shouldNudge: boolean
-  reason?: 'possible_truncation' | 'continuation_signal'
+  reason?:
+    | 'possible_truncation'
+    | 'continuation_signal'
+    | 'tool_result_placeholder_echo'
 }
+
+/**
+ * Exact match for the OpenAI-shim Mistral tool→user boundary placeholder when
+ * a model echoes it as a real assistant reply (issues #2039, #2059). Keep in
+ * sync with TOOL_RESULT_SEMANTIC_PLACEHOLDER in providerConfig.ts.
+ */
+const TOOL_RESULT_SEMANTIC_PLACEHOLDER_ECHO = '[tool results received]'
 
 export const UNFINISHED_SENTIMENT_SIGNALS = [
   // English trailing connectors
@@ -128,6 +138,12 @@ export function analyzeContinuationIntent(
   if (lastText.length === 0) return { shouldNudge: false }
   
   const lowerText = lastText.toLowerCase()
+
+  // 0. Model echoed the transport-only tool-result placeholder as its entire
+  // reply (finish_reason=stop). Treat as a stall and nudge continuation.
+  if (lowerText === TOOL_RESULT_SEMANTIC_PLACEHOLDER_ECHO) {
+    return { shouldNudge: true, reason: 'tool_result_placeholder_echo' }
+  }
 
   // 1. High-Confidence Structural Truncation signals (Strongest - Ignore completion markers)
   

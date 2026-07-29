@@ -9,6 +9,8 @@ import {
   modelRequiresResponsesApi,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -88,6 +90,67 @@ test('treats public hosts as remote', () => {
   expect(isLocalProviderUrl('http://203.0.113.1:11434/v1')).toBe(false)
   expect(isLocalProviderUrl('https://example.com/v1')).toBe(false)
   expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(false)
+})
+
+test('semantic tool-result boundary is Mistral-only', () => {
+  expect(TOOL_RESULT_SEMANTIC_PLACEHOLDER).toBe('[Tool results received]')
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'mistral-large-latest',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  // Substring must not match — only hostname mistral.ai / *.mistral.ai
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://mistral.ai-proxy.example/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'qwen',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'qwen',
+      processEnv: {},
+    }),
+  ).toBe(true)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

@@ -136,7 +136,8 @@ test('preserves valid tool_result and drops orphan tool_result', () => {
 
   expect(tools).toHaveLength(1)
   expect(tools[0]?.tool_call_id).toBe('valid_call_1')
-  expect(messages.some(message => message.content === '[Tool results received]')).toBe(true)
+  // Default conversion must not inject the Mistral-only semantic placeholder.
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
   expect(logs).toContain('Dropping orphan tool_result for ID: orphan_call_2 to prevent API error')
 })
 
@@ -160,7 +161,7 @@ test('drops empty assistant message when only redacted_thinking block was presen
   expect(messages).toEqual([{ role: 'user', content: 'Initial\nInterrupting query' }])
 })
 
-test('injects semantic assistant message when tool result is followed by user message', () => {
+test('does not inject semantic assistant message between tool and user by default', () => {
   const messages = convert([
     {
       role: 'assistant',
@@ -172,6 +173,27 @@ test('injects semantic assistant message when tool result is followed by user me
     },
     { role: 'user', content: 'Next user query' },
   ])
+
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+})
+
+test('injects semantic assistant message when tool result is followed by user message and opted in', () => {
+  const messages = convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }],
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    '',
+    { injectToolResultSemanticBoundary: true },
+  )
 
   expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'assistant', 'user'])
   expect(messages[2]?.content).toBe('[Tool results received]')

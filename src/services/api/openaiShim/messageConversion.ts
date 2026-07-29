@@ -146,6 +146,15 @@ export function convertMessages(
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
     supportsImageInputs?: boolean
+    /**
+     * When true, insert a synthetic assistant message between `tool` and
+     * `user` roles (Mistral/Devstral Jinja only). Default false — injecting
+     * a static placeholder for other backends causes models to echo it as a
+     * terminal reply (issues #2039, #2059).
+     */
+    injectToolResultSemanticBoundary?: boolean
+    /** Placeholder text used when injectToolResultSemanticBoundary is true. */
+    toolResultSemanticPlaceholder?: string
     getGeminiThoughtSignature?: (extraContent: unknown) => string | undefined
     mergeGeminiThoughtSignature?: (
       extraContent: Record<string, unknown> | undefined,
@@ -259,10 +268,24 @@ export function convertMessages(
   }
 
   const coalesced: ConvertedOpenAIMessage[] = []
+  const injectToolResultSemanticBoundary =
+    options.injectToolResultSemanticBoundary === true
+  const toolResultSemanticPlaceholder =
+    options.toolResultSemanticPlaceholder ?? '[Tool results received]'
   for (const msg of result) {
     const prev = coalesced[coalesced.length - 1]
-    if (prev?.role === 'tool' && msg.role === 'user') {
-      coalesced.push({ role: 'assistant', content: '[Tool results received]' })
+    // Mistral/Devstral only (opt-in): 'tool' must be followed by 'assistant'
+    // before 'user'. Other OpenAI-compatible backends must keep tool→user so
+    // the placeholder is not echoed as a real end_turn reply.
+    if (
+      injectToolResultSemanticBoundary &&
+      prev?.role === 'tool' &&
+      msg.role === 'user'
+    ) {
+      coalesced.push({
+        role: 'assistant',
+        content: toolResultSemanticPlaceholder,
+      })
     }
     const last = coalesced[coalesced.length - 1]
     if (!last || last.role !== msg.role || msg.role === 'tool' || msg.role === 'system') {
