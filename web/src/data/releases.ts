@@ -122,3 +122,8 @@ export const releases: Release[] = [
     ],
   },
 ]
+
+// web/ builds standalone (no access to the repo root), so the newest changelog
+// entry doubles as the site's displayed version. verify-dist cross-checks it
+// against the published npm version so this list can't silently go stale.
+export const latestVersion = releases[0].version

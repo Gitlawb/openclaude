@@ -34,15 +34,9 @@ export function verifyDist(dist: string): string[] {
     if (html !== '' && !html.includes(needle)) failures.push(`${why}: missing ${JSON.stringify(needle)}`)
   }
 
-  // ── version propagation (site.ts imports the root package.json) ──────────
-  const rootPkg = JSON.parse(
-    readFileSync(join(import.meta.dir, '..', '..', 'package.json'), 'utf8'),
-  ) as { version: string }
-  if (SITE.version !== rootPkg.version)
-    failures.push(`SITE.version ${SITE.version} != root package.json ${rootPkg.version}`)
-
+  // ── version propagation (site.ts derives from the newest releases entry) ─
   const index = page('/')
-  expect(index, `v${rootPkg.version}`, 'landing version')
+  expect(index, `v${SITE.version}`, 'landing version')
 
   // ── navigation exposes every docsNav route, in data AND rendered output ──
   const docsIndex = page('/docs/')
@@ -61,7 +55,7 @@ export function verifyDist(dist: string): string[] {
     expect(changelog, `v${r.version}`, `changelog release ${r.version}`)
     expect(changelog, releaseUrl(r.version), `changelog release URL ${r.version}`)
   }
-  expect(changelog, `v${rootPkg.version}`, 'changelog current-version pill')
+  expect(changelog, `v${SITE.version}`, 'changelog current-version pill')
 
   // ── /buddy/: every hero renders with its sprite ──────────────────────────
   const buddy = page('/buddy/')
@@ -92,8 +86,41 @@ export function verifyDist(dist: string): string[] {
   return [...new Set(failures)]
 }
 
+function newerThan(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0)
+  }
+  return false
+}
+
+// With web/ standalone, releases.ts is the only version source — this is the
+// guard against it silently going stale. Best-effort by design: an unreachable
+// registry (offline CI, npm outage) skips the check rather than failing the
+// build; only a *confirmed newer* npm release fails. A site version ahead of
+// npm is allowed so a release PR can land before the publish completes.
+export async function npmFreshnessFailure(fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  let published: string
+  try {
+    const res = await fetchImpl('https://registry.npmjs.org/@gitlawb/openclaude/latest', {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return null
+    published = ((await res.json()) as { version?: string }).version ?? ''
+  } catch {
+    return null
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(published)) return null
+  if (newerThan(published, SITE.version))
+    return `npm latest ${published} is newer than site version ${SITE.version} — add it to src/data/releases.ts`
+  return null
+}
+
 if (import.meta.main) {
   const failures = verifyDist(join(import.meta.dir, '..', 'dist'))
+  const stale = await npmFreshnessFailure()
+  if (stale) failures.push(stale)
   if (failures.length > 0) {
     console.error(`verify-dist: ${failures.length} failure(s)`)
     for (const f of failures) console.error(`  ✗ ${f}`)

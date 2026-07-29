@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { verifyDist } from './verify-dist'
+import { verifyDist, npmFreshnessFailure } from './verify-dist'
 import { SITE } from '../src/data/site'
 import { docsPages } from '../src/data/docsNav'
 import { releases, releaseUrl } from '../src/data/releases'
@@ -122,5 +122,37 @@ describe('verifyDist', () => {
       writeFileSync(join(dist, 'changelog', 'index.html'), html)
     })
     expect(failures.some(f => f.startsWith('changelog release URL'))).toBe(true)
+  })
+})
+
+describe('npmFreshnessFailure', () => {
+  function fetchReturning(body: unknown, ok = true): typeof fetch {
+    return (() =>
+      Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response)) as typeof fetch
+  }
+
+  test('passes when npm matches the site version', async () => {
+    expect(await npmFreshnessFailure(fetchReturning({ version: SITE.version }))).toBeNull()
+  })
+
+  test('passes when the site is ahead of npm (release PR before publish)', async () => {
+    expect(await npmFreshnessFailure(fetchReturning({ version: '0.1.0' }))).toBeNull()
+  })
+
+  test('fails when npm has a newer release than releases.ts', async () => {
+    const failure = await npmFreshnessFailure(fetchReturning({ version: '999.0.0' }))
+    expect(failure).toContain('999.0.0')
+    expect(failure).toContain('src/data/releases.ts')
+  })
+
+  test('skips on network failure instead of breaking the build', async () => {
+    const offline = (() => Promise.reject(new Error('offline'))) as typeof fetch
+    expect(await npmFreshnessFailure(offline)).toBeNull()
+  })
+
+  test('skips on a malformed registry response', async () => {
+    expect(await npmFreshnessFailure(fetchReturning({}))).toBeNull()
+    expect(await npmFreshnessFailure(fetchReturning({ version: 'not-semver' }))).toBeNull()
+    expect(await npmFreshnessFailure(fetchReturning({}, false))).toBeNull()
   })
 })
