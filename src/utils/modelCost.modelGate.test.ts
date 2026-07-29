@@ -64,3 +64,38 @@ test('fast-mode Opus 4.8 is charged the elevated fast-mode tier, normal otherwis
   expect(getModelCosts('claude-opus-4-8', fast)).toEqual(COST_TIER_30_150)
   expect(getModelCosts('claude-opus-4-8', standard)).toEqual(COST_TIER_5_25)
 })
+
+// MODEL_COSTS is a plain object, so a bare `MODEL_COSTS[shortName]` lookup
+// inherits Object.prototype members. A model id of `constructor` or `__proto__`
+// (both valid arbitrary ids for custom/OpenAI-compatible providers, and already
+// lowercase so getCanonicalName returns them unchanged) resolved to a truthy
+// prototype value, bypassing the `!costs` unknown-model guard: the cost math
+// then read undefined fields and produced NaN, permanently poisoning the running
+// session total, and getModelPricingString rendered "$NaN/$NaN per Mtok".
+test('proto-member model ids fall through the unknown-model path, not NaN', async () => {
+  mock.module('./model/model.js', () => ({
+    firstPartyNameToCanonical: (model: string) => model,
+    // Mirror the real canonicalizer for these names: both are lowercase and
+    // match no Claude pattern, so they pass through verbatim.
+    getCanonicalName: (model: string) => model,
+    getDefaultMainLoopModelSetting: () => 'claude-haiku-4-5',
+  }))
+  const { getModelCosts, getModelPricingString, calculateUSDCost, COST_TIER_5_25 } =
+    await importFreshModelCost()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 1_000_000,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any
+
+  for (const name of ['constructor', '__proto__']) {
+    // DEFAULT_UNKNOWN_MODEL_COST is COST_TIER_5_25 (see modelCost.ts).
+    expect(getModelCosts(name, usage)).toEqual(COST_TIER_5_25)
+    const cost = calculateUSDCost(name, usage)
+    expect(Number.isNaN(cost)).toBe(false)
+    expect(cost).toBeGreaterThan(0)
+    expect(getModelPricingString(name)).toBeUndefined()
+  }
+})
