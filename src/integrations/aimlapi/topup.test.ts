@@ -75,7 +75,14 @@ function session(overrides: Record<string, unknown> = {}): Record<string, unknow
   }
 }
 
-type Calls = { createSession: number; getSession: number; pay: number; exchange: number }
+type Calls = {
+  createSession: number
+  getSession: number
+  pay: number
+  exchange: number
+  /** signup + login attempts — 0 proves a path never authenticated. */
+  auth: number
+}
 
 /**
  * Drive `topup.ts` against a stubbed transport by injecting test doubles (no
@@ -86,7 +93,9 @@ type Calls = { createSession: number; getSession: number; pay: number; exchange:
 async function importTopupWithClient(stub: {
   getSession?: (token: string) => Promise<unknown>
   createSession?: () => Promise<unknown>
-  onExchange?: () => void
+  onExchange?: () => void | Promise<void>
+  /** Fail both signup and login, standing in for a changed password / auth outage. */
+  authFails?: boolean
 }): Promise<{
   provisionAimlapiKey: typeof import('./topup.js').provisionAimlapiKey
   runAimlapiTopup: typeof import('./topup.js').runAimlapiTopup
@@ -94,13 +103,20 @@ async function importTopupWithClient(stub: {
   payBodies: Array<Record<string, unknown>>
   savedProfiles: Array<Record<string, unknown>>
 }> {
-  const calls: Calls = { createSession: 0, getSession: 0, pay: 0, exchange: 0 }
+  const calls: Calls = { createSession: 0, getSession: 0, pay: 0, exchange: 0, auth: 0 }
   const payBodies: Array<Record<string, unknown>> = []
   const savedProfiles: Array<Record<string, unknown>> = []
   let overrideUsed = false
 
   class StubClient {
     async signup(): Promise<{ token: string; exp: number }> {
+      calls.auth += 1
+      if (stub.authFails) throw new AimlapiApiError('signup unavailable', 503, '')
+      return { token: 'bearer', exp: 1 }
+    }
+    async login(): Promise<{ token: string; exp: number }> {
+      calls.auth += 1
+      if (stub.authFails) throw new AimlapiApiError('login unavailable', 503, '')
       return { token: 'bearer', exp: 1 }
     }
     async createSession(): Promise<unknown> {
@@ -135,8 +151,9 @@ async function importTopupWithClient(stub: {
     async exchange(): Promise<{ apiKey: string; apiKeyId: string }> {
       calls.exchange += 1
       // Lets a test steal the state slot at exactly the point where the settled
-      // receipt is about to be written.
-      stub.onExchange?.()
+      // receipt is about to be written, or hold the exchange lease open (awaited)
+      // while a racing peer observes it.
+      await stub.onExchange?.()
       return { apiKey: 'k_issued', apiKeyId: 'id_issued' }
     }
   }
@@ -738,3 +755,107 @@ test('a receipt-write failure after exchange still writes the CLI profile', asyn
   // the reset escape hatch.
   expect(logs.join('\n')).toContain('Could not clear the aimlapi.com recovery receipt')
 })
+
+test('a settled receipt is delivered without authenticating when auth is unavailable', async () => {
+  useTemporaryConfig()
+
+  // A prior run exchanged the key but died before persisting it: the paid-for
+  // credential lives only in the settled receipt.
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'spent-session',
+    apiKey: 'k_stranded',
+    apiKeyId: 'id_stranded',
+    model: 'gpt-4o',
+    settled: true,
+  })
+
+  // The password has since changed / the auth service is down. Reaching the key
+  // must NOT require a fresh login — the receipt is inspected first.
+  const { provisionAimlapiKey, calls } = await importTopupWithClient({ authFails: true })
+  const provisioned = await provisionAimlapiKey(provisionOptions)
+
+  expect(provisioned).toMatchObject({ apiKey: 'k_stranded', apiKeyId: 'id_stranded' })
+  // Never authenticated, and never touched the checkout endpoints.
+  expect(calls.auth).toBe(0)
+  expect(calls.createSession).toBe(0)
+  expect(calls.exchange).toBe(0)
+})
+
+test('the CLI delivers a settled receipt without authenticating when auth is unavailable', async () => {
+  useTemporaryConfig()
+
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'spent-session',
+    apiKey: 'k_paid',
+    apiKeyId: 'id_paid',
+    model: 'gpt-4o',
+    settled: true,
+  })
+
+  const { runAimlapiTopup, calls, savedProfiles } = await importTopupWithClient({
+    authFails: true,
+  })
+  await runAimlapiTopup({
+    email: intent.email,
+    password: 'secret',
+    amountUsd: '25',
+    partnerId: intent.partnerId,
+    partnerName: intent.partnerName,
+    model: 'gpt-4o',
+    noOpen: true,
+  })
+
+  // The key reached the profile with no login and no new checkout.
+  expect(calls.auth).toBe(0)
+  expect(calls.createSession).toBe(0)
+  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_paid' })
+})
+
+test('two racing exchangers mint the one-shot key once; the loser resumes the receipt', async () => {
+  useTemporaryConfig()
+  // Both flows converge on this single claimed checkout via the shared state file.
+  claimAimlapiTopupState(intent)
+
+  let announceWinnerHasLease: () => void = () => {}
+  const winnerHoldsLease = new Promise<void>(resolve => {
+    announceWinnerHasLease = resolve
+  })
+  let releaseWinner: () => void = () => {}
+  const winnerGate = new Promise<void>(resolve => {
+    releaseWinner = resolve
+  })
+
+  // The winner acquires the exchange lease, then blocks inside exchange() until
+  // the loser has had time to observe the held lease.
+  const winner = await importTopupWithClient({
+    getSession: async token => session({ sessionToken: token, status: 'paid' }),
+    onExchange: async () => {
+      announceWinnerHasLease()
+      await winnerGate
+    },
+  })
+  const loser = await importTopupWithClient({
+    getSession: async token => session({ sessionToken: token, status: 'paid' }),
+  })
+
+  const winnerRun = winner.provisionAimlapiKey(provisionOptions)
+  await winnerHoldsLease // the winner now holds the lease and is mid-exchange
+  const loserRun = loser.provisionAimlapiKey(provisionOptions)
+  // Let the loser reach its wait loop and see the fresh peer lease, then release
+  // the winner so it records the settled receipt the loser resumes from.
+  await new Promise(resolve => setTimeout(resolve, 400))
+  releaseWinner()
+
+  const [winnerKey, loserKey] = await Promise.all([winnerRun, loserRun])
+  // The non-idempotent exchange ran exactly once across both processes.
+  expect(winner.calls.exchange + loser.calls.exchange).toBe(1)
+  // Both still obtain the key: the winner minted it, the loser resumed the receipt.
+  expect(winnerKey.apiKey).toBe('k_issued')
+  expect(loserKey.apiKey).toBe('k_issued')
+}, 20_000)
