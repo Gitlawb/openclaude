@@ -216,6 +216,26 @@ export function formatWorktreeIsolationFallbackResultText(): string {
   return 'worktreeIsolationFallback: true\nnote: Worktree isolation was unavailable; this agent ran without an isolated worktree (edits are not sandboxed in a worktree).';
 }
 
+/** Shared async_launched payload for direct-async and sync-to-background paths. */
+export function buildAsyncLaunchedToolData(args: {
+  agentId: string;
+  description: string;
+  prompt: string;
+  canReadOutputFile: boolean;
+  worktreeIsolationFallback?: boolean;
+}) {
+  return {
+    isAsync: true as const,
+    status: 'async_launched' as const,
+    agentId: args.agentId,
+    description: args.description,
+    prompt: args.prompt,
+    outputFile: getTaskOutputPath(args.agentId),
+    canReadOutputFile: args.canReadOutputFile,
+    ...(args.worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
+  };
+}
+
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
 export const outputSchema = lazySchema(() => {
   const syncOutputSchema = agentToolResultSchema().extend({
@@ -910,16 +930,13 @@ export const AgentTool = buildTool({
       })));
       const canReadOutputFile = toolUseContext.options.tools.some(t => toolMatchesName(t, FILE_READ_TOOL_NAME) || toolMatchesName(t, BASH_TOOL_NAME));
       return {
-        data: {
-          isAsync: true as const,
-          status: 'async_launched' as const,
+        data: buildAsyncLaunchedToolData({
           agentId: agentBackgroundTask.agentId,
-          description: description,
-          prompt: prompt,
-          outputFile: getTaskOutputPath(agentBackgroundTask.agentId),
+          description,
+          prompt,
           canReadOutputFile,
-          ...(worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
-        }
+          worktreeIsolationFallback,
+        }),
       };
     } else {
       // Create an explicit agentId for sync agents
@@ -1202,15 +1219,13 @@ export const AgentTool = buildTool({
                 // Return async_launched result immediately
                 const canReadOutputFile = toolUseContext.options.tools.some(t => toolMatchesName(t, FILE_READ_TOOL_NAME) || toolMatchesName(t, BASH_TOOL_NAME));
                 return {
-                  data: {
-                    isAsync: true as const,
-                    status: 'async_launched' as const,
+                  data: buildAsyncLaunchedToolData({
                     agentId: backgroundedTaskId,
-                    description: description,
-                    prompt: prompt,
-                    outputFile: getTaskOutputPath(backgroundedTaskId),
-                    canReadOutputFile
-                  }
+                    description,
+                    prompt,
+                    canReadOutputFile,
+                    worktreeIsolationFallback,
+                  }),
                 };
               }
             }

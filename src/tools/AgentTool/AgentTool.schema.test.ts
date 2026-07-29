@@ -5,6 +5,7 @@ import { join } from 'path'
 import {
   AgentTool,
   assertAgentToolCwdAllowed,
+  buildAsyncLaunchedToolData,
   buildWorktreeIsolationFallbackNotice,
   formatWorktreeIsolationFallbackResultText,
   fullInputSchema,
@@ -203,6 +204,36 @@ describe('AgentTool input schema isolation contract', () => {
     expect(formatWorktreeIsolationFallbackResultText()).toContain(
       'worktreeIsolationFallback: true',
     )
+  })
+
+  test('buildAsyncLaunchedToolData carries worktree isolation fallback for backgrounded sync agents', () => {
+    const data = buildAsyncLaunchedToolData({
+      agentId: 'agent-bg-1',
+      description: baseInput.description,
+      prompt: baseInput.prompt,
+      canReadOutputFile: true,
+      worktreeIsolationFallback: true,
+    })
+
+    expect(data.worktreeIsolationFallback).toBe(true)
+    expect(outputSchema().safeParse(data).success).toBe(true)
+
+    const block = AgentTool.mapToolResultToToolResultBlockParam(data, 'toolu_bg')
+    const text = block.content[0]?.type === 'text' ? block.content[0].text : ''
+    expect(text).toContain('worktreeIsolationFallback: true')
+    expect(text).toContain('ran without an isolated worktree')
+  })
+
+  test('buildAsyncLaunchedToolData omits fallback when isolation succeeded', () => {
+    const data = buildAsyncLaunchedToolData({
+      agentId: 'agent-bg-2',
+      description: baseInput.description,
+      prompt: baseInput.prompt,
+      canReadOutputFile: false,
+      worktreeIsolationFallback: false,
+    })
+
+    expect(data.worktreeIsolationFallback).toBeUndefined()
   })
 
   test('prefers worktree cwd over explicit cwd when both are present defensively', () => {
