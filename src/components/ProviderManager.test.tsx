@@ -547,14 +547,19 @@ function mockProviderManagerDependencies(
     recordAimlapiCheckoutSession:
       options?.recordAimlapiCheckoutSession ??
       ((state: Record<string, unknown>) => {
-        // First writer wins: a peer's recorded token is retained; otherwise this
-        // token is recorded and returned.
+        // Mirror the real semantics: match on the intent + payment id only (not
+        // the volatile session token or receipt fields). A slot that no longer
+        // matches records nothing and returns null; otherwise the first writer
+        // wins and a peer's recorded token is retained.
+        const matchable: Record<string, unknown> = { ...state }
+        for (const key of ['resumeSessionToken', 'apiKey', 'apiKeyId', 'model', 'settled']) {
+          delete matchable[key]
+        }
+        if (!matchesAimlapiIntent(persistedAimlapiTopup, matchable)) {
+          return null
+        }
         const existingToken = persistedAimlapiTopup?.resumeSessionToken
-        if (
-          matchesAimlapiIntent(persistedAimlapiTopup, state) &&
-          typeof existingToken === 'string' &&
-          existingToken.trim()
-        ) {
+        if (typeof existingToken === 'string' && existingToken.trim()) {
           return { ...persistedAimlapiTopup }
         }
         persistedAimlapiTopup = state
@@ -1529,8 +1534,18 @@ test('ProviderManager clears the sign-in cache with the minted key id on a suffi
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Enter the 6-digit code sent to stan@aimlapi.com.'),
     )
+    // The code screen just transitioned in; wait for it to settle so its input
+    // handler is attached before typing, otherwise the digits are dropped and
+    // the masked value never renders.
+    let previousCodeFrame = ''
+    await waitForCondition(() => {
+      const frame = mounted.getOutput()
+      const settled = frame === previousCodeFrame && frame.includes('6-digit code')
+      previousCodeFrame = frame
+      return settled
+    })
     mounted.stdin.write('123456')
-    await Bun.sleep(25)
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('******'))
     mounted.stdin.write('\r')
 
     // A sufficient balance auto-persists; the sign-in cache must be cleared with

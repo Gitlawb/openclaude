@@ -157,6 +157,36 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
+test('a sibling that cleared the checkout aborts instead of paying twice', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    calls.push(`${init?.method} ${url}`)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-up' })
+    if (url.endsWith('/passwordless')) return Response.json({ token: 'session', exp: 1 })
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      // Simulate a concurrent sibling that finished and cleared this exact
+      // top-up between our claim and our session-election write.
+      rmSync(join(configDirectory, 'aimlapi-topup.json'), { force: true })
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'new@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow(/already completed or cancelled/i)
+  // The election aborts before any /pay call — no second charge is opened.
+  expect(calls.some(call => call.endsWith('/pay'))).toBe(false)
+})
+
 test('CLI retains an already-exchanged checkout and blocks identical retries', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
   temporaryDirectories.push(configDirectory)

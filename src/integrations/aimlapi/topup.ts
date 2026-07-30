@@ -281,7 +281,15 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       ...checkoutState,
       resumeSessionToken,
     })
-    const elected = recorded?.resumeSessionToken || resumeSessionToken
+    if (!recorded) {
+      // A null result means the stored checkout was cleared/reset meanwhile — a
+      // sibling run already completed (or invalidated) this exact top-up. Abort
+      // rather than pay a second, unrecorded checkout for a completed top-up.
+      throw new Error(
+        'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
+      )
+    }
+    const elected = recorded.resumeSessionToken || resumeSessionToken
     checkoutState.resumeSessionToken = elected
     return elected
   }
