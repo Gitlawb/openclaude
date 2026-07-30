@@ -1,878 +1,811 @@
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { afterAll, afterEach, expect, mock, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
-import { AimlapiApiError, type AimlapiClient } from './client.js'
+import { claimAimlapiTopupState, saveAimlapiTopupState } from './topupState.js'
+import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 import {
-  claimAimlapiTopupState,
-  clearAimlapiTopupState,
-  loadAimlapiTopupState,
-  recordAimlapiCheckoutSession,
-  saveAimlapiTopupState,
-  type AimlapiTopupIntent,
-} from './topupState.js'
+  pollUntilPaid,
+  provisionAimlapiKey,
+  runAimlapiTopup,
+  setAimlapiTopupTestDoubles,
+  topUpAimlapiByApiKey,
+} from './topup.js'
+import { AimlapiClient } from './client.js'
 
-// The top-up flow now acquires the checkout-state lock through the async,
-// yielding path, so these tests hand control back to the event loop at each
-// await. Run alongside the CPU-heavy multi-process lock tests in the same suite,
-// a contended runner can push a fast (<10ms of real work) provisioning past the
-// 5s default. Give the whole file generous headroom so load — not correctness —
-// never trips it.
-setDefaultTimeout(30_000)
-
-const directories: string[] = []
-
-afterEach(() => {
-  setClaudeConfigHomeDirForTesting(undefined)
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true })
-  }
+let lastSavedProfileEnv: Record<string, unknown> | undefined
+// Inject the profile writer + prompt stubs through the module's own DI seam
+// rather than a process-global `mock.module` (which leaks across test files in
+// this repo). The transport is stubbed per-test via `globalThis.fetch`.
+setAimlapiTopupTestDoubles({
+  writeProfile: options => {
+    lastSavedProfileEnv = options.env as Record<string, unknown>
+    return 'profile.json'
+  },
+  promptText: async () => '',
+  promptHidden: async () => '',
 })
 
-function useTemporaryConfig(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-topup-flow-'))
-  directories.push(directory)
-  setClaudeConfigHomeDirForTesting(directory)
-  return directory
-}
-
-/** The intent `provisionAimlapiKey` derives from the options used below. */
-const intent: AimlapiTopupIntent = {
-  email: 'user@example.com',
-  amountUsdMinor: 2500,
-  autoTopUp: false,
-  method: 'card',
-  partnerId: 'part_test',
-  partnerName: 'OpenClaude',
-  appBaseUrl: 'https://app.aimlapi.com',
-  inferenceBaseUrl: 'https://api.aimlapi.com/v1',
-}
-
-const provisionOptions = {
-  email: intent.email,
-  password: 'secret',
-  amountUsd: '25',
-  partnerId: intent.partnerId,
-  partnerName: intent.partnerName,
-  model: 'gpt-4o',
-  noOpen: true,
-}
-
-function session(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: 'sess_1',
-    sessionToken: 'session-token',
-    partnerId: intent.partnerId,
-    partnerName: intent.partnerName,
-    userId: 1,
-    amountUsdMinor: intent.amountUsdMinor,
-    status: 'paid',
+// createSession/getSession responses are validated against the full
+// PartnerCheckoutSession contract, so mocks must carry id + partnerId too.
+function sessionJson(session: Record<string, unknown>): Response {
+  // The current client validates the full PartnerCheckoutSession contract,
+  // including the nullable-but-required fields, so carry them as null.
+  return Response.json({
+    id: 'sess_test',
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: null,
+    userId: null,
+    amountUsdMinor: null,
     issuedKeyId: null,
     returnUrl: null,
-    ...overrides,
+    ...session,
+  })
+}
+
+const originalFetch = globalThis.fetch
+const originalEnv = {
+  AIMLAPI_AUTH_URL: process.env.AIMLAPI_AUTH_URL,
+  AIMLAPI_APP_URL: process.env.AIMLAPI_APP_URL,
+  AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
+  AIMLAPI_PAY_URL: process.env.AIMLAPI_PAY_URL,
+  AIMLAPI_PARTNER_ID: process.env.AIMLAPI_PARTNER_ID,
+  AIMLAPI_VERIFICATION_BASE_URL: process.env.AIMLAPI_VERIFICATION_BASE_URL,
+  AIMLAPI_RETURN_URL: process.env.AIMLAPI_RETURN_URL,
+  AIMLAPI_EMAIL: process.env.AIMLAPI_EMAIL,
+  AIMLAPI_CODE: process.env.AIMLAPI_CODE,
+}
+const temporaryDirectories: string[] = []
+
+afterAll(() => {
+  setAimlapiTopupTestDoubles(undefined)
+})
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+  lastSavedProfileEnv = undefined
+  setClaudeConfigHomeDirForTesting(undefined)
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true })
   }
-}
+  for (const [name, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+})
 
-type Calls = {
-  createSession: number
-  getSession: number
-  pay: number
-  exchange: number
-  /** signup + login attempts — 0 proves a path never authenticated. */
-  auth: number
-}
+test('parseAimlapiAmountUsd enforces checkout bounds', () => {
+  expect(parseAimlapiAmountUsd(undefined)).toBe(2500)
+  expect(parseAimlapiAmountUsd('20')).toBe(2000)
+  expect(parseAimlapiAmountUsd('25.25')).toBe(2525)
+  expect(parseAimlapiAmountUsd('10000')).toBe(1_000_000)
+  expect(() => parseAimlapiAmountUsd('19.99')).toThrow('Minimum top-up is $20')
+  expect(() => parseAimlapiAmountUsd('10000.01')).toThrow('Maximum top-up is $10000')
+  expect(() => parseAimlapiAmountUsd('19.999')).toThrow('Pass a valid USD amount')
+  expect(() => parseAimlapiAmountUsd('10000.004')).toThrow('Pass a valid USD amount')
+  expect(() => parseAimlapiAmountUsd('nope')).toThrow('Pass a positive number of USD')
+  expect(() => parseAimlapiAmountUsd('Infinity')).toThrow('Pass a positive number of USD')
+})
 
-/**
- * Drive `topup.ts` against a stubbed transport by injecting test doubles (no
- * process-global module mock, so nothing bleeds into other suites). The stub
- * records how often a fresh checkout was opened, which is what the resume
- * behaviour is judged on.
- */
-async function importTopupWithClient(stub: {
-  getSession?: (token: string) => Promise<unknown>
-  createSession?: () => Promise<unknown>
-  onExchange?: () => void | Promise<void>
-  /** Fail both signup and login, standing in for a changed password / auth outage. */
-  authFails?: boolean
-}): Promise<{
-  provisionAimlapiKey: typeof import('./topup.js').provisionAimlapiKey
-  runAimlapiTopup: typeof import('./topup.js').runAimlapiTopup
-  calls: Calls
-  payBodies: Array<Record<string, unknown>>
-  savedProfiles: Array<Record<string, unknown>>
-}> {
-  const calls: Calls = { createSession: 0, getSession: 0, pay: 0, exchange: 0, auth: 0 }
+test('isValidAimlapiEmail rejects incomplete domains', () => {
+  expect(isValidAimlapiEmail('user@example.com')).toBe(true)
+  expect(isValidAimlapiEmail('user@example')).toBe(false)
+  expect(isValidAimlapiEmail('user@example.c')).toBe(false)
+  expect(isValidAimlapiEmail('user@.example.com')).toBe(false)
+})
+
+test('CLI retries reuse the persisted checkout session and payment id', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+
+  let accountChecks = 0
   const payBodies: Array<Record<string, unknown>> = []
-  const savedProfiles: Array<Record<string, unknown>> = []
-  let overrideUsed = false
-
-  class StubClient {
-    async signup(): Promise<{ token: string; exp: number }> {
-      calls.auth += 1
-      if (stub.authFails) throw new AimlapiApiError('signup unavailable', 503, '')
-      return { token: 'bearer', exp: 1 }
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) {
+      accountChecks += 1
+      return Response.json({ action: accountChecks === 1 ? 'sign-up' : 'sign-in' })
     }
-    async login(): Promise<{ token: string; exp: number }> {
-      calls.auth += 1
-      if (stub.authFails) throw new AimlapiApiError('login unavailable', 503, '')
-      return { token: 'bearer', exp: 1 }
+    if (url.endsWith('/passwordless')) {
+      return Response.json({ token: 'account-token-one', exp: 1 })
     }
-    async createSession(): Promise<unknown> {
-      calls.createSession += 1
-      // A freshly opened checkout is not paid yet; polling flips it to paid.
-      return stub.createSession
-        ? await stub.createSession()
-        : session({ status: 'pending_payment' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      return Response.json({ token: 'account-token-two', exp: 2 })
     }
-    async getSession(token: string): Promise<unknown> {
-      calls.getSession += 1
-      // The seeded status answers the resume check only. Polling afterwards uses
-      // the same method, so keep it paid or the flow would never settle.
-      if (stub.getSession && !overrideUsed) {
-        overrideUsed = true
-        return await stub.getSession(token)
-      }
-      return session({ sessionToken: token, status: 'paid' })
+    if (url.endsWith('/v1/keys')) {
+      return Response.json({ key: 'key_test', id: 'key_id' })
     }
-    async pay(
-      _bearer: string,
-      _token: string,
-      body: Record<string, unknown>,
-    ): Promise<unknown> {
-      calls.pay += 1
-      payBodies.push(body)
-      return {
-        checkout: { providerSessionId: 'p', payUrl: 'https://checkout.test/pay' },
-        partnerCheckout: session(),
-      }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
     }
-    async exchange(): Promise<{ apiKey: string; apiKeyId: string }> {
-      calls.exchange += 1
-      // Lets a test steal the state slot at exactly the point where the settled
-      // receipt is about to be written, or hold the exchange lease open (awaited)
-      // while a racing peer observes it.
-      await stub.onExchange?.()
-      return { apiKey: 'k_issued', apiKeyId: 'id_issued' }
+    if (url.endsWith('/pay')) {
+      payBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      throw new Error('ambiguous payment response')
     }
-  }
+    if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'paid' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
 
-  // Load a FRESH topup.js instance via a cache-busting query so it is immune to
-  // any `mock.module('../integrations/aimlapi/index.js')` another suite registers
-  // (ProviderManager.test.tsx does) — mocking the barrel replaces the shared
-  // provisionAimlapiKey binding, which would otherwise reach this file too.
-  // Inject the transport through the module's own seam, so there is still no
-  // process-global module mock leaking OUT to client.test.ts.
-  const nonce = `${Date.now()}-${Math.random()}`
-  const topup = (await import(`./topup.js?ts=${nonce}`)) as typeof import('./topup.js')
-  topup.setAimlapiTopupTestDoubles({
-    createClient: () => new StubClient() as unknown as AimlapiClient,
-    // Record the profile write instead of touching disk; the CLI flow only needs
-    // the returned path.
-    writeProfile: profile => {
-      savedProfiles.push(profile as unknown as Record<string, unknown>)
-      return '/tmp/openclaude-profile.json'
-    },
-  })
-  return {
-    provisionAimlapiKey: topup.provisionAimlapiKey,
-    runAimlapiTopup: topup.runAimlapiTopup,
-    calls,
-    payBodies,
-    savedProfiles,
-  }
-}
-
-test('an interrupted checkout resumes its recorded session instead of charging again', async () => {
-  useTemporaryConfig()
-
-  // A previous run got as far as opening the payment page and recorded it.
-  const claimed = claimAimlapiTopupState(intent)
-  expect(
-    saveAimlapiTopupState({
-      ...intent,
-      paymentSessionId: claimed.paymentSessionId,
-      resumeSessionToken: 'recorded-session',
-    }),
-  ).toBe(true)
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // The recorded session is still payable.
-    getSession: async token => session({ sessionToken: token, status: 'pending_payment' }),
-  })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  // The recorded session was reused; no second checkout was opened.
-  expect(calls.createSession).toBe(0)
-  expect(provisioned.apiKey).toBe('k_issued')
-  // The record now carries the settled receipt, held for the caller to persist.
-  expect(loadAimlapiTopupState(intent)).toMatchObject({
-    apiKey: 'k_issued',
-    settled: true,
-  })
-})
-
-test('a dead recorded session is replaced rather than resumed', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'expired-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'expired' }),
-  })
-  await provisionAimlapiKey(provisionOptions)
-
-  // The expired session was inspected, then a fresh checkout was opened.
-  expect(calls.createSession).toBe(1)
-  expect(loadAimlapiTopupState(intent)).toMatchObject({ settled: true })
-})
-
-test('restarting with a different payment method does not adopt the prior checkout', async () => {
-  useTemporaryConfig()
-
-  // A card checkout is recorded and its payment page is still open.
-  const claimed = claimAimlapiTopupState(intent) // intent.method === 'card'
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'card-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({})
-
-  // A crypto restart is a DIFFERENT intent now that `method` is part of the
-  // identity, so it must not adopt the card session (and reuse its idempotency
-  // id on the wrong rail). The open card checkout blocks it until it is reset.
   await expect(
-    provisionAimlapiKey({ ...provisionOptions, method: 'crypto' }),
-  ).rejects.toThrow(/still open for a different top-up/i)
-  expect(calls.createSession).toBe(0)
-  expect(calls.getSession).toBe(0)
-  // The card checkout is untouched.
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('card-session')
-})
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('ambiguous payment response')
 
-test('an already-exchanged session with no local receipt fails closed', async () => {
-  useTemporaryConfig()
-
-  // The exchange completed on a prior run but the settled receipt never landed
-  // locally (write failed or the process died), leaving only the resume token.
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'spent-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'exchanged' }),
-  })
-
-  // The one-shot key is already gone, so resuming must not open — and charge —
-  // a second checkout; it fails closed exactly like pollUntilPaid.
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/already exchanged/i)
-  expect(calls.createSession).toBe(0)
-  expect(calls.pay).toBe(0)
-  // The record survives, so every re-run keeps failing closed rather than
-  // silently minting a fresh checkout later.
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('spent-session')
-})
-
-test('a session recorded by a peer between claim and createSession is adopted', async () => {
-  useTemporaryConfig()
-
-  // We claim first, so our in-memory state still carries an empty resume token.
-  const claimed = claimAimlapiTopupState(intent)
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    createSession: async () => {
-      // A peer racing the same intent records ITS session for the shared payment
-      // id in the window after our claim and before we record ours.
-      recordAimlapiCheckoutSession({
-        ...intent,
-        paymentSessionId: claimed.paymentSessionId,
-        resumeSessionToken: 'peer-session',
-      })
-      return session({ sessionToken: 'our-session', status: 'pending_payment' })
-    },
-    // Answers the adopt-resume read, then the later poll settles it.
-    getSession: async token => session({ sessionToken: token, status: 'pending_payment' }),
-  })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  // We opened a session but adopted the peer's instead of overwriting the slot,
-  // so both runs converge on one payable checkout rather than charging twice.
-  expect(calls.createSession).toBe(1)
-  expect(calls.pay).toBe(1)
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('peer-session')
-  expect(provisioned.apiKey).toBe('k_issued')
-})
-
-test('an adopted peer session that is already exchanged fails closed', async () => {
-  useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    createSession: async () => {
-      recordAimlapiCheckoutSession({
-        ...intent,
-        paymentSessionId: claimed.paymentSessionId,
-        resumeSessionToken: 'peer-session',
-      })
-      return session({ sessionToken: 'our-session', status: 'pending_payment' })
-    },
-    // The peer's session was exchanged in the race window; pay() must not run.
-    getSession: async token => session({ sessionToken: token, status: 'exchanged' }),
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/already exchanged/i)
-  expect(calls.createSession).toBe(1)
-  expect(calls.pay).toBe(0)
-})
-
-test('an adopted peer session that is dead fails cleanly instead of paying', async () => {
-  useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    createSession: async () => {
-      recordAimlapiCheckoutSession({
-        ...intent,
-        paymentSessionId: claimed.paymentSessionId,
-        resumeSessionToken: 'peer-session',
-      })
-      return session({ sessionToken: 'our-session', status: 'pending_payment' })
-    },
-    // The peer's session was cancelled in the race window.
-    getSession: async token => session({ sessionToken: token, status: 'cancelled' }),
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(/no longer payable/i)
-  expect(calls.createSession).toBe(1)
-  expect(calls.pay).toBe(0)
-})
-
-test('an ambiguous status error preserves the recorded checkout', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'recorded-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // A 403 says nothing about whether the session is still payable, so it must
-    // not retire the record and open a second, separately chargeable checkout.
-    getSession: async () => {
-      throw new AimlapiApiError('forbidden', 403, '')
-    },
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('forbidden')
-  expect(calls.createSession).toBe(0)
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
-})
-
-test('a gone recorded session (404) is replaced with a fresh checkout', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'gone-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // 404 is a definitive "the session no longer exists", so open a fresh one.
-    getSession: async () => {
-      throw new AimlapiApiError('gone', 404, '')
-    },
-  })
-  await provisionAimlapiKey(provisionOptions)
-
-  expect(calls.createSession).toBe(1)
-})
-
-test('payment polling retries a malformed status body instead of aborting', async () => {
-  useTemporaryConfig()
-  claimAimlapiTopupState(intent)
-
-  const { provisionAimlapiKey } = await importTopupWithClient({
-    // The first poll read is a malformed-but-successful body (status 200); the
-    // wait must keep polling rather than abort, matching the resume path.
-    getSession: async () => {
-      throw new AimlapiApiError('malformed', 200, '')
-    },
-  })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  expect(provisioned.apiKey).toBe('k_issued')
-})
-
-test('a settled receipt returns the issued key without paying again', async () => {
-  useTemporaryConfig()
-
-  // A previous run paid and exchanged, but was interrupted before the caller
-  // could persist the credential.
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'spent-session',
-    apiKey: 'k_stranded',
-    apiKeyId: 'id_stranded',
-    model: 'gpt-4o',
-    settled: true,
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({})
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  // The stranded key came back with no checkout at all.
-  expect(provisioned).toMatchObject({ apiKey: 'k_stranded', apiKeyId: 'id_stranded' })
-  expect(calls.createSession).toBe(0)
-  expect(calls.pay).toBe(0)
-  expect(calls.exchange).toBe(0)
-  // The receipt is NOT consumed here: the key is only returned in memory, so it
-  // must survive until the caller has durably persisted it (caller-clear
-  // contract). Clearing now would drop the sole recoverable copy on a failed
-  // persist.
-  expect(loadAimlapiTopupState(intent)).toMatchObject({
-    apiKey: 'k_stranded',
-    settled: true,
-  })
-})
-
-test('a second top-up only charges again once the caller has cleared the receipt', async () => {
-  useTemporaryConfig()
-
-  // First provision leaves a settled receipt behind.
-  const first = await importTopupWithClient({})
-  await first.provisionAimlapiKey(provisionOptions)
-  expect(first.calls.exchange).toBe(1)
-
-  // Without a caller-clear, a second top-up short-circuits on the receipt and
-  // returns the same key without opening a checkout - the documented contract.
-  const second = await importTopupWithClient({})
-  const reused = await second.provisionAimlapiKey(provisionOptions)
-  expect(reused.apiKey).toBe('k_issued')
-  expect(second.calls.createSession).toBe(0)
-  expect(second.calls.exchange).toBe(0)
-
-  // The caller acknowledges its persist by clearing the receipt...
-  const stored = loadAimlapiTopupState(intent)!
-  clearAimlapiTopupState({ ...intent, paymentSessionId: stored.paymentSessionId })
-
-  // ...after which a genuine second top-up opens and pays for a fresh checkout.
-  const third = await importTopupWithClient({})
-  await third.provisionAimlapiKey(provisionOptions)
-  expect(third.calls.createSession).toBe(1)
-  expect(third.calls.pay).toBe(1)
-  expect(third.calls.exchange).toBe(1)
-})
-
-test('a fresh run records its checkout and leaves a settled receipt for the caller', async () => {
-  useTemporaryConfig()
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({})
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  expect(calls.createSession).toBe(1)
-  expect(calls.exchange).toBe(1)
-  expect(provisioned.apiKey).toBe('k_issued')
-  // The key is only returned in memory, so the receipt must survive until the
-  // caller has persisted it; otherwise an interruption loses a paid-for key.
-  expect(loadAimlapiTopupState(intent)).toMatchObject({
-    apiKey: 'k_issued',
-    apiKeyId: 'id_issued',
-    settled: true,
-  })
-})
-
-test('a checkout superseded mid-exchange fences the key instead of clobbering the new one', async () => {
-  useTemporaryConfig()
-
-  const { provisionAimlapiKey } = await importTopupWithClient({
-    // The checkout is reset and a fresh top-up claims the slot while our key is
-    // being exchanged, so our settled-receipt compare-and-swap misses.
-    onExchange: () => {
-      clearAimlapiTopupState({
-        ...intent,
-        paymentSessionId: loadAimlapiTopupState(intent)!.paymentSessionId,
-      })
-      claimAimlapiTopupState(intent)
-    },
-  })
-
-  // Our key must NOT be delivered: writing it to the profile would overwrite the
-  // credential the fresh checkout provisions. The flow fences (rejects) and points
-  // the user at rotating the now-orphaned key, rather than silently clobbering.
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow(
-    /reset while the key was being provisioned|rotate/i,
-  )
-})
-
-test('a transient getSession failure preserves the recorded checkout', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'recorded-session',
-  })
-
-  const { AimlapiApiError } = await import('./client.js')
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // A 5xx says nothing about the session's fate.
-    getSession: async () => {
-      throw new AimlapiApiError('upstream boom', 503, '')
-    },
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('upstream boom')
-  // No second checkout was opened, and the record survived for a later re-run.
-  expect(calls.createSession).toBe(0)
-  expect(loadAimlapiTopupState(intent)).toMatchObject({
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'recorded-session',
-  })
-})
-
-test('a resumed session that is already paid is not re-bound', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'paid-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'paid' }),
-  })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  // Straight to the exchange: no createSession, and no pay() on a settled
-  // checkout.
-  expect(calls.createSession).toBe(0)
-  expect(calls.pay).toBe(0)
-  expect(calls.exchange).toBe(1)
-  expect(provisioned.apiKey).toBe('k_issued')
-})
-
-test('a session interrupted at exchanging is resumed, not re-charged', async () => {
-  useTemporaryConfig()
-
-  // Payment settled and the exchange had begun, but the run was interrupted
-  // before the settled receipt was written — the provider reports `exchanging`.
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'exchanging-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'exchanging' }),
-  })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-
-  // Resumed straight to the exchange: no new checkout and no second charge,
-  // matching how pollUntilPaid treats an `exchanging` session.
-  expect(calls.createSession).toBe(0)
-  expect(calls.pay).toBe(0)
-  expect(calls.exchange).toBe(1)
-  expect(provisioned.apiKey).toBe('k_issued')
-})
-
-test('a malformed status response preserves the recorded checkout', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'recorded-session',
-  })
-
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // client.getSession throws status 200 for a malformed/empty success body,
-    // explicitly as a non-terminal signal.
-    getSession: async () => {
-      throw new AimlapiApiError('malformed session', 200, '')
-    },
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('malformed session')
-  // The record survived rather than being retired into a second checkout.
-  expect(calls.createSession).toBe(0)
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
-})
-
-test('a rate-limited status check preserves the recorded checkout', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'recorded-session',
-  })
-
-  const { AimlapiApiError } = await import('./client.js')
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({
-    // 429/408 are transient and say nothing about the session's fate.
-    getSession: async () => {
-      throw new AimlapiApiError('slow down', 429, '')
-    },
-  })
-
-  await expect(provisionAimlapiKey(provisionOptions)).rejects.toThrow('slow down')
-  expect(calls.createSession).toBe(0)
-  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('recorded-session')
-})
-
-test('checkout binding sends the persisted payment id as the idempotency key', async () => {
-  useTemporaryConfig()
-
-  const { provisionAimlapiKey, payBodies } = await importTopupWithClient({})
-  await provisionAimlapiKey(provisionOptions)
-
-  // The recorded paymentSessionId must ride along on /pay so a retry references
-  // the same charge identity instead of opening a second one.
-  const recorded = loadAimlapiTopupState(intent)
+  const saved = JSON.parse(
+    readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8'),
+  ) as { paymentSessionId: string; resumeSessionToken: string }
+  expect(saved.paymentSessionId).toBeTruthy()
+  expect(saved.resumeSessionToken).toBe('checkout-session')
   expect(payBodies).toHaveLength(1)
-  expect(payBodies[0]?.paymentSessionId).toBeTruthy()
-  // It matches the id that was claimed and persisted for this checkout.
-  expect(payBodies[0]?.paymentSessionId).toBe(recorded?.paymentSessionId)
-})
+  expect(payBodies[0]?.paymentSessionId).toBe(saved.paymentSessionId)
 
-test('the CLI flow resumes a settled receipt instead of opening a new checkout', async () => {
-  useTemporaryConfig()
-
-  // A previous CLI run exchanged the key but was interrupted before (or during)
-  // the profile write.
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'exchanged-session',
-    apiKey: 'k_paid',
-    apiKeyId: 'id_paid',
-    model: 'gpt-4o',
-    settled: true,
-  })
-
-  const { runAimlapiTopup, calls, savedProfiles } = await importTopupWithClient({})
   await runAimlapiTopup({
-    email: intent.email,
-    password: 'secret',
+    email: 'user@example.com',
+    code: '123456',
     amountUsd: '25',
-    partnerId: intent.partnerId,
-    partnerName: intent.partnerName,
-    model: 'gpt-4o',
     noOpen: true,
   })
-
-  // The paid-for key was written to the profile with no new checkout or charge.
-  expect(calls.createSession).toBe(0)
-  expect(calls.pay).toBe(0)
-  expect(calls.exchange).toBe(0)
-  expect(savedProfiles).toHaveLength(1)
-  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_paid' })
-  // The record is spent once the profile write (owned by this flow) succeeds.
-  expect(loadAimlapiTopupState(intent)).toBeNull()
+  expect(payBodies).toHaveLength(1)
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
-test('a receipt-write failure after exchange still returns the issued key', async () => {
-  const directory = useTemporaryConfig()
-  claimAimlapiTopupState(intent)
-
-  const { provisionAimlapiKey } = await importTopupWithClient({
-    // Simulate a lock/fs failure at the settled-receipt write by corrupting the
-    // state file as the key is exchanged; the read-time guard then throws.
-    onExchange: () => {
-      writeFileSync(join(directory, 'aimlapi-topup.json'), '{ corrupt', 'utf8')
-    },
+test('CLI retains an already-exchanged checkout and blocks identical retries', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const persisted = claimAimlapiTopupState({
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+  })
+  saveAimlapiTopupState({
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+    paymentSessionId: persisted.paymentSessionId,
+    resumeSessionToken: 'exchanged-session',
   })
 
-  // The one-shot key must be delivered despite the failed recovery-receipt write
-  // — aborting here would strand a paid-for credential in an exchanged session.
-  const provisioned = await provisionAimlapiKey(provisionOptions)
-  expect(provisioned.apiKey).toBe('k_issued')
-})
+  let sessionReads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      return Response.json({ token: 'account-token', exp: 1 })
+    }
+    if (url.endsWith('/v1/keys')) {
+      return Response.json({ key: 'key_test', id: 'created-key' })
+    }
+    if (url.endsWith('/sessions/exchanged-session')) {
+      sessionReads += 1
+      return sessionJson({
+        sessionToken: 'exchanged-session',
+        status: 'exchanged',
+        issuedKeyId: 'issued-key-id',
+      })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
 
-test('a receipt-write failure after exchange still writes the CLI profile', async () => {
-  const directory = useTemporaryConfig()
-  claimAimlapiTopupState(intent)
-
-  const { runAimlapiTopup, savedProfiles } = await importTopupWithClient({
-    onExchange: () => {
-      writeFileSync(join(directory, 'aimlapi-topup.json'), '{ corrupt', 'utf8')
-    },
-  })
-  const logs: string[] = []
-  const originalLog = console.log
-  console.log = (...args: unknown[]) => {
-    logs.push(args.map(String).join(' '))
-  }
-  try {
-    await runAimlapiTopup({
-      email: intent.email,
-      password: 'secret',
+  const retry = (): Promise<void> =>
+    runAimlapiTopup({
+      email: 'user@example.com',
+      code: '123456',
       amountUsd: '25',
-      partnerId: intent.partnerId,
-      partnerName: intent.partnerName,
-      model: 'gpt-4o',
       noOpen: true,
     })
-  } finally {
-    console.log = originalLog
-  }
 
-  // The profile (with the key) was written despite the failed receipt write and
-  // the failed post-delivery cleanup clear.
-  expect(savedProfiles).toHaveLength(1)
-  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_issued' })
-  // The failed cleanup is surfaced to the user (not just --debug), pointing at
-  // the reset escape hatch.
-  expect(logs.join('\n')).toContain('Could not clear the aimlapi.com recovery receipt')
+  await expect(retry()).rejects.toThrow('issued key issued-key-id')
+  await expect(retry()).rejects.toThrow('issued key issued-key-id')
+  expect(sessionReads).toBe(2)
+  expect(
+    JSON.parse(readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8')),
+  ).toMatchObject({
+    paymentSessionId: persisted.paymentSessionId,
+    resumeSessionToken: 'exchanged-session',
+  })
 })
 
-test('a settled receipt is delivered without authenticating when auth is unavailable', async () => {
-  useTemporaryConfig()
+test('a failed payment retains the issued key for the next run', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  // Keep the canonical inference URL so the guided-provisioning gate allows the
+  // run; the flow uses the app/auth/pay hosts for its requests.
 
-  // A prior run exchanged the key but died before persisting it: the paid-for
-  // credential lives only in the settled receipt.
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'spent-session',
-    apiKey: 'k_stranded',
-    apiKeyId: 'id_stranded',
-    model: 'gpt-4o',
-    settled: true,
-  })
+  let keyMints = 0
+  let sessionStatus = 'expired'
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      return Response.json({ key: 'key_test', id: 'key_id' })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/pay')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'checkout-session', status: 'pending_payment' },
+      })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
+      return sessionJson({ sessionToken: 'checkout-session', status: sessionStatus })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
 
-  // The password has since changed / the auth service is down. Reaching the key
-  // must NOT require a fresh login — the receipt is inspected first.
-  const { provisionAimlapiKey, calls } = await importTopupWithClient({ authFails: true })
-  const provisioned = await provisionAimlapiKey(provisionOptions)
+  // First run: the payment expires. The issued key must survive the terminal reset.
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('Payment expired')
 
-  expect(provisioned).toMatchObject({ apiKey: 'k_stranded', apiKeyId: 'id_stranded' })
-  // Never authenticated, and never touched the checkout endpoints.
-  expect(calls.auth).toBe(0)
-  expect(calls.createSession).toBe(0)
-  expect(calls.exchange).toBe(0)
-})
+  const afterFailure = JSON.parse(
+    readFileSync(join(configDirectory, 'aimlapi-topup.json'), 'utf8'),
+  ) as { apiKey?: string; resumeSessionToken: string }
+  expect(afterFailure.apiKey).toBe('key_test')
+  expect(afterFailure.resumeSessionToken).toBe('')
+  expect(keyMints).toBe(1)
 
-test('the CLI delivers a settled receipt without authenticating when auth is unavailable', async () => {
-  useTemporaryConfig()
-
-  const claimed = claimAimlapiTopupState(intent)
-  saveAimlapiTopupState({
-    ...intent,
-    paymentSessionId: claimed.paymentSessionId,
-    resumeSessionToken: 'spent-session',
-    apiKey: 'k_paid',
-    apiKeyId: 'id_paid',
-    model: 'gpt-4o',
-    settled: true,
-  })
-
-  const { runAimlapiTopup, calls, savedProfiles } = await importTopupWithClient({
-    authFails: true,
-  })
+  // Second run: the payment clears and the retained key is reused (not re-minted).
+  sessionStatus = 'paid'
   await runAimlapiTopup({
-    email: intent.email,
-    password: 'secret',
+    email: 'user@example.com',
+    code: '123456',
     amountUsd: '25',
-    partnerId: intent.partnerId,
-    partnerName: intent.partnerName,
-    model: 'gpt-4o',
+    noOpen: true,
+  })
+  expect(keyMints).toBe(1)
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
+test('the CLI refuses guided top-up on a non-canonical inference endpoint', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  let fetched = false
+  globalThis.fetch = mock(async () => {
+    fetched = true
+    return Response.json({})
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('production endpoint')
+  // Rejected before any account lookup or key mint.
+  expect(fetched).toBe(false)
+})
+
+test('a settled interrupted run resumes the profile write without re-provisioning', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.aimlapi.com',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.aimlapi.com',
+    verificationBaseUrl: 'https://aimlapi.com/app',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'checkout-session',
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    // Original run provisioned a non-default model.
+    model: 'anthropic/claude-opus-4-8',
+    settled: true,
+  })
+
+  let fetched = false
+  globalThis.fetch = mock(async () => {
+    fetched = true
+    return Response.json({})
+  }) as unknown as typeof fetch
+
+  // Retry without --model: the default would be gpt-4o, but the settled receipt
+  // must win.
+  await runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true })
+
+  // The retained settled key finished the write — no account check/provisioning,
+  // the persisted model is preserved, and the checkout state is cleared.
+  expect(fetched).toBe(false)
+  expect(lastSavedProfileEnv?.OPENAI_API_KEY).toBe('exchanged-key')
+  expect(lastSavedProfileEnv?.OPENAI_MODEL).toBe('anthropic/claude-opus-4-8')
+  expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
+test('topUpAimlapiByApiKey funds the key account without exchange', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    calls.push(`${init?.method} ${url}`)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/v2/billing/topup')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+      })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions/session')) {
+      return sessionJson({ sessionToken: 'session', status: 'paid' })
+    }
+    return new Response('', { status: 404 })
+  }) as unknown as typeof fetch
+
+  const sessions: string[] = []
+  const result = await topUpAimlapiByApiKey({
+    apiKey: 'key_test',
+    paymentSessionId: 'payment-id',
+    amountUsd: '25',
+    noOpen: true,
+    onSession: session => sessions.push(session),
+  })
+
+  expect(result.apiKey).toBe('key_test')
+  expect(sessions).toEqual(['session'])
+  expect(calls).toEqual([
+    'POST https://app.example.test/v3/partner-checkout/sessions',
+    'POST https://api.example.test/v2/billing/topup',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+  expect(calls.some(call => call.endsWith('/exchange'))).toBe(false)
+})
+
+test('topUpAimlapiByApiKey resumes a paid session without charging again', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+
+  await topUpAimlapiByApiKey({
+    apiKey: 'key_test',
+    paymentSessionId: 'payment-id',
+    resumeSessionToken: 'session',
+    amountUsd: '25',
     noOpen: true,
   })
 
-  // The key reached the profile with no login and no new checkout.
-  expect(calls.auth).toBe(0)
-  expect(calls.createSession).toBe(0)
-  expect(savedProfiles[0]?.env).toMatchObject({ OPENAI_API_KEY: 'k_paid' })
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
 })
 
-test('two racing exchangers mint the one-shot key once; the loser resumes the receipt', async () => {
-  useTemporaryConfig()
-  // Both flows converge on this single claimed checkout via the shared state file.
-  claimAimlapiTopupState(intent)
+test('a pending resumed session is polled without paying again', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    reads += 1
+    return sessionJson({
+      sessionToken: 'session',
+      status: reads === 1 ? 'pending_payment' : 'paid',
+    })
+  }) as unknown as typeof fetch
 
-  let announceWinnerHasLease: () => void = () => {}
-  const winnerHoldsLease = new Promise<void>(resolve => {
-    announceWinnerHasLease = resolve
-  })
-  let releaseWinner: () => void = () => {}
-  const winnerGate = new Promise<void>(resolve => {
-    releaseWinner = resolve
-  })
-
-  // The winner acquires the exchange lease, then blocks inside exchange() until
-  // the loser has had time to observe the held lease.
-  const winner = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'paid' }),
-    onExchange: async () => {
-      announceWinnerHasLease()
-      await winnerGate
-    },
-  })
-  const loser = await importTopupWithClient({
-    getSession: async token => session({ sessionToken: token, status: 'paid' }),
+  await topUpAimlapiByApiKey({
+    apiKey: 'key_test',
+    paymentSessionId: 'payment-id',
+    resumeSessionToken: 'session',
+    amountUsd: '25',
+    noOpen: true,
   })
 
-  let announceLoserWaiting: () => void = () => {}
-  const loserObservedHeldLease = new Promise<void>(resolve => {
-    announceLoserWaiting = resolve
-  })
-  let loserWaited = false
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+})
 
-  // The winner provisions gpt-4o; the loser asks for a DIFFERENT model.
-  const winnerRun = winner.provisionAimlapiKey({ ...provisionOptions, model: 'gpt-4o' })
-  await winnerHoldsLease // the winner now holds the lease and is mid-exchange
-  // The loser reports when it observes the held lease and enters the wait loop.
-  const loserRun = loser.provisionAimlapiKey({
-    ...provisionOptions,
-    model: 'gpt-4.1',
-    onStatus: (_status: string, detail?: string) => {
-      if (detail?.includes('finishing this checkout')) {
-        loserWaited = true
-        announceLoserWaiting()
-      }
-    },
-  })
-  // Gate on the loser's own "waiting" signal, not a wall-clock sleep: it has now
-  // seen the fresh peer lease and is in the wait loop. Release the winner so it
-  // records the settled receipt the loser resumes from.
-  await loserObservedHeldLease
-  releaseWinner()
+test('a resumed by-key session still exchanging settles before success', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const calls: string[] = []
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    reads += 1
+    return sessionJson({
+      sessionToken: 'session',
+      status: reads === 1 ? 'exchanging' : 'exchanged',
+    })
+  }) as unknown as typeof fetch
 
-  const [winnerKey, loserKey] = await Promise.all([winnerRun, loserRun])
-  // The loser genuinely took the wait path, not a lucky straight-to-settled read.
-  expect(loserWaited).toBe(true)
-  // The non-idempotent exchange ran exactly once across both processes.
-  expect(winner.calls.exchange + loser.calls.exchange).toBe(1)
-  // Both still obtain the key: the winner minted it, the loser resumed the receipt.
-  expect(winnerKey.apiKey).toBe('k_issued')
-  expect(loserKey.apiKey).toBe('k_issued')
-  // The loser configures the model the winner PROVISIONED (from the receipt), not
-  // its own --model — a resume honours the original run's parameters.
-  expect(loserKey.model).toBe('gpt-4o')
-}, 20_000)
+  const result = await topUpAimlapiByApiKey({
+    apiKey: 'key_test',
+    paymentSessionId: 'payment-id',
+    resumeSessionToken: 'session',
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  expect(result.apiKey).toBe('key_test')
+  // The first GET resolves the resumed session (exchanging); the settle poll
+  // then waits for it to reach exchanged instead of reporting success early.
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+})
+
+test('an invalid amount is rejected before any key is minted', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({
+      email: 'user@example.com',
+      code: '123456',
+      amountUsd: '5',
+      noOpen: true,
+    }),
+  ).rejects.toThrow('Minimum top-up is $20')
+  expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
+  expect(calls.some(call => call.endsWith('/sign-in/code'))).toBe(false)
+})
+
+test('an unsupported account action is rejected without provisioning', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'reset' })
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  // The client validates the account action at the boundary and fails closed on
+  // an unknown one, so the flow never reaches its own unsupported-action guard.
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow(/invalid account response/i)
+  expect(calls.some(call => call.endsWith('/passwordless'))).toBe(false)
+  expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
+})
+
+test('provisionAimlapiKey does not repeat an already completed exchange', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    return sessionJson({
+      sessionToken: 'session',
+      status: 'exchanged',
+      issuedKeyId: 'key_recoverable',
+    })
+  }) as unknown as typeof fetch
+  const sessions: string[] = []
+
+  await expect(
+    provisionAimlapiKey({
+      sessionToken: 'account-session',
+      resumeSessionToken: 'session',
+      paymentSessionId: 'payment-id',
+      exchange: true,
+      amountUsd: '25',
+      noOpen: true,
+      onSession: session => sessions.push(session),
+    }),
+  ).rejects.toThrow('issued key key_recoverable')
+
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+  expect(sessions).toEqual([])
+})
+
+test('an in-progress exchange is observed without issuing a second exchange', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const calls: string[] = []
+  let reads = 0
+  const sessions: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    reads += 1
+    return sessionJson({
+      sessionToken: 'session',
+      status: reads === 1 ? 'exchanging' : 'exchanged',
+    })
+  }) as unknown as typeof fetch
+
+  await expect(
+    provisionAimlapiKey({
+      sessionToken: 'account-session',
+      resumeSessionToken: 'session',
+      paymentSessionId: 'payment-id',
+      exchange: true,
+      amountUsd: '25',
+      noOpen: true,
+      onSession: session => sessions.push(session),
+    }),
+  ).rejects.toThrow('Session was already exchanged')
+  expect(calls.every(call => call.startsWith('GET '))).toBe(true)
+  expect(sessions).toEqual(['session'])
+})
+
+test('email-session checkout carries the stable payment id', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  let payBody: Record<string, unknown> | undefined
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/pay')) {
+      payBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+      })
+    }
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+
+  await provisionAimlapiKey({
+    sessionToken: 'account-session',
+    paymentSessionId: 'stable-payment-id',
+    exchange: false,
+    existingApiKey: 'key_test',
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  expect(payBody?.paymentSessionId).toBe('stable-payment-id')
+})
+
+test('checkout URL must be an absolute credential-free HTTPS URL', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    return Response.json({
+      checkout: { providerSessionId: 'provider', payUrl: 'https://user:pass@checkout.test/pay' },
+      partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+    })
+  }) as unknown as typeof fetch
+
+  await expect(
+    topUpAimlapiByApiKey({
+      apiKey: 'key_test',
+      paymentSessionId: 'payment-id',
+      amountUsd: '25',
+      noOpen: true,
+    }),
+  ).rejects.toThrow('valid HTTPS checkout URL')
+})
+
+test('terminal resumed-session errors clear retained checkout state', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  globalThis.fetch = mock(async () => new Response('gone', { status: 404 })) as unknown as typeof fetch
+  const sessions: string[] = []
+
+  await expect(
+    topUpAimlapiByApiKey({
+      apiKey: 'key_test',
+      paymentSessionId: 'payment-id',
+      resumeSessionToken: 'dead-session',
+      amountUsd: '25',
+      noOpen: true,
+      onSession: session => sessions.push(session),
+    }),
+  ).rejects.toThrow('404')
+  expect(sessions).toEqual([''])
+})
+
+test('dead sessions observed while polling are cleared immediately', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/v2/billing/topup')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+      })
+    }
+    return sessionJson({ sessionToken: 'session', status: 'expired' })
+  }) as unknown as typeof fetch
+  const sessions: string[] = []
+
+  await expect(
+    topUpAimlapiByApiKey({
+      apiKey: 'key_test',
+      paymentSessionId: 'payment-id',
+      amountUsd: '25',
+      noOpen: true,
+      onSession: session => sessions.push(session),
+    }),
+  ).rejects.toThrow('Payment expired')
+  expect(sessions).toEqual(['session', ''])
+})
+
+test('aborting during polling stops requests and preserves the retained session', async () => {
+  const controller = new AbortController()
+  let getCount = 0
+  globalThis.fetch = mock(async () => {
+    getCount += 1
+    controller.abort()
+    return sessionJson({ sessionToken: 'session', status: 'pending_payment' })
+  }) as unknown as typeof fetch
+  const client = new AimlapiClient({
+    authBaseUrl: 'https://auth.example.test',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  })
+  const sessions: string[] = []
+
+  await expect(
+    pollUntilPaid(client, 'session', controller.signal, value => sessions.push(value)),
+  ).rejects.toThrow()
+  // Aborted before the next poll: exactly one GET, and the session is not cleared.
+  expect(getCount).toBe(1)
+  expect(sessions).toEqual([])
+})
+
+test('terminal API errors observed while polling clear retained checkout state', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/v2/billing/topup')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+      })
+    }
+    return new Response('gone', { status: 410 })
+  }) as unknown as typeof fetch
+  const sessions: string[] = []
+
+  await expect(
+    topUpAimlapiByApiKey({
+      apiKey: 'key_test',
+      paymentSessionId: 'payment-id',
+      amountUsd: '25',
+      noOpen: true,
+      onSession: session => sessions.push(session),
+    }),
+  ).rejects.toThrow('410')
+  expect(sessions).toEqual(['session', ''])
+})
+
+test('polling retries a transient transport failure', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  let attempts = 0
+  globalThis.fetch = mock(async () => {
+    attempts += 1
+    if (attempts === 1) throw new TypeError('temporary connection reset')
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+  const client = new AimlapiClient({
+    authBaseUrl: 'https://auth.example.test',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  })
+
+  await expect(pollUntilPaid(client, 'session')).resolves.toEqual(
+    expect.objectContaining({ status: 'paid' }),
+  )
+  expect(attempts).toBe(2)
+})
+
+test('polling retains and retries the same session after a rate limit', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  let attempts = 0
+  globalThis.fetch = mock(async () => {
+    attempts += 1
+    if (attempts === 1) return new Response('rate limited', { status: 429 })
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+  const client = new AimlapiClient({
+    authBaseUrl: 'https://auth.example.test',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  })
+  const sessions: string[] = []
+
+  await expect(
+    pollUntilPaid(client, 'session', undefined, value => sessions.push(value)),
+  ).resolves.toEqual(expect.objectContaining({ status: 'paid' }))
+  expect(attempts).toBe(2)
+  expect(sessions).toEqual([])
+})
+
+test('by-key billing stays on the endpoint that validated the key', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://override.example.test/v1'
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/v2/billing/topup')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: { id: 'sess_test', partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ', partnerName: null, userId: null, amountUsdMinor: null, issuedKeyId: null, returnUrl: null, sessionToken: 'session', status: 'pending_payment' },
+      })
+    }
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+
+  await topUpAimlapiByApiKey({
+    apiKey: 'production-key',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    paymentSessionId: 'payment-id',
+    amountUsd: '25',
+    noOpen: true,
+  })
+  expect(calls).toContain('https://api.aimlapi.com/v2/billing/topup')
+  expect(calls).not.toContain('https://override.example.test/v2/billing/topup')
+})
