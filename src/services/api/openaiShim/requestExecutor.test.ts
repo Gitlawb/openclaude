@@ -945,14 +945,20 @@ test('redacts configured secrets from HTTP error messages', async () => {
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
-  await expect(
-    client.beta.messages.create({
+  const error = await client.beta.messages
+    .create({
       model: 'test-model',
       messages: [{ role: 'user', content: 'hello' }],
       max_tokens: 64,
       stream: false,
-    }),
-  ).rejects.not.toThrow('super-secret-key')
+    })
+    .then(
+      () => undefined,
+      (caught: unknown) => caught as Error,
+    )
+
+  expect(error?.message).toContain('upstream rejected')
+  expect(error?.message).not.toContain('super-secret-key')
 })
 
 test('classifies localhost transport failures with actionable category marker', async () => {
