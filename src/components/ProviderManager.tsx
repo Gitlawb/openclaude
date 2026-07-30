@@ -3200,7 +3200,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             ...checkoutState,
             resumeSessionToken: sessionToken,
           })
-          const elected = recorded?.resumeSessionToken || sessionToken
+          if (!recorded) {
+            // The stored checkout was cleared/reset meanwhile — a sibling run
+            // already completed (or invalidated) this top-up. Abort rather than
+            // pay a second, unrecorded checkout.
+            throw new Error(
+              'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
+            )
+          }
+          const elected = recorded.resumeSessionToken || sessionToken
           checkoutState.resumeSessionToken = elected
           setAimlapiResumeSessionToken(elected)
           return elected
@@ -3242,7 +3250,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         checkoutState.apiKeyId = provisioned.apiKeyId
         checkoutState.model = provisioned.model
         checkoutState.settled = true
-        saveAimlapiTopupState({ ...intent, ...checkoutState })
+        try {
+          saveAimlapiTopupState({ ...intent, ...checkoutState })
+        } catch {
+          // Best effort: the payment already cleared, so a receipt-write failure
+          // (lock contention, full/read-only disk) must not divert the flow into
+          // the top-up error path — the profile write is what the user needs.
+        }
         // A payment just cleared, so the done screen should report the top-up
         // regardless of whether we route through the model picker first.
         aimlapiTopupPaidRef.current = true
