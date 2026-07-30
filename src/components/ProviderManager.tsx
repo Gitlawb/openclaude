@@ -3077,12 +3077,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           aimlapiInferenceBaseUrl,
           retainedSignInKey ?? undefined,
         )
-        // Persist immediately so an abort/restart before the checkout completes
-        // recovers this key rather than minting a second one.
-        saveAimlapiSignInKey(aimlapiTopupEmail, result.apiKey, result.apiKeyId)
+        // Copy into memory BEFORE persisting so a cache-write failure cannot
+        // discard the just-minted key — otherwise the catch below returns to code
+        // entry with neither the key nor a cache record and a retry mints another.
         setAimlapiSessionToken(result.sessionToken)
         setAimlapiIssuedKey(result.apiKey)
         setAimlapiIssuedKeyId(result.apiKeyId)
+        // Recovery aid so an abort/restart reuses this key; best-effort — a lock,
+        // permission, or disk failure must not lose the key retained above.
+        try {
+          saveAimlapiSignInKey(aimlapiTopupEmail, result.apiKey, result.apiKeyId)
+        } catch {
+          // Retained in component state above; the cache is only a recovery aid.
+        }
         if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
         if (result.balanceStatus === 'unknown') {
@@ -3171,6 +3178,23 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
     setAimlapiPaymentSessionId(checkoutState.paymentSessionId)
     setAimlapiResumeSessionToken(checkoutState.resumeSessionToken)
+
+    // Resume: a prior run paid + exchanged the key and saved the settled receipt
+    // but was interrupted before the profile write. Finish that last step with
+    // the retained key instead of re-entering provisioning against a now-
+    // exchanged session (which fails in resolveTopupSession and strands the paid
+    // one-shot credential). Mirrors the CLI's settled-receipt recovery.
+    if (checkoutState.settled && checkoutState.apiKey) {
+      aimlapiTopupPaidRef.current = true
+      persistAimlapiKey(
+        checkoutState.apiKey,
+        aimlapiInferenceBaseUrl,
+        checkoutState.model?.trim() || draft.model,
+        'topup',
+        { signInKeyId: checkoutState.apiKeyId },
+      )
+      return
+    }
 
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()

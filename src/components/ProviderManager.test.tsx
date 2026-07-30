@@ -1815,6 +1815,69 @@ test('ProviderManager cancellation returns a live checkout to the resumable amou
   }
 })
 
+test('ProviderManager recovers a settled receipt without re-provisioning', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_CODE
+
+  const addProviderProfile = mock((payload: any) => ({ id: 'aimlapi_profile', ...payload }))
+  const provisionAimlapiKey = mock(async () => {
+    throw new Error('provisionAimlapiKey must not run when a settled receipt exists')
+  })
+  // A prior run paid + exchanged the key and saved the settled receipt, then was
+  // interrupted before the profile write.
+  const claimAimlapiTopupState = mock(() => ({
+    paymentSessionId: 'persisted-payment-id',
+    resumeSessionToken: 'exchanged-session',
+    settled: true,
+    apiKey: 'recovered-key',
+    apiKeyId: 'recovered-id',
+    model: 'gpt-4o',
+  }))
+  const clearAimlapiTopupState = mock(() => {})
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    provisionAimlapiKey,
+    claimAimlapiTopupState,
+    clearAimlapiTopupState,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('\t')
+    await Bun.sleep(25)
+    mounted.stdin.write('\t')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // Recovery persists the saved key directly instead of re-entering
+    // provisioning against the now-exchanged session.
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(provisionAimlapiKey).not.toHaveBeenCalled()
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'aimlapi', apiKey: 'recovered-key' }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+}, 20_000)
+
 test('ProviderManager can top up AI/ML API and save the issued key', async () => {
   delete process.env.AIMLAPI_EMAIL
   delete process.env.AIMLAPI_CODE
