@@ -30,6 +30,7 @@ type GeminiCredential = {
 type RequestExecutorContext = {
   defaultHeaders: Record<string, string>
   providerOverride?: { apiKey?: string }
+  routeAcceptsGenericOpenAICredentials: boolean
   getCredentialPool: (rawCredentials: string) => CredentialPool | null
   filterAnthropicHeaders: (
     headers?: Record<string, string>,
@@ -159,6 +160,7 @@ export async function executeOpenAIRequest(
   const {
     defaultHeaders,
     providerOverride,
+    routeAcceptsGenericOpenAICredentials,
     getCredentialPool,
     filterAnthropicHeaders,
     isGeminiMode,
@@ -233,6 +235,7 @@ export async function executeOpenAIRequest(
   const isXaiRoute =
     runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
   const openAIApiKeysPoolRaw =
+    routeAcceptsGenericOpenAICredentials &&
     parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
       ? process.env.OPENAI_API_KEYS
       : undefined
@@ -284,11 +287,16 @@ export async function executeOpenAIRequest(
   )
   const apiKeyRaw =
     providerOverride?.apiKey ??
-    (openAIApiKeyIsCopiedProviderKey ? openAIApiKeyRawUsable : undefined) ??
+    (openAIApiKeyIsCopiedProviderKey &&
+    routeAcceptsGenericOpenAICredentials
+      ? openAIApiKeyRawUsable
+      : undefined) ??
     (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
     openAIApiKeysPoolRaw ??
     routeCredential ??
-    (openAIApiKeyRawUsable || xaiOAuthToken || '')
+    (routeAcceptsGenericOpenAICredentials
+      ? openAIApiKeyRawUsable || xaiOAuthToken || ''
+      : '')
   // A catalog-level auth header is part of the selected model's transport
   // contract. Ignore global custom auth left behind by another route so it
   // cannot replace that model-specific header or credential.

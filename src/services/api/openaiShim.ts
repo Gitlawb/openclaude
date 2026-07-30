@@ -1467,6 +1467,10 @@ class OpenAIShimMessages {
     return executeOpenAIRequest({
       defaultHeaders: this.defaultHeaders,
       providerOverride: this.providerOverride,
+      routeAcceptsGenericOpenAICredentials:
+        runtimeShimContext.routeId === null ||
+        getRouteDescriptor(runtimeShimContext.routeId)?.setup
+          .dedicatedCredentialsOnly !== true,
       getCredentialPool: value => this.getCredentialPool(value),
       filterAnthropicHeaders, isGeminiMode, resolveRouteCredentialValue, isXaiBaseUrl, parseCredentialList, resolveXaiAccessToken, hasInvalidCredentialPlaceholder, buildOpenAICompatibilityErrorMessage, isAzureStyleBaseUrl, resolveGeminiCredential, COPILOT_HEADERS, getSessionId, getLocalProviderRetryBaseUrls, buildOllamaChatUrl, logForDebugging, redactUrlForDiagnostics, redactSecretValueForDisplay, headersWithRequestUrl, classifyOpenAINetworkFailure, classifyOpenAIHttpFailure, fetchWithProxyRetry, formatRetryAfterHint, redactUrlsInMessage, sleepMs, shouldAttemptLocalToollessRetry, refreshCopilotTokenOn401, isCopilotTokenExpiredError, convertOllamaStreamingResponse, convertOllamaNonStreamingResponse, logApiCallStart, logApiCallEnd, stableStringifyJson, APIError, GITHUB_429_MAX_RETRIES, GITHUB_429_BASE_DELAY_SEC, GITHUB_429_MAX_DELAY_SEC, request, params, options, requestProcessEnv, fastPath, shimConfig, runtimeShimContext, body, effectiveTransport, useNativeOllamaChat, buildResponsesBody, serializeBody, isLocal, isGithub, isGithubCopilot, isGithubModels, omitTools,
     })
