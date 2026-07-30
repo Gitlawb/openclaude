@@ -20,7 +20,6 @@ import {
   parseTextToolCalls,
   parseXmlToolCalls,
 } from './openaiShim.ts'
-import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
 type FetchType = typeof globalThis.fetch
@@ -536,6 +535,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    mock.restore()
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
@@ -11084,7 +11084,6 @@ test('GitHub Copilot 401 chat_completions retries with refreshed token', async (
 // openaiShim test extraction seam 187 start: GitHub Copilot 401 codex_responses retries with refreshed token
 test('GitHub Copilot 401 codex_responses retries with refreshed token', async () => {
   const realGithubModule = realGithubModelsCredentials
-  const realCodexModule = realCodexShim
   try {
     const refreshSpy = mock(async () => {
       process.env.GITHUB_TOKEN = 'refreshed-token'
@@ -11101,32 +11100,33 @@ test('GitHub Copilot 401 codex_responses retries with refreshed token', async ()
     let firstAuth: string | undefined
     let secondAuth: string | undefined
 
-    mock.module('./codexShim.js', () => ({
-      ...realCodexModule,
-      performCodexRequest: mock(async (opts: { credentials: { apiKey: string } }) => {
-        codexCallCount++
-        const apiKey = opts.credentials?.apiKey
+    globalThis.fetch = ((_, init) => {
+      codexCallCount++
+      const headers = new Headers(init?.headers)
+      const apiKey = headers.get('authorization')?.replace(/^Bearer /, '')
 
-        if (codexCallCount === 1) {
-          firstAuth = apiKey
-          throw APIError.generate(401, undefined, 'token expired', new Headers())
-        }
+      if (codexCallCount === 1) {
+        firstAuth = apiKey
+        return Promise.resolve(new Response(JSON.stringify({ error: { message: 'token expired' } }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
 
-        if (codexCallCount === 2) {
-          secondAuth = apiKey
-          return makeCodexSseResponse({
-            response: {
-              id: 'resp_test',
-              output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
-              model: 'gpt-5',
-              usage: { input_tokens: 10, output_tokens: 5 },
-            },
-          })
-        }
+      if (codexCallCount === 2) {
+        secondAuth = apiKey
+        return Promise.resolve(makeCodexSseResponse({
+          response: {
+            id: 'resp_test',
+            output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
+            model: 'gpt-5',
+            usage: { input_tokens: 10, output_tokens: 5 },
+          },
+        }))
+      }
 
-        throw new Error(`unexpected codex call #${codexCallCount}`)
-      }),
-    }))
+      throw new Error(`unexpected codex call #${codexCallCount}`)
+    }) as unknown as FetchType
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
@@ -11155,7 +11155,6 @@ test('GitHub Copilot 401 codex_responses retries with refreshed token', async ()
     expect((response as Record<string, unknown>).content).toBeDefined()
   } finally {
     mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
-    mock.module('./codexShim.js', () => realCodexModule)
   }
 })
 // openaiShim test extraction seam 187 end

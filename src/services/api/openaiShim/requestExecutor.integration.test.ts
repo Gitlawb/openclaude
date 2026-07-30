@@ -834,6 +834,22 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
+test('rejects CR/LF in custom OpenAI-compatible auth header values', async () => {
+  process.env.OPENAI_AUTH_HEADER = 'api-key'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'valid-value\r\ninjected-header: value'
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).rejects.toThrow('OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters')
+})
+
 test('uses Hicap api-key auth header for the Hicap route', async () => {
   process.env.OPENAI_API_KEY = 'hicap-live-key'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'

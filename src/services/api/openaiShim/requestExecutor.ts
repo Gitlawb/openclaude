@@ -25,6 +25,18 @@ type CompatibilityFailure = Pick<
 
 type ClassifiedFailure = OpenAICompatibilityFailure
 
+function isAbortLikeError(error: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError') ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'AbortError')
+  )
+}
+
 type GeminiCredential = {
   kind: string
   credential?: string
@@ -659,6 +671,25 @@ export async function executeOpenAIRequest(
       requestUrl: failure.requestUrl ?? requestUrl,
     }
     const redactedUrl = redactUrlForDiagnostics(requestUrl)
+    const encodedSecretRedactedBody =
+      redactEncodedSecretSubstringsForDisplay(errorBody, requestProcessEnv) ??
+      'unknown error'
+    const substringRedactedBody =
+      redactSecretSubstringsForDisplay(
+        encodedSecretRedactedBody,
+        requestProcessEnv,
+      ) ?? 'unknown error'
+    const safeErrorBody =
+      redactSecretValueForDisplay(substringRedactedBody, requestProcessEnv) ||
+      'unknown error'
+    let safeParsedBody = parsedBody
+    if (safeErrorBody !== errorBody) {
+      try {
+        safeParsedBody = JSON.parse(safeErrorBody) as object
+      } catch {
+        safeParsedBody = undefined
+      }
+    }
 
     logForDebugging(
       `[OpenAIShim] request failed category=${failure.category} retryable=${failure.retryable} status=${status} method=POST url=${redactedUrl} model=${request.resolvedModel}`,
@@ -667,9 +698,9 @@ export async function executeOpenAIRequest(
 
     throw APIError.generate(
       status,
-      parsedBody,
+      safeParsedBody,
       buildOpenAICompatibilityErrorMessage(
-        `OpenAI API error ${status}: ${errorBody}${rateHint}`,
+        `OpenAI API error ${status}: ${safeErrorBody}${rateHint}`,
         failureWithUrl,
       ),
       headersWithRequestUrl(responseHeaders, requestUrl),
@@ -716,15 +747,7 @@ export async function executeOpenAIRequest(
     try {
       response = await fetchRequest(requestUrl, buildFetchInit(headers))
     } catch (error) {
-      const isAbortError =
-        options?.signal?.aborted === true ||
-        (typeof DOMException !== 'undefined' &&
-          error instanceof DOMException &&
-          error.name === 'AbortError') ||
-        (typeof error === 'object' &&
-          error !== null &&
-          'name' in error &&
-          error.name === 'AbortError')
+      const isAbortError = options?.signal?.aborted === true || isAbortLikeError(error)
 
       if (isAbortError) {
         throw error
@@ -870,15 +893,7 @@ export async function executeOpenAIRequest(
           if (options?.signal?.aborted) {
             throw options.signal.reason ?? error
           }
-          if (
-            (typeof DOMException !== 'undefined' &&
-              error instanceof DOMException &&
-              error.name === 'AbortError') ||
-            (typeof error === 'object' &&
-              error !== null &&
-              'name' in error &&
-              error.name === 'AbortError')
-          ) {
+          if (isAbortLikeError(error)) {
             throw error
           }
           const failure = {
