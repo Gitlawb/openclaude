@@ -42,6 +42,7 @@ type RequestExecutorContext = {
     processEnv: NodeJS.ProcessEnv
   }) => string | undefined
   isXaiBaseUrl: (baseUrl: string) => boolean
+  isLongcatBaseUrl: (baseUrl: string) => boolean
   parseCredentialList: (value?: string) => string[]
   resolveXaiAccessToken: () => Promise<string | undefined>
   hasInvalidCredentialPlaceholder: (value: string) => boolean
@@ -80,7 +81,11 @@ type RequestExecutorContext = {
     url?: string
     hasImages: boolean
   }) => ClassifiedFailure
+  markOpenAIRequestNonReplayable: (error: Error) => Error
   fetchWithProxyRetry: (input: string, init: RequestInit) => Promise<Response>
+  fetchRequest: (input: string, init: RequestInit) => Promise<Response>
+  isResponseHeadersTimeout: (error: unknown) => boolean
+  requestBodyContainsImages: (payload: Record<string, unknown> | undefined) => boolean
   formatRetryAfterHint: (response: Response) => string
   redactUrlsInMessage: (message: string) => string
   sleepMs: (ms: number) => Promise<void>
@@ -166,6 +171,7 @@ export async function executeOpenAIRequest(
     isGeminiMode,
     resolveRouteCredentialValue,
     isXaiBaseUrl,
+    isLongcatBaseUrl,
     parseCredentialList,
     resolveXaiAccessToken,
     hasInvalidCredentialPlaceholder,
@@ -182,7 +188,11 @@ export async function executeOpenAIRequest(
     headersWithRequestUrl,
     classifyOpenAINetworkFailure,
     classifyOpenAIHttpFailure,
+    markOpenAIRequestNonReplayable,
     fetchWithProxyRetry,
+    fetchRequest,
+    isResponseHeadersTimeout,
+    requestBodyContainsImages,
     formatRetryAfterHint,
     redactUrlsInMessage,
     sleepMs,
@@ -450,7 +460,17 @@ export async function executeOpenAIRequest(
       return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
     }
 
-    return `${baseUrl}/chat/completions`
+    const normalizedBase = baseUrl.replace(/\/+$/, '')
+    if (runtimeShimContext.routeId === 'longcat' && isLongcatBaseUrl(normalizedBase)) {
+      const pathname = new URL(normalizedBase).pathname
+      if (/^\/openai\/?$/.test(pathname)) {
+        return `${normalizedBase}/v1/chat/completions`
+      }
+      if (/^\/openai(?:\/v1)?\/chat\/completions$/.test(pathname)) {
+        return normalizedBase
+      }
+    }
+    return `${normalizedBase}/chat/completions`
   }
 
   const buildResponsesUrl = (baseUrl: string): string => {
@@ -522,30 +542,12 @@ export async function executeOpenAIRequest(
     return false
   }
 
-  const bodyContainsImages = (): boolean => {
-    if (request.transport === 'responses') {
-      const responsesBody = buildResponsesBody()
-      const input = responsesBody.input as
-        Array<Record<string, unknown>> | undefined
-      if (!Array.isArray(input)) return false
-      return input.some((item) => {
-        const content = item.content as
-          Array<Record<string, unknown>> | undefined
-        return (
-          Array.isArray(content) &&
-          content.some((part) => part.type === 'input_image')
-        )
-      })
+  const bodyContainsImages = (serializedBody = serializeBody()): boolean => {
+    try {
+      return requestBodyContainsImages(JSON.parse(serializedBody) as Record<string, unknown>)
+    } catch {
+      return false
     }
-    const messages = body.messages as Array<Record<string, unknown>> | undefined
-    if (!Array.isArray(messages)) return false
-    return messages.some((msg) => {
-      const content = msg.content
-      if (!Array.isArray(content)) return false
-      return content.some(
-        (part: Record<string, unknown>) => part.type === 'image_url',
-      )
-    })
   }
 
   // WHY: byte-identity required for implicit prefix caching in
@@ -602,7 +604,7 @@ export async function executeOpenAIRequest(
       { level: 'warn' },
     )
 
-    throw APIError.generate(
+    const apiError = APIError.generate(
       0,
       undefined,
       buildOpenAICompatibilityErrorMessage(
@@ -611,6 +613,9 @@ export async function executeOpenAIRequest(
       ),
       new Headers(),
     )
+    throw failure.retryable
+      ? apiError
+      : markOpenAIRequestNonReplayable(apiError)
   }
 
   const throwClassifiedHttpError = (
@@ -690,7 +695,7 @@ export async function executeOpenAIRequest(
     }
     const headers = await buildHeadersForAttempt(credentialLease)
     try {
-      response = await fetchWithProxyRetry(requestUrl, buildFetchInit(headers))
+      response = await fetchRequest(requestUrl, buildFetchInit(headers))
     } catch (error) {
       const isAbortError =
         options?.signal?.aborted === true ||
@@ -706,9 +711,12 @@ export async function executeOpenAIRequest(
         throw error
       }
 
-      const failure = classifyOpenAINetworkFailure(error, {
+      const failure = {
+        ...classifyOpenAINetworkFailure(error, {
         url: requestUrl,
-      })
+        }),
+        ...(isResponseHeadersTimeout(error) ? { retryable: false } : {}),
+      }
 
       if (
         isLocal &&
@@ -833,7 +841,7 @@ export async function executeOpenAIRequest(
 
         let responsesResponse!: Response
         try {
-          responsesResponse = await fetchWithProxyRetry(responsesUrl, {
+          responsesResponse = await fetchRequest(responsesUrl, {
             method: 'POST',
             headers,
             body: stableStringifyJson(responsesBody),
@@ -853,7 +861,7 @@ export async function executeOpenAIRequest(
           status: responsesResponse.status,
           body: responsesErrorBody,
           url: responsesUrl,
-          hasImages: bodyContainsImages(),
+          hasImages: requestBodyContainsImages(responsesBody),
         })
         let responsesErrorResponse: object | undefined
         try {
@@ -929,7 +937,8 @@ export async function executeOpenAIRequest(
 
     if (
       isLocal &&
-      failure.category === 'endpoint_not_found' &&
+      (failure.category === 'endpoint_not_found' ||
+        (response.status === 404 && failure.category === 'vision_not_supported')) &&
       promoteNextLocalBaseUrl('endpoint_not_found')
     ) {
       continue
