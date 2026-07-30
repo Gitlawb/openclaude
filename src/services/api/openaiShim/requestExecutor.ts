@@ -857,6 +857,9 @@ export async function executeOpenAIRequest(
             signal: options?.signal,
           })
         } catch (error) {
+          if (options?.signal?.aborted) {
+            throw options.signal.reason ?? error
+          }
           const failure = {
             ...classifyOpenAINetworkFailure(error, { url: responsesUrl }),
             ...(isResponseHeadersTimeout(error) ? { retryable: false } : {}),
