@@ -597,9 +597,11 @@ export async function executeOpenAIRequest(
 
   const maxSelfHealAttempts = isLocal ? localRetryBaseUrls.length + 1 : 0
   const credentialPoolAttempts = credentialPool?.size ?? 1
-  let maxAttempts =
+  let maxAttempts = Math.max(
+    2,
     Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
-    maxSelfHealAttempts
+      maxSelfHealAttempts,
+  )
 
   const throwClassifiedTransportError = (
     error: unknown,
@@ -954,7 +956,7 @@ export async function executeOpenAIRequest(
           didRefreshCopilotToken = true
           const refreshed = await refreshCopilotTokenOn401()
           if (refreshed) {
-            const newApiKey = requestProcessEnv.OPENAI_API_KEY?.trim() || ''
+            const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
             if (newApiKey && newApiKey !== oldToken) {
               refreshedCopilotToken = newApiKey
             }

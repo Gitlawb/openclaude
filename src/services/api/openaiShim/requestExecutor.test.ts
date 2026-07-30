@@ -1142,7 +1142,10 @@ test('self-heals localhost resolution failures by retrying local loopback base U
 })
 
 test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
-  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  // A direct loopback address has no alternate retry base, so this verifies
+  // the recovery reserves its own second request rather than relying on URL
+  // fallback attempts.
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:11434/v1'
 
   const requestBodies: Array<Record<string, unknown>> = []
   globalThis.fetch = (async (_input, init) => {
@@ -1900,6 +1903,61 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
     ).rejects.toThrow()
 
     expect(refreshSpy).toHaveBeenCalledTimes(0)
+  } finally {
+    mock.module('../../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})
+
+test('GitHub Copilot refreshes a matching providerOverride token', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'refreshed-token'
+      process.env.OPENAI_API_KEY = 'refreshed-token'
+      return true
+    })
+    mock.module('../../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'initial-token'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    const authorizations: string[] = []
+    globalThis.fetch = ((_input, init) => {
+      const headers = init?.headers as Record<string, string> | undefined
+      authorizations.push(headers?.Authorization ?? '')
+      if (authorizations.length === 1) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ error: { message: 'token expired' } }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        ))
+      }
+      return Promise.resolve(makeChatCompletionResponse('gpt-4'))
+    }) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-matching-override')
+    const client = createClient({
+      providerOverride: {
+        model: 'gpt-4',
+        baseURL: 'https://api.githubcopilot.com',
+        apiKey: 'initial-token',
+      },
+    }) as OpenAIShimClient
+
+    await expect(client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })).resolves.toBeDefined()
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1)
+    expect(authorizations).toEqual(['Bearer initial-token', 'Bearer refreshed-token'])
   } finally {
     mock.module('../../../utils/githubModelsCredentials.js', () => realGithubModule)
   }
