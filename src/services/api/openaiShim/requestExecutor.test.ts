@@ -1,5 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
@@ -482,6 +482,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    jest.useRealTimers()
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
@@ -690,6 +691,10 @@ test('GitHub 429 does not retry a cooled key after a concurrent request cools th
   const firstRequestStarted = new Promise<void>(resolve => {
     markFirstRequestStarted = resolve
   })
+  let markFirstResponseBodyRead: (() => void) | undefined
+  const firstResponseBodyRead = new Promise<void>(resolve => {
+    markFirstResponseBodyRead = resolve
+  })
 
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
@@ -702,10 +707,17 @@ test('GitHub 429 does not retry a cooled key after a concurrent request cools th
     if (authorizations.length === 1) {
       markFirstRequestStarted?.()
     }
-    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+    return {
+      ok: false,
       status: 429,
-      headers: { 'Content-Type': 'application/json' },
-    })
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      text: () => {
+        if (authorizations.length === 1) {
+          markFirstResponseBodyRead?.()
+        }
+        return Promise.resolve(JSON.stringify({ error: { message: 'rate limited' } }))
+      },
+    } as unknown as Response
   }) as unknown as FetchType
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
@@ -716,16 +728,27 @@ test('GitHub 429 does not retry a cooled key after a concurrent request cools th
     stream: false,
   })
 
-  const firstRequest = createRequest()
-  await firstRequestStarted
-  // Let the first request record key-a's cooldown and enter its backoff before
-  // the second request uses and cools key-b.
-  await new Promise(resolve => setTimeout(resolve, 20))
-  const secondRequest = createRequest()
+  jest.useFakeTimers()
+  try {
+    const firstRequest = createRequest()
+    await firstRequestStarted
+    // The first body read happens after it cools key-a. Once it resolves, the
+    // request synchronously schedules its backoff in the next microtask.
+    await firstResponseBodyRead
+    for (let tick = 0; tick < 8 && jest.getTimerCount() === 0; tick++) {
+      await Promise.resolve()
+    }
+    expect(jest.getTimerCount()).toBe(1)
 
-  await expect(secondRequest).rejects.toThrow('rate limited')
-  await expect(firstRequest).rejects.toThrow('rate limited')
-  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+    const secondRequest = createRequest()
+    await expect(secondRequest).rejects.toThrow('rate limited')
+
+    jest.advanceTimersByTime(1_000)
+    await expect(firstRequest).rejects.toThrow('rate limited')
+    expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+  } finally {
+    jest.useRealTimers()
+  }
 })
 
 test('OPENAI_API_KEYS does not reuse a cooled-down key after every key is rate-limited', async () => {
