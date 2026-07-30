@@ -773,8 +773,10 @@ test('getProviderWizardDefaults ignores poisoned current provider values', () =>
 
 test('CodexCredentialStep renders the codexplan Sol description', async () => {
   const previousApiKey = process.env.CODEX_API_KEY
+  const previousAccountId = process.env.CHATGPT_ACCOUNT_ID
   try {
     process.env.CODEX_API_KEY = 'codex-test-key'
+    process.env.CHATGPT_ACCOUNT_ID = 'acct_test'
     const output = await renderFinalFrame(
       <CodexCredentialStep
         onSave={() => {}}
@@ -789,6 +791,9 @@ test('CodexCredentialStep renders the codexplan Sol description', async () => {
   } finally {
     if (previousApiKey === undefined) delete process.env.CODEX_API_KEY
     else process.env.CODEX_API_KEY = previousApiKey
+
+    if (previousAccountId === undefined) delete process.env.CHATGPT_ACCOUNT_ID
+    else process.env.CHATGPT_ACCOUNT_ID = previousAccountId
   }
 })
 
