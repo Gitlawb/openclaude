@@ -17,6 +17,7 @@ import {
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -70,6 +71,32 @@ test('top-up state round-trips only for the same checkout intent', () => {
   if (process.platform !== 'win32') {
     expect(statSync(join(directory, 'aimlapi-topup.json')).mode & 0o777).toBe(0o600)
   }
+})
+
+test('recordAimlapiCheckoutSession elects the first session token and a loser adopts it', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const base = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // First writer wins: its token is stored.
+  const winner = recordAimlapiCheckoutSession({ ...base, resumeSessionToken: 'session-A' })
+  expect(winner?.resumeSessionToken).toBe('session-A')
+
+  // A concurrent peer recording a different session does NOT overwrite the
+  // winner — it gets the winning token back and adopts it, so only one checkout
+  // is ever payable.
+  const loser = recordAimlapiCheckoutSession({ ...base, resumeSessionToken: 'session-B' })
+  expect(loser?.resumeSessionToken).toBe('session-A')
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('session-A')
+
+  // A slot that no longer belongs to this payment id records nothing.
+  expect(
+    recordAimlapiCheckoutSession({
+      ...intent,
+      paymentSessionId: 'other-payment-id',
+      resumeSessionToken: 'session-C',
+    }),
+  ).toBeNull()
 })
 
 test('top-up state is cleared only by its matching intent', () => {

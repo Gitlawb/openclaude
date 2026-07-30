@@ -390,6 +390,38 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
 }
 
 /**
+ * Atomic session election. Concurrent runs of the same intent + payment id
+ * settle on a SINGLE payable checkout: the first writer wins, and a loser gets
+ * the winner's token back so it can resume that session and abandon the one it
+ * just opened instead of leaving two chargeable checkouts. Retained key fields
+ * are merged (as in `saveAimlapiTopupState`). Returns the winning checkout state,
+ * or null when the slot no longer belongs to this intent + payment id (a
+ * reset/clear happened meanwhile).
+ */
+export function recordAimlapiCheckoutSession(
+  state: AimlapiPersistedTopup,
+): AimlapiCheckoutState | null {
+  return withStateLock(() => {
+    const current = matchingStateOrNull(state)
+    if (!current) return null
+    // A peer already recorded a session for this payment id: keep theirs so the
+    // loser adopts the winning token instead of overwriting it.
+    if (current.resumeSessionToken?.trim()) {
+      return toCheckoutState(current)
+    }
+    const recorded: AimlapiPersistedTopup = {
+      ...state,
+      apiKey: state.apiKey ?? current.apiKey,
+      apiKeyId: state.apiKeyId ?? current.apiKeyId,
+      model: state.model ?? current.model,
+      settled: state.settled ?? current.settled,
+    }
+    writeAimlapiTopupStateUnlocked(recorded)
+    return toCheckoutState(recorded)
+  })
+}
+
+/**
  * Adopt the stored checkout for this intent, or start a new one. This is a
  * single slot: claiming a different intent replaces the stored record (the
  * identity includes amount/partner/endpoints, so a changed intent is genuinely a

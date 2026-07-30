@@ -360,6 +360,7 @@ function mockProviderManagerDependencies(
     validateAimlapiApiKey?: (...args: any[]) => Promise<unknown>
     claimAimlapiTopupState?: (...args: any[]) => unknown
     clearAimlapiTopupState?: (...args: any[]) => unknown
+    recordAimlapiCheckoutSession?: (...args: any[]) => unknown
     saveAimlapiTopupState?: (...args: any[]) => unknown
     loadAimlapiSignInKey?: (...args: any[]) => unknown
     saveAimlapiSignInKey?: (...args: any[]) => unknown
@@ -542,6 +543,22 @@ function mockProviderManagerDependencies(
       options?.saveAimlapiTopupState ??
       ((state: Record<string, unknown>) => {
         persistedAimlapiTopup = state
+      }),
+    recordAimlapiCheckoutSession:
+      options?.recordAimlapiCheckoutSession ??
+      ((state: Record<string, unknown>) => {
+        // First writer wins: a peer's recorded token is retained; otherwise this
+        // token is recorded and returned.
+        const existingToken = persistedAimlapiTopup?.resumeSessionToken
+        if (
+          matchesAimlapiIntent(persistedAimlapiTopup, state) &&
+          typeof existingToken === 'string' &&
+          existingToken.trim()
+        ) {
+          return { ...persistedAimlapiTopup }
+        }
+        persistedAimlapiTopup = state
+        return { ...state }
       }),
     loadAimlapiSignInKey: options?.loadAimlapiSignInKey ?? (() => null),
     saveAimlapiSignInKey: options?.saveAimlapiSignInKey ?? (() => {}),
@@ -1470,6 +1487,62 @@ test('ProviderManager rejects an invalid AIMLAPI key using the Zero error copy',
   }
 })
 
+test('ProviderManager clears the sign-in cache with the minted key id on a sufficient-balance sign-in', async () => {
+  const beginAimlapiEmailOnboarding = mock(async () => ({ action: 'code-sent' as const }))
+  const completeAimlapiCodeSignIn = mock(async () => ({
+    sessionToken: 'session_test',
+    apiKey: 'issued_test',
+    apiKeyId: 'minted-key-id',
+    balanceStatus: 'confirmed' as const,
+    lowBalance: false,
+  }))
+  const clearAimlapiSignInKey = mock(() => {})
+  const addProviderProfile = mock((payload: any) => ({ id: 'aimlapi_profile', ...payload }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    completeAimlapiCodeSignIn,
+    clearAimlapiSignInKey,
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have aimlapi.com key?'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('stan@aimlapi.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter the 6-digit code sent to stan@aimlapi.com.'),
+    )
+    mounted.stdin.write('123456')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // A sufficient balance auto-persists; the sign-in cache must be cleared with
+    // the just-minted key id, not the stale (empty) issued-key-id state that a
+    // synchronous onSaved callback would otherwise close over.
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(clearAimlapiSignInKey).toHaveBeenCalledWith('stan@aimlapi.com', 'minted-key-id')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager matches the AIMLAPI code and low-credit screen copy', async () => {
   const beginAimlapiEmailOnboarding = mock(async () => ({ action: 'code-sent' as const }))
   const completeAimlapiCodeSignIn = mock(async () => ({
@@ -1726,10 +1799,14 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
   delete process.env.AIMLAPI_EMAIL
   delete process.env.AIMLAPI_CODE
 
-  const addProviderProfile = mock((payload: any) => ({
-    id: 'aimlapi_profile',
-    ...payload,
-  }))
+  const events: string[] = []
+  const addProviderProfile = mock((payload: any) => {
+    events.push('profile')
+    return { id: 'aimlapi_profile', ...payload }
+  })
+  const saveAimlapiTopupState = mock((state: any) => {
+    if (state?.settled) events.push(`receipt:${String(state.apiKey)}`)
+  })
   const checkoutUrl =
     'https://checkout.stripe.com/c/pay/cs_test_1234567890#signed-checkout-fragment-that-must-remain-visible-across-terminal-lines-tail'
   const provisionAimlapiKey = mock(async (options: any) => {
@@ -1757,6 +1834,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     provisionAimlapiKey,
     claimAimlapiTopupState,
     clearAimlapiTopupState,
+    saveAimlapiTopupState,
   })
 
   const nonce = `${Date.now()}-${Math.random()}`
@@ -1873,6 +1951,10 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     )
     expect(claimAimlapiTopupState).toHaveBeenCalledTimes(1)
     expect(clearAimlapiTopupState).toHaveBeenCalledTimes(1)
+    // The settled receipt (the paid, one-shot exchanged key) is persisted BEFORE
+    // the profile write, so an interrupted or failed write resumes with the paid
+    // key instead of stranding it.
+    expect(events).toEqual(['receipt:aimlapi-issued-key', 'profile'])
   } finally {
     await mounted.dispose()
   }

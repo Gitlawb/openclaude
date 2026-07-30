@@ -17,6 +17,7 @@ import {
 import {
   claimAimlapiTopupState as claimAimlapiTopupStateImpl,
   clearAimlapiTopupState as clearAimlapiTopupStateImpl,
+  recordAimlapiCheckoutSession as recordAimlapiCheckoutSessionImpl,
   saveAimlapiTopupState as saveAimlapiTopupStateImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKey as saveAimlapiSignInKeyImpl,
@@ -62,6 +63,9 @@ export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = intent 
 
 export const clearAimlapiTopupState: typeof clearAimlapiTopupStateImpl = intent =>
   clearAimlapiTopupStateImpl(intent)
+
+export const recordAimlapiCheckoutSession: typeof recordAimlapiCheckoutSessionImpl = state =>
+  recordAimlapiCheckoutSessionImpl(state)
 
 export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = state =>
   saveAimlapiTopupStateImpl(state)
