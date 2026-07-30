@@ -1212,6 +1212,49 @@ test('self-heals tool-call incompatibility by retrying local Ollama requests wit
   expect(requestBodies[1]?.tool_stream).toBeUndefined()
 })
 
+test('reuses the pooled credential for a local toolless retry', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  const authorizations: Array<string | null> = []
+  let callCount = 0
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    callCount += 1
+    if (callCount === 1) {
+      return new Response('tool_calls are not supported', {
+        status: 400,
+        headers: { 'Content-Type': 'text/plain' },
+      })
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [{
+      name: 'Read',
+      description: 'Read a file',
+      input_schema: { type: 'object', properties: { filePath: { type: 'string' } } },
+    }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-a'])
+})
+
 test('Shim self-heals a JSON `tool_stream` rejection by retrying without it (#1950)', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'
@@ -1853,12 +1896,7 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
   }
 })
 
-// --- JSON fallback regression tests (#1749) -------------------------------
-// Some OpenAI-compatible providers ignore `stream: true` and return a full
-// `application/json` chat completion. The fallback inside
-// openaiStreamToAnthropic must route that response through the same
-// non-streaming converter so tool_calls, Anthropic stop reasons, array
-// content, and <think> stripping are all preserved (jatmn CHANGES_REQUESTED).
+// --- retry helper unit tests ------------------------------------------------
 
 test('formats retry guidance from server response headers', () => {
   expect(formatRetryAfterHint(new Response(null, { headers: { 'retry-after': '12' } })))
