@@ -512,6 +512,7 @@ export async function executeOpenAIRequest(
   let activeBaseUrl = request.baseUrl
   let requestUrl = buildRequestUrl(activeBaseUrl)
   const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
+  const attemptedLocalRequestUrls = new Set<string>([requestUrl])
   let didRetryWithoutTools = false
   let didRetryWithoutToolStream = false
   let retryCredentialLease: CredentialLease | null = null
@@ -526,10 +527,17 @@ export async function executeOpenAIRequest(
         continue
       }
 
+      const candidateRequestUrl = buildRequestUrl(candidateBaseUrl)
+      if (attemptedLocalRequestUrls.has(candidateRequestUrl)) {
+        attemptedLocalBaseUrls.add(candidateBaseUrl)
+        continue
+      }
+
       const previousUrl = requestUrl
       attemptedLocalBaseUrls.add(candidateBaseUrl)
       activeBaseUrl = candidateBaseUrl
-      requestUrl = buildRequestUrl(activeBaseUrl)
+      requestUrl = candidateRequestUrl
+      attemptedLocalRequestUrls.add(requestUrl)
 
       logForDebugging(
         `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
