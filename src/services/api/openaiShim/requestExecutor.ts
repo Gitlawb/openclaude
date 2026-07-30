@@ -275,6 +275,7 @@ export async function executeOpenAIRequest(
       process.env.ATLAS_CLOUD_API_KEY,
       process.env.NEARAI_API_KEY,
       process.env.FIREWORKS_API_KEY,
+      process.env.LONGCAT_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
