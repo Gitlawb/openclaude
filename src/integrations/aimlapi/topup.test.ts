@@ -379,7 +379,9 @@ test('topUpAimlapiByApiKey funds the key account without exchange', async () => 
     paymentSessionId: 'payment-id',
     amountUsd: '25',
     noOpen: true,
-    onSession: session => sessions.push(session),
+    onSession: session => {
+      sessions.push(session)
+    },
   })
 
   expect(result.apiKey).toBe('key_test')
@@ -574,7 +576,9 @@ test('provisionAimlapiKey does not repeat an already completed exchange', async 
       exchange: true,
       amountUsd: '25',
       noOpen: true,
-      onSession: session => sessions.push(session),
+      onSession: session => {
+      sessions.push(session)
+    },
     }),
   ).rejects.toThrow('issued key key_recoverable')
 
@@ -606,7 +610,9 @@ test('an in-progress exchange is observed without issuing a second exchange', as
       exchange: true,
       amountUsd: '25',
       noOpen: true,
-      onSession: session => sessions.push(session),
+      onSession: session => {
+      sessions.push(session)
+    },
     }),
   ).rejects.toThrow('Session was already exchanged')
   expect(calls.every(call => call.startsWith('GET '))).toBe(true)
@@ -679,7 +685,9 @@ test('terminal resumed-session errors clear retained checkout state', async () =
       resumeSessionToken: 'dead-session',
       amountUsd: '25',
       noOpen: true,
-      onSession: session => sessions.push(session),
+      onSession: session => {
+      sessions.push(session)
+    },
     }),
   ).rejects.toThrow('404')
   expect(sessions).toEqual([''])
@@ -708,7 +716,9 @@ test('dead sessions observed while polling are cleared immediately', async () =>
       paymentSessionId: 'payment-id',
       amountUsd: '25',
       noOpen: true,
-      onSession: session => sessions.push(session),
+      onSession: session => {
+      sessions.push(session)
+    },
     }),
   ).rejects.toThrow('Payment expired')
   expect(sessions).toEqual(['session', ''])
@@ -763,7 +773,9 @@ test('terminal API errors observed while polling clear retained checkout state',
       paymentSessionId: 'payment-id',
       amountUsd: '25',
       noOpen: true,
-      onSession: session => sessions.push(session),
+      onSession: session => {
+      sessions.push(session)
+    },
     }),
   ).rejects.toThrow('410')
   expect(sessions).toEqual(['session', ''])

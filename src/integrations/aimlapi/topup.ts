@@ -36,6 +36,7 @@ import { promptHidden, promptText } from './prompt.js'
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -85,7 +86,8 @@ export type AimlapiProvisionOptions = Omit<AimlapiTopupOptions, 'email' | 'code'
   resumeSessionToken?: string
   /** Stable idempotency handle retained for one amount/auto-top-up intent. */
   paymentSessionId: string
-  onSession?: (sessionToken: string) => void
+  /** Persist the session token; returns the elected token when a peer won. */
+  onSession?: (sessionToken: string) => string | void
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
@@ -94,7 +96,8 @@ export type AimlapiByKeyTopupOptions = Omit<AimlapiTopupOptions, 'email' | 'code
   inferenceBaseUrl?: string
   paymentSessionId: string
   resumeSessionToken?: string
-  onSession?: (sessionToken: string) => void
+  /** Persist the session token; returns the elected token when a peer won. */
+  onSession?: (sessionToken: string) => string | void
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
@@ -249,7 +252,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
 
   console.log(chalk.dim('  -> Checking account...'))
   const account = await client.checkAccount(email, options.signal)
-  const persistSession = (resumeSessionToken: string): void => {
+  const persistSession = (resumeSessionToken: string): string | undefined => {
     if (!resumeSessionToken) {
       // A terminal checkout invalidates the payment session, but a minted
       // existing-account key is still valid: retain it (with a fresh payment
@@ -262,16 +265,25 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
           paymentSessionId: checkoutState.paymentSessionId,
         })
       ) {
-        return
+        return undefined
       }
       clearAimlapiTopupState({
         ...intent,
         paymentSessionId: checkoutState.paymentSessionId,
       })
-      return
+      return undefined
     }
-    checkoutState.resumeSessionToken = resumeSessionToken
-    saveAimlapiTopupState({ ...intent, ...checkoutState })
+    // Atomic election: the first run to record a session for this payment id
+    // wins; a loser gets the winner's token back and adopts it, so concurrent
+    // runs never leave two chargeable checkouts.
+    const recorded = recordAimlapiCheckoutSession({
+      ...intent,
+      ...checkoutState,
+      resumeSessionToken,
+    })
+    const elected = recorded?.resumeSessionToken || resumeSessionToken
+    checkoutState.resumeSessionToken = elected
+    return elected
   }
 
   let sessionToken: string
@@ -375,7 +387,8 @@ export async function provisionAimlapiKey(
     signal: options.signal,
     onSession: options.onSession,
   })
-  options.onSession?.(sessionToken)
+  // The session token is persisted inside resolveTopupSession as part of the
+  // atomic election, so there is no separate onSession call here.
 
   if (phase === 'pay') {
     const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
@@ -457,7 +470,8 @@ export async function topUpAimlapiByApiKey(
     onSession: options.onSession,
     byKey: true,
   })
-  options.onSession?.(sessionToken)
+  // The session token is persisted inside resolveTopupSession as part of the
+  // atomic election, so there is no separate onSession call here.
 
   if (phase === 'pay') {
     const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
@@ -540,7 +554,7 @@ async function resolveTopupSession(
     partnerName: string
     verificationBaseUrl: string
     signal?: AbortSignal
-    onSession?: (sessionToken: string) => void
+    onSession?: (sessionToken: string) => string | void
     byKey?: boolean
   },
 ): Promise<{ sessionToken: string; phase: TopupPhase }> {
@@ -554,6 +568,13 @@ async function resolveTopupSession(
       },
       options.signal,
     )
+    // Atomic election happens as the session is recorded: if a peer already
+    // opened a payable checkout for this payment id, adopt its token and resume
+    // that session instead of leaving this freshly created one chargeable too.
+    const elected = options.onSession?.(session.sessionToken)
+    if (elected && elected !== session.sessionToken) {
+      return resolveTopupSession(client, { ...options, resumeSessionToken: elected })
+    }
     return { sessionToken: session.sessionToken, phase: 'pay' }
   }
   let session: PartnerCheckoutSession
@@ -563,24 +584,34 @@ async function resolveTopupSession(
     if (isTerminalSessionApiError(error)) options.onSession?.('')
     throw error
   }
+  let phase: TopupPhase
   switch (session.status) {
     case 'pending_auth':
-      return { sessionToken: resume, phase: 'pay' }
+      phase = 'pay'
+      break
     case 'pending_payment':
-      return { sessionToken: resume, phase: 'poll' }
+      phase = 'poll'
+      break
     case 'paid':
-      return { sessionToken: resume, phase: 'exchange' }
+      phase = 'exchange'
+      break
     case 'exchanging':
       // Not settled yet for either flow: the account flow must wait then
       // exchange, the by-key flow must wait for the top-up to finish crediting.
-      return { sessionToken: resume, phase: 'wait-exchange' }
+      phase = 'wait-exchange'
+      break
     case 'exchanged':
-      if (options.byKey) return { sessionToken: resume, phase: 'exchange' }
-      throw alreadyExchangedError(session)
+      if (!options.byKey) throw alreadyExchangedError(session)
+      phase = 'exchange'
+      break
     default:
       options.onSession?.('')
       throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
   }
+  // Re-notify the resumed token so the caller keeps its in-memory + on-disk copy
+  // in sync (idempotent: the election keeps the already-recorded token).
+  options.onSession?.(resume)
+  return { sessionToken: resume, phase }
 }
 
 async function pollUntilExchangeSettled(

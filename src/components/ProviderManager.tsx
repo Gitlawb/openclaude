@@ -60,6 +60,7 @@ import {
   AIMLAPI_MESSAGES,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  recordAimlapiCheckoutSession,
   saveAimlapiTopupState,
   loadAimlapiSignInKey,
   saveAimlapiSignInKey,
@@ -2965,7 +2966,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     baseUrl: string,
     model = draft.model,
     doneKind: 'ready' | 'topup' = 'ready',
-    options: { preserveEnv?: boolean } = {},
+    options: { preserveEnv?: boolean; signInKeyId?: string } = {},
   ): void {
     const nextDraft = applyPresetApiFormat(
       {
@@ -2977,11 +2978,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       draftProvider,
     )
     setDraft(nextDraft)
+    // persistDraft invokes onSaved synchronously, so read the just-minted key id
+    // from the caller rather than the aimlapiIssuedKeyId state, whose setter may
+    // not have applied yet — otherwise the sign-in cache record is never cleared.
+    const signInKeyId = options.signInKeyId ?? aimlapiIssuedKeyId
     persistDraft(nextDraft, draftProvider, null, {
       deferNavigation: true,
       onSaved: () => {
         resetAimlapiCheckoutIntent()
-        clearAimlapiSignInKey(aimlapiTopupEmail, aimlapiIssuedKeyId)
+        clearAimlapiSignInKey(aimlapiTopupEmail, signInKeyId)
         setAimlapiDoneKind(doneKind)
         setErrorMessage(undefined)
         setScreen('aimlapi-done')
@@ -3092,7 +3097,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         if (result.lowBalance) {
           setScreen('aimlapi-low-balance')
         } else {
-          persistAimlapiKey(result.apiKey, aimlapiInferenceBaseUrl)
+          persistAimlapiKey(result.apiKey, aimlapiInferenceBaseUrl, draft.model, 'ready', {
+            signInKeyId: result.apiKeyId,
+          })
         }
       } catch (error) {
         if (controller.signal.aborted) return
@@ -3180,14 +3187,23 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           setAimlapiTopupStatus(status)
           if (detail?.trim()) setAimlapiTopupDetail(detail)
         }
-        const reportSession = (sessionToken: string): void => {
+        const reportSession = (sessionToken: string): string | undefined => {
           if (!sessionToken) {
             resetAimlapiCheckoutIntent()
-            return
+            return undefined
           }
-          checkoutState.resumeSessionToken = sessionToken
-          saveAimlapiTopupState({ ...intent, ...checkoutState })
-          setAimlapiResumeSessionToken(sessionToken)
+          // Atomic election: a peer that already opened a payable checkout for
+          // this payment id wins; adopt its token so concurrent runs never leave
+          // two chargeable checkouts.
+          const recorded = recordAimlapiCheckoutSession({
+            ...intent,
+            ...checkoutState,
+            resumeSessionToken: sessionToken,
+          })
+          const elected = recorded?.resumeSessionToken || sessionToken
+          checkoutState.resumeSessionToken = elected
+          setAimlapiResumeSessionToken(elected)
+          return elected
         }
         const provisioned = aimlapiTopupByKey
           ? await topUpAimlapiByApiKey({
@@ -3219,6 +3235,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             })
         if (controller.signal.aborted) return
         setIsAimlapiTopupRunning(false)
+        // Record the settled receipt BEFORE the profile write, so an interruption
+        // or a failed save resumes with the paid key instead of stranding a
+        // one-shot exchanged credential in resolveTopupSession (mirrors the CLI).
+        checkoutState.apiKey = provisioned.apiKey
+        checkoutState.apiKeyId = provisioned.apiKeyId
+        checkoutState.model = provisioned.model
+        checkoutState.settled = true
+        saveAimlapiTopupState({ ...intent, ...checkoutState })
         // A payment just cleared, so the done screen should report the top-up
         // regardless of whether we route through the model picker first.
         aimlapiTopupPaidRef.current = true
