@@ -44,7 +44,6 @@ export function registerAimlapiCommand(
       'Default model id written into the provider profile',
       DEFAULT_MODEL,
     )
-    .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
     .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
     .action(async opts => {
       const handler = await loadHandler()
@@ -54,7 +53,6 @@ export function registerAimlapiCommand(
         amountUsd: opts.amount,
         autoTopUp: opts.autoTopUp,
         model: opts.model,
-        partnerId: opts.partnerId,
         noOpen: opts.open === false,
       })
     })

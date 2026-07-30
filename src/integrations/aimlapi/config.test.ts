@@ -41,16 +41,18 @@ test('resolveEndpoints returns the production endpoints', () => {
   })
 })
 
-test('partner id override is shared with the inference header', () => {
+test('partner id is fixed and ignores the env override', () => {
   process.env.AIMLAPI_PARTNER_ID = 'part_override'
-  expect(resolvePartnerId()).toBe('part_override')
+  // The partner id is locked to OpenClaude's attribution id; an env override is
+  // intentionally ignored so rebate attribution can never be redirected.
+  expect(resolvePartnerId()).toBe('part_62yQoGYDq4Yqnrj2R1iGrDNJ')
   expect(
     withResolvedPartnerHeader({
       'x-aimlapi-partner-id': 'part_catalog',
       'X-Title': 'OpenClaude',
     }),
   ).toEqual({
-    'X-AIMLAPI-Partner-ID': 'part_override',
+    'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
     'X-Title': 'OpenClaude',
   })
 })
