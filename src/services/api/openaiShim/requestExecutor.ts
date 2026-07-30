@@ -857,7 +857,11 @@ export async function executeOpenAIRequest(
             signal: options?.signal,
           })
         } catch (error) {
-          throwClassifiedTransportError(error, responsesUrl)
+          const failure = {
+            ...classifyOpenAINetworkFailure(error, { url: responsesUrl }),
+            ...(isResponseHeadersTimeout(error) ? { retryable: false } : {}),
+          }
+          throwClassifiedTransportError(error, responsesUrl, failure)
         }
 
         if (responsesResponse.ok) {

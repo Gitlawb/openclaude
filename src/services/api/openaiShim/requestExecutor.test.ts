@@ -1028,7 +1028,7 @@ test('propagates AbortError without wrapping it as transport failure', async () 
       },
       { signal: controller.signal },
     ),
-  ).rejects.toBe(abortError)
+  ).rejects.toBe(controller.signal.reason)
 })
 
 test('classifies chat-completions endpoint 404 failures with endpoint_not_found marker', async () => {
