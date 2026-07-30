@@ -111,6 +111,14 @@ describe('isVisionSupported', () => {
     ).toBe(false)
   })
 
+  test('returns false for the text-only MiniMax M2.7 model on the MiniMax route', () => {
+    expect(
+      isVisionSupported('MiniMax-M2.7', {
+        baseUrl: 'https://api.minimax.io/anthropic',
+      }),
+    ).toBe(false)
+  })
+
   test('returns true for Claude models', () => {
     expect(isVisionSupported('claude-sonnet-4-6')).toBe(true)
   })
