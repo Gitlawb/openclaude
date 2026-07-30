@@ -18,7 +18,10 @@ import type {
   NormalizedUserMessage,
 } from '../types/message.js'
 import { PERMISSION_MODES } from '../types/permissions.js'
-import { suppressNextSkillListing } from './attachments.js'
+import {
+  suppressNextAgentListing,
+  suppressNextSkillListing,
+} from './attachments.js'
 import {
   copyFileHistoryForResume,
   type FileHistorySnapshot,
@@ -643,6 +646,11 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
     if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
+    }
+    // Same for agent_listing_delta — mid-history re-announce busts Moonshot
+    // / OpenAI automatic prefix cache on every --resume.
+    if (attachment.type === 'agent_listing_delta') {
+      suppressNextAgentListing()
     }
   }
 }

@@ -4772,9 +4772,26 @@ export function isLoggableMessage(m: Message): boolean {
   // they have sensitive info for training that we don't want exposed to the public.
   // When enabled, we allow hook_additional_context through since it contains
   // user-configured hook output that is useful for session context on resume.
+  //
+  // Prefix-cache critical listing deltas MUST also persist for external users.
+  // OpenAI-compatible providers with automatic prefix caching (e.g. Moonshot)
+  // require a byte-stable leading messages prefix across --resume. These
+  // attachments are injected at turn 0 and merged into messages[1]; if they
+  // are dropped from the transcript, every resume re-injects them mid-history
+  // and busts the entire cache (cached_tokens → 0). They carry only
+  // agent/skill/tool catalog text — not project file contents.
   if (m.type === 'attachment' && getUserType() !== 'ant') {
+    const t = m.attachment.type
     if (
-      m.attachment.type === 'hook_additional_context' &&
+      t === 'skill_listing' ||
+      t === 'agent_listing_delta' ||
+      t === 'deferred_tools_delta' ||
+      t === 'mcp_instructions_delta'
+    ) {
+      return true
+    }
+    if (
+      t === 'hook_additional_context' &&
       isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
     ) {
       return true

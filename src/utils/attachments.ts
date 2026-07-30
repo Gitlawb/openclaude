@@ -1645,6 +1645,17 @@ export function getAgentListingDeltaAttachment(
     for (const t of msg.attachment.removedTypes) announced.delete(t)
   }
 
+  // Resume path: prior process already injected the listing (now persisted in
+  // the transcript for prefix-cache stability). Fire-once latch from
+  // conversationRecovery — same role as suppressNextSkillListing.
+  if (suppressNextAgent) {
+    suppressNextAgent = false
+    for (const a of filtered) {
+      announced.add(a.agentType)
+    }
+    return []
+  }
+
   const currentTypes = new Set(filtered.map(a => a.agentType))
   const added = filtered.filter(a => !announced.has(a.agentType))
   const removed: string[] = []
@@ -2924,6 +2935,7 @@ const sentSkillNames = new Map<string, Set<string>>()
 export function resetSentSkillNames(): void {
   sentSkillNames.clear()
   suppressNext = false
+  suppressNextAgent = false
 }
 
 /**
@@ -2946,6 +2958,18 @@ export function suppressNextSkillListing(): void {
   suppressNext = true
 }
 let suppressNext = false
+
+/**
+ * Suppress the next agent-listing injection. Called by conversationRecovery
+ * on --resume when an agent_listing_delta attachment already exists in the
+ * transcript. Mirrors suppressNextSkillListing — without this, a resume that
+ * races ahead of transcript attachment hydration can re-announce the full
+ * agent list mid-history and bust OpenAI/Moonshot prefix cache.
+ */
+export function suppressNextAgentListing(): void {
+  suppressNextAgent = true
+}
+let suppressNextAgent = false
 
 // When skill-search is enabled and the filtered (bundled + MCP) listing exceeds
 // this count, fall back to bundled-only. Protects MCP-heavy users (100+ servers)
