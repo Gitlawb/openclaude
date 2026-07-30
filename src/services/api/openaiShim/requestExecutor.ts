@@ -1,6 +1,10 @@
 import type { CredentialLease, CredentialPool } from '../credentialPool.js'
 import type { OpenAICompatibilityFailure } from '../openaiErrorClassification.js'
 import type { OpenAIShimRuntimeContext } from '../../../integrations/runtimeMetadata.js'
+import {
+  redactEncodedSecretSubstringsForDisplay,
+  redactSecretSubstringsForDisplay,
+} from '../../../utils/providerSecrets.js'
 
 export function formatRetryAfterHint(response: Response): string {
   const retryAfter = response.headers.get('retry-after')
@@ -82,7 +86,6 @@ type RequestExecutorContext = {
     hasImages: boolean
   }) => ClassifiedFailure
   markOpenAIRequestNonReplayable: (error: Error) => Error
-  fetchWithProxyRetry: (input: string, init: RequestInit) => Promise<Response>
   fetchRequest: (input: string, init: RequestInit) => Promise<Response>
   isResponseHeadersTimeout: (error: unknown) => boolean
   requestBodyContainsImages: (payload: Record<string, unknown> | undefined) => boolean
@@ -189,7 +192,6 @@ export async function executeOpenAIRequest(
     classifyOpenAINetworkFailure,
     classifyOpenAIHttpFailure,
     markOpenAIRequestNonReplayable,
-    fetchWithProxyRetry,
     fetchRequest,
     isResponseHeadersTimeout,
     requestBodyContainsImages,
@@ -237,7 +239,7 @@ export async function executeOpenAIRequest(
   const routeCredential = resolveRouteCredentialValue({
     routeId: runtimeShimContext.routeId ?? undefined,
     baseUrl: request.baseUrl,
-    processEnv: process.env,
+    processEnv: requestProcessEnv,
   })
   // xAI OAuth: when the active route is xAI and no API key is set, fall
   // back to a stored OAuth access token (auto-refreshed). The token is
@@ -246,10 +248,10 @@ export async function executeOpenAIRequest(
     runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
   const openAIApiKeysPoolRaw =
     routeAcceptsGenericOpenAICredentials &&
-    parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
-      ? process.env.OPENAI_API_KEYS
+    parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0
+      ? requestProcessEnv.OPENAI_API_KEYS
       : undefined
-  const openAIApiKeyRaw = process.env.OPENAI_API_KEY?.trim()
+  const openAIApiKeyRaw = requestProcessEnv.OPENAI_API_KEY?.trim()
   const openAIApiKeyValues = parseCredentialList(openAIApiKeyRaw)
   const openAIApiKey = openAIApiKeyValues[0]
   const openAIApiKeyRawUsable =
@@ -265,17 +267,17 @@ export async function executeOpenAIRequest(
   const openAIApiKeyIsCopiedProviderKey = Boolean(
     openAIApiKeyRawUsable &&
     [
-      process.env.OPENGATEWAY_API_KEY,
-      process.env.NVIDIA_API_KEY,
-      process.env.BNKR_API_KEY,
-      process.env.XAI_API_KEY,
-      process.env.MIMO_API_KEY,
-      process.env.VENICE_API_KEY,
-      process.env.MINIMAX_API_KEY,
-      process.env.ATLAS_CLOUD_API_KEY,
-      process.env.NEARAI_API_KEY,
-      process.env.FIREWORKS_API_KEY,
-      process.env.LONGCAT_API_KEY,
+      requestProcessEnv.OPENGATEWAY_API_KEY,
+      requestProcessEnv.NVIDIA_API_KEY,
+      requestProcessEnv.BNKR_API_KEY,
+      requestProcessEnv.XAI_API_KEY,
+      requestProcessEnv.MIMO_API_KEY,
+      requestProcessEnv.VENICE_API_KEY,
+      requestProcessEnv.MINIMAX_API_KEY,
+      requestProcessEnv.ATLAS_CLOUD_API_KEY,
+      requestProcessEnv.NEARAI_API_KEY,
+      requestProcessEnv.FIREWORKS_API_KEY,
+      requestProcessEnv.LONGCAT_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
@@ -316,7 +318,7 @@ export async function executeOpenAIRequest(
       ?.defaultAuthHeader
   const configuredAuthHeaderValue = catalogAuthHeader
     ? undefined
-    : process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
+    : requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
   if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
     throw new Error(
       'OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters',
@@ -324,7 +326,7 @@ export async function executeOpenAIRequest(
   }
   const customAuthHeader = catalogAuthHeader
     ? undefined
-    : process.env.OPENAI_AUTH_HEADER?.trim()
+    : requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
   const hasCustomAuthHeader = Boolean(
     customAuthHeader && /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
   )
@@ -382,9 +384,9 @@ export async function executeOpenAIRequest(
         const defaultCustomAuthScheme =
           customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
         const customAuthScheme =
-          process.env.OPENAI_AUTH_SCHEME === 'raw' ||
-          process.env.OPENAI_AUTH_SCHEME === 'bearer'
-            ? process.env.OPENAI_AUTH_SCHEME
+          requestProcessEnv.OPENAI_AUTH_SCHEME === 'raw' ||
+          requestProcessEnv.OPENAI_AUTH_SCHEME === 'bearer'
+            ? requestProcessEnv.OPENAI_AUTH_SCHEME
             : defaultCustomAuthScheme
         headers[customAuthHeader] =
           customAuthScheme === 'bearer' ? `Bearer ${authValue}` : authValue
@@ -403,7 +405,7 @@ export async function executeOpenAIRequest(
         headers.Authorization = `Bearer ${authValue}`
       }
     } else if (isGemini) {
-      const geminiCredential = await resolveGeminiCredential(process.env)
+      const geminiCredential = await resolveGeminiCredential(requestProcessEnv)
       if (geminiCredential.kind !== 'none' && geminiCredential.credential) {
         headers.Authorization = `Bearer ${geminiCredential.credential}`
         if (
@@ -443,9 +445,9 @@ export async function executeOpenAIRequest(
         '',
       )
       const apiVersion =
-        process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
+        requestProcessEnv.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
       const deployment = encodeURIComponent(
-        request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o',
+        request.resolvedModel ?? requestProcessEnv.OPENAI_MODEL ?? 'gpt-4o',
       )
 
       // If base URL already contains /deployments/, use it as-is with api-version.
@@ -602,11 +604,19 @@ export async function executeOpenAIRequest(
         url: requestUrl,
       })
     const redactedUrl = redactUrlForDiagnostics(requestUrl)
-    const safeMessage =
-      redactSecretValueForDisplay(
+    const encodedSecretRedactedMessage =
+      redactEncodedSecretSubstringsForDisplay(
         redactUrlsInMessage(failure.message),
-        process.env,
-      ) || 'Request failed'
+        requestProcessEnv,
+      ) ?? 'Request failed'
+    const substringRedactedMessage =
+      redactSecretSubstringsForDisplay(
+        encodedSecretRedactedMessage,
+        requestProcessEnv,
+      ) ?? 'Request failed'
+    const safeMessage =
+      redactSecretValueForDisplay(substringRedactedMessage, requestProcessEnv) ||
+      'Request failed'
 
     logForDebugging(
       `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${safeMessage}`,
@@ -860,6 +870,17 @@ export async function executeOpenAIRequest(
           if (options?.signal?.aborted) {
             throw options.signal.reason ?? error
           }
+          if (
+            (typeof DOMException !== 'undefined' &&
+              error instanceof DOMException &&
+              error.name === 'AbortError') ||
+            (typeof error === 'object' &&
+              error !== null &&
+              'name' in error &&
+              error.name === 'AbortError')
+          ) {
+            throw error
+          }
           const failure = {
             ...classifyOpenAINetworkFailure(error, { url: responsesUrl }),
             ...(isResponseHeadersTimeout(error) ? { retryable: false } : {}),
@@ -914,15 +935,16 @@ export async function executeOpenAIRequest(
     if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
       if (isCopilotTokenExpiredError(errorBody)) {
         const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
-        if (oldToken && oldToken === (process.env.OPENAI_API_KEY ?? '')) {
+        if (oldToken && oldToken === (requestProcessEnv.OPENAI_API_KEY ?? '')) {
           didRefreshCopilotToken = true
           const refreshed = await refreshCopilotTokenOn401()
           if (refreshed) {
-            const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+            const newApiKey = requestProcessEnv.OPENAI_API_KEY?.trim() || ''
             if (newApiKey && newApiKey !== oldToken) {
               refreshedCopilotToken = newApiKey
             }
             if (attempt < maxAttempts - 1) {
+              retryCredentialLease = credentialLease
               continue
             }
           }
@@ -984,6 +1006,7 @@ export async function executeOpenAIRequest(
       omitTools.anthropic = true
       omitTools.gemini = true
       refreshSerializedBody()
+      retryCredentialLease = credentialLease
 
       logForDebugging(
         `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
