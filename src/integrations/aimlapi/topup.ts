@@ -412,6 +412,13 @@ export async function provisionAimlapiKey(
     const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
     apiKey = exchanged.apiKey.trim()
     apiKeyId = exchanged.apiKeyId.trim()
+  } else if (settledPhase === 'wait-exchange') {
+    // A resumed sign-in top-up was still crediting the account balance. Wait for
+    // it to settle before reporting success, otherwise the caller marks the
+    // balance credited while the billing operation is still in flight (mirrors
+    // topUpAimlapiByApiKey's resume path).
+    options.onStatus?.('waiting-payment')
+    await pollUntilByKeyToppedUp(client, sessionToken, options.signal, options.onSession)
   }
   if (!apiKey) throw new Error('AI/ML API did not return an API key.')
 

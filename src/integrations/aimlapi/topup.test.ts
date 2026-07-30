@@ -472,6 +472,41 @@ test('a resumed by-key session still exchanging settles before success', async (
   ])
 })
 
+test('a resumed sign-in top-up settles before returning the existing key', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const calls: string[] = []
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push(`${init?.method} ${String(input)}`)
+    reads += 1
+    return sessionJson({
+      sessionToken: 'session',
+      status: reads === 1 ? 'exchanging' : 'exchanged',
+    })
+  }) as unknown as typeof fetch
+
+  const result = await provisionAimlapiKey({
+    exchange: false,
+    existingApiKey: 'existing_key',
+    existingApiKeyId: 'existing_id',
+    sessionToken: 'session',
+    resumeSessionToken: 'session',
+    paymentSessionId: 'payment-id',
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  expect(result.apiKey).toBe('existing_key')
+  // The account (non-exchange) resume path mirrors the by-key flow: the first GET
+  // resolves the resumed session (exchanging); the settle poll then waits for it
+  // to reach a terminal state instead of reporting the balance credited early.
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
+})
+
 test('an invalid amount is rejected before any key is minted', async () => {
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'

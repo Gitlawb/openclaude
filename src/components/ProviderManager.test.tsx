@@ -1391,6 +1391,15 @@ test('ProviderManager does not persist an invalid or low-balance first-run AIMLA
         'https://api.aimlapi.com/v1',
       )
       expect(addProviderProfile).not.toHaveBeenCalled()
+
+      if (scenario === 'invalid') {
+        // Re-submitting after a failed env-key validation must re-validate, not
+        // short-circuit into persisting the key that just failed: the first-run
+        // adoption markers are cleared on failure.
+        mounted.stdin.write('\r')
+        await waitForCondition(() => validateAimlapiApiKey.mock.calls.length >= 2)
+        expect(addProviderProfile).not.toHaveBeenCalled()
+      }
     } finally {
       await mounted.dispose()
     }

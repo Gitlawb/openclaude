@@ -84,6 +84,39 @@ test('balance failures preserve the issued key without marking it ready', async 
   expect(result).not.toHaveProperty('lowBalance')
 })
 
+test('an aborted balance read after minting still returns the issued key', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const controller = new AbortController()
+  const calls: string[] = []
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.endsWith('/code/verify')) return response({ token: 'session', exp: 1 })
+    if (url.endsWith('/v1/keys')) return response({ key: 'minted_key', id: 'minted_id' })
+    if (url.endsWith('/billing/balance')) {
+      // Abort mid-read, after the key has already been minted.
+      controller.abort()
+      throw new Error('balance aborted')
+    }
+    return response({}, 404)
+  }) as unknown as typeof fetch
+
+  const result = await completeAimlapiCodeSignIn(
+    'user@example.com',
+    '123456',
+    controller.signal,
+  )
+
+  // The mint is irreversible, so an aborted balance read must still surface the
+  // key (as unknown balance) rather than rethrow and orphan a paid credential.
+  expect(result.apiKey).toBe('minted_key')
+  expect(result.apiKeyId).toBe('minted_id')
+  expect(result.balanceStatus).toBe('unknown')
+  expect(result).not.toHaveProperty('lowBalance')
+  // Exactly one mint: the abort must not trigger a second key on the next run.
+  expect(calls.filter(url => url.endsWith('/v1/keys')).length).toBe(1)
+})
+
 test('new account onboarding returns a passwordless session', async () => {
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   globalThis.fetch = mock(async (input: string | URL | Request) => {
