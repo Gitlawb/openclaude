@@ -3,6 +3,7 @@
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
   AIMLAPI_SOURCE,
+  isTrustedAimlapiRequestUrl,
   PARTNER_HEADER_NAME,
   resolvePartnerId,
   SOURCE_HEADER_NAME,
@@ -528,13 +529,18 @@ export class AimlapiClient {
       redacted.name = error.name
       return redacted
     }
-    // Every aimlapi request (auth / checkout / catalog) carries both mandatory
-    // attribution headers: the integration source and the partner id. These go
-    // to aimlapi.com hosts only — client requests never target a user proxy.
+    // Both mandatory attribution headers (integration source + partner id) ride
+    // on every request to an AI/ML API host — auth, checkout, and the balance
+    // probe. The auth/app/pay/inference base URLs are all env-overridable, so a
+    // request pointed at a user-controlled proxy must NOT carry OpenClaude's
+    // partner/source identity — mirroring the inference/catalog stripping
+    // contract in resolveAimlapiAttributionHeaders.
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      [SOURCE_HEADER_NAME]: AIMLAPI_SOURCE,
-      [PARTNER_HEADER_NAME]: resolvePartnerId(),
+    }
+    if (isTrustedAimlapiRequestUrl(url)) {
+      headers[SOURCE_HEADER_NAME] = AIMLAPI_SOURCE
+      headers[PARTNER_HEADER_NAME] = resolvePartnerId()
     }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer.trim()}`
