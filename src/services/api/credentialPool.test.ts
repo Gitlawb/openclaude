@@ -45,6 +45,34 @@ test('CredentialPool cools down recoverable failures', () => {
   expect(pool.next()?.value).toBe('key-a')
 })
 
+test('CredentialPool does not let an older success clear a newer cooldown', () => {
+  const pool = new CredentialPool(['key-a', 'key-b'])
+  const firstA = pool.next()
+  const keyB = pool.next()
+
+  pool.reportFailure(keyB, 'auth', 0)
+  const concurrentA = pool.next()
+  pool.reportFailure(concurrentA, 'cooldown', 30_000)
+  pool.reportSuccess(firstA)
+
+  expect(pool.hasAvailableCredential()).toBe(false)
+})
+
+test('CredentialPool lets a stale auth failure permanently disable a cooled key', () => {
+  let now = 1_000
+  const pool = new CredentialPool(['key-a', 'key-b'], () => now)
+  const firstA = pool.next()
+  const keyB = pool.next()
+
+  pool.reportFailure(keyB, 'auth', 0)
+  const concurrentA = pool.next()
+  pool.reportFailure(concurrentA, 'cooldown', 30_000)
+  pool.reportFailure(firstA, 'auth', 0)
+
+  now += 30_001
+  expect(pool.hasAvailableCredential()).toBe(false)
+})
+
 test('CredentialPool falls back to least-recently failed credential when all are cooling down', () => {
   let now = 1_000
   const pool = new CredentialPool(['key-a', 'key-b'], () => now)
@@ -56,5 +84,5 @@ test('CredentialPool falls back to least-recently failed credential when all are
   const second = pool.next()
   pool.reportFailure(second, 'cooldown', 30_000)
 
-  expect(pool.next()).toEqual({ value: 'key-a', index: 0 })
+  expect(pool.next()).toEqual({ value: 'key-a', index: 0, generation: 1 })
 })

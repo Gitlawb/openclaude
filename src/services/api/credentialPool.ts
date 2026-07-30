@@ -3,6 +3,7 @@ export type CredentialPoolFailureKind = 'auth' | 'cooldown'
 export type CredentialLease = {
   value: string
   index: number
+  generation: number
 }
 
 type CredentialState = {
@@ -10,6 +11,7 @@ type CredentialState = {
   disabled: boolean
   cooldownUntil: number
   lastFailureAt: number
+  generation: number
 }
 
 export class CredentialPool {
@@ -23,6 +25,7 @@ export class CredentialPool {
       disabled: false,
       cooldownUntil: 0,
       lastFailureAt: 0,
+      generation: 0,
     }))
     this.now = now
   }
@@ -44,7 +47,7 @@ export class CredentialPool {
         continue
       }
       this.cursor = (index + 1) % this.credentials.length
-      return { value: candidate.value, index }
+      return { value: candidate.value, index, generation: candidate.generation }
     }
 
     let leastRecentlyFailedIndex = -1
@@ -66,7 +69,11 @@ export class CredentialPool {
 
     const fallback = this.credentials[leastRecentlyFailedIndex]
     this.cursor = (leastRecentlyFailedIndex + 1) % this.credentials.length
-    return { value: fallback.value, index: leastRecentlyFailedIndex }
+    return {
+      value: fallback.value,
+      index: leastRecentlyFailedIndex,
+      generation: fallback.generation,
+    }
   }
 
   hasAvailableCredential(): boolean {
@@ -79,7 +86,13 @@ export class CredentialPool {
   reportSuccess(lease: CredentialLease | null): void {
     if (!lease) return
     const credential = this.credentials[lease.index]
-    if (!credential || credential.value !== lease.value) return
+    if (
+      !credential ||
+      credential.value !== lease.value ||
+      credential.generation !== lease.generation
+    ) {
+      return
+    }
     credential.cooldownUntil = 0
   }
 
@@ -90,9 +103,15 @@ export class CredentialPool {
   ): void {
     if (!lease) return
     const credential = this.credentials[lease.index]
-    if (!credential || credential.value !== lease.value) return
+    if (!credential || credential.value !== lease.value) {
+      return
+    }
+    if (kind !== 'auth' && credential.generation !== lease.generation) {
+      return
+    }
 
     const now = this.now()
+    credential.generation += 1
     credential.lastFailureAt = now
     if (kind === 'auth') {
       credential.disabled = true
