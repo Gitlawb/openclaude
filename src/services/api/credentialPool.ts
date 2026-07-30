@@ -106,6 +106,7 @@ export class CredentialPool {
     if (!credential || credential.value !== lease.value) {
       return
     }
+    // Auth failures must evict a key even when a newer cooldown advanced its lease.
     if (kind !== 'auth' && credential.generation !== lease.generation) {
       return
     }
