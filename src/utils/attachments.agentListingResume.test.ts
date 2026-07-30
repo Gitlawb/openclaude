@@ -94,6 +94,15 @@ test('suppressNextAgentListing skips duplicate listing once when agent set is un
   // Latch is one-shot — second pass with unchanged set still yields [] via
   // normal announced reconstruction, not via the latch.
   expect(getAgentListingDeltaAttachment(ctx, messages)).toEqual([])
+
+  // Empty transcript would re-announce if the latch were still armed.
+  const afterLatch = getAgentListingDeltaAttachment(ctx, [])
+  expect(afterLatch).toHaveLength(1)
+  expect(afterLatch[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Explore', 'Plan'],
+    isInitial: true,
+  })
 })
 
 test('suppressNextAgentListing still emits delta when agent set changed across resume', () => {
@@ -108,6 +117,15 @@ test('suppressNextAgentListing still emits delta when agent set changed across r
     addedTypes: ['Plan'],
     removedTypes: ['Explore'],
     isInitial: false,
+  })
+
+  // Latch was consumed on the changed-set path too.
+  const afterLatch = getAgentListingDeltaAttachment(ctx, [])
+  expect(afterLatch).toHaveLength(1)
+  expect(afterLatch[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Plan'],
+    isInitial: true,
   })
 })
 
