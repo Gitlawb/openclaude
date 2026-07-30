@@ -611,6 +611,11 @@ async function waitForFrameOutput(
     return predicate(output)
   }, { timeoutMs })
 
+  // The predicate matched, but Ink registers input handlers in an effect that
+  // runs after the render commits. A caller that types on the next line can lose
+  // the first post-transition keystroke on a loaded runner, stranding the flow.
+  // Let the effect flush before returning the (unchanged) matched frame.
+  await Bun.sleep(25)
   return output
 }
 
