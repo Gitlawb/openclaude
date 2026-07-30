@@ -1514,8 +1514,11 @@ test('ProviderManager matches the AIMLAPI code and low-credit screen copy', asyn
     expect(codeOutput).not.toContain('Enter it below to continue.')
     expect(codeOutput).not.toContain('We sent a 6-digit code')
     mounted.stdin.write('123456')
-    await Bun.sleep(25)
-    const maskedCodeOutput = mounted.getOutput()
+    // Wait for the masked frame to render rather than a fixed sleep: a slower CI
+    // runner may not have painted the six mask characters within a fixed delay.
+    const maskedCodeOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('******'),
+    )
     expect(maskedCodeOutput).not.toContain('123456')
     expect(maskedCodeOutput).toContain('******')
     mounted.stdin.write('\r')
