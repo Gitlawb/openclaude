@@ -5,9 +5,10 @@ import { describe, expect, test } from 'bun:test'
 const facadePath = fileURLToPath(new URL('../openaiShim.ts', import.meta.url))
 const moduleDirectory = fileURLToPath(new URL('.', import.meta.url))
 
-// The rebased shared extraction seam is 5,636 lines. Each independently mergeable PR
-// removes at least this many net lines when its representative module exists.
-// Detecting modules makes the ceiling tighten regardless of merge order.
+// The rebased shared extraction seam is 5,636 lines. The ten representative
+// extractions below remove 4,054 net lines, yielding the verified 1,582-line
+// fully extracted façade. Detecting modules makes the ceiling tighten regardless
+// of merge order.
 const extractionDeltas = [
   ['streamControl.ts', 169],
   ['providerCompatibility.ts', 115],
