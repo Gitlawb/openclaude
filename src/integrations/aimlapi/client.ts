@@ -145,11 +145,14 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value))
 }
 
-/** Consumers hand `payUrl` straight to `openBrowser`, which only opens HTTP(S). */
-function isOpenableHttpUrl(value: string): boolean {
+/**
+ * The checkout `payUrl` is opened in a browser and must be HTTPS — reject a
+ * cleartext URL at the response boundary so a session is never retained with an
+ * address the flow will only refuse later (matching `announceCheckout`).
+ */
+function isHttpsUrl(value: string): boolean {
   try {
-    const { protocol } = new URL(value)
-    return protocol === 'https:' || protocol === 'http:'
+    return new URL(value).protocol === 'https:'
   } catch {
     return false
   }
@@ -195,7 +198,7 @@ function isPaymentSession(value: unknown): value is PaymentSession {
     isRecord(value) &&
     isNonEmptyString(value.providerSessionId) &&
     (value.payUrl === null ||
-      (isNonEmptyString(value.payUrl) && isOpenableHttpUrl(value.payUrl)))
+      (isNonEmptyString(value.payUrl) && isHttpsUrl(value.payUrl)))
   )
 }
 

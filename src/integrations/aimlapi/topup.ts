@@ -314,10 +314,16 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
         apiKey = created.key
         apiKeyId = created.id
         // Retain the issued key with the intent so a retry after an interrupted
-        // checkout reuses it instead of minting another.
+        // checkout reuses it instead of minting another. Best-effort: the key is
+        // already held in `apiKey`/`checkoutState` and drives the rest of this
+        // run, so a state-write failure must not throw away the minted key.
         checkoutState.apiKey = apiKey
         checkoutState.apiKeyId = apiKeyId
-        saveAimlapiTopupState({ ...intent, ...checkoutState })
+        try {
+          saveAimlapiTopupState({ ...intent, ...checkoutState })
+        } catch {
+          // Retained in memory for this run; persistence is only a resume aid.
+        }
       }
       exchange = false
       break

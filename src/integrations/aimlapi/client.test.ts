@@ -221,14 +221,16 @@ test('sendSignInCode accepts a non-empty plain-text acknowledgement', async () =
   )
 })
 
-test('a receipt whose payUrl cannot be opened is rejected', async () => {
-  // `payUrl` goes straight to openBrowser; a value it cannot open would leave the
-  // flow polling for 20 minutes with no usable checkout link after the charge.
+test('a receipt whose payUrl is not HTTPS is rejected at the response boundary', async () => {
+  // `payUrl` must be HTTPS (it is opened in a browser and matches announceCheckout).
+  // Rejecting a cleartext/unopenable URL here stops the session being retained and
+  // then polled for 20 minutes with no usable checkout link after the charge.
   for (const payUrl of [
     'not-a-url',
     'javascript:alert(1)',
     'file:///tmp/checkout',
     'ftp://checkout.test/pay',
+    'http://checkout.test/pay',
   ]) {
     globalThis.fetch = mock(async () =>
       jsonResponse(payReceipt({ checkout: { providerSessionId: 'provider', payUrl } })),
