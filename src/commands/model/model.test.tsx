@@ -1448,6 +1448,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'z-ai/glm-5.2',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
       'inclusionai/ling-3.0-flash:free',
+      'mindai/macaron-v1-tall',
       'tencent/hy3',
     ])
   } finally {
