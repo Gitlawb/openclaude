@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
   isCanonicalAimlapiInferenceBaseUrl,
+  resolveAimlapiAttributionHeaders,
   resolvePartnerId,
   resolveEndpoints,
   withResolvedPartnerHeader,
@@ -34,7 +35,9 @@ test('resolveEndpoints returns the production endpoints', () => {
   expect(resolveEndpoints()).toEqual({
     authBaseUrl: 'https://auth.aimlapi.com',
     appBaseUrl: 'https://app.aimlapi.com',
+    payBaseUrl: 'https://pay.aimlapi.com',
     inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    verificationBaseUrl: 'https://aimlapi.com/app',
   })
 })
 
@@ -68,4 +71,18 @@ test('canonical endpoint check excludes proxies and look-alike paths', () => {
   expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
   // Garbage input fails closed.
   expect(isCanonicalAimlapiInferenceBaseUrl('not-a-url')).toBe(false)
+})
+
+test('inference/catalog attribution sends both mandatory headers, stripped off-canonical', () => {
+  const canonical = resolveAimlapiAttributionHeaders({}, 'https://api.aimlapi.com/v1')
+  expect(canonical['X-AIMLAPI-Source']).toBe('agent/openclaude')
+  expect(canonical['X-AIMLAPI-Partner-ID']).toBe('part_62yQoGYDq4Yqnrj2R1iGrDNJ')
+
+  // A user proxy must never receive OpenClaude's partner identity or source.
+  const proxied = resolveAimlapiAttributionHeaders(
+    { 'X-AIMLAPI-Source': 'agent/openclaude', 'X-AIMLAPI-Partner-ID': 'part_x' },
+    'https://proxy.example.test/v1',
+  )
+  expect(proxied['X-AIMLAPI-Source']).toBeUndefined()
+  expect(proxied['X-AIMLAPI-Partner-ID']).toBeUndefined()
 })
