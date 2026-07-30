@@ -50,8 +50,6 @@ export type AimlapiTopupOptions = {
   amountUsd?: string
   autoTopUp?: boolean
   model?: string
-  partnerId?: string
-  partnerName?: string
   /** Skip opening the browser (print the URL instead). */
   noOpen?: boolean
   signal?: AbortSignal
@@ -197,8 +195,8 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // and an interrupted checkout must resume on the same key rather than mint a
   // fresh one on every retry.
   const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
-  const partnerId = resolvePartnerId(options.partnerId)
-  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
+  const partnerId = resolvePartnerId()
+  const partnerName = DEFAULT_PARTNER_NAME
   const intent: AimlapiTopupIntent = {
     email: email.toLowerCase(),
     amountUsdMinor,
@@ -235,8 +233,8 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   // Resume: a prior run provisioned the key but was interrupted before the
   // profile write. Finish that last step with the retained key instead of
   // re-provisioning a now-exchanged (otherwise stranded) session. This runs
-  // BEFORE any account lookup, so a changed password / auth outage can never
-  // strand a paid-for key that is already recorded locally.
+  // BEFORE any account lookup, so a re-authentication prompt or auth outage can
+  // never strand a paid-for key that is already recorded locally.
   if (checkoutState.settled && checkoutState.apiKey) {
     finishProfile({
       apiKey: checkoutState.apiKey,
@@ -320,8 +318,6 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     amountUsd: options.amountUsd,
     autoTopUp: options.autoTopUp,
     model: options.model,
-    partnerId,
-    partnerName,
     noOpen: options.noOpen,
     signal: options.signal,
     sessionToken,
@@ -367,8 +363,8 @@ export async function provisionAimlapiKey(
   }
   const client = createAimlapiClient(endpoints)
   const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
-  const partnerId = resolvePartnerId(options.partnerId)
-  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
+  const partnerId = resolvePartnerId()
+  const partnerName = DEFAULT_PARTNER_NAME
 
   options.onStatus?.('creating-session')
   const { sessionToken, phase } = await resolveTopupSession(client, {
@@ -441,8 +437,8 @@ export async function topUpAimlapiByApiKey(
   }
   const client = createAimlapiClient(endpoints)
   const amountUsdMinor = parseAimlapiAmountUsd(options.amountUsd)
-  const partnerId = resolvePartnerId(options.partnerId)
-  const partnerName = options.partnerName?.trim() || DEFAULT_PARTNER_NAME
+  const partnerId = resolvePartnerId()
+  const partnerName = DEFAULT_PARTNER_NAME
 
   options.onStatus?.('creating-session')
   const { sessionToken, phase } = await resolveTopupSession(client, {

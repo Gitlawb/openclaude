@@ -71,30 +71,29 @@ export function resolveEndpoints(): AimlapiEndpoints {
   }
 }
 
-/** Resolve checkout and inference attribution with one shared precedence. */
-export function resolvePartnerId(explicit?: string): string {
-  return (
-    explicit?.trim() ||
-    process.env.AIMLAPI_PARTNER_ID?.trim() ||
-    DEFAULT_PARTNER_ID
-  )
+/**
+ * The partner id is locked to OpenClaude's own attribution id. It is
+ * deliberately NOT user-overridable (no CLI flag, no env var): letting a caller
+ * change it would redirect rebate/revenue-share attribution away from OpenClaude.
+ */
+export function resolvePartnerId(): string {
+  return DEFAULT_PARTNER_ID
 }
 
 /**
- * Return a header copy with the effective partner id. Header matching is
- * case-insensitive so an override replaces the catalog spelling instead of
- * creating a duplicate header.
+ * Return a header copy carrying the fixed partner id. Header matching is
+ * case-insensitive so it replaces the catalog spelling instead of creating a
+ * duplicate header.
  */
 export function withResolvedPartnerHeader(
   headers: Readonly<Record<string, string>>,
-  explicit?: string,
 ): Record<string, string> {
   const resolved: Record<string, string> = {}
   for (const [name, value] of Object.entries(headers)) {
     if (name.trim().toLowerCase() === PARTNER_HEADER_NAME.toLowerCase()) continue
     resolved[name] = value
   }
-  resolved[PARTNER_HEADER_NAME] = resolvePartnerId(explicit)
+  resolved[PARTNER_HEADER_NAME] = resolvePartnerId()
   return resolved
 }
 
