@@ -113,15 +113,24 @@ const POLL_TIMEOUT_MS = 20 * 60 * 1000
 type AimlapiClientFactory = (endpoints: ReturnType<typeof resolveEndpoints>) => AimlapiClient
 let createAimlapiClient: AimlapiClientFactory = endpoints => new AimlapiClient(endpoints)
 let writeAimlapiProviderProfile: typeof saveProfileFile = saveProfileFile
+let promptTextFn: typeof promptText = promptText
+let promptHiddenFn: typeof promptHidden = promptHidden
 
 /** Swap in stubs for tests; pass `undefined` to restore the real implementations. */
 export function setAimlapiTopupTestDoubles(
   doubles:
-    | { createClient?: AimlapiClientFactory; writeProfile?: typeof saveProfileFile }
+    | {
+        createClient?: AimlapiClientFactory
+        writeProfile?: typeof saveProfileFile
+        promptText?: typeof promptText
+        promptHidden?: typeof promptHidden
+      }
     | undefined,
 ): void {
   createAimlapiClient = doubles?.createClient ?? (endpoints => new AimlapiClient(endpoints))
   writeAimlapiProviderProfile = doubles?.writeProfile ?? saveProfileFile
+  promptTextFn = doubles?.promptText ?? promptText
+  promptHiddenFn = doubles?.promptHidden ?? promptHidden
 }
 
 function abortError(signal?: AbortSignal): unknown {
@@ -168,7 +177,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   const email =
     options.email?.trim() ||
     process.env.AIMLAPI_EMAIL?.trim() ||
-    (await promptText('AI/ML API email'))
+    (await promptTextFn('AI/ML API email'))
   if (!isValidAimlapiEmail(email)) throw new Error('Email format is incorrect.')
 
   // Guided provisioning mints/exchanges a production-account key via production
@@ -279,7 +288,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       const code =
         options.code?.trim() ||
         process.env.AIMLAPI_CODE?.trim() ||
-        (await promptHidden(`6-digit code sent to ${email}`))
+        (await promptHiddenFn(`6-digit code sent to ${email}`))
       if (!code) throw new Error('Sign-in code is required.')
       sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
       if (!apiKey) {
