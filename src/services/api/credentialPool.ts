@@ -69,6 +69,13 @@ export class CredentialPool {
     return { value: fallback.value, index: leastRecentlyFailedIndex }
   }
 
+  hasAvailableCredential(): boolean {
+    const now = this.now()
+    return this.credentials.some(
+      credential => !credential.disabled && credential.cooldownUntil <= now,
+    )
+  }
+
   reportSuccess(lease: CredentialLease | null): void {
     if (!lease) return
     const credential = this.credentials[lease.index]

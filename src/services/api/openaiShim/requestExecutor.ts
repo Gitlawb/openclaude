@@ -852,7 +852,6 @@ export async function executeOpenAIRequest(
     }
 
     if (isGithub && response.status === 429 && attempt < maxAttempts - 1) {
-      await response.text().catch(() => {})
       const delaySec = Math.min(
         GITHUB_429_BASE_DELAY_SEC * 2 ** attempt,
         GITHUB_429_MAX_DELAY_SEC,
@@ -863,9 +862,40 @@ export async function executeOpenAIRequest(
           'cooldown',
           CREDENTIAL_POOL_COOLDOWN_MS,
         )
+        // Do not let CredentialPool.next() fall back to a cooled credential.
+        // If every pooled key is rate-limited, preserve this response as the
+        // final 429 rather than immediately retrying a key before its cooldown.
+        if (credentialPool.hasAvailableCredential()) {
+          await response.text().catch(() => {})
+          await sleepMs(delaySec * 1000)
+          continue
+        }
+        const errorBody = await response.text().catch(() => 'unknown error')
+        let errorResponse: object | undefined
+        try {
+          errorResponse = JSON.parse(errorBody)
+        } catch {
+          /* raw text */
+        }
+        throwClassifiedHttpError(
+          response.status,
+          errorBody,
+          errorResponse,
+          response.headers,
+          requestUrl,
+          formatRetryAfterHint(response),
+          classifyOpenAIHttpFailure({
+            status: response.status,
+            body: errorBody,
+            url: requestUrl,
+            hasImages: bodyContainsImages(),
+          }),
+        )
+      } else {
+        await response.text().catch(() => {})
+        await sleepMs(delaySec * 1000)
+        continue
       }
-      await sleepMs(delaySec * 1000)
-      continue
     }
     // Read body exactly once here — Response body is a stream that can only
     // be consumed a single time.
