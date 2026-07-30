@@ -1645,18 +1645,31 @@ export function getAgentListingDeltaAttachment(
     for (const t of msg.attachment.removedTypes) announced.delete(t)
   }
 
+  const currentTypes = new Set(filtered.map(a => a.agentType))
+
   // Resume path: prior process already injected the listing (now persisted in
   // the transcript for prefix-cache stability). Fire-once latch from
   // conversationRecovery — same role as suppressNextSkillListing.
+  //
+  // Only suppress when the filtered set matches what the transcript already
+  // announced. If agents were added/removed across the process boundary,
+  // fall through so removedTypes/addedTypes still emit a legitimate delta.
   if (suppressNextAgent) {
     suppressNextAgent = false
-    for (const a of filtered) {
-      announced.add(a.agentType)
+    let unchanged = currentTypes.size === announced.size
+    if (unchanged) {
+      for (const t of currentTypes) {
+        if (!announced.has(t)) {
+          unchanged = false
+          break
+        }
+      }
     }
-    return []
+    if (unchanged) {
+      return []
+    }
   }
 
-  const currentTypes = new Set(filtered.map(a => a.agentType))
   const added = filtered.filter(a => !announced.has(a.agentType))
   const removed: string[] = []
   for (const t of announced) {
@@ -2965,6 +2978,11 @@ let suppressNext = false
  * transcript. Mirrors suppressNextSkillListing — without this, a resume that
  * races ahead of transcript attachment hydration can re-announce the full
  * agent list mid-history and bust OpenAI/Moonshot prefix cache.
+ *
+ * Consumed once: when the current filtered agent set equals the transcript's
+ * announced set, returns an empty delta; when the set changed across the
+ * process boundary, the latch still clears but a normal add/remove delta is
+ * emitted.
  */
 export function suppressNextAgentListing(): void {
   suppressNextAgent = true

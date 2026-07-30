@@ -4778,8 +4778,13 @@ export function isLoggableMessage(m: Message): boolean {
   // require a byte-stable leading messages prefix across --resume. These
   // attachments are injected at turn 0 and merged into messages[1]; if they
   // are dropped from the transcript, every resume re-injects them mid-history
-  // and busts the entire cache (cached_tokens → 0). They carry only
-  // agent/skill/tool catalog text — not project file contents.
+  // and busts the entire cache (cached_tokens → 0).
+  //
+  // Privacy: catalogs / tool names / MCP InitializeResult.instructions that
+  // were ALREADY sent to the model at turn 0 — not project file contents.
+  // Ants already persist all attachments. Dropping mcp_instructions_delta
+  // (or deferred_tools_delta) from this allow-list without a matching resume
+  // suppress latch reintroduces the same mid-history rewrite bust.
   if (m.type === 'attachment' && getUserType() !== 'ant') {
     const t = m.attachment.type
     if (
