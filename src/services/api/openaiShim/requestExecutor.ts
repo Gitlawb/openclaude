@@ -797,6 +797,13 @@ export async function executeOpenAIRequest(
         GITHUB_429_BASE_DELAY_SEC * 2 ** attempt,
         GITHUB_429_MAX_DELAY_SEC,
       )
+      if (credentialPool && credentialPool.size > 1) {
+        credentialPool.reportFailure(
+          credentialLease,
+          'cooldown',
+          CREDENTIAL_POOL_COOLDOWN_MS,
+        )
+      }
       await sleepMs(delaySec * 1000)
       continue
     }
@@ -837,6 +844,7 @@ export async function executeOpenAIRequest(
         const responsesFailure = classifyOpenAIHttpFailure({
           status: responsesResponse.status,
           body: responsesErrorBody,
+          url: responsesUrl,
           hasImages: bodyContainsImages(),
         })
         let responsesErrorResponse: object | undefined
@@ -860,6 +868,7 @@ export async function executeOpenAIRequest(
     const failure = classifyOpenAIHttpFailure({
       status: response.status,
       body: errorBody,
+      url: requestUrl,
       hasImages: bodyContainsImages(),
     })
 

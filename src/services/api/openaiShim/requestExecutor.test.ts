@@ -620,6 +620,37 @@ test('OPENAI_API_KEYS rotates to the next key on rate-limit failure', async () =
   expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
 })
 
+test('GitHub 429 cools the active pooled credential before retrying', async () => {
+  const authorizations: Array<string | null> = []
+
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    if (authorizations.length === 1) {
+      return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return makeChatCompletionResponse('gpt-5.5')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-5.5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+})
+
 test('OPENAI_API_KEYS does not reuse a cooled-down key after every key is rate-limited', async () => {
   const authorizations: Array<string | null> = []
 
