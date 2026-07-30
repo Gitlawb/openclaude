@@ -103,7 +103,11 @@ async function waitForCondition(
   predicate: () => boolean,
   options?: { timeoutMs?: number; intervalMs?: number },
 ): Promise<void> {
-  const timeoutMs = options?.timeoutMs ?? 2000
+  // Default generously: the predicate is polled every 10ms and returns as soon
+  // as it is satisfied, so a higher ceiling only adds patience for a slow/loaded
+  // CI runner (it never slows a passing wait) and keeps the Ink-driven GUI flows
+  // from flaking when a render lands a little late.
+  const timeoutMs = options?.timeoutMs ?? 5000
   const intervalMs = options?.intervalMs ?? 10
   const startedAt = Date.now()
 
@@ -1827,6 +1831,10 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     expect(doneOutput).toContain(
       "We've emailed you a magic link to user@example.com. Use it to access your aimlapi.com account and review your usage.",
     )
+    // Let the done screen attach its input handler before the final keystroke:
+    // sending it in the same tick as the render can drop it under CI load, which
+    // then strands the flow on the success screen (mirrors the settles above).
+    await Bun.sleep(25)
     mounted.stdin.write('\r')
     await waitForFrameOutput(
       mounted.getOutput,
