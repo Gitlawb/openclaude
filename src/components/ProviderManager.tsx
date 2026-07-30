@@ -2514,7 +2514,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={3}
+            visibleOptionCount={4}
           />
         ) : (
           <Box flexDirection="row" gap={1}>
@@ -2791,6 +2791,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       persistAimlapiKey(apiKey, baseUrl, model, 'ready', options)
     } catch (error) {
       if (controller.signal.aborted) return
+      if (options.preserveEnv) {
+        // Validation failed for the ambient env key: drop the adoption markers so
+        // the next Enter re-validates instead of short-circuiting into persisting
+        // the unvalidated key.
+        setAimlapiExistingUsesEnv(false)
+        setAimlapiIssuedKey('')
+      }
       const status =
         typeof error === 'object' && error !== null && 'status' in error
           ? Number(error.status)
@@ -3501,16 +3508,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderAimlapiDone(): React.ReactNode {
-    // Only parse the amount for the top-up screen. When funding is skipped
-    // (e.g. after an invalid amount), aimlapiTopupAmountUsd may hold an unparsable
-    // value, and the "ready" screen never shows it — parsing it would throw.
+    // Only parse the amount for the top-up screen. The parse can only reach this
+    // screen with a valid amount, but the payment has already cleared here, so a
+    // format edge must never crash the success render — fall back to the raw
+    // entered value instead of throwing.
     let topUpBody: React.ReactNode = null
     if (aimlapiDoneKind === 'topup') {
-      const amountUsdMinor = parseAimlapiAmountUsd(aimlapiTopupAmountUsd)
-      const amountUsd =
-        amountUsdMinor % 100 === 0
-          ? String(amountUsdMinor / 100)
-          : (amountUsdMinor / 100).toFixed(2)
+      let amountUsd = aimlapiTopupAmountUsd.trim()
+      try {
+        const amountUsdMinor = parseAimlapiAmountUsd(aimlapiTopupAmountUsd)
+        amountUsd =
+          amountUsdMinor % 100 === 0
+            ? String(amountUsdMinor / 100)
+            : (amountUsdMinor / 100).toFixed(2)
+      } catch {
+        // Keep the raw amount; never fail the success screen on a format edge.
+      }
       topUpBody = (
         <>
           <Text color="success" bold>{AIMLAPI_MESSAGES.topUpSuccess(amountUsd)}</Text>

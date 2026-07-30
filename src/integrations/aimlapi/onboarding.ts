@@ -65,12 +65,14 @@ export async function completeAimlapiCodeSignIn(
   const auth = await client.verifySignInCode(email, code, signal)
   let apiKey = existingKey?.apiKey?.trim() ?? ''
   let apiKeyId = existingKey?.apiKeyId ?? ''
+  let mintedKey = false
   if (!apiKey) {
     // Reuse a previously issued key when one is supplied so a restart does not
     // mint a second key for the same account.
     const created = await client.createKey(auth.token, 'OpenClaude CLI', signal)
     apiKey = created.key
     apiKeyId = created.id
+    mintedKey = true
   }
   try {
     const balance = await client.getBalance(apiKey, signal)
@@ -82,8 +84,12 @@ export async function completeAimlapiCodeSignIn(
       lowBalance: balance.lowBalance,
     }
   } catch (error) {
-    if (signal?.aborted) throw error
-    // The key is already issued; a balance read failure must not discard it.
+    // A balance read failure must not discard an already-issued key. When THIS
+    // call minted the key, even an aborted read returns it so the caller can
+    // cache it — otherwise the next sign-in mints a second key for the account.
+    // When the caller supplied the key it already holds it, so an abort can
+    // propagate as usual.
+    if (signal?.aborted && !mintedKey) throw error
     return {
       sessionToken: auth.token,
       apiKey,
