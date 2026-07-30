@@ -144,6 +144,15 @@ export default defineGateway({
         modelDescriptorId: 'inclusionai/ling-3.0-flash:free',
         notes: 'Free',
       },
+      // Macaron V1 Tall — served by the gateway via direct Novita (not on
+      // OpenRouter). Free launch window; the gateway delists it 2026-08-10.
+      {
+        id: 'opengateway-macaron-v1-tall',
+        apiName: 'mindai/macaron-v1-tall',
+        label: 'Macaron V1 Tall (via Opengateway)',
+        modelDescriptorId: 'mindai/macaron-v1-tall',
+        notes: 'Free',
+      },
       {
         id: 'opengateway-tencent-hy3',
         apiName: 'tencent/hy3',
