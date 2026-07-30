@@ -1831,10 +1831,17 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     expect(doneOutput).toContain(
       "We've emailed you a magic link to user@example.com. Use it to access your aimlapi.com account and review your usage.",
     )
-    // Let the done screen attach its input handler before the final keystroke:
-    // sending it in the same tick as the render can drop it under CI load, which
-    // then strands the flow on the success screen (mirrors the settles above).
-    await Bun.sleep(25)
+    // Wait for the done screen to settle (an unchanged frame across a poll)
+    // rather than a fixed delay, so Ink has committed the render and attached its
+    // input handler before the final keystroke — otherwise a slow CI runner can
+    // drop it and strand the flow on the success screen.
+    let previousDoneFrame = ''
+    await waitForCondition(() => {
+      const frame = mounted.getOutput()
+      const settled = frame === previousDoneFrame && frame.includes('Top-up successful')
+      previousDoneFrame = frame
+      return settled
+    })
     mounted.stdin.write('\r')
     await waitForFrameOutput(
       mounted.getOutput,
