@@ -684,6 +684,50 @@ test('GitHub 429 stops when every pooled credential is cooling down', async () =
   expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
 })
 
+test('GitHub 429 does not retry a cooled key after a concurrent request cools the pool', async () => {
+  const authorizations: Array<string | null> = []
+  let markFirstRequestStarted: (() => void) | undefined
+  const firstRequestStarted = new Promise<void>(resolve => {
+    markFirstRequestStarted = resolve
+  })
+
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    if (authorizations.length === 1) {
+      markFirstRequestStarted?.()
+    }
+    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const createRequest = () => client.beta.messages.create({
+    model: 'gpt-5.5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const firstRequest = createRequest()
+  await firstRequestStarted
+  // Let the first request record key-a's cooldown and enter its backoff before
+  // the second request uses and cools key-b.
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const secondRequest = createRequest()
+
+  await expect(secondRequest).rejects.toThrow('rate limited')
+  await expect(firstRequest).rejects.toThrow('rate limited')
+  expect(authorizations).toEqual(['Bearer key-a', 'Bearer key-b'])
+})
+
 test('OPENAI_API_KEYS does not reuse a cooled-down key after every key is rate-limited', async () => {
   const authorizations: Array<string | null> = []
 

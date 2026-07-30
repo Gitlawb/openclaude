@@ -862,15 +862,20 @@ export async function executeOpenAIRequest(
           'cooldown',
           CREDENTIAL_POOL_COOLDOWN_MS,
         )
+        const errorBody = await response.text().catch(() => 'unknown error')
         // Do not let CredentialPool.next() fall back to a cooled credential.
         // If every pooled key is rate-limited, preserve this response as the
         // final 429 rather than immediately retrying a key before its cooldown.
         if (credentialPool.hasAvailableCredential()) {
-          await response.text().catch(() => {})
           await sleepMs(delaySec * 1000)
-          continue
+          // Another concurrent request can cool the remaining credential while
+          // this request is backing off. Check again immediately before the
+          // synchronous next() call below would otherwise select its cooled-key
+          // fallback.
+          if (credentialPool.hasAvailableCredential()) {
+            continue
+          }
         }
-        const errorBody = await response.text().catch(() => 'unknown error')
         let errorResponse: object | undefined
         try {
           errorResponse = JSON.parse(errorBody)
