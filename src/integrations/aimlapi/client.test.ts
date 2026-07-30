@@ -8,12 +8,23 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
+// The default *.example.test hosts stand in for a user-overridden (non-aimlapi)
+// deployment: attribution headers must be withheld from them.
 const endpoints: AimlapiEndpoints = {
   authBaseUrl: 'https://auth.example.test',
   appBaseUrl: 'https://app.example.test',
   payBaseUrl: 'https://pay.example.test',
   inferenceBaseUrl: 'https://api.example.test/v1',
   verificationBaseUrl: 'https://front.example.test',
+}
+
+// Production AI/ML API hosts, which DO receive the mandatory attribution headers.
+const canonicalEndpoints: AimlapiEndpoints = {
+  authBaseUrl: 'https://auth.aimlapi.com',
+  appBaseUrl: 'https://app.aimlapi.com',
+  payBaseUrl: 'https://pay.aimlapi.com',
+  inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+  verificationBaseUrl: 'https://aimlapi.com/app',
 }
 
 function jsonResponse(value: unknown): Response {
@@ -598,14 +609,14 @@ test('typed methods reject wrong-typed success fields without a raw TypeError', 
   expect(accountError).toHaveProperty('status', 200)
 })
 
-test('every request carries the mandatory attribution headers', async () => {
+test('every request to an AI/ML API host carries the mandatory attribution headers', async () => {
   let headers = new Headers()
   globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
     headers = new Headers(init?.headers)
     return jsonResponse({ action: 'sign-in' })
   }) as unknown as typeof fetch
 
-  const client = new AimlapiClient(endpoints)
+  const client = new AimlapiClient(canonicalEndpoints)
   await client.checkAccount('user@example.com')
 
   // Both headers are mandatory on EVERY aimlapi request (auth / checkout /
@@ -614,4 +625,23 @@ test('every request carries the mandatory attribution headers', async () => {
   const partner = headers.get('X-AIMLAPI-Partner-ID')
   expect(partner).toBeTruthy()
   expect(partner?.startsWith('part_')).toBe(true)
+})
+
+test('attribution headers are withheld from an overridden (non-aimlapi) inference host', async () => {
+  let headers = new Headers()
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    headers = new Headers(init?.headers)
+    return jsonResponse({ balance: 10, lowBalance: false, lowBalanceThreshold: 20 })
+  }) as unknown as typeof fetch
+
+  // inferenceBaseUrl points at api.example.test (a user proxy). The balance probe
+  // must not leak OpenClaude's partner/source identity to a third-party host,
+  // mirroring the inference/catalog stripping contract.
+  const client = new AimlapiClient(endpoints)
+  await client.getBalance('key_test')
+
+  expect(headers.get('X-AIMLAPI-Source')).toBeNull()
+  expect(headers.get('X-AIMLAPI-Partner-ID')).toBeNull()
+  // The caller's own credential still rides — only OpenClaude attribution is gated.
+  expect(headers.get('Authorization')).toBe('Bearer key_test')
 })

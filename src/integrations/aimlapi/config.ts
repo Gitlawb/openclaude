@@ -129,6 +129,25 @@ export function isCanonicalAimlapiInferenceBaseUrl(value: string): boolean {
 }
 
 /**
+ * True when an outbound client request targets an AI/ML API-controlled host
+ * (production or staging under `aimlapi.com`, over HTTPS). The auth/app/pay/
+ * inference base URLs are all env-overridable, so the mandatory attribution
+ * headers are gated on this: a request pointed at a user proxy must not carry
+ * OpenClaude's partner/source identity, mirroring the inference/catalog
+ * stripping contract in `resolveAimlapiAttributionHeaders`.
+ */
+export function isTrustedAimlapiRequestUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    return host === 'aimlapi.com' || host.endsWith('.aimlapi.com')
+  } catch {
+    return false
+  }
+}
+
+/**
  * Attribution headers AI/ML API records for canonical `api.aimlapi.com`
  * traffic. They identify the partner and the referring integration, so they
  * belong to the canonical endpoint only — see `resolveAimlapiAttributionHeaders`.

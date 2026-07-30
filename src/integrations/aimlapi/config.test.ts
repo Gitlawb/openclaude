@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
   isCanonicalAimlapiInferenceBaseUrl,
+  isTrustedAimlapiRequestUrl,
   resolveAimlapiAttributionHeaders,
   resolvePartnerId,
   resolveEndpoints,
@@ -73,6 +74,20 @@ test('canonical endpoint check excludes proxies and look-alike paths', () => {
   expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
   // Garbage input fails closed.
   expect(isCanonicalAimlapiInferenceBaseUrl('not-a-url')).toBe(false)
+})
+
+test('trusted-host gate accepts only https aimlapi.com hosts', () => {
+  // Production + staging aimlapi hosts (any path) are trusted.
+  expect(isTrustedAimlapiRequestUrl('https://auth.aimlapi.com/v1/auth/account')).toBe(true)
+  expect(isTrustedAimlapiRequestUrl('https://api.aimlapi.com/v1/billing/balance')).toBe(true)
+  expect(isTrustedAimlapiRequestUrl('https://aimlapi.com/app')).toBe(true)
+  expect(isTrustedAimlapiRequestUrl('https://auth.staging.aimlapi.com/v1')).toBe(true)
+  // A user proxy, look-alike hosts, and cleartext are all untrusted.
+  expect(isTrustedAimlapiRequestUrl('https://proxy.example.test/v1')).toBe(false)
+  expect(isTrustedAimlapiRequestUrl('https://notaimlapi.com/v1')).toBe(false)
+  expect(isTrustedAimlapiRequestUrl('https://aimlapi.com.attacker.test/v1')).toBe(false)
+  expect(isTrustedAimlapiRequestUrl('http://api.aimlapi.com/v1')).toBe(false)
+  expect(isTrustedAimlapiRequestUrl('not-a-url')).toBe(false)
 })
 
 test('inference/catalog attribution sends both mandatory headers, stripped off-canonical', () => {
