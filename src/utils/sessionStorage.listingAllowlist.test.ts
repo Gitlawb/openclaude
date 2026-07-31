@@ -1,9 +1,17 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { Message } from '../types/message.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { isLoggableMessage } from './sessionStorage.ts'
 
 const originalUserType = process.env.USER_TYPE
 const originalHookSave = process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('sessionStorage.listingAllowlist')
+})
 
 afterEach(() => {
   if (originalUserType === undefined) {
@@ -16,6 +24,7 @@ afterEach(() => {
   } else {
     process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = originalHookSave
   }
+  releaseSharedMutationLock()
 })
 
 function attachment(type: string, extra: Record<string, unknown> = {}): Message {
