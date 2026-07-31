@@ -9,6 +9,8 @@ import {
   modelRequiresResponsesApi,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -76,18 +78,139 @@ test('treats private IPv4 endpoints as local', () => {
 
 test('treats .local hostnames as local', () => {
   expect(isLocalProviderUrl('http://ollama.local:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://llm.localhost:8080/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://vllm.home.arpa:8080/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://gpu.lan:8080/v1')).toBe(true)
+  // Corporate/custom proxy suffixes must remain non-local.
+  expect(isLocalProviderUrl('http://proxy.internal:8080/v1')).toBe(false)
+  expect(isLocalProviderUrl('http://proxy.intranet:8080/v1')).toBe(false)
+  expect(isLocalProviderUrl('https://my-proxy.internal/v1')).toBe(false)
 })
 
 test('treats private IPv6 endpoints as local', () => {
   expect(isLocalProviderUrl('http://[fd00::1]:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://[fe80::1]:11434/v1')).toBe(true)
   expect(isLocalProviderUrl('http://[::1]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:127.0.0.1]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:10.0.0.5]:11434/v1')).toBe(true)
+  expect(isLocalProviderUrl('http://[::ffff:100.64.1.5]:11434/v1')).toBe(true)
 })
 
 test('treats public hosts as remote', () => {
   expect(isLocalProviderUrl('http://203.0.113.1:11434/v1')).toBe(false)
   expect(isLocalProviderUrl('https://example.com/v1')).toBe(false)
   expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(false)
+})
+
+test('semantic tool-result boundary is Mistral-only and never local', () => {
+  expect(TOOL_RESULT_SEMANTIC_PLACEHOLDER).toBe('[Tool results received]')
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'mistral-large-latest',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  // Substring must not match — only hostname mistral.ai / *.mistral.ai
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://mistral.ai-proxy.example/v1',
+      model: 'qwen3.6:35b',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  // Local hosts never inject, even for Mistral-class model names.
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'qwen',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'qwen',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'mixtral-8x7b-instruct',
+      processEnv: {},
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'qwen',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
+    }),
+  ).toBe(true)
+
+  // Ollama endpoints are excluded even when the hostname is not loopback.
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://ollama:11434/v1',
+      model: 'mistral:latest',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://host.docker.internal:8080/v1',
+      model: 'mistral-7b-instruct',
+      processEnv: {},
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://100.64.1.5:8080/v1',
+      model: 'devstral-small',
+      processEnv: {},
+    }),
+  ).toBe(false)
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {

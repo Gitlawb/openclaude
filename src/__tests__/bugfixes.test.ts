@@ -111,6 +111,19 @@ describe('Agent loop continuation nudge', () => {
     // Transition intent detected (requires explicit action verb or transition phrase)
     expect(analyzeContinuationIntent("So now I will start task 2").shouldNudge).toBe(true)
     expect(analyzeContinuationIntent("I will now do the following").shouldNudge).toBe(true)
+
+    // Model echoed the OpenAI-shim transport placeholder as its entire reply
+    expect(analyzeContinuationIntent('[Tool results received]')).toEqual({
+      shouldNudge: true,
+      reason: 'tool_result_placeholder_echo',
+    })
+    expect(analyzeContinuationIntent('  [Tool results received]  ').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('[Tool results received].').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('"[Tool results received]"').shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent('[Tool results received],').shouldNudge).toBe(true)
+    expect(
+      analyzeContinuationIntent('Done. [Tool results received] and more text').shouldNudge,
+    ).toBe(false)
     
     // Completion marker suppresses nudge
     expect(analyzeContinuationIntent("Task finished").shouldNudge).toBe(false)

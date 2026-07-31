@@ -40,6 +40,84 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const DEFAULT_CLINEPASS_API_BASE_URL = `${DEFAULT_CLINEPASS_BASE_URL}/api/v1`
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
+
+/**
+ * Synthetic assistant content used only for Mistral/Devstral Jinja role
+ * sequencing when a `tool` message must be followed by `assistant` before
+ * `user`. Never inject this for local-classified OpenAI-compatible hosts
+ * (loopback, RFC1918, `.local`) or Ollama — those backends often treat it as
+ * real assistant text and echo it, ending the agent turn early
+ * (issues #2039, #2059).
+ */
+export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
+
+/**
+ * Whether to inject {@link TOOL_RESULT_SEMANTIC_PLACEHOLDER} between `tool`
+ * and `user` roles in OpenAI chat conversion. Default is off.
+ *
+ * Local OpenAI-compatible backends (llama.cpp, Ollama, vLLM, loopback) never
+ * inject — quantized models echo the placeholder and stall (#2039, #2059).
+ * Mistral cloud / CLAUDE_CODE_USE_MISTRAL still inject for Jinja sequencing.
+ */
+export function shouldInjectToolResultSemanticBoundary(options?: {
+  baseUrl?: string
+  model?: string
+  processEnv?: NodeJS.ProcessEnv
+}): boolean {
+  const processEnv = options?.processEnv ?? process.env
+  const baseUrl =
+    options?.baseUrl ??
+    processEnv.MISTRAL_BASE_URL ??
+    processEnv.OPENAI_BASE_URL ??
+    ''
+
+  // Local / Ollama servers must never receive the synthetic assistant filler,
+  // even when the model id looks Mistral-class or CLAUDE_CODE_USE_MISTRAL is stale.
+  if (isLocalProviderUrl(baseUrl) || isLikelyOllamaEndpoint(baseUrl)) {
+    return false
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return true
+  }
+
+  // Hostname only — avoid false positives like https://mistral.ai-proxy.example/v1
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    if (
+      host === 'mistral.ai' ||
+      host === 'api.mistral.ai' ||
+      host.endsWith('.mistral.ai')
+    ) {
+      return true
+    }
+  } catch {
+    // Invalid URL — fall through to model-name detection.
+  }
+
+  const model = (
+    options?.model ??
+    processEnv.MISTRAL_MODEL ??
+    processEnv.OPENAI_MODEL ??
+    ''
+  ).toLowerCase()
+  return /\b(devstral|mistral|mixtral|ministral|magistral|mathstral|codestral)\b/.test(
+    model,
+  )
+}
+
+/** True when assistant text is only the transport tool-result placeholder. */
+export function isToolResultSemanticPlaceholderEcho(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    // Local models often append terminal punctuation to short echoes.
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[.!?…,;:]+$/g, '')
+    .trim()
+  return normalized === TOOL_RESULT_SEMANTIC_PLACEHOLDER.toLowerCase()
+}
+
 const warnedUndefinedEnvNames = new Set<string>()
 
 function asGithubEnterpriseEnvUrl(value: string | undefined): string | undefined {
@@ -195,7 +273,13 @@ type ModelDescriptor = {
   }
 }
 
-const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
+const LOCALHOST_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  'host.docker.internal',
+  'gateway.docker.internal',
+])
 
 function hashCacheScopePartition(value: unknown): string {
   return createHash('sha256')
@@ -217,7 +301,9 @@ function isPrivateIpv4Address(hostname: string): boolean {
   return (
     octets[0] === 10 ||
     (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168)
+    (octets[0] === 192 && octets[1] === 168) ||
+    // CGNAT / Tailscale (100.64.0.0/10)
+    (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
   )
 }
 
@@ -554,7 +640,15 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
     if (LOCALHOST_HOSTNAMES.has(hostname)) {
       return true
     }
-    if (hostname.endsWith('.local')) {
+    // RFC reserved / home-network TLDs. Do not include de-facto corporate
+    // suffixes like `.internal` / `.intranet` here — those are common custom
+    // proxy hostnames and must stay non-local for provider detection.
+    if (
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.lan') ||
+      hostname.endsWith('.home.arpa')
+    ) {
       return true
     }
 
@@ -565,6 +659,18 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
       return firstOctet === 127 || isPrivateIpv4Address(hostname)
     }
     if (ipVersion === 6) {
+      // Unwrap IPv4-mapped IPv6. `new URL(...).hostname` normalizes dotted
+      // forms like ::ffff:127.0.0.1 to hextets (::ffff:7f00:1).
+      const mappedHex = hostname.toLowerCase().match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+      if (mappedHex?.[1] && mappedHex[2]) {
+        const hi = Number.parseInt(mappedHex[1], 16)
+        const lo = Number.parseInt(mappedHex[2], 16)
+        if (!Number.isNaN(hi) && !Number.isNaN(lo)) {
+          const v4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+          const firstOctet = Number.parseInt(v4.split('.', 1)[0] ?? '', 10)
+          return firstOctet === 127 || isPrivateIpv4Address(v4)
+        }
+      }
       return isPrivateIpv6Address(hostname)
     }
 

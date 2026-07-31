@@ -136,7 +136,8 @@ test('preserves valid tool_result and drops orphan tool_result', () => {
 
   expect(tools).toHaveLength(1)
   expect(tools[0]?.tool_call_id).toBe('valid_call_1')
-  expect(messages.some(message => message.content === '[Tool results received]')).toBe(true)
+  // Default conversion must not inject the Mistral-only semantic placeholder.
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
   expect(logs).toContain('Dropping orphan tool_result for ID: orphan_call_2 to prevent API error')
 })
 
@@ -160,7 +161,7 @@ test('drops empty assistant message when only redacted_thinking block was presen
   expect(messages).toEqual([{ role: 'user', content: 'Initial\nInterrupting query' }])
 })
 
-test('injects semantic assistant message when tool result is followed by user message', () => {
+test('does not inject semantic assistant message between tool and user by default', () => {
   const messages = convert([
     {
       role: 'assistant',
@@ -173,9 +174,80 @@ test('injects semantic assistant message when tool result is followed by user me
     { role: 'user', content: 'Next user query' },
   ])
 
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+})
+
+test('injects semantic assistant message when tool result is followed by user message and opted in', () => {
+  const messages = convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }],
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    '',
+    { injectToolResultSemanticBoundary: true },
+  )
+
   expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'assistant', 'user'])
   expect(messages[2]?.content).toBe('[Tool results received]')
   expect(messages[2]?.content).not.toContain('interrupted')
+})
+
+test('default conversion keeps tool then snip reminder without placeholder', () => {
+  const messages = convert([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'pwd' } }],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '/tmp' }],
+    },
+    {
+      role: 'user',
+      content: '<system-reminder>snip_id=abc123</system-reminder>',
+    },
+  ])
+
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+  expect(String(messages[2]?.content)).toContain('snip_id=abc123')
+})
+
+test('strips prior placeholder-only assistant echoes from converted history', () => {
+  const messages = convert([
+    { role: 'user', content: 'Start' },
+    { role: 'assistant', content: '[Tool results received]' },
+    { role: 'user', content: 'Continue the task' },
+  ])
+
+  expect(messages.map(message => message.role)).toEqual(['user'])
+  expect(String(messages[0]?.content)).toContain('Start')
+  expect(String(messages[0]?.content)).toContain('Continue the task')
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+})
+
+test('strips punctuated and quoted placeholder-only assistant echoes from converted history', () => {
+  for (const echo of [
+    '[Tool results received].',
+    '"[Tool results received]"',
+    '[tool results received]',
+  ]) {
+    const messages = convert([
+      { role: 'user', content: 'Start' },
+      { role: 'assistant', content: echo },
+      { role: 'user', content: 'Continue the task' },
+    ])
+    expect(messages.map(message => message.role)).toEqual(['user'])
+    expect(messages.some(message => String(message.content ?? '').includes('Tool results'))).toBe(false)
+  }
 })
 
 test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', () => {

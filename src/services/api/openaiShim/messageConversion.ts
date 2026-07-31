@@ -1,3 +1,8 @@
+import {
+  isToolResultSemanticPlaceholderEcho,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
+} from '../providerConfig.js'
+
 export type OpenAIContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
@@ -14,6 +19,13 @@ export type ConvertedOpenAIMessage = {
   tool_call_id?: string
   name?: string
   reasoning_content?: string
+}
+
+function isPlaceholderOnlyAssistantContent(
+  content: ConvertedOpenAIMessage['content'],
+): boolean {
+  if (typeof content !== 'string') return false
+  return isToolResultSemanticPlaceholderEcho(content)
 }
 
 export function convertSystemPrompt(system: unknown): string {
@@ -146,6 +158,15 @@ export function convertMessages(
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
     supportsImageInputs?: boolean
+    /**
+     * When true, insert a synthetic assistant message between `tool` and
+     * `user` roles (Mistral/Devstral Jinja only). Default false — injecting
+     * a static placeholder for other backends causes models to echo it as a
+     * terminal reply (issues #2039, #2059).
+     */
+    injectToolResultSemanticBoundary?: boolean
+    /** Placeholder text used when injectToolResultSemanticBoundary is true. */
+    toolResultSemanticPlaceholder?: string
     getGeminiThoughtSignature?: (extraContent: unknown) => string | undefined
     mergeGeminiThoughtSignature?: (
       extraContent: Record<string, unknown> | undefined,
@@ -204,7 +225,11 @@ export function convertMessages(
     if (!Array.isArray(content)) {
       const converted = convertContentBlocks(content, options)
       const text = typeof converted === 'string' ? converted : joinTextContentParts(converted)
-      if (text) result.push({ role: 'assistant', content: text })
+      // Drop prior model echoes of the transport-only placeholder so resumed
+      // sessions do not keep teaching the model to imitate it.
+      if (text && !isPlaceholderOnlyAssistantContent(text)) {
+        result.push({ role: 'assistant', content: text })
+      }
       continue
     }
     const toolUses: Array<{
@@ -255,14 +280,33 @@ export function convertMessages(
       mappedToolCalls.push(toolCall)
     }
     if (mappedToolCalls.length) assistantMsg.tool_calls = mappedToolCalls
-    if (assistantMsg.content || assistantMsg.tool_calls?.length) result.push(assistantMsg)
+    const placeholderOnly =
+      !assistantMsg.tool_calls?.length &&
+      isPlaceholderOnlyAssistantContent(assistantMsg.content)
+    if ((assistantMsg.content || assistantMsg.tool_calls?.length) && !placeholderOnly) {
+      result.push(assistantMsg)
+    }
   }
 
   const coalesced: ConvertedOpenAIMessage[] = []
+  const injectToolResultSemanticBoundary =
+    options.injectToolResultSemanticBoundary === true
+  const toolResultSemanticPlaceholder =
+    options.toolResultSemanticPlaceholder ?? TOOL_RESULT_SEMANTIC_PLACEHOLDER
   for (const msg of result) {
     const prev = coalesced[coalesced.length - 1]
-    if (prev?.role === 'tool' && msg.role === 'user') {
-      coalesced.push({ role: 'assistant', content: '[Tool results received]' })
+    // Mistral/Devstral only (opt-in): 'tool' must be followed by 'assistant'
+    // before 'user'. Other OpenAI-compatible backends must keep tool→user so
+    // the placeholder is not echoed as a real end_turn reply.
+    if (
+      injectToolResultSemanticBoundary &&
+      prev?.role === 'tool' &&
+      msg.role === 'user'
+    ) {
+      coalesced.push({
+        role: 'assistant',
+        content: toolResultSemanticPlaceholder,
+      })
     }
     const last = coalesced[coalesced.length - 1]
     if (!last || last.role !== msg.role || msg.role === 'tool' || msg.role === 'system') {

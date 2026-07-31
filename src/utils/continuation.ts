@@ -1,4 +1,5 @@
 import { tokenCountWithEstimation } from './tokens.js'
+import { isToolResultSemanticPlaceholderEcho } from '../services/api/providerConfig.js'
 
 /**
  * Heuristics to detect if the agent intends to continue its task
@@ -104,8 +105,16 @@ export const COMPLETION_MARKERS = /\b(done|finished|completed|complete|summary|t
 
 export type ContinuationResult = {
   shouldNudge: boolean
-  reason?: 'possible_truncation' | 'continuation_signal'
+  reason?:
+    | 'possible_truncation'
+    | 'continuation_signal'
+    | 'tool_result_placeholder_echo'
 }
+
+/**
+ * Exact match for the OpenAI-shim Mistral tool→user boundary placeholder when
+ * a model echoes it as a real assistant reply (issues #2039, #2059).
+ */
 
 export const UNFINISHED_SENTIMENT_SIGNALS = [
   // English trailing connectors
@@ -128,6 +137,12 @@ export function analyzeContinuationIntent(
   if (lastText.length === 0) return { shouldNudge: false }
   
   const lowerText = lastText.toLowerCase()
+
+  // 0. Model echoed the transport-only tool-result placeholder as its entire
+  // reply (finish_reason=stop). Treat as a stall and nudge continuation.
+  if (isToolResultSemanticPlaceholderEcho(lastText)) {
+    return { shouldNudge: true, reason: 'tool_result_placeholder_echo' }
+  }
 
   // 1. High-Confidence Structural Truncation signals (Strongest - Ignore completion markers)
   
