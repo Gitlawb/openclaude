@@ -23,8 +23,8 @@ import {
 } from '../bootstrap/state.js'
 import type { Message } from '../types/message.js'
 import { createAttachmentMessage } from './attachments.js'
-import { getProjectDir } from './cachePaths.js'
 import { hashContent } from './hash.js'
+import { getProjectDir } from './sessionStoragePortable.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 
 export const RESUME_CACHE_VERSION = 1 as const
@@ -84,10 +84,65 @@ function resetMemoryIfSessionChanged(sessionId: string): void {
   }
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    if (typeof entry !== 'string') return false
+  }
+  return true
+}
+
+function isSkillListingEntry(value: unknown): value is ResumeCacheSkillListing {
+  if (typeof value !== 'object' || value === null) return false
+  const e = value as Record<string, unknown>
+  return (
+    typeof e.content === 'string' &&
+    typeof e.skillCount === 'number' &&
+    typeof e.isInitial === 'boolean' &&
+    typeof e.contentHash === 'string'
+  )
+}
+
+/**
+ * Structural guard for on-disk resume-cache JSON. Malformed nested fields
+ * (e.g. skillListings entries missing contentHash, lines/blocks that are not
+ * string maps) must fail closed to EMPTY_CACHE so --resume stays usable.
+ */
 function isResumeCache(value: unknown): value is ResumeCache {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return v.version === RESUME_CACHE_VERSION && Array.isArray(v.skillListings)
+  if (v.version !== RESUME_CACHE_VERSION) return false
+  if (!Array.isArray(v.skillListings)) return false
+  if (!v.skillListings.every(isSkillListingEntry)) return false
+
+  if (v.agentListing !== undefined) {
+    if (typeof v.agentListing !== 'object' || v.agentListing === null) {
+      return false
+    }
+    const agent = v.agentListing as Record<string, unknown>
+    if (!isStringRecord(agent.lines)) return false
+    if (typeof agent.showConcurrencyNote !== 'boolean') return false
+  }
+
+  if (v.deferredTools !== undefined) {
+    if (typeof v.deferredTools !== 'object' || v.deferredTools === null) {
+      return false
+    }
+    const deferred = v.deferredTools as Record<string, unknown>
+    if (!isStringRecord(deferred.lines)) return false
+  }
+
+  if (v.mcpInstructions !== undefined) {
+    if (typeof v.mcpInstructions !== 'object' || v.mcpInstructions === null) {
+      return false
+    }
+    const mcp = v.mcpInstructions as Record<string, unknown>
+    if (!isStringRecord(mcp.blocks)) return false
+  }
+
+  return true
 }
 
 export async function loadResumeCache(

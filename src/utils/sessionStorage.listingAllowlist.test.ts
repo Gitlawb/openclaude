@@ -153,3 +153,27 @@ test('isLoggableMessage allows all attachments for ant users', () => {
     ),
   ).toBe(true)
 })
+
+test('isLoggableMessage fails closed on malformed null attachment for external users', () => {
+  process.env.USER_TYPE = 'external'
+  const malformed = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000bad2',
+    attachment: null,
+  } as unknown as Message
+
+  expect(() => isLoggableMessage(malformed)).not.toThrow()
+  expect(isLoggableMessage(malformed)).toBe(false)
+})
+
+test('isLoggableMessage fails closed on non-object attachment payload', () => {
+  process.env.USER_TYPE = 'external'
+  const malformed = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000bad3',
+    attachment: 'skill_listing',
+  } as unknown as Message
+
+  expect(() => isLoggableMessage(malformed)).not.toThrow()
+  expect(isLoggableMessage(malformed)).toBe(false)
+})

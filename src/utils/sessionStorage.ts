@@ -1522,7 +1522,11 @@ export async function recordTranscript(
   // External transcripts filter listing deltas (privacy). Persist announced
   // catalogs to the local resume-cache so --resume can reinject them without
   // putting sensitive payloads in the public transcript / remote ingress.
-  updateResumeCacheFromMessages(messages)
+  // Honor the same persistence opt-out as transcript writes (--no-session-
+  // persistence / CLAUDE_CODE_SKIP_PROMPT_HISTORY / cleanupPeriodDays: 0).
+  if (!shouldSkipSessionPersistence()) {
+    updateResumeCacheFromMessages(messages)
+  }
   const cleanedMessages = cleanMessagesForLogging(messages, allMessages)
   const sessionId = getSessionId() as UUID
   const messageSet = await getSessionMessages(sessionId)
@@ -4786,6 +4790,11 @@ export function isLoggableMessage(m: Message): boolean {
   // filtered. Prefix-cache resume stability is handled by a separate local
   // resume-cache mechanism (no sensitive payload in the public transcript).
   if (m.type === 'attachment' && getUserType() !== 'ant') {
+    // Legacy / corrupt transcripts may carry null or non-object attachment
+    // payloads. Fail closed (do not log) rather than throwing on .type.
+    if (!m.attachment || typeof m.attachment !== 'object') {
+      return false
+    }
     const t = m.attachment.type
     if (
       t === 'hook_additional_context' &&

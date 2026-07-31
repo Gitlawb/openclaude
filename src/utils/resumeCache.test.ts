@@ -1,14 +1,21 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { unlink } from 'fs/promises'
+import { mkdir, unlink, writeFile } from 'fs/promises'
+import { dirname, isAbsolute } from 'path'
+import {
+  getOriginalCwd,
+  getSessionProjectDir,
+} from '../bootstrap/state.js'
 import type { Message } from '../types/message.js'
 import { createAttachmentMessage } from './attachments.js'
 import {
   flushResumeCacheWritesForTesting,
   getResumeCachePath,
   hydrateListingAttachmentsFromResumeCache,
+  loadResumeCache,
   resetResumeCacheForTesting,
   updateResumeCacheFromMessages,
 } from './resumeCache.js'
+import { getProjectDir } from './sessionStoragePortable.js'
 
 const SESSION = 'test-resume-cache-pr2070'
 
@@ -194,4 +201,60 @@ test('updateResumeCacheFromMessages skips malformed null attachment without thro
       SESSION,
     ),
   ).not.toThrow()
+})
+
+test('getResumeCachePath is absolute under the same project dir as transcripts', () => {
+  const path = getResumeCachePath(SESSION)
+  const expectedDir =
+    getSessionProjectDir() ?? getProjectDir(getOriginalCwd())
+  expect(isAbsolute(path)).toBe(true)
+  expect(dirname(path)).toBe(expectedDir)
+  expect(path.endsWith(`${SESSION}.resume-cache.json`)).toBe(true)
+})
+
+test('loadResumeCache rejects malformed nested skillListings and stays usable', async () => {
+  const path = getResumeCachePath(SESSION)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 1,
+      skillListings: [{ content: 'missing fields' }],
+      agentListing: { lines: { Explore: 1 }, showConcurrencyNote: true },
+    }),
+    'utf8',
+  )
+
+  const cache = await loadResumeCache(SESSION)
+  expect(cache.skillListings).toEqual([])
+  expect(cache.agentListing).toBeUndefined()
+
+  // Resume must still accept a later valid update after the corrupt file.
+  updateResumeCacheFromMessages(
+    [skillListing('## Skills\n- recovered')],
+    SESSION,
+  )
+  await flushResumeCacheWritesForTesting()
+  const hydrated = await hydrateListingAttachmentsFromResumeCache([], SESSION)
+  expect(listingTypes(hydrated)).toEqual(['skill_listing'])
+})
+
+test('loadResumeCache rejects non-string agentListing.lines map', async () => {
+  const path = getResumeCachePath(SESSION)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 1,
+      skillListings: [],
+      agentListing: {
+        lines: { Explore: ['not', 'a', 'string'] },
+        showConcurrencyNote: true,
+      },
+    }),
+    'utf8',
+  )
+
+  const cache = await loadResumeCache(SESSION)
+  expect(cache).toEqual({ version: 1, skillListings: [] })
 })
