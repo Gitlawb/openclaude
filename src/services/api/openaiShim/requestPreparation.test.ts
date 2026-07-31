@@ -18,6 +18,31 @@ const dependencies = {
   shouldPreserveGeminiThoughtSignature: () => false,
 }
 
+test('store: false is still set by default and only removed via shim config', async () => {
+  const requestPreparation = await Bun.file(
+    new URL('./requestPreparation.ts', import.meta.url),
+  ).text()
+
+  expect(requestPreparation).toMatch(/store:\s*false/)
+  expect(requestPreparation).toContain('shimConfig.removeBodyFields')
+  expect(requestPreparation).toContain('delete body[field]')
+})
+
+test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {
+  const requestPreparation = await Bun.file(
+    new URL('./requestPreparation.ts', import.meta.url),
+  ).text()
+  const runtimeMetadata = await Bun.file(
+    new URL('../../../integrations/runtimeMetadata.ts', import.meta.url),
+  ).text()
+
+  expect(requestPreparation).toMatch(/store:\s*false/)
+  expect(requestPreparation).toContain(
+    'for (const field of shimConfig.removeBodyFields ?? [])',
+  )
+  expect(runtimeMetadata).toContain('mergeRemoveBodyFields')
+})
+
 test('prepares a chat-completions request without executing transport', async () => {
   await ensureIntegrationsLoaded()
   const processEnv = {
@@ -52,6 +77,7 @@ test('prepares a chat-completions request without executing transport', async ()
     max_completion_tokens: 64,
     temperature: 0.2,
     stream: false,
+    store: false,
   })
   expect(prepared.body).not.toHaveProperty('stream_options')
 })
