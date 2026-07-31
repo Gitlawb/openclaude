@@ -7,6 +7,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { formatAgentLine } from '../tools/AgentTool/prompt.js'
 import {
   getAgentListingDeltaAttachment,
   resetSentSkillNames,
@@ -65,7 +66,7 @@ function toolUseContext(activeAgents: AgentDefinition[]): ToolUseContext {
 }
 
 function listingDeltaMessage(
-  addedTypes: string[],
+  agents: AgentDefinition[],
   removedTypes: string[] = [],
   isInitial = true,
 ): Message {
@@ -74,8 +75,8 @@ function listingDeltaMessage(
     uuid: '00000000-0000-4000-8000-00000000a001',
     attachment: {
       type: 'agent_listing_delta',
-      addedTypes,
-      addedLines: addedTypes.map(t => `- ${t}: stub`),
+      addedTypes: agents.map(a => a.agentType),
+      addedLines: agents.map(formatAgentLine),
       removedTypes,
       isInitial,
       showConcurrencyNote: true,
@@ -85,7 +86,7 @@ function listingDeltaMessage(
 
 test('suppressNextAgentListing skips duplicate listing once when agent set is unchanged', () => {
   const agents = [agent('Explore'), agent('Plan')]
-  const messages = [listingDeltaMessage(['Explore', 'Plan'])]
+  const messages = [listingDeltaMessage([agent('Explore'), agent('Plan')])]
   const ctx = toolUseContext(agents)
 
   suppressNextAgentListing()
@@ -106,7 +107,7 @@ test('suppressNextAgentListing skips duplicate listing once when agent set is un
 })
 
 test('suppressNextAgentListing still emits delta when agent set changed across resume', () => {
-  const messages = [listingDeltaMessage(['Explore'])]
+  const messages = [listingDeltaMessage([agent('Explore')])]
   const ctx = toolUseContext([agent('Plan')])
 
   suppressNextAgentListing()
@@ -147,7 +148,7 @@ test('resetSentSkillNames clears the agent-listing suppress latch', () => {
 
 test('restoreSkillStateFromMessages arms agent suppress and skips duplicate on resume pass', () => {
   const agents = [agent('Explore'), agent('Plan')]
-  const messages = [listingDeltaMessage(['Explore', 'Plan'])]
+  const messages = [listingDeltaMessage([agent('Explore'), agent('Plan')])]
   const ctx = toolUseContext(agents)
 
   restoreSkillStateFromMessages(messages)
@@ -155,7 +156,7 @@ test('restoreSkillStateFromMessages arms agent suppress and skips duplicate on r
 })
 
 test('restoreSkillStateFromMessages still allows agent delta when available set changed', () => {
-  const messages = [listingDeltaMessage(['Explore'])]
+  const messages = [listingDeltaMessage([agent('Explore')])]
   const ctx = toolUseContext([agent('Explore'), agent('Plan')])
 
   restoreSkillStateFromMessages(messages)
@@ -167,4 +168,55 @@ test('restoreSkillStateFromMessages still allows agent delta when available set 
     removedTypes: [],
     isInitial: false,
   })
+})
+
+
+test('suppressNextAgentListing re-announces when same-type whenToUse changed across resume', () => {
+  const oldAgents = [agent('Explore', 'Old explore description')]
+  const messages = [listingDeltaMessage(oldAgents)]
+  const ctx = toolUseContext([agent('Explore', 'New explore description')])
+
+  suppressNextAgentListing()
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toHaveLength(1)
+  expect(delta[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Explore'],
+    removedTypes: [],
+    isInitial: false,
+  })
+  expect((delta[0] as { addedLines: string[] }).addedLines[0]).toContain(
+    'New explore description',
+  )
+})
+
+test('getAgentListingDeltaAttachment re-announces when same-type tool policy changed', () => {
+  const oldAgent = {
+    ...agent('Explore', 'Explore work'),
+    tools: ['Read'],
+  }
+  const messages = [listingDeltaMessage([oldAgent])]
+  const newAgent = {
+    ...agent('Explore', 'Explore work'),
+    tools: ['Read', 'Bash'],
+  }
+  const ctx = toolUseContext([newAgent])
+
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toHaveLength(1)
+  expect(delta[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Explore'],
+    removedTypes: [],
+  })
+  expect((delta[0] as { addedLines: string[] }).addedLines[0]).toContain('Bash')
+})
+
+test('suppressNextAgentListing still skips when same-type content matches transcript', () => {
+  const agents = [agent('Explore', 'Explore work')]
+  const messages = [listingDeltaMessage(agents)]
+  const ctx = toolUseContext(agents)
+
+  suppressNextAgentListing()
+  expect(getAgentListingDeltaAttachment(ctx, messages)).toEqual([])
 })

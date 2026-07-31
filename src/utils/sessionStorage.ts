@@ -82,6 +82,7 @@ import { parseJSONL } from './json.js'
 import { logError } from './log.js'
 import { extractTag, isCompactBoundaryMessage } from './messages.js'
 import { sanitizePath } from './path.js'
+import { updateResumeCacheFromMessages } from './resumeCache.js'
 import {
   extractJsonStringField,
   extractLastJsonStringField,
@@ -1518,6 +1519,10 @@ export async function recordTranscript(
   startingParentUuidHint?: UUID,
   allMessages?: readonly Message[],
 ): Promise<UUID | null> {
+  // External transcripts filter listing deltas (privacy). Persist announced
+  // catalogs to the local resume-cache so --resume can reinject them without
+  // putting sensitive payloads in the public transcript / remote ingress.
+  updateResumeCacheFromMessages(messages)
   const cleanedMessages = cleanMessagesForLogging(messages, allMessages)
   const sessionId = getSessionId() as UUID
   const messageSet = await getSessionMessages(sessionId)
@@ -4773,28 +4778,15 @@ export function isLoggableMessage(m: Message): boolean {
   // When enabled, we allow hook_additional_context through since it contains
   // user-configured hook output that is useful for session context on resume.
   //
-  // Prefix-cache critical listing deltas MUST also persist for external users.
-  // OpenAI-compatible providers with automatic prefix caching (e.g. Moonshot)
-  // require a byte-stable leading messages prefix across --resume. These
-  // attachments are injected at turn 0 and merged into messages[1]; if they
-  // are dropped from the transcript, every resume re-injects them mid-history
-  // and busts the entire cache (cached_tokens → 0).
-  //
-  // Privacy: catalogs / tool names / MCP InitializeResult.instructions that
-  // were ALREADY sent to the model at turn 0 — not project file contents.
-  // Ants already persist all attachments. Dropping mcp_instructions_delta
-  // (or deferred_tools_delta) from this allow-list without a matching resume
-  // suppress latch reintroduces the same mid-history rewrite bust.
+  // Prefix-cache critical listing deltas (skill_listing, agent_listing_delta,
+  // deferred_tools_delta, mcp_instructions_delta) carry LOCAL catalogs:
+  // skill descriptions, custom agent whenToUse/tool policy, deferred tool names,
+  // and server-provided MCP InitializeResult.instructions. Persisting them into
+  // the external transcript breaks the privacy boundary above, so they stay
+  // filtered. Prefix-cache resume stability is handled by a separate local
+  // resume-cache mechanism (no sensitive payload in the public transcript).
   if (m.type === 'attachment' && getUserType() !== 'ant') {
     const t = m.attachment.type
-    if (
-      t === 'skill_listing' ||
-      t === 'agent_listing_delta' ||
-      t === 'deferred_tools_delta' ||
-      t === 'mcp_instructions_delta'
-    ) {
-      return true
-    }
     if (
       t === 'hook_additional_context' &&
       isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)

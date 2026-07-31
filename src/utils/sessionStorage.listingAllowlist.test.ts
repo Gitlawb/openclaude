@@ -35,9 +35,13 @@ function attachment(type: string, extra: Record<string, unknown> = {}): Message 
   } as unknown as Message
 }
 
-test('isLoggableMessage persists prefix-cache listing deltas for external users', () => {
+test('isLoggableMessage filters prefix-cache listing deltas for external users (privacy boundary)', () => {
   process.env.USER_TYPE = 'external'
 
+  // P1-1: these listing deltas carry sensitive payloads (skill descriptions,
+  // custom agent whenToUse/tool policy, server-provided MCP instructions).
+  // They must NOT be persisted to the external transcript. Prefix-cache resume
+  // stability is handled by a separate local resume-cache (hashes + names only).
   expect(
     isLoggableMessage(
       attachment('skill_listing', {
@@ -46,7 +50,7 @@ test('isLoggableMessage persists prefix-cache listing deltas for external users'
         isInitial: true,
       }),
     ),
-  ).toBe(true)
+  ).toBe(false)
   expect(
     isLoggableMessage(
       attachment('agent_listing_delta', {
@@ -57,7 +61,7 @@ test('isLoggableMessage persists prefix-cache listing deltas for external users'
         showConcurrencyNote: true,
       }),
     ),
-  ).toBe(true)
+  ).toBe(false)
   expect(
     isLoggableMessage(
       attachment('deferred_tools_delta', {
@@ -66,7 +70,7 @@ test('isLoggableMessage persists prefix-cache listing deltas for external users'
         removedNames: [],
       }),
     ),
-  ).toBe(true)
+  ).toBe(false)
   expect(
     isLoggableMessage(
       attachment('mcp_instructions_delta', {
@@ -75,7 +79,7 @@ test('isLoggableMessage persists prefix-cache listing deltas for external users'
         removedNames: [],
       }),
     ),
-  ).toBe(true)
+  ).toBe(false)
 })
 
 test('isLoggableMessage still filters unrelated attachments for external users', () => {
@@ -123,6 +127,28 @@ test('isLoggableMessage allows all attachments for ant users', () => {
   expect(
     isLoggableMessage(
       attachment('file', { filename: '/tmp/x.txt', content: 'x' }),
+    ),
+  ).toBe(true)
+  // ant (first-party) sessions keep listing deltas in the transcript: the
+  // privacy boundary only applies to external users.
+  expect(
+    isLoggableMessage(
+      attachment('mcp_instructions_delta', {
+        addedNames: ['demo'],
+        addedBlocks: ['## demo\ndo things'],
+        removedNames: [],
+      }),
+    ),
+  ).toBe(true)
+  expect(
+    isLoggableMessage(
+      attachment('agent_listing_delta', {
+        addedTypes: ['Explore'],
+        addedLines: ['- Explore: stub'],
+        removedTypes: [],
+        isInitial: true,
+        showConcurrencyNote: true,
+      }),
     ),
   ).toBe(true)
 })

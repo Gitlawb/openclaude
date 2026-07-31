@@ -44,30 +44,54 @@ export function isMcpInstructionsDeltaEnabled(): boolean {
 }
 
 /**
+ * Reconstruct name → rendered instruction block from prior deltas.
+ * Removals apply first so a same-name update (removed + re-added in one
+ * delta) ends with the new block in the map.
+ */
+export function getAnnouncedMcpInstructionBlocks(
+  messages: Message[],
+): Map<string, string> {
+  const announced = new Map<string, string>()
+  for (const msg of messages) {
+    if (msg.type !== 'attachment') continue
+    if (msg.attachment.type !== 'mcp_instructions_delta') continue
+    const { addedNames, addedBlocks, removedNames } = msg.attachment
+    for (const n of removedNames) announced.delete(n)
+    for (let i = 0; i < addedNames.length; i++) {
+      const name = addedNames[i]
+      const block = addedBlocks[i]
+      if (name && block !== undefined) announced.set(name, block)
+    }
+  }
+  return announced
+}
+
+/**
  * Diff the current set of connected MCP servers that have instructions
  * (server-authored via InitializeResult, or client-side synthesized)
  * against what's already been announced in this conversation. Null if
  * nothing changed.
  *
- * Instructions are immutable for the life of a connection (set once at
- * handshake), so the scan diffs on server NAME, not on content.
+ * Within a single process, InitializeResult.instructions are immutable for
+ * the life of a connection. Across --resume, a fresh MCP handshake can
+ * return different instructions under the same configured server name
+ * (deploy / config / auth-policy). Diff on the rendered block, not name
+ * alone, so stale instructions are re-announced.
  */
 export function getMcpInstructionsDelta(
   mcpClients: MCPServerConnection[],
   messages: Message[],
   clientSideInstructions: ClientSideInstruction[],
 ): McpInstructionsDelta | null {
-  const announced = new Set<string>()
   let attachmentCount = 0
   let midCount = 0
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
     attachmentCount++
-    if (msg.attachment.type !== 'mcp_instructions_delta') continue
-    midCount++
-    for (const n of msg.attachment.addedNames) announced.add(n)
-    for (const n of msg.attachment.removedNames) announced.delete(n)
+    if (msg.attachment.type === 'mcp_instructions_delta') midCount++
   }
+
+  const announced = getAnnouncedMcpInstructionBlocks(messages)
 
   const connected = mcpClients.filter(
     (c): c is ConnectedMCPServer => c.type === 'connected',
@@ -93,17 +117,20 @@ export function getMcpInstructionsDelta(
 
   const added: Array<{ name: string; block: string }> = []
   for (const [name, block] of blocks) {
-    if (!announced.has(name)) added.push({ name, block })
+    const prev = announced.get(name)
+    // New server, or same name with a different rendered block (resume /
+    // reconnect with updated InitializeResult.instructions).
+    if (prev === undefined || prev !== block) {
+      added.push({ name, block })
+    }
   }
 
-  // A previously-announced server that is no longer connected → removed.
-  // There is no "announced but now has no instructions" case for a still-
-  // connected server: InitializeResult is immutable, and client-side
-  // instruction gates are session-stable in practice. (/model can flip
-  // the model gate, but deferred_tools_delta has the same property and
-  // we treat history as historical — no retroactive retractions.)
+  // Previously-announced server that is no longer connected → removed.
+  // Content-changed servers stay connected; they are re-added above with
+  // the new block (history keeps the old attachment; the new delta is the
+  // corrective update the model should follow).
   const removed: string[] = []
-  for (const n of announced) {
+  for (const n of announced.keys()) {
     if (!connectedNames.has(n)) removed.push(n)
   }
 

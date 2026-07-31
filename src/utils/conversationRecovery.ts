@@ -22,6 +22,7 @@ import {
   suppressNextAgentListing,
   suppressNextSkillListing,
 } from './attachments.js'
+import { hydrateListingAttachmentsFromResumeCache } from './resumeCache.js'
 import {
   copyFileHistoryForResume,
   type FileHistorySnapshot,
@@ -803,6 +804,18 @@ export async function loadConversationForResume(
 
       messages = log.messages
       checkResumeConsistency(messages)
+    }
+
+    // External transcripts omit listing deltas (privacy). Reinject from the
+    // local resume-cache before announced-set / latch restoration so --resume
+    // keeps a byte-stable API prefix for OpenAI/Moonshot automatic caching.
+    if (sessionId) {
+      messages = await hydrateListingAttachmentsFromResumeCache(
+        messages!,
+        sessionId,
+      )
+    } else {
+      messages = await hydrateListingAttachmentsFromResumeCache(messages!)
     }
 
     // Restore skill state from invoked_skills attachments before deserialization.

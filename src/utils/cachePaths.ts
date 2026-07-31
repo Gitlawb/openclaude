@@ -18,7 +18,7 @@ function sanitizePath(name: string): string {
   return `${sanitized.slice(0, MAX_SANITIZED_LENGTH)}-${Math.abs(djb2Hash(name)).toString(36)}`
 }
 
-function getProjectDir(cwd: string): string {
+export function getProjectDir(cwd: string): string {
   return sanitizePath(cwd)
 }
 

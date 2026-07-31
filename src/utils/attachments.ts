@@ -1636,13 +1636,22 @@ export function getAgentListingDeltaAttachment(
     filtered = filtered.filter(a => allowedAgentTypes.includes(a.agentType))
   }
 
-  // Reconstruct announced set from prior deltas in the transcript.
-  const announced = new Set<string>()
+  // Reconstruct announced type → rendered formatAgentLine from prior deltas.
+  // Removals first so a same-type content update lands on the new line.
+  // Fingerprint the line (whenToUse + tool policy), not just the type name —
+  // editing a project/plugin agent while the CLI is stopped must re-announce
+  // after --resume.
+  const announced = new Map<string, string>()
   for (const msg of messages ?? []) {
     if (msg.type !== 'attachment') continue
     if (msg.attachment.type !== 'agent_listing_delta') continue
-    for (const t of msg.attachment.addedTypes) announced.add(t)
-    for (const t of msg.attachment.removedTypes) announced.delete(t)
+    const { addedTypes, addedLines, removedTypes } = msg.attachment
+    for (const t of removedTypes) announced.delete(t)
+    for (let i = 0; i < addedTypes.length; i++) {
+      const type = addedTypes[i]
+      const line = addedLines[i]
+      if (type && line !== undefined) announced.set(type, line)
+    }
   }
 
   const currentTypes = new Set(filtered.map(a => a.agentType))
@@ -1652,14 +1661,15 @@ export function getAgentListingDeltaAttachment(
   // conversationRecovery — same role as suppressNextSkillListing.
   //
   // Only suppress when the filtered set matches what the transcript already
-  // announced. If agents were added/removed across the process boundary,
-  // fall through so removedTypes/addedTypes still emit a legitimate delta.
+  // announced — including rendered line content. If agents were added/removed
+  // or a same-type definition/tool policy changed across the process
+  // boundary, fall through so a corrective delta still emits.
   if (suppressNextAgent) {
     suppressNextAgent = false
     let unchanged = currentTypes.size === announced.size
     if (unchanged) {
-      for (const t of currentTypes) {
-        if (!announced.has(t)) {
+      for (const a of filtered) {
+        if (announced.get(a.agentType) !== formatAgentLine(a)) {
           unchanged = false
           break
         }
@@ -1670,9 +1680,12 @@ export function getAgentListingDeltaAttachment(
     }
   }
 
-  const added = filtered.filter(a => !announced.has(a.agentType))
+  const added = filtered.filter(a => {
+    const prev = announced.get(a.agentType)
+    return prev === undefined || prev !== formatAgentLine(a)
+  })
   const removed: string[] = []
-  for (const t of announced) {
+  for (const t of announced.keys()) {
     if (!currentTypes.has(t)) removed.push(t)
   }
 
