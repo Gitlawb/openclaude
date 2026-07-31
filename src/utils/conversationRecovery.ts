@@ -22,7 +22,6 @@ import {
   suppressNextAgentListing,
   suppressNextSkillListing,
 } from './attachments.js'
-import { hydrateListingAttachmentsFromResumeCache } from './resumeCache.js'
 import {
   copyFileHistoryForResume,
   type FileHistorySnapshot,
@@ -644,17 +643,16 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
         }
       }
     }
-    // A prior process already injected the skills-available reminder (local
-    // resume-cache for external users; transcript for ants). After hydrate it
-    // is in the message list the model is about to see. sentSkillNames is
-    // process-local, so without this every resume re-announces the same
-    // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
+    // A prior process already injected the skills-available reminder into the
+    // local transcript. sentSkillNames is process-local, so without this every
+    // resume re-announces the same ~600 tokens. Fire-once latch; consumed on
+    // the first attachment pass.
     if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
     }
     // Same for agent_listing_delta — mid-history re-announce busts Moonshot
     // / OpenAI automatic prefix cache on every --resume. Retain the rendered
-    // announced map with the latch so a race before hydrate still has a
+    // announced map with the latch so a race before message scan still has a
     // baseline when messages temporarily lack listings.
     if (attachment.type === 'agent_listing_delta') {
       sawAgentListing = true
@@ -833,18 +831,6 @@ export async function loadConversationForResume(
 
       messages = log.messages
       checkResumeConsistency(messages)
-    }
-
-    // External transcripts omit listing deltas (privacy). Reinject from the
-    // local resume-cache before announced-set / latch restoration so --resume
-    // keeps a byte-stable API prefix for OpenAI/Moonshot automatic caching.
-    if (sessionId) {
-      messages = await hydrateListingAttachmentsFromResumeCache(
-        messages!,
-        sessionId,
-      )
-    } else {
-      messages = await hydrateListingAttachmentsFromResumeCache(messages!)
     }
 
     // Restore skill state from invoked_skills attachments before deserialization.

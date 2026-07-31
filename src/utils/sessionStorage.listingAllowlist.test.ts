@@ -4,7 +4,14 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import { isLoggableMessage } from './sessionStorage.ts'
+import { normalizeMessagesForAPI } from './messages.js'
+import {
+  filterJsonlForExternalEgress,
+  filterMessagesForExternalEgress,
+  isLoggableMessage,
+  isPrefixCacheListingAttachment,
+  isSafeForExternalEgress,
+} from './sessionStorage.ts'
 
 const originalUserType = process.env.USER_TYPE
 const originalHookSave = process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
@@ -35,52 +42,63 @@ function attachment(type: string, extra: Record<string, unknown> = {}): Message 
   } as unknown as Message
 }
 
-test('isLoggableMessage filters prefix-cache listing deltas for external users (privacy boundary)', () => {
+const LISTING_CASES: Array<{ type: string; extra: Record<string, unknown> }> = [
+  {
+    type: 'skill_listing',
+    extra: { content: 'skills', skillCount: 1, isInitial: true },
+  },
+  {
+    type: 'agent_listing_delta',
+    extra: {
+      addedTypes: ['Explore'],
+      addedLines: ['- Explore: stub'],
+      removedTypes: [],
+      isInitial: true,
+      showConcurrencyNote: true,
+    },
+  },
+  {
+    type: 'deferred_tools_delta',
+    extra: {
+      addedNames: ['ToolSearch'],
+      addedLines: ['- ToolSearch'],
+      removedNames: [],
+    },
+  },
+  {
+    type: 'mcp_instructions_delta',
+    extra: {
+      addedNames: ['demo'],
+      addedBlocks: ['## demo\ndo things'],
+      removedNames: [],
+    },
+  },
+]
+
+test('isLoggableMessage retains prefix-cache listing deltas for external users (local transcript)', () => {
   process.env.USER_TYPE = 'external'
 
-  // P1-1: these listing deltas carry sensitive payloads (skill descriptions,
-  // custom agent whenToUse/tool policy, server-provided MCP instructions).
-  // They must NOT be persisted to the external transcript / remote ingress.
-  // Prefix-cache resume stability uses a separate local resume-cache that
-  // stores the full listing payloads on disk only (never via isLoggableMessage).
+  // Option A: local JSONL is the single authoritative history. Listing
+  // attachments keep their original positions for --resume prefix cache.
+  // Privacy filtering happens only at remote/public egress.
+  for (const c of LISTING_CASES) {
+    expect(isLoggableMessage(attachment(c.type, c.extra))).toBe(true)
+  }
+})
+
+test('isSafeForExternalEgress strips prefix-cache listing deltas for external users', () => {
+  process.env.USER_TYPE = 'external'
+
+  for (const c of LISTING_CASES) {
+    expect(isSafeForExternalEgress(attachment(c.type, c.extra))).toBe(false)
+  }
+  // Non-attachment transcript entries still egress.
   expect(
-    isLoggableMessage(
-      attachment('skill_listing', {
-        content: 'skills',
-        skillCount: 1,
-        isInitial: true,
-      }),
-    ),
-  ).toBe(false)
-  expect(
-    isLoggableMessage(
-      attachment('agent_listing_delta', {
-        addedTypes: ['Explore'],
-        addedLines: ['- Explore: stub'],
-        removedTypes: [],
-        isInitial: true,
-        showConcurrencyNote: true,
-      }),
-    ),
-  ).toBe(false)
-  expect(
-    isLoggableMessage(
-      attachment('deferred_tools_delta', {
-        addedNames: ['ToolSearch'],
-        addedLines: ['- ToolSearch'],
-        removedNames: [],
-      }),
-    ),
-  ).toBe(false)
-  expect(
-    isLoggableMessage(
-      attachment('mcp_instructions_delta', {
-        addedNames: ['demo'],
-        addedBlocks: ['## demo\ndo things'],
-        removedNames: [],
-      }),
-    ),
-  ).toBe(false)
+    isSafeForExternalEgress({
+      type: 'user',
+      message: { role: 'user', content: 'hi' },
+    }),
+  ).toBe(true)
 })
 
 test('isLoggableMessage still filters unrelated attachments for external users', () => {
@@ -103,23 +121,26 @@ test('isLoggableMessage still filters unrelated attachments for external users',
       }),
     ),
   ).toBe(false)
+  expect(
+    isSafeForExternalEgress(
+      attachment('file', { filename: '/tmp/secret.txt', content: 'nope' }),
+    ),
+  ).toBe(false)
 })
 
 test('isLoggableMessage keeps hook_additional_context behind its env gate', () => {
   process.env.USER_TYPE = 'external'
   process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
 
-  expect(
-    isLoggableMessage(
-      attachment('hook_additional_context', {
-        content: ['hook output'],
-        hookName: 'SessionStart',
-        toolName: undefined,
-        toolUseID: undefined,
-        hookEvent: 'SessionStart',
-      }),
-    ),
-  ).toBe(true)
+  const hook = attachment('hook_additional_context', {
+    content: ['hook output'],
+    hookName: 'SessionStart',
+    toolName: undefined,
+    toolUseID: undefined,
+    hookEvent: 'SessionStart',
+  })
+  expect(isLoggableMessage(hook)).toBe(true)
+  expect(isSafeForExternalEgress(hook)).toBe(true)
 })
 
 test('isLoggableMessage allows all attachments for ant users', () => {
@@ -130,8 +151,6 @@ test('isLoggableMessage allows all attachments for ant users', () => {
       attachment('file', { filename: '/tmp/x.txt', content: 'x' }),
     ),
   ).toBe(true)
-  // ant (first-party) sessions keep listing deltas in the transcript: the
-  // privacy boundary only applies to external users.
   expect(
     isLoggableMessage(
       attachment('mcp_instructions_delta', {
@@ -142,7 +161,7 @@ test('isLoggableMessage allows all attachments for ant users', () => {
     ),
   ).toBe(true)
   expect(
-    isLoggableMessage(
+    isSafeForExternalEgress(
       attachment('agent_listing_delta', {
         addedTypes: ['Explore'],
         addedLines: ['- Explore: stub'],
@@ -164,6 +183,7 @@ test('isLoggableMessage fails closed on malformed null attachment for external u
 
   expect(() => isLoggableMessage(malformed)).not.toThrow()
   expect(isLoggableMessage(malformed)).toBe(false)
+  expect(isSafeForExternalEgress(malformed)).toBe(false)
 })
 
 test('isLoggableMessage fails closed on non-object attachment payload', () => {
@@ -176,4 +196,103 @@ test('isLoggableMessage fails closed on non-object attachment payload', () => {
 
   expect(() => isLoggableMessage(malformed)).not.toThrow()
   expect(isLoggableMessage(malformed)).toBe(false)
+  expect(isSafeForExternalEgress(malformed)).toBe(false)
+})
+
+test('local retain vs egress strip matrix for all prefix-cache listing types', () => {
+  process.env.USER_TYPE = 'external'
+
+  for (const c of LISTING_CASES) {
+    const msg = attachment(c.type, c.extra)
+    expect(isPrefixCacheListingAttachment(msg)).toBe(true)
+    expect(isLoggableMessage(msg)).toBe(true)
+    expect(isSafeForExternalEgress(msg)).toBe(false)
+  }
+})
+
+test('filterMessagesForExternalEgress keeps conversation turns and drops listings', () => {
+  process.env.USER_TYPE = 'external'
+
+  const user = {
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u001',
+    message: { role: 'user', content: 'hello' },
+  } as unknown as Message
+  const listing = attachment('skill_listing', {
+    content: 'Available skills:\n- /demo',
+    skillCount: 1,
+    isInitial: true,
+  })
+  const assistant = {
+    type: 'assistant',
+    uuid: '00000000-0000-4000-8000-00000000a001',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+    },
+  } as unknown as Message
+
+  const filtered = filterMessagesForExternalEgress([user, listing, assistant])
+  expect(filtered).toHaveLength(2)
+  expect(filtered[0]).toBe(user)
+  expect(filtered[1]).toBe(assistant)
+})
+
+test('filterJsonlForExternalEgress strips listing lines but keeps neighbors', () => {
+  process.env.USER_TYPE = 'external'
+
+  const userLine = JSON.stringify({
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u002',
+    message: { role: 'user', content: 'hi' },
+  })
+  const listingLine = JSON.stringify({
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000l002',
+    attachment: {
+      type: 'mcp_instructions_delta',
+      addedNames: ['demo'],
+      addedBlocks: ['## demo\nsecret catalog'],
+      removedNames: [],
+    },
+  })
+  const assistantLine = JSON.stringify({
+    type: 'assistant',
+    uuid: '00000000-0000-4000-8000-00000000a002',
+    message: { role: 'assistant', content: [{ type: 'text', text: 'yo' }] },
+  })
+  const raw = [userLine, listingLine, assistantLine, ''].join('\n')
+  const filtered = filterJsonlForExternalEgress(raw)
+  expect(filtered).toBe([userLine, assistantLine, ''].join('\n'))
+  expect(filtered).not.toContain('secret catalog')
+  expect(filtered).not.toContain('mcp_instructions_delta')
+})
+
+test('normalizeMessagesForAPI after egress filter does not bake skill catalog into user text', () => {
+  process.env.USER_TYPE = 'external'
+
+  const listing = attachment('skill_listing', {
+    content: 'Available skills:\n- /leak-me-please',
+    skillCount: 1,
+    isInitial: true,
+  })
+  const user = {
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u003',
+    message: { role: 'user', content: 'plain turn' },
+  } as unknown as Message
+
+  // Share/feedback historically called normalizeMessagesForAPI(messages)
+  // directly; skill_listing becomes user text with the full catalog. Option A
+  // requires filtering first.
+  const withoutFilter = normalizeMessagesForAPI([listing, user])
+  const baked = JSON.stringify(withoutFilter)
+  expect(baked).toContain('leak-me-please')
+
+  const withFilter = normalizeMessagesForAPI(
+    filterMessagesForExternalEgress([listing, user]),
+  )
+  const safe = JSON.stringify(withFilter)
+  expect(safe).not.toContain('leak-me-please')
+  expect(safe).toContain('plain turn')
 })

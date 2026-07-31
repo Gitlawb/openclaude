@@ -82,7 +82,6 @@ import { parseJSONL } from './json.js'
 import { logError } from './log.js'
 import { extractTag, isCompactBoundaryMessage } from './messages.js'
 import { sanitizePath } from './path.js'
-import { updateResumeCacheFromMessages } from './resumeCache.js'
 import {
   extractJsonStringField,
   extractLastJsonStringField,
@@ -1356,7 +1355,13 @@ class Project {
             // UUID the main thread hasn't written yet → 409 when main writes it.
             messageSet.add(entry.uuid)
 
-            if (isTranscriptMessage(entry)) {
+            // Local JSONL may retain model-visible listing attachments for
+            // --resume prefix stability. Remote / CCR / public ingress must
+            // not receive those payloads (privacy boundary).
+            if (
+              isTranscriptMessage(entry) &&
+              isSafeForExternalEgress(entry)
+            ) {
               await this.persistToRemote(sessionId, entry)
             }
           }
@@ -1519,14 +1524,10 @@ export async function recordTranscript(
   startingParentUuidHint?: UUID,
   allMessages?: readonly Message[],
 ): Promise<UUID | null> {
-  // External transcripts filter listing deltas (privacy). Persist announced
-  // catalogs to the local resume-cache so --resume can reinject them without
-  // putting sensitive payloads in the public transcript / remote ingress.
-  // Honor the same persistence opt-out as transcript writes (--no-session-
-  // persistence / CLAUDE_CODE_SKIP_PROMPT_HISTORY / cleanupPeriodDays: 0).
-  if (!shouldSkipSessionPersistence()) {
-    updateResumeCacheFromMessages(messages)
-  }
+  // Local transcript retains model-visible listing attachments (via
+  // isLoggableMessage) so --resume can reproduce the original API prefix.
+  // Privacy filtering for those types happens only at remote/public egress
+  // (isSafeForExternalEgress → persistToRemote).
   const cleanedMessages = cleanMessagesForLogging(messages, allMessages)
   const sessionId = getSessionId() as UUID
   const messageSet = await getSessionMessages(sessionId)
@@ -4773,22 +4774,41 @@ export async function loadAllSubagentTranscriptsFromDisk(): Promise<{
   return loadSubagentTranscripts(agentIds)
 }
 
+/** Model-visible listing attachments required for OpenAI/Moonshot prefix cache. */
+export const PREFIX_CACHE_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> = new Set([
+  'skill_listing',
+  'agent_listing_delta',
+  'deferred_tools_delta',
+  'mcp_instructions_delta',
+])
+
+function attachmentTypeOf(m: { type?: string; attachment?: unknown }): string | null {
+  if (m.type !== 'attachment') return null
+  if (!m.attachment || typeof m.attachment !== 'object') return null
+  const t = (m.attachment as { type?: unknown }).type
+  return typeof t === 'string' ? t : null
+}
+
+export function isPrefixCacheListingAttachment(m: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  const t = attachmentTypeOf(m)
+  return t !== null && PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)
+}
+
 // Exported so useLogMessages can sync-compute the last loggable uuid
 // without awaiting recordTranscript's return value (race-free hint tracking).
 export function isLoggableMessage(m: Message): boolean {
   if (m.type === 'progress') return false
-  // IMPORTANT: We deliberately filter out most attachments for non-ants because
-  // they have sensitive info for training that we don't want exposed to the public.
+  // IMPORTANT: Most attachments are filtered for non-ants because they can
+  // carry sensitive info that must not land in shared/training surfaces.
+  // Model-visible listing deltas are an exception for the LOCAL transcript:
+  // they must keep their original positions so --resume reproduces the API
+  // prefix. Those types are stripped again at remote/public egress via
+  // isSafeForExternalEgress.
   // When enabled, we allow hook_additional_context through since it contains
   // user-configured hook output that is useful for session context on resume.
-  //
-  // Prefix-cache critical listing deltas (skill_listing, agent_listing_delta,
-  // deferred_tools_delta, mcp_instructions_delta) carry LOCAL catalogs:
-  // skill descriptions, custom agent whenToUse/tool policy, deferred tool names,
-  // and server-provided MCP InitializeResult.instructions. Persisting them into
-  // the external transcript breaks the privacy boundary above, so they stay
-  // filtered. Prefix-cache resume stability is handled by a separate local
-  // resume-cache mechanism (no sensitive payload in the public transcript).
   if (m.type === 'attachment' && getUserType() !== 'ant') {
     // Legacy / corrupt transcripts may carry null or non-object attachment
     // payloads. Fail closed (do not log) rather than throwing on .type.
@@ -4796,6 +4816,9 @@ export function isLoggableMessage(m: Message): boolean {
       return false
     }
     const t = m.attachment.type
+    if (PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)) {
+      return true
+    }
     if (
       t === 'hook_additional_context' &&
       isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
@@ -4805,6 +4828,76 @@ export function isLoggableMessage(m: Message): boolean {
     return false
   }
   return true
+}
+
+/**
+ * Privacy gate for remote ingress / CCR / public sharing paths.
+ * Listing catalogs stay in the local JSONL for --resume but must not cross
+ * this boundary for external users.
+ */
+export function isSafeForExternalEgress(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  if (getUserType() === 'ant') {
+    return entry.type !== 'progress'
+  }
+  if (entry.type === 'progress') return false
+  if (entry.type !== 'attachment') return true
+  if (!entry.attachment || typeof entry.attachment !== 'object') {
+    return false
+  }
+  const t = (entry.attachment as { type?: unknown }).type
+  if (typeof t !== 'string') return false
+  if (PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)) {
+    return false
+  }
+  if (
+    t === 'hook_additional_context' &&
+    isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
+  ) {
+    return true
+  }
+  // Other attachment types remain blocked on egress for external users.
+  return false
+}
+
+/**
+ * Drop entries that must not leave the local machine (share, feedback,
+ * analytics payloads built from in-memory messages).
+ */
+export function filterMessagesForExternalEgress<
+  T extends { type?: string; attachment?: unknown },
+>(messages: readonly T[]): T[] {
+  return messages.filter(isSafeForExternalEgress)
+}
+
+/**
+ * Strip unsafe attachment lines from a raw session JSONL string before any
+ * public upload. Non-JSON lines are kept unchanged.
+ */
+export function filterJsonlForExternalEgress(jsonl: string): string {
+  if (jsonl.length === 0) return jsonl
+  const lines = jsonl.split('\n')
+  const kept: string[] = []
+  for (const line of lines) {
+    if (line.length === 0) {
+      kept.push(line)
+      continue
+    }
+    try {
+      const entry = JSON.parse(line) as {
+        type?: string
+        attachment?: unknown
+      }
+      if (isSafeForExternalEgress(entry)) {
+        kept.push(line)
+      }
+    } catch {
+      kept.push(line)
+    }
+  }
+  return kept.join('\n')
 }
 
 function collectReplIds(messages: readonly Message[]): Set<string> {

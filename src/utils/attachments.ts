@@ -1673,15 +1673,14 @@ export function getAgentListingDeltaAttachment(
 
   const currentTypes = new Set(filtered.map(a => a.agentType))
 
-  // Resume path: prior process already injected the listing. For external
-  // users that listing lives only in the local resume-cache (not the public
-  // transcript); ants may still see it in the transcript. Fire-once latch
-  // from conversationRecovery — same role as suppressNextSkillListing.
+  // Resume path: prior process already injected the listing into the local
+  // transcript. Fire-once latch from conversationRecovery — same role as
+  // suppressNextSkillListing.
   //
-  // When the first attachment pass races ahead of hydrate (messages still
-  // lack agent_listing_delta), fall back to the recovered announced map that
-  // was retained with the latch — boolean-only would consume the latch against
-  // an empty set and re-announce the full catalog mid-history.
+  // When the first attachment pass races ahead of the message scan (messages
+  // still lack agent_listing_delta), fall back to the recovered announced map
+  // that was retained with the latch — boolean-only would consume the latch
+  // against an empty set and re-announce the full catalog mid-history.
   //
   // Only suppress when the filtered set matches what was already announced —
   // including rendered line content. If agents were added/removed or a
@@ -3002,8 +3001,7 @@ export function resetSentSkillNames(): void {
 
 /**
  * Suppress the next skill-listing injection. Called by conversationRecovery
- * on --resume when a skill_listing is already present after hydrate (local
- * resume-cache for external users; transcript for ants).
+ * on --resume when a skill_listing is already present in the local transcript.
  *
  * `sentSkillNames` is module-scope — process-local. Each `claude -p` spawn
  * starts with an empty Map, so without this every resume re-injects the
@@ -3023,14 +3021,13 @@ let suppressNext = false
 
 /**
  * Suppress the next agent-listing injection. Called by conversationRecovery
- * on --resume when an agent_listing_delta is already present after hydrate
- * (local resume-cache for external users; transcript for ants). Mirrors
- * suppressNextSkillListing — without this, a resume that races ahead of
- * attachment hydration can re-announce the full agent list mid-history and
- * bust OpenAI/Moonshot prefix cache.
+ * on --resume when an agent_listing_delta is already present in the local
+ * transcript. Mirrors suppressNextSkillListing — without this, a resume that
+ * races ahead of the message scan can re-announce the full agent list
+ * mid-history and bust OpenAI/Moonshot prefix cache.
  *
  * Prefer passing `recoveredLines` (agentType → formatAgentLine) reconstructed
- * from the hydrated listing so the first attachment pass still has a baseline
+ * from the transcript listing so the first attachment pass still has a baseline
  * when `messages` temporarily lack listings. Boolean-only latch against an
  * empty announced set would re-emit the full catalog and bust cache.
  *
@@ -3118,10 +3115,9 @@ async function getSkillListingAttachments(
     sentSkillNames.set(agentKey, sent)
   }
 
-  // Resume path: prior process already injected a listing (local resume-cache
-  // for external users; transcript for ants). Mark everything current as sent
-  // so only post-resume deltas (skills loaded later via /reload-plugins etc)
-  // get announced.
+  // Resume path: prior process already injected a listing into the local
+  // transcript. Mark everything current as sent so only post-resume deltas
+  // (skills loaded later via /reload-plugins etc) get announced.
   if (suppressNext) {
     suppressNext = false
     for (const cmd of allCommands) {

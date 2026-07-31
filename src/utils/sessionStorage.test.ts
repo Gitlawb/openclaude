@@ -283,59 +283,6 @@ test('recordTranscript respects prompt-history opt-out for replay state', async 
   })
 })
 
-test('recordTranscript skips resume-cache writes when session persistence is opted out', async () => {
-  await withSessionPersistence(async () => {
-    const {
-      createAttachmentMessage,
-    } = await import('./attachments.js')
-    const {
-      flushResumeCacheWritesForTesting,
-      getResumeCachePath,
-      resetResumeCacheForTesting,
-    } = await import('./resumeCache.js')
-    const { access } = await import('node:fs/promises')
-
-    const configDir = await mkdtemp(
-      join(tmpdir(), 'openclaude-session-storage-resume-skip-'),
-    )
-    tempDirs.push(configDir)
-    setClaudeConfigHomeDirForTesting(configDir)
-    await writeFile(
-      join(configDir, 'settings.json'),
-      JSON.stringify({ cleanupPeriodDays: 30 }),
-      'utf-8',
-    )
-    resetSettingsCache()
-    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'false'
-    process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = 'true'
-    resetProjectForTesting()
-    resetResumeCacheForTesting()
-
-    const sid = getSessionId()
-    const cachePath = getResumeCachePath(sid)
-
-    try {
-      await recordTranscript([
-        createAttachmentMessage({
-          type: 'skill_listing',
-          content: '## Skills\n- should-not-persist',
-          skillCount: 1,
-          isInitial: true,
-        }),
-      ])
-      await flushResumeCacheWritesForTesting()
-
-      await expect(access(cachePath)).rejects.toMatchObject({
-        code: 'ENOENT',
-      })
-    } finally {
-      resetResumeCacheForTesting()
-      setClaudeConfigHomeDirForTesting(undefined)
-      resetSettingsCache()
-    }
-  })
-})
-
 test('loadTranscriptFile replays a persisted snip boundary, pruning and relinking', async () => {
   // The headless snip path appends the boundary (carrying snipMetadata.removedUuids)
   // to the append-only transcript while the pre-snip messages stay on disk. On

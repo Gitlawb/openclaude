@@ -9,6 +9,8 @@ import { isFirstPartyAnthropicProvider } from '../../utils/model/providers.js'
 import { normalizeMessagesForAPI } from '../../utils/messages.js'
 import {
   extractAgentIdsFromMessages,
+  filterJsonlForExternalEgress,
+  filterMessagesForExternalEgress,
   getTranscriptPath,
   loadSubagentTranscripts,
   MAX_TRANSCRIPT_READ_BYTES,
@@ -38,11 +40,17 @@ export async function submitTranscriptShare(
   try {
     logForDebugging('Collecting transcript for sharing', { level: 'info' })
 
-    const transcript = normalizeMessagesForAPI(messages)
+    const transcript = normalizeMessagesForAPI(
+      filterMessagesForExternalEgress(messages),
+    )
 
     // Collect subagent transcripts
     const agentIds = extractAgentIdsFromMessages(messages)
-    const subagentTranscripts = await loadSubagentTranscripts(agentIds)
+    const loadedSubagents = await loadSubagentTranscripts(agentIds)
+    const subagentTranscripts: { [agentId: string]: Message[] } = {}
+    for (const [agentId, msgs] of Object.entries(loadedSubagents)) {
+      subagentTranscripts[agentId] = filterMessagesForExternalEgress(msgs)
+    }
 
     // Read raw JSONL transcript (with size guard to prevent OOM)
     let rawTranscriptJsonl: string | undefined
@@ -50,7 +58,9 @@ export async function submitTranscriptShare(
       const transcriptPath = getTranscriptPath()
       const { size } = await stat(transcriptPath)
       if (size <= MAX_TRANSCRIPT_READ_BYTES) {
-        rawTranscriptJsonl = await readFile(transcriptPath, 'utf-8')
+        rawTranscriptJsonl = filterJsonlForExternalEgress(
+          await readFile(transcriptPath, 'utf-8'),
+        )
       } else {
         logForDebugging(
           `Skipping raw transcript read: file too large (${size} bytes)`,

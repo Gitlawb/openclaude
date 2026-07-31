@@ -25,7 +25,7 @@ import {
 } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
-import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
+import { extractTeammateTranscriptsFromTasks, filterJsonlForExternalEgress, filterMessagesForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
 import { asSystemPrompt } from '../utils/systemPromptType.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -106,7 +106,7 @@ async function loadRawTranscriptJsonl(): Promise<string | null> {
       });
       return null;
     }
-    return await readFile(transcriptPath, 'utf-8');
+    return filterJsonlForExternalEgress(await readFile(transcriptPath, 'utf-8'));
   } catch {
     return null;
   }
@@ -161,10 +161,15 @@ export function Feedback({
     const lastAssistantMessageId = lastAssistantMessage?.requestId ?? null;
     const [diskTranscripts, rawTranscriptJsonl] = await Promise.all([loadAllSubagentTranscriptsFromDisk(), loadRawTranscriptJsonl()]);
     const teammateTranscripts = extractTeammateTranscriptsFromTasks(backgroundTasks);
-    const subagentTranscripts = {
+    const subagentTranscripts: {
+      [agentId: string]: Message[];
+    } = {};
+    for (const [agentId, msgs] of Object.entries({
       ...diskTranscripts,
       ...teammateTranscripts
-    };
+    })) {
+      subagentTranscripts[agentId] = filterMessagesForExternalEgress(msgs);
+    }
     const redactedTranscriptJsonl = rawTranscriptJsonl
       ? redactJsonLines(rawTranscriptJsonl)
       : undefined;
@@ -177,7 +182,7 @@ export function Feedback({
       gitRepo: envInfo.isGit,
       terminal: env.terminal,
       version: MACRO.VERSION,
-      transcript: normalizeMessagesForAPI(messages),
+      transcript: normalizeMessagesForAPI(filterMessagesForExternalEgress(messages)),
       errors: sanitizedErrors,
       lastApiRequest: getLastAPIRequest(),
       ...(Object.keys(subagentTranscripts).length > 0 && {
