@@ -42,19 +42,35 @@ describe('releases.ts 0.27.0 changelog entry', () => {
       expect(compareSemver(versions[i]!, versions[i + 1]!)).toBeGreaterThan(0)
     }
   })
+
+  test('compareSemver rejects non-numeric version segments', () => {
+    expect(() => compareSemver('0beta.1.0', '0.26.0')).toThrow(
+      /non-numeric semver segment/,
+    )
+    expect(() => compareSemver('0.26.0', '1.0.0-rc1')).toThrow(
+      /non-numeric semver segment/,
+    )
+  })
 })
+
+/** Parse dotted numeric segments; reject prefixes like `0beta` that parseInt accepts. */
+function parseVersion(version: string): number[] {
+  return version.split('.').map(segment => {
+    if (!/^\d+$/.test(segment)) {
+      throw new Error(`non-numeric semver segment: ${segment}`)
+    }
+    return Number.parseInt(segment, 10)
+  })
+}
 
 /** Compare dotted numeric semver (X.Y.Z…). Returns >0 if a > b. */
 function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map(n => Number.parseInt(n, 10))
-  const pb = b.split('.').map(n => Number.parseInt(n, 10))
+  const pa = parseVersion(a)
+  const pb = parseVersion(b)
   const len = Math.max(pa.length, pb.length)
   for (let i = 0; i < len; i++) {
     const da = pa[i] ?? 0
     const db = pb[i] ?? 0
-    if (Number.isNaN(da) || Number.isNaN(db)) {
-      throw new Error(`non-numeric semver segment: ${a} vs ${b}`)
-    }
     if (da !== db) return da - db
   }
   return 0
