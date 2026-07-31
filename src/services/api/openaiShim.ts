@@ -88,6 +88,7 @@ import {
   hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv,
 } from './openaiShim/requestPlanner.js'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
+import { prepareOpenAIRequest } from './openaiShim/requestPreparation.js'
 import {
   convertOpenAIStreamUsage,
   openaiStreamToAnthropic as convertOpenAIStream,
@@ -1183,283 +1184,35 @@ class OpenAIShimMessages {
     requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
     const apiTimeoutMs = getApiTimeoutMs()
-    // Local backends (llama.cpp, vLLM, Ollama, LM Studio, …) do not implement
-    // the cloud-side caching/strict-validation behaviours that several of our
-    // pre-send transforms target. Computing the fast-path config once here
-    // lets us skip those transforms uniformly. See providerConfig.ts.
-    const fastPath: LocalFastPathConfig = getLocalFastPathConfig(request.baseUrl)
-
-    const rawMessages = params.messages as Array<{
-      role: string
-      message?: { role?: string; content?: unknown }
-      content?: unknown
-    }>
-    const runtimeModel = request.requestedModel
-    const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-      processEnv: requestProcessEnv,
-      baseUrl: request.baseUrl,
-      model: runtimeModel,
-      treatAsLocal: isLocalProviderUrl(request.baseUrl),
-      preferBaseUrlRoute: Boolean(this.providerOverride),
+    const prepared = prepareOpenAIRequest({
+      request,
+      params,
+      requestProcessEnv,
+      providerOverride: this.providerOverride,
+      dependencies: {
+        convertMessages,
+        convertSystemPrompt,
+        convertTools,
+        hasGeminiApiHost,
+        isGeminiMode,
+        shouldPreserveGeminiThoughtSignature,
+      },
     })
-    const runtimeLimits = resolveModelRuntimeLimits({
-      model: runtimeModel,
-      baseUrl: request.baseUrl,
-      processEnv: requestProcessEnv,
-      activeProfileProvider: runtimeShimContext.routeId ?? undefined,
-    })
-    const shimConfig = runtimeShimContext.openaiShimConfig
-    // When endpointPath is overridden, the body format must match the target
-    // API contract rather than request.transport from providerConfig.
-    // - /responses         → OpenAI Responses API (input, max_output_tokens, instructions)
-    // - /messages          → Anthropic Messages API (system, max_tokens, content blocks)
-    // - /models/gemini-*   → Google AI SDK (contents, systemInstruction, generationConfig)
-    const effectiveTransport = shimConfig.endpointPath === '/responses'
-      ? 'responses'
-      : shimConfig.endpointPath === '/messages'
-        ? 'anthropic_messages'
-        : shimConfig.endpointPath?.startsWith('/models/gemini-')
-          ? 'gemini'
-          : request.transport
-    const compressedMessages = getCompressedMessagesForTransport(
+    const {
+      fastPath,
+      runtimeShimContext,
+      shimConfig,
+      body,
       effectiveTransport,
-      rawMessages,
-      () => fastPath.skipToolHistoryCompression
-        ? rawMessages
-        : compressToolHistory(rawMessages, runtimeModel, {
-          textBlockSeparator:
-            effectiveTransport === 'chat_completions' ? '\n\n' : '\n',
-          runtimeLimits,
-        }),
-    )
-    const useNativeOllamaChat =
-      effectiveTransport === 'chat_completions' &&
-      !shimConfig.endpointPath &&
-      isDirectLocalOllamaEndpoint(request.baseUrl) &&
-      isLikelyOllamaEndpoint(request.baseUrl)
-    const openaiMessages = getChatMessagesForTransport(
-      effectiveTransport,
-      () => convertMessages(compressedMessages, params.system, {
-        preserveReasoningContent: shimConfig.preserveReasoningContent,
-        reasoningContentFallback: shimConfig.reasoningContentFallback,
-        preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
-          request.resolvedModel,
-          request.baseUrl,
-        ),
-        supportsImageInputs: shimConfig.supportsImageInputs,
-      }),
-    )
-
-    const reasoningControl = resolveModelReasoningControl(runtimeModel, {
-      routeId: runtimeShimContext.routeId,
-      useRuntimeFallback: false,
-      openaiShimConfig: shimConfig,
-      baseUrl: request.baseUrl,
-      processEnv: requestProcessEnv,
-    })
-    // The explicit chat-completions escape hatch for GPT-5.4/5.5/5.6 must
-    // also omit reasoning effort: these models reject the tools + effort
-    // combination on that API surface.
-    const suppressReasoningForForcedChat =
-      effectiveTransport === 'chat_completions' &&
-      Array.isArray(params.tools) &&
-      params.tools.length > 0 &&
-      modelRequiresResponsesApi(request.resolvedModel) &&
-      baseUrlSupportsResponsesAutoRoute(request.baseUrl, requestProcessEnv)
-    const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
-      model: runtimeModel,
-      requestedEffort: suppressReasoningForForcedChat ? undefined : request.reasoning?.effort,
-      requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
-      defaultThinkingType: request.thinking?.type,
-      thinkingRequestFormat: shimConfig.thinkingRequestFormat,
-      routeId: runtimeShimContext.routeId ?? 'custom',
-      useRuntimeFallback: false,
-      reasoningControl,
-    })
-
-    const body: Record<string, unknown> = {
-      model: request.resolvedModel,
-      ...(openaiMessages ? { messages: openaiMessages } : {}),
-      stream: params.stream ?? false,
-      store: false,
-    }
-    // Emit reasoning_effort for chat_completions when the resolved provider
-     // request carries a reasoning effort (set via /effort, model alias default,
-     // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
-     // most OpenAI-compatible endpoints read it from this top-level field.
-    if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
-      body.reasoning_effort = reasoningRequestPlan.reasoningEffort
-    }
-    if (
-      reasoningRequestPlan.wireFormat === 'reasoning_effort' &&
-      reasoningRequestPlan.thinkingType === 'disabled'
-    ) {
-      body.thinking = { type: 'disabled' }
-      delete body.reasoning_effort
-    }
-    // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
-    // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
-    // Ensure max_tokens is a valid positive number before using it.
-    const maxTokensValue = typeof params.max_tokens === 'number' && params.max_tokens > 0
-      ? params.max_tokens
-      : undefined
-    const maxCompletionTokensValue = typeof (params as Record<string, unknown>).max_completion_tokens === 'number'
-      ? (params as Record<string, unknown>).max_completion_tokens as number
-      : undefined
-
-    if (maxTokensValue !== undefined) {
-      body.max_completion_tokens = maxTokensValue
-    } else if (maxCompletionTokensValue !== undefined) {
-      body.max_completion_tokens = maxCompletionTokensValue
-    }
-
-    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
-      body.stream_options = { include_usage: true }
-    }
-
-    const isGithub = isGithubModelsMode()
-    const isLocal = isLocalProviderUrl(request.baseUrl)
-
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubCopilot = isGithub && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
-    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
-    const shouldStripResponsesStore =
-      (shimConfig.removeBodyFields ?? []).includes('store') ||
-      isGeminiMode() ||
-      hasGeminiApiHost(request.baseUrl) ||
-      hasCerebrasApiHost(request.baseUrl) ||
-      hasMistralApiHost(request.baseUrl) ||
-      isLocal
-
-    // Mistral's chat completions reject `max_completion_tokens` (and `store`).
-    // When the route resolves to the Mistral descriptor the config already maps
-    // to `max_tokens`; on the host-detected fallback (`hasMistralApiHost`) the
-    // generic default leaves `max_completion_tokens`, so map it here too.
-    if (
-      (shimConfig.maxTokensField === 'max_tokens' ||
-        hasMistralApiHost(request.baseUrl)) &&
-      body.max_completion_tokens !== undefined
-    ) {
-      body.max_tokens = body.max_completion_tokens
-      delete body.max_completion_tokens
-    }
-
-    for (const field of shimConfig.removeBodyFields ?? []) {
-      delete body[field]
-    }
-
-    if (shouldStripResponsesStore) {
-      delete body.store
-    }
-
-    if (params.temperature !== undefined) body.temperature = params.temperature
-    if (params.top_p !== undefined) body.top_p = params.top_p
-
-    if (reasoningRequestPlan.wireFormat === 'deepseek_compatible') {
-      if (reasoningRequestPlan.thinkingType) {
-        body.thinking = { type: reasoningRequestPlan.thinkingType }
-      }
-      if (reasoningRequestPlan.reasoningEffort) {
-        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
-      }
-      maybeSetNvidiaNimChatTemplateThinking(body, request.baseUrl, reasoningRequestPlan)
-    }
-
-    if (reasoningRequestPlan.wireFormat === 'zai_compatible') {
-      if (reasoningRequestPlan.thinkingType) {
-        body.thinking = { type: reasoningRequestPlan.thinkingType }
-      }
-      if (reasoningRequestPlan.thinkingType === 'disabled') {
-        delete body.reasoning_effort
-      } else if (reasoningRequestPlan.reasoningEffort) {
-        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
-      } else {
-        delete body.reasoning_effort
-      }
-      maybeSetNvidiaNimChatTemplateThinking(body, request.baseUrl, reasoningRequestPlan)
-    }
-
-    // Route/model strip rules are authoritative even when compatibility
-    // serializers add provider-specific reasoning fields later in the pipeline.
-    for (const field of shimConfig.removeBodyFields ?? []) {
-      delete body[field]
-    }
-
-    if (
-      !(shimConfig.removeBodyFields ?? []).includes('tools') &&
-      params.tools &&
-      params.tools.length > 0
-    ) {
-      const converted = convertTools(
-        params.tools as Array<{
-          name: string
-          description?: string
-          input_schema?: Record<string, unknown>
-        }>,
-        { skipStrict: fastPath.skipStrictTools },
-      )
-      if (converted.length > 0) {
-        body.tools = converted
-        if (
-          effectiveTransport === 'chat_completions' &&
-          params.stream &&
-          shimConfig.enableToolStreaming === true
-        ) {
-          body.tool_stream = true
-        }
-        if (params.tool_choice) {
-          const tc = params.tool_choice as { type?: string; name?: string }
-          if (tc.type === 'auto') {
-            body.tool_choice = 'auto'
-          } else if (tc.type === 'tool' && tc.name) {
-            body.tool_choice = {
-              type: 'function',
-              function: { name: tc.name },
-            }
-          } else if (tc.type === 'any') {
-            body.tool_choice = 'required'
-          } else if (tc.type === 'none') {
-            body.tool_choice = 'none'
-          }
-        }
-      }
-    }
-
-    let responsesInput: ReturnType<
-      typeof convertAnthropicMessagesToResponsesInput
-    > | undefined
-    let responsesMessages: typeof compressedMessages | undefined
-    const getResponsesInput = () => {
-      // GitHub can reject a Chat request and retry it through Responses. That
-      // retry must budget structured text with the Responses separator rather
-      // than reusing the Chat-compressed form (which uses a double newline).
-      responsesMessages ??= effectiveTransport === 'chat_completions'
-        ? fastPath.skipToolHistoryCompression
-          ? rawMessages
-          : compressToolHistory(rawMessages, request.resolvedModel, {
-            textBlockSeparator: '\n',
-          })
-        : compressedMessages
-      responsesInput ??= convertAnthropicMessagesToResponsesInput(
-        responsesMessages,
-        effectiveTransport === 'responses_compat',
-      )
-      return responsesInput
-    }
-
-    const omitTools = {
-      responses: false,
-      anthropic: false,
-      gemini: false,
-    }
-    const planner = createRequestBodyPlanner({
-      request, params, effectiveTransport, shouldStripResponsesStore, body,
-      reasoningRequestPlan, shimConfig, getResponsesInput, convertSystemPrompt,
-      convertToolsToResponsesTools, maxTokensValue, maxCompletionTokensValue,
-      getOllamaNumCtx, normalizeOllamaNativeMessages, useNativeOllamaChat,
-      fastPath, stableStringifyJson, omitTools,
-    })
-    const { buildResponsesBody, serializeBody } = planner
+      useNativeOllamaChat,
+      buildResponsesBody,
+      serializeBody,
+      isLocal,
+      isGithub,
+      isGithubCopilot,
+      isGithubModels,
+      omitTools,
+    } = prepared
 
     // Extraction boundary: request planning | request execution.
     // The prepared body builders above are executor inputs, not executor-owned logic.
