@@ -14,6 +14,8 @@
  * and exchange idempotent and resumable.
  */
 
+import { randomUUID } from 'node:crypto'
+
 import chalk from 'chalk'
 
 import { openBrowser } from '../../utils/browser.js'
@@ -34,9 +36,12 @@ import {
 } from './config.js'
 import { promptHidden, promptText } from './prompt.js'
 import {
+  acquireAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
+  releaseAimlapiExchangeLeaseAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -86,6 +91,12 @@ export type AimlapiProvisionOptions = Omit<AimlapiTopupOptions, 'email' | 'code'
   resumeSessionToken?: string
   /** Stable idempotency handle retained for one amount/auto-top-up intent. */
   paymentSessionId: string
+  /**
+   * The checkout intent, supplied by the guided flows so the one-shot key
+   * exchange is serialized cross-process via the exchange lease. Omitted by unit
+   * tests with no persisted state, which exchange directly.
+   */
+  intent?: AimlapiTopupIntent
   /** Persist the session token; returns the elected token when a peer won. */
   onSession?: (sessionToken: string) => string | void
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
@@ -105,6 +116,9 @@ type TopupPhase = 'pay' | 'poll' | 'exchange' | 'wait-exchange'
 
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000
+// One exchange-lease owner id per process, so this process can reclaim its own
+// (stale) lease and a peer's lease is recognised as foreign.
+const EXCHANGE_OWNER = randomUUID()
 
 // Test seam. The unit tests drive the flow against a stub transport and a
 // capturing profile writer by swapping these in, rather than a process-global
@@ -321,7 +335,9 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
         (await promptHiddenFn(`6-digit code sent to ${email}`))
       if (!code) throw new Error('Sign-in code is required.')
       sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
-      if (!apiKey) {
+      // Do not mint a key when the retained checkout was a paid sign-up that must
+      // still be exchanged (see `mustExchange` below): the exchange yields the key.
+      if (!apiKey && checkoutState.exchange !== true) {
         const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
         apiKey = created.key
         apiKeyId = created.id
@@ -352,6 +368,20 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       throw new Error('AI/ML API returned an unsupported account action.')
   }
 
+  // A retained checkout remembers whether it must be exchanged. A paid sign-up
+  // checkout that was interrupted before /exchange still needs it on retry, even
+  // though the account now resolves to sign-in (exchange === false). Persist the
+  // mode on the first run and prefer the persisted value afterwards.
+  const mustExchange = checkoutState.exchange ?? exchange
+  if (checkoutState.exchange === undefined) {
+    checkoutState.exchange = exchange
+    try {
+      saveAimlapiTopupState({ ...intent, ...checkoutState })
+    } catch {
+      // Retained in memory for this run; persistence is only a resume aid.
+    }
+  }
+
   const provisioned = await provisionAimlapiKey({
     amountUsd: options.amountUsd,
     autoTopUp: options.autoTopUp,
@@ -359,7 +389,8 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     noOpen: options.noOpen,
     signal: options.signal,
     sessionToken,
-    exchange,
+    exchange: mustExchange,
+    intent,
     paymentSessionId: checkoutState.paymentSessionId,
     resumeSessionToken: checkoutState.resumeSessionToken,
     existingApiKey: apiKey,
@@ -416,7 +447,11 @@ export async function provisionAimlapiKey(
   // The session token is persisted inside resolveTopupSession as part of the
   // atomic election, so there is no separate onSession call here.
 
-  if (phase === 'pay') {
+  // `pay` runs for a fresh checkout AND for a resumed pending_payment one: the
+  // original /pay response (its only payUrl) can be lost to an interruption, and
+  // the stable paymentSessionId makes re-issuing idempotent, so this recovers the
+  // checkout URL instead of leaving the user polling a session they cannot open.
+  if (phase === 'pay' || phase === 'poll') {
     const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
     options.onStatus?.('opening-checkout')
     const { checkout } = await client.pay(
@@ -445,12 +480,9 @@ export async function provisionAimlapiKey(
   let apiKeyId = options.existingApiKeyId?.trim() || ''
   if (options.exchange) {
     options.onStatus?.('provisioning-key')
-    if (settledPhase === 'wait-exchange') {
-      await pollUntilExchangeSettled(client, sessionToken, options.signal, options.onSession)
-    }
-    const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
-    apiKey = exchanged.apiKey.trim()
-    apiKeyId = exchanged.apiKeyId.trim()
+    const exchanged = await exchangeKeyWithLease(client, options, paidToken, settledPhase)
+    apiKey = exchanged.apiKey
+    apiKeyId = exchanged.apiKeyId
   } else if (settledPhase === 'wait-exchange') {
     // A resumed sign-in top-up was still crediting the account balance. Wait for
     // it to settle before reporting success, otherwise the caller marks the
@@ -499,7 +531,10 @@ export async function topUpAimlapiByApiKey(
   // The session token is persisted inside resolveTopupSession as part of the
   // atomic election, so there is no separate onSession call here.
 
-  if (phase === 'pay') {
+  // Re-issue for a resumed pending_payment checkout too: the idempotent
+  // paymentSessionId recovers the original payUrl (lost to an interruption)
+  // instead of leaving the user polling a session they cannot open.
+  if (phase === 'pay' || phase === 'poll') {
     const returnUrls = buildPartnerCheckoutReturnUrls(endpoints.payBaseUrl, sessionToken)
     options.onStatus?.('opening-checkout')
     const { checkout } = await client.topUpByKey(
@@ -638,6 +673,80 @@ async function resolveTopupSession(
   // in sync (idempotent: the election keeps the already-recorded token).
   options.onSession?.(resume)
   return { sessionToken: resume, phase }
+}
+
+/**
+ * Run the one-shot key exchange under a cross-process lease so racing same-intent
+ * processes never call /exchange twice (which strands the paid session). The lease
+ * winner exchanges; a peer that finds a live lease waits for the settled receipt;
+ * a peer that finds a settled receipt resumes from it. Falls back to a direct
+ * exchange when no intent is supplied (unit tests with no persisted state).
+ */
+async function exchangeKeyWithLease(
+  client: AimlapiClient,
+  options: AimlapiProvisionOptions,
+  paidToken: string,
+  settledPhase: TopupPhase,
+): Promise<{ apiKey: string; apiKeyId: string }> {
+  const doExchange = async (): Promise<{ apiKey: string; apiKeyId: string }> => {
+    if (settledPhase === 'wait-exchange') {
+      await pollUntilExchangeSettled(client, options.sessionToken, options.signal, options.onSession)
+    }
+    const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
+    return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }
+  }
+
+  const intent = options.intent
+  if (!intent) return doExchange()
+
+  const expected = { ...intent, paymentSessionId: options.paymentSessionId }
+  const lease = await acquireAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER)
+  if (lease.status === 'gone') {
+    throw new Error(
+      'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
+    )
+  }
+  if (lease.status === 'settled') {
+    // A peer already exchanged and recorded the key — resume from its receipt.
+    return {
+      apiKey: lease.state.apiKey?.trim() ?? '',
+      apiKeyId: lease.state.apiKeyId?.trim() ?? '',
+    }
+  }
+  if (lease.status === 'held') {
+    // A live peer is exchanging the one-shot session; wait for its settled
+    // receipt instead of exchanging in parallel and stranding the paid session.
+    return waitForExchangedReceipt(expected, options.signal)
+  }
+  // acquired: we are the sole exchanger for this checkout.
+  try {
+    return await doExchange()
+  } catch (error) {
+    // Release the lease so a retry proceeds promptly instead of waiting out the
+    // stale window; the settled receipt supersedes it on success.
+    await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(() => {})
+    throw error
+  }
+}
+
+/**
+ * Wait for the lease holder to record its settled receipt (the exchanged key),
+ * so a peer that lost the exchange election resumes from the winner's credential.
+ */
+async function waitForExchangedReceipt(
+  expected: AimlapiTopupIntent & { paymentSessionId: string },
+  signal?: AbortSignal,
+): Promise<{ apiKey: string; apiKeyId: string }> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw abortError(signal)
+    const state = loadAimlapiTopupState(expected)
+    if (state?.settled && state.apiKey?.trim()) {
+      return { apiKey: state.apiKey.trim(), apiKeyId: state.apiKeyId?.trim() ?? '' }
+    }
+    await sleep(POLL_INTERVAL_MS, signal)
+  }
+  throw new Error('Timed out waiting for a concurrent key exchange. Retry to resume.')
 }
 
 async function pollUntilExchangeSettled(

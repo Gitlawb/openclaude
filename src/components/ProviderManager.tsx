@@ -1001,8 +1001,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   // so the done screen must key off this instead to avoid showing the "Top-up
   // successful" copy when the user merely continued with a saved key.
   const aimlapiTopupPaidRef = React.useRef(false)
+  // A checkout URL that has already been opened in the browser (and is therefore
+  // chargeable). Editing the amount/auto-top-up starts a NEW payment session,
+  // abandoning this one — which no endpoint can cancel — so the next submit for a
+  // different intent must be explicitly confirmed first.
+  const aimlapiOpenedCheckoutRef = React.useRef<{
+    amountUsdMinor: number
+    autoTopUp: boolean
+  } | null>(null)
+  const aimlapiAbandonAckRef = React.useRef(false)
 
   function resetAimlapiCheckoutIntent(): void {
+    // NOTE: the opened-checkout tracking (aimlapiOpenedCheckoutRef /
+    // aimlapiAbandonAckRef) is deliberately NOT cleared here — this runs on every
+    // amount/auto-top-up edit, and the re-edit confirmation must still see that a
+    // checkout was opened. It is cleared on a fresh flow entry and on success.
     const intent = aimlapiPersistedIntentRef.current
     if (intent) {
       aimlapiPersistedIntentRef.current = null
@@ -1799,6 +1812,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiIssuedKeyId('')
     setAimlapiTopupByKey(false)
     aimlapiTopupPaidRef.current = false
+    // Fresh flow entry: no open checkout to warn about yet.
+    aimlapiOpenedCheckoutRef.current = null
+    aimlapiAbandonAckRef.current = false
     setAimlapiResumeSessionToken('')
     setAimlapiPaymentSessionId('')
     setAimlapiExistingProfileId(null)
@@ -3154,6 +3170,24 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
+    // A checkout URL was already opened for a different amount/auto-top-up:
+    // starting a new payment session abandons that still-chargeable browser tab
+    // (no endpoint can cancel it), so require an explicit acknowledgement first.
+    const openedCheckout = aimlapiOpenedCheckoutRef.current
+    if (
+      openedCheckout &&
+      !aimlapiAbandonAckRef.current &&
+      (openedCheckout.amountUsdMinor !== amountUsdMinor ||
+        openedCheckout.autoTopUp !== autoTopUp)
+    ) {
+      aimlapiAbandonAckRef.current = true
+      setErrorMessage(
+        'An unpaid checkout is still open in your browser — do NOT pay it. Press Enter again to abandon it and start a new checkout.',
+      )
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+
     const endpoints = resolveEndpoints()
     const intentIdentity = aimlapiTopupByKey
       ? `key:${createHash('sha256').update(aimlapiIssuedKey).digest('hex')}`
@@ -3191,14 +3225,33 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // one-shot credential). Mirrors the CLI's settled-receipt recovery.
     if (checkoutState.settled && checkoutState.apiKey) {
       aimlapiTopupPaidRef.current = true
-      persistAimlapiKey(
-        checkoutState.apiKey,
-        aimlapiInferenceBaseUrl,
-        checkoutState.model?.trim() || draft.model,
-        'topup',
-        { signInKeyId: checkoutState.apiKeyId },
-      )
+      // An existing saved profile or an ambient env key must complete through
+      // persistExistingAimlapi — update the selected profile / keep preserveEnv —
+      // instead of minting a new profile and copying the env credential into it.
+      if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
+        persistExistingAimlapi(checkoutState.model?.trim() || draft.model)
+      } else {
+        persistAimlapiKey(
+          checkoutState.apiKey,
+          aimlapiInferenceBaseUrl,
+          checkoutState.model?.trim() || draft.model,
+          'topup',
+          { signInKeyId: checkoutState.apiKeyId },
+        )
+      }
       return
+    }
+
+    // Persist whether this checkout must be exchanged, so a retry that now
+    // resolves to sign-in still exchanges the paid sign-up session instead of
+    // minting an unrelated key (mirrors the CLI). By-key top-ups never exchange.
+    if (!aimlapiTopupByKey && checkoutState.exchange === undefined) {
+      checkoutState.exchange = aimlapiNewAccount
+      try {
+        saveAimlapiTopupState({ ...intent, ...checkoutState })
+      } catch {
+        // Retained in memory; persistence is only a resume aid.
+      }
     }
 
     aimlapiAbortRef.current?.abort()
@@ -3213,6 +3266,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     void (async () => {
       try {
         const reportStatus = (status: AimlapiTopupStatus, detail?: string): void => {
+          if (status === 'opening-checkout') {
+            // A checkout URL is now live in the browser; remember its intent so a
+            // later edit that starts a new payment must be confirmed first.
+            aimlapiOpenedCheckoutRef.current = { amountUsdMinor, autoTopUp }
+          }
           setAimlapiTopupStatus(status)
           if (detail?.trim()) setAimlapiTopupDetail(detail)
         }
@@ -3261,7 +3319,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               model: draft.model,
               sessionToken: aimlapiSessionToken,
               inferenceBaseUrl: aimlapiInferenceBaseUrl,
-              exchange: aimlapiNewAccount,
+              exchange: checkoutState.exchange ?? aimlapiNewAccount,
+              intent,
               paymentSessionId: checkoutState.paymentSessionId,
               existingApiKey: aimlapiIssuedKey,
               existingApiKeyId: aimlapiIssuedKeyId,

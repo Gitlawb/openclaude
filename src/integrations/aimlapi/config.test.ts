@@ -77,6 +77,13 @@ test('canonical endpoint check excludes proxies and look-alike paths', () => {
   // A different protocol/host is never canonical.
   expect(isCanonicalAimlapiInferenceBaseUrl('http://api.aimlapi.com/v1')).toBe(false)
   expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
+  // A query, fragment, bare delimiter, or embedded credential is non-canonical:
+  // written verbatim as OPENAI_BASE_URL it would break the shim's path append.
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1?x=1')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1#x')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1?')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://api.aimlapi.com/v1#')).toBe(false)
+  expect(isCanonicalAimlapiInferenceBaseUrl('https://user:pass@api.aimlapi.com/v1')).toBe(false)
   // Garbage input fails closed.
   expect(isCanonicalAimlapiInferenceBaseUrl('not-a-url')).toBe(false)
 })

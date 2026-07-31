@@ -12,6 +12,8 @@ import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
+  acquireAimlapiExchangeLeaseAsync,
+  releaseAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
   clearAimlapiTopupStateAsync,
@@ -72,6 +74,47 @@ test('top-up state round-trips only for the same checkout intent', () => {
   if (process.platform !== 'win32') {
     expect(statSync(join(directory, 'aimlapi-topup.json')).mode & 0o777).toBe(0o600)
   }
+})
+
+test('the exchange lease elects one exchanger and lets peers resume the settled key', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // The first process holds the lease and is the sole cleared exchanger.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  // A concurrent peer finds a fresh foreign lease and must back off (not exchange).
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('held')
+
+  // Once the holder records the settled key, a peer resumes from it.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    settled: true,
+  })
+  const resumed = await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')
+  expect(resumed.status).toBe('settled')
+  expect(resumed.status === 'settled' && resumed.state.apiKey).toBe('exchanged-key')
+
+  // A cleared/reset slot reports 'gone' so a stray process never exchanges it.
+  clearAimlapiTopupState(expected)
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('gone')
+})
+
+test('a failed exchange releases the lease so a retry can proceed', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  // A peer is blocked while the lease is held.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('held')
+  // The holder's exchange failed, so it releases the lease...
+  await releaseAimlapiExchangeLeaseAsync(expected, 'owner-a')
+  // ...and the next acquirer may proceed instead of waiting out the stale window.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
 test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {

@@ -1815,6 +1815,67 @@ test('ProviderManager cancellation returns a live checkout to the resumable amou
   }
 })
 
+test('ProviderManager warns before abandoning an already-open checkout on re-edit', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_CODE
+
+  const provisionAimlapiKey = mock(async (options: any) => {
+    // Open a checkout URL, then stay on the progress screen (never resolve) so
+    // the user can go back and edit the amount.
+    options.onStatus?.('opening-checkout', 'https://checkout.test/pay')
+    await new Promise(() => {})
+    return { apiKey: 'k', apiKeyId: 'id', baseUrl: 'https://api.aimlapi.com/v1', model: 'gpt-4o' }
+  })
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+
+    // Submit the default amount → a checkout URL is opened.
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Opening checkout in browser...'),
+    )
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 1)
+
+    // Go back and change the amount, then submit: the first submit must WARN (the
+    // open browser tab is still chargeable) rather than start a second checkout.
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('0')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('unpaid checkout is still open'),
+    )
+    expect(provisionAimlapiKey.mock.calls.length).toBe(1)
+
+    // Confirm by submitting again → a new checkout is started.
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+  } finally {
+    await mounted.dispose()
+  }
+}, 20_000)
+
 test('ProviderManager recovers a settled receipt without re-provisioning', async () => {
   delete process.env.AIMLAPI_EMAIL
   delete process.env.AIMLAPI_CODE

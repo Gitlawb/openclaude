@@ -48,6 +48,22 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
    * session.
    */
   settled?: boolean
+  /**
+   * Whether this checkout must be exchanged for a fresh key (a paid sign-up
+   * checkout). Persisted so a retry that now resolves to sign-in still exchanges
+   * the paid session instead of minting an unrelated key and stranding it.
+   */
+  exchange?: boolean
+  /**
+   * Exchange lease. The one-shot key exchange is not idempotent, so exactly one
+   * process may run it for a given payment id. The owner claims the lease under
+   * the state lock before the network call; a peer that sees a fresh foreign
+   * lease waits for the resulting settled receipt instead of exchanging too. A
+   * lease older than `EXCHANGE_LEASE_STALE_MS` belonged to a crashed holder and
+   * is reclaimable.
+   */
+  exchangeLeaseOwner?: string
+  exchangeLeaseAt?: number
 }
 
 export type AimlapiCheckoutState = Pick<
@@ -58,6 +74,7 @@ export type AimlapiCheckoutState = Pick<
   | 'apiKeyId'
   | 'model'
   | 'settled'
+  | 'exchange'
 >
 
 function statePath(): string {
@@ -73,6 +90,10 @@ const LOCK_TIMEOUT_ASYNC_MS = 15_000
 // (our critical sections are sub-millisecond, so a live holder never approaches
 // this; proper-lockfile also refreshes the mtime while held).
 const LOCK_STALE_MS = 8_000
+// A fresh exchange lease means a live peer is mid-exchange; older than this it
+// belonged to a crashed holder and is reclaimable. Generous: the exchange is a
+// single remote POST, but a slow network must not orphan the one-shot session.
+const EXCHANGE_LEASE_STALE_MS = 75_000
 /** Owner-only file/dir modes; these records hold API credentials. */
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
@@ -329,7 +350,13 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     (state.apiKeyId === undefined ||
       (typeof state.apiKeyId === 'string' && Boolean(state.apiKeyId.trim()))) &&
     (state.model === undefined || typeof state.model === 'string') &&
-    (state.settled === undefined || typeof state.settled === 'boolean')
+    (state.settled === undefined || typeof state.settled === 'boolean') &&
+    (state.exchange === undefined || typeof state.exchange === 'boolean') &&
+    (state.exchangeLeaseOwner === undefined ||
+      (typeof state.exchangeLeaseOwner === 'string' &&
+        Boolean(state.exchangeLeaseOwner.trim()))) &&
+    (state.exchangeLeaseAt === undefined ||
+      (typeof state.exchangeLeaseAt === 'number' && Number.isFinite(state.exchangeLeaseAt)))
   )
 }
 
@@ -387,6 +414,7 @@ function toCheckoutState(state: AimlapiPersistedTopup): AimlapiCheckoutState {
     apiKeyId: state.apiKeyId,
     model: state.model,
     settled: state.settled,
+    exchange: state.exchange,
   }
 }
 
@@ -433,6 +461,9 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
       apiKeyId: state.apiKeyId ?? current.apiKeyId,
       model: state.model ?? current.model,
       settled: state.settled ?? current.settled,
+      exchange: state.exchange ?? current.exchange,
+      exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
+      exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
     })
   })
 }
@@ -463,6 +494,9 @@ export function recordAimlapiCheckoutSession(
       apiKeyId: state.apiKeyId ?? current.apiKeyId,
       model: state.model ?? current.model,
       settled: state.settled ?? current.settled,
+      exchange: state.exchange ?? current.exchange,
+      exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
+      exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
     }
     writeAimlapiTopupStateUnlocked(recorded)
     return toCheckoutState(recorded)
@@ -539,6 +573,94 @@ export function clearAimlapiTopupStateAsync(
       rmSync(statePath(), { force: true })
     }
   })
+}
+
+/**
+ * Outcome of an exchange-lease acquisition (see `exchangeLeaseOwner`):
+ * - `acquired`: the caller holds the lease and is the sole process cleared to
+ *   run the one-shot key exchange.
+ * - `settled`: a peer already exchanged and recorded the key — resume from it.
+ * - `held`: a live peer holds a fresh lease and is exchanging — wait for its
+ *   settled receipt rather than exchanging in parallel.
+ * - `gone`: the checkout for this intent + payment id was cleared/reset meanwhile.
+ */
+export type AimlapiExchangeLease =
+  | { status: 'acquired'; state: AimlapiCheckoutState }
+  | { status: 'settled'; state: AimlapiCheckoutState }
+  | { status: 'held'; owner: string; ageMs: number }
+  | { status: 'gone' }
+
+function acquireExchangeLeaseOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): AimlapiExchangeLease {
+  const current = matchingStateOrNull(expected)
+  if (!current) return { status: 'gone' }
+  // A peer already completed the one-shot exchange and recorded the key.
+  if (current.settled && current.apiKey?.trim()) {
+    return { status: 'settled', state: toCheckoutState(current) }
+  }
+  const now = Date.now()
+  const leaseOwner = current.exchangeLeaseOwner
+  const heldAt = current.exchangeLeaseAt
+  const ageMs = typeof heldAt === 'number' ? now - heldAt : Number.POSITIVE_INFINITY
+  // A fresh lease held by another process: it is exchanging right now, so back
+  // off. A stale lease (crashed holder) or our own is reclaimed below.
+  if (
+    typeof leaseOwner === 'string' &&
+    leaseOwner !== owner &&
+    ageMs < EXCHANGE_LEASE_STALE_MS
+  ) {
+    return { status: 'held', owner: leaseOwner, ageMs }
+  }
+  // No fresh foreign lease (absent, already ours, or stale): claim it. Writing
+  // under the state lock is the compare-and-swap that elects a single exchanger.
+  writeAimlapiTopupStateUnlocked({
+    ...current,
+    exchangeLeaseOwner: owner,
+    exchangeLeaseAt: now,
+  })
+  return { status: 'acquired', state: toCheckoutState(current) }
+}
+
+/**
+ * Elect a single process to perform the non-idempotent key exchange for a
+ * checkout, serializing racing same-intent processes onto one exchange. See
+ * `AimlapiExchangeLease`. Async so it never blocks the Ink event loop.
+ */
+export function acquireAimlapiExchangeLeaseAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): Promise<AimlapiExchangeLease> {
+  return withStateLockAsync(() => acquireExchangeLeaseOperation(expected, owner))
+}
+
+function releaseExchangeLeaseOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): void {
+  const current = matchingStateOrNull(expected)
+  // Only clear a lease we still own and that a settled receipt has not already
+  // superseded — never one a peer re-claimed after ours went stale.
+  if (!current || current.exchangeLeaseOwner !== owner || current.settled) return
+  writeAimlapiTopupStateUnlocked({
+    ...current,
+    exchangeLeaseOwner: undefined,
+    exchangeLeaseAt: undefined,
+  })
+}
+
+/**
+ * Release the exchange lease after a FAILED exchange (the key was not minted, or
+ * the outcome is unknown) so a retry proceeds promptly instead of waiting out the
+ * stale window. Best-effort and ownership-aware. Never called on success — the
+ * settled receipt supersedes the lease there.
+ */
+export function releaseAimlapiExchangeLeaseAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): Promise<void> {
+  return withStateLockAsync(() => releaseExchangeLeaseOperation(expected, owner))
 }
 
 // --- Sign-in key cache ------------------------------------------------------
