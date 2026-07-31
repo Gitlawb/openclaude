@@ -12,6 +12,7 @@ import {
   runAimlapiTopup,
   setAimlapiTopupTestDoubles,
   topUpAimlapiByApiKey,
+  type AimlapiTopupStatus,
 } from './topup.js'
 import { AimlapiClient } from './client.js'
 
@@ -131,6 +132,12 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
     if (url.endsWith('/pay')) {
       payBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       throw new Error('ambiguous payment response')
+    }
+    if (url.endsWith('/exchange')) {
+      // The retry exchanges the paid sign-up session (the first attempt's pay
+      // response was ambiguous but the session is now paid) instead of minting an
+      // unrelated key.
+      return Response.json({ apiKey: 'exchanged_key', apiKeyId: 'exchanged_id' })
     }
     if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
       return sessionJson({ sessionToken: 'checkout-session', status: 'paid' })
@@ -449,12 +456,30 @@ test('topUpAimlapiByApiKey resumes a paid session without charging again', async
   ])
 })
 
-test('a pending resumed session is polled without paying again', async () => {
+test('a pending resumed session re-issues the idempotent checkout to recover the URL', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
-  const calls: string[] = []
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const topupBodies: Array<Record<string, unknown>> = []
   let reads = 0
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
-    calls.push(`${init?.method} ${String(input)}`)
+    const url = String(input)
+    if (url.endsWith('/v2/billing/topup')) {
+      topupBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: {
+          id: 'sess_test',
+          partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+          partnerName: null,
+          userId: null,
+          amountUsdMinor: null,
+          issuedKeyId: null,
+          returnUrl: null,
+          sessionToken: 'session',
+          status: 'pending_payment',
+        },
+      })
+    }
     reads += 1
     return sessionJson({
       sessionToken: 'session',
@@ -462,18 +487,23 @@ test('a pending resumed session is polled without paying again', async () => {
     })
   }) as unknown as typeof fetch
 
+  const statuses: AimlapiTopupStatus[] = []
   await topUpAimlapiByApiKey({
     apiKey: 'key_test',
     paymentSessionId: 'payment-id',
     resumeSessionToken: 'session',
     amountUsd: '25',
     noOpen: true,
+    onStatus: status => {
+      statuses.push(status)
+    },
   })
 
-  expect(calls).toEqual([
-    'GET https://app.example.test/v3/partner-checkout/sessions/session',
-    'GET https://app.example.test/v3/partner-checkout/sessions/session',
-  ])
+  // A pending_payment resume re-issues the idempotent top-up (SAME paymentSessionId
+  // — no double charge) to recover the lost checkout URL, then polls to paid.
+  expect(topupBodies).toHaveLength(1)
+  expect(topupBodies[0]?.paymentSessionId).toBe('payment-id')
+  expect(statuses).toContain('opening-checkout')
 })
 
 test('a resumed by-key session still exchanging settles before success', async () => {

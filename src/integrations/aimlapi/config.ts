@@ -101,7 +101,14 @@ function parseCanonicalUrl(
   value: string,
 ): { origin: string; pathname: string } | null {
   try {
-    const url = new URL(value.trim())
+    const trimmed = value.trim()
+    const url = new URL(trimmed)
+    // Credentials, a query, or a fragment (even a bare `?`/`#`) make this
+    // non-canonical: it is written verbatim as OPENAI_BASE_URL and the OpenAI
+    // shim concatenates `/chat/completions` onto the raw string, which a trailing
+    // `?x`/`#x` would push into the query/fragment (server then sees only `/v1`).
+    if (url.username || url.password) return null
+    if (trimmed.includes('?') || trimmed.includes('#')) return null
     // `origin` already lowercases protocol and host. Collapse only a single
     // trailing slash so `/v1` and `/v1/` match, while `/v1//`, `/V1`, or
     // `/v1/anything` stay distinct from the canonical `/v1` path.
