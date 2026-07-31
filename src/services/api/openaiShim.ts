@@ -83,6 +83,7 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import { dispatchCodexRequest } from './openaiShim/codexDispatch.js'
 import {
   createRequestBodyPlanner,
   hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv,
@@ -1035,143 +1036,33 @@ class OpenAIShimMessages {
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
     requestProcessEnv: NodeJS.ProcessEnv = process.env,
   ): Promise<Response> {
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubMode = isGithubModelsMode()
-    const isGithubCopilotEndpoint = isGithubMode && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
-    const isGithubWithCodexTransport = isGithubCopilotEndpoint && request.transport === 'codex_responses'
-
-    if (isGithubWithCodexTransport) {
-      const apiTimeoutMs = getApiTimeoutMs()
-      const responsesUrl = `${request.baseUrl}/responses`
-      let didRefreshCopilotCodexToken = false
-      let refreshedCopilotCodexToken: string | undefined
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const apiKey = refreshedCopilotCodexToken ?? this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
-        if (!apiKey) {
-          throw new Error(
-            'GitHub Copilot auth is required. Run /onboard-github to sign in.',
+    const codexResponse = await dispatchCodexRequest({
+      request,
+      params,
+      requestOptions: options,
+      defaultHeaders: this.defaultHeaders,
+      providerOverrideApiKey: this.providerOverride?.apiKey,
+      dependencies: {
+        getApiTimeoutMs,
+        fetchWithHeadersDeadline,
+        preserveCallerAbortError,
+        isCopilotTokenExpiredError,
+        classifyResponseHeadersTimeout: (error, requestUrl, model) => {
+          if (!(error instanceof ResponseHeadersTimeoutError)) return undefined
+          const failure = {
+            ...classifyOpenAINetworkFailure(error, { url: requestUrl }),
+            retryable: false,
+          }
+          return createClassifiedTransportError(
+            error,
+            requestUrl,
+            model,
+            failure,
           )
-        }
-
-        try {
-          try {
-            return await performCodexRequest({
-              request,
-              credentials: {
-                apiKey,
-                source: 'env',
-              },
-              params,
-              defaultHeaders: {
-                ...this.defaultHeaders,
-                ...filterAnthropicHeaders(options?.headers),
-                ...COPILOT_HEADERS,
-              },
-              signal: options?.signal,
-              fetcher: (input, init) => {
-                const url =
-                  typeof input === 'string'
-                    ? input
-                    : input instanceof URL
-                      ? input.toString()
-                      : input.url
-                return fetchWithHeadersDeadline(url, init ?? {}, {
-                  callerSignal: options?.signal,
-                  timeoutMs: apiTimeoutMs,
-                })
-              },
-            })
-          } catch (error) {
-            if (options?.signal?.aborted) {
-              throw preserveCallerAbortError(error, options.signal)
-            }
-            if (error instanceof ResponseHeadersTimeoutError) {
-              const failure = {
-                ...classifyOpenAINetworkFailure(error, {
-                  url: responsesUrl,
-                }),
-                retryable: false,
-              }
-              throw createClassifiedTransportError(
-                error,
-                responsesUrl,
-                request.resolvedModel,
-                failure,
-              )
-            }
-            throw error
-          }
-        } catch (error) {
-          if (
-            !didRefreshCopilotCodexToken &&
-            error instanceof APIError &&
-            error.status === 401
-          ) {
-            if (
-              apiKey === (process.env.OPENAI_API_KEY ?? '') &&
-              isCopilotTokenExpiredError(error.message)
-            ) {
-              didRefreshCopilotCodexToken = true
-              const refreshed = await refreshCopilotTokenOn401()
-              if (refreshed) {
-                const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
-                if (newApiKey && newApiKey !== apiKey) {
-                  refreshedCopilotCodexToken = newApiKey
-                  continue
-                }
-              }
-            }
-          }
-          throw error
-        }
-      }
-    }
-
-    if (request.transport === 'codex_responses' && !isGithubMode) {
-      const refreshResult = await refreshCodexAccessTokenIfNeeded().catch(
-        async error => {
-          logForDebugging(
-            `[codex] access token refresh failed before request: ${error instanceof Error ? error.message : String(error)}`,
-            { level: 'warn' },
-          )
-          return {
-            refreshed: false,
-            credentials: await readCodexCredentialsAsync(),
-          }
         },
-      )
-      const credentials = resolveRuntimeCodexCredentials({
-        storedCredentials: refreshResult.credentials,
-      })
-      if (!credentials.apiKey) {
-        const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
-        const authHint = credentials.authPath
-          ? `${oauthHint} or place a Codex auth.json at ${credentials.authPath}`
-          : oauthHint
-        const safeModel =
-          redactSecretValueForDisplay(request.requestedModel, process.env as SecretValueSource) ??
-          'the requested model'
-        throw new Error(
-          `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`,
-        )
-      }
-      if (!credentials.accountId) {
-        throw new Error(
-          'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, the Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
-        )
-      }
-
-      return performCodexRequest({
-        request,
-        credentials,
-        params,
-        defaultHeaders: {
-          ...this.defaultHeaders,
-          ...filterAnthropicHeaders(options?.headers),
-        },
-        signal: options?.signal,
-      })
-    }
+      },
+    })
+    if (codexResponse) return codexResponse
 
     return this._doOpenAIRequest(request, params, options, requestProcessEnv)
   }
