@@ -162,6 +162,41 @@ export function encodeAgentIdForPlanFile(agentId: string): string {
 }
 
 /**
+ * Inverse of {@link encodeAgentIdForPlanFile}. The escapes must be undone in the
+ * reverse order they were applied -- `%25` last -- so a literal `%2F` in the id
+ * (encoded as `%252F`) is not mis-decoded to `/`.
+ *
+ * Exported for testing.
+ */
+export function decodeAgentIdForPlanFile(encoded: string): string {
+  return encoded
+    .replaceAll('%5C', '\\')
+    .replaceAll('%2F', '/')
+    .replaceAll('%25', '%')
+}
+
+/**
+ * Whether a `{slug}-agent-` filename component is exactly what
+ * {@link encodeAgentIdForPlanFile} would emit -- i.e. a canonical plan path.
+ *
+ * The encoder only ever produces the escapes `%25`, `%2F`, `%5C` and no raw
+ * separators, so a component is canonical iff re-encoding its decode reproduces
+ * it byte-for-byte. This rejects lookalikes that `getPlanFilePath` never emits:
+ * a raw separator (`writer@a%2Fb` decodes to `writer@a/b`, whose canonical form
+ * is `writer@a%252Fb`), or a raw/partial `%` such as `writer@100%` (canonical
+ * form `writer@100%25`). Both would otherwise pass a naive separator-only check
+ * and grant unprompted read/write to a sibling `.md` outside this session's plan.
+ *
+ * Exported for testing.
+ */
+export function isCanonicalPlanFileEncoding(component: string): boolean {
+  return (
+    component.length > 0 &&
+    encodeAgentIdForPlanFile(decodeAgentIdForPlanFile(component)) === component
+  )
+}
+
+/**
  * Get the file path for a session's plan
  * @param agentId Optional agent ID for subagents. If not provided, returns main session plan.
  * For main conversation (no agentId), returns {planSlug}.md
@@ -196,8 +231,11 @@ export function getPlanFilePath(agentId?: AgentId): string {
  */
 export function getPlan(agentId?: AgentId): string | null {
   const filePath = getPlanFilePath(agentId)
+  let contents: string
   try {
-    return getFsImplementation().readFileSync(filePath, { encoding: 'utf-8' })
+    contents = getFsImplementation().readFileSync(filePath, {
+      encoding: 'utf-8',
+    })
   } catch (error) {
     if (!isENOENT(error)) {
       logError(error)
@@ -205,6 +243,17 @@ export function getPlan(agentId?: AgentId): string | null {
     }
     return readLegacyUnescapedPlan(agentId, filePath)
   }
+  // An empty/whitespace escaped file is not a real plan. isPlanFilePath allows a
+  // direct FileWrite/FileEdit to the canonical escaped path before migration has
+  // run, and such a stub would otherwise permanently shadow a legacy plan that
+  // still holds the real content. Fall through to legacy recovery in that case;
+  // recovery's no-clobber guard returns the legacy contents without renaming
+  // over the stub, so a genuine concurrent escaped write is never lost.
+  if (contents.trim() === '') {
+    const legacy = readLegacyUnescapedPlan(agentId, filePath)
+    if (legacy !== null) return legacy
+  }
+  return contents
 }
 
 /**
@@ -225,6 +274,17 @@ export function readAndMigrateLegacyPlan(
   escapedPath: string,
 ): string | null {
   if (legacyPath === escapedPath) return null
+
+  // SECURITY: recovery reads and then renames this path, so it must be a real
+  // regular file. A symlink planted at the legacy slot would otherwise let
+  // recovery return the contents of (and rename) an arbitrary target outside the
+  // plans directory. lstat does not follow the link, so a symlink fails isFile().
+  try {
+    if (!getFsImplementation().lstatSync(legacyPath).isFile()) return null
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
+    return null
+  }
 
   let contents: string
   try {

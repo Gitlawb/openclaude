@@ -41,6 +41,7 @@ import {
   AGENT_PLANS_SUBDIR,
   getPlanSlug,
   getPlansDirectory,
+  isCanonicalPlanFileEncoding,
 } from '../plans.js'
 import { getPlatform } from '../platform.js'
 import { getProjectDir } from '../sessionStorage.js'
@@ -290,19 +291,17 @@ export function isPlanFilePath(
   if (!normalizedPath.startsWith(agentPrefix)) {
     return false
   }
-  // SECURITY: The remainder must be exactly one nonempty agent id followed by
-  // `.md`. Accepting the bare prefix would also allow a lookalike sibling
-  // *directory* ({subdir}/{slug}-agent-evil/anything.md), granting unprompted
-  // read and write to arbitrary files beneath it, as well as the malformed
-  // {slug}-agent-.md that getPlanFilePath never emits.
-  //
-  // This stays compatible with every path getPlanFilePath produces because it
-  // percent-escapes separators in the agent id (encodeAgentIdForPlanFile), so
-  // a teammate on a team named `a/b` still gets a single-component filename.
-  const agentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
-  return (
-    agentId.length > 0 && !agentId.includes('/') && !agentId.includes('\\')
-  )
+  // SECURITY: The remainder must be exactly the canonical encoded agent id that
+  // getPlanFilePath emits, followed by `.md`. Anchoring on the canonical
+  // encoding (isCanonicalPlanFileEncoding) rejects every path the encoder never
+  // produces: the bare prefix and the malformed {slug}-agent-.md; a lookalike
+  // sibling *directory* ({subdir}/{slug}-agent-evil/anything.md, whose raw `/`
+  // is not canonical); and raw-`%` lookalikes such as {slug}-agent-writer@100%.md
+  // (canonical form ...writer@100%25.md) or ...writer@a%2Fb.md (canonical form
+  // ...writer@a%252Fb.md). Any of those would otherwise be auto-allowed for
+  // unprompted read/write even though they are not this session's plan file.
+  const encodedAgentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
+  return isCanonicalPlanFileEncoding(encodedAgentId)
 }
 
 // Check if file is the plan file for the current session
