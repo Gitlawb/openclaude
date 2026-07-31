@@ -220,3 +220,24 @@ test('suppressNextAgentListing still skips when same-type content matches transc
   suppressNextAgentListing()
   expect(getAgentListingDeltaAttachment(ctx, messages)).toEqual([])
 })
+
+test('suppressNextAgentListing uses recovered announced set when messages lack listing', () => {
+  const agents = [agent('Explore'), agent('Plan')]
+  const recovered = new Map(
+    agents.map(a => [a.agentType, formatAgentLine(a)] as const),
+  )
+  const ctx = toolUseContext(agents)
+
+  suppressNextAgentListing(recovered)
+  // First attachment pass with unhydrated messages=[] must not re-announce.
+  expect(getAgentListingDeltaAttachment(ctx, [])).toEqual([])
+})
+
+test('restoreSkillStateFromMessages retains recovered set for unhydrated first pass', () => {
+  const agents = [agent('Explore'), agent('Plan')]
+  const messages = [listingDeltaMessage(agents)]
+  const ctx = toolUseContext(agents)
+
+  restoreSkillStateFromMessages(messages)
+  expect(getAgentListingDeltaAttachment(ctx, [])).toEqual([])
+})

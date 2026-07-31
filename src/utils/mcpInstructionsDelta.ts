@@ -125,13 +125,14 @@ export function getMcpInstructionsDelta(
     }
   }
 
-  // Previously-announced server that is no longer connected → removed.
-  // Content-changed servers stay connected; they are re-added above with
-  // the new block (history keeps the old attachment; the new delta is the
-  // corrective update the model should follow).
+  // Previously-announced server that is no longer connected, or still
+  // connected but has no block to announce (empty instructions + no
+  // client-side block) → removed. Content-changed servers stay connected;
+  // they are re-added above with the new block (history keeps the old
+  // attachment; the new delta is the corrective update the model should follow).
   const removed: string[] = []
   for (const n of announced.keys()) {
-    if (!connectedNames.has(n)) removed.push(n)
+    if (!connectedNames.has(n) || !blocks.has(n)) removed.push(n)
   }
 
   if (added.length === 0 && removed.length === 0) return null

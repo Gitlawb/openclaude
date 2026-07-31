@@ -1641,7 +1641,7 @@ export function getAgentListingDeltaAttachment(
   // Fingerprint the line (whenToUse + tool policy), not just the type name —
   // editing a project/plugin agent while the CLI is stopped must re-announce
   // after --resume.
-  const announced = new Map<string, string>()
+  let announced = new Map<string, string>()
   for (const msg of messages ?? []) {
     if (msg.type !== 'attachment') continue
     if (msg.attachment.type !== 'agent_listing_delta') continue
@@ -1657,19 +1657,34 @@ export function getAgentListingDeltaAttachment(
   const currentTypes = new Set(filtered.map(a => a.agentType))
 
   // Resume path: prior process already injected the listing (now persisted in
-  // the transcript for prefix-cache stability). Fire-once latch from
-  // conversationRecovery — same role as suppressNextSkillListing.
+  // the transcript / resume-cache for prefix-cache stability). Fire-once latch
+  // from conversationRecovery — same role as suppressNextSkillListing.
   //
-  // Only suppress when the filtered set matches what the transcript already
-  // announced — including rendered line content. If agents were added/removed
-  // or a same-type definition/tool policy changed across the process
-  // boundary, fall through so a corrective delta still emits.
+  // When the first attachment pass races ahead of hydrate (messages still
+  // lack agent_listing_delta), fall back to the recovered announced map that
+  // was retained with the latch — boolean-only would consume the latch against
+  // an empty set and re-announce the full catalog mid-history.
+  //
+  // Only suppress when the filtered set matches what was already announced —
+  // including rendered line content. If agents were added/removed or a
+  // same-type definition/tool policy changed across the process boundary,
+  // fall through so a corrective delta still emits (using the recovered
+  // baseline when the transcript scan is empty).
+  let announcedBaseline = announced
   if (suppressNextAgent) {
     suppressNextAgent = false
-    let unchanged = currentTypes.size === announced.size
+    if (
+      announcedBaseline.size === 0 &&
+      suppressNextAgentAnnounced &&
+      suppressNextAgentAnnounced.size > 0
+    ) {
+      announcedBaseline = suppressNextAgentAnnounced
+    }
+    suppressNextAgentAnnounced = null
+    let unchanged = currentTypes.size === announcedBaseline.size
     if (unchanged) {
       for (const a of filtered) {
-        if (announced.get(a.agentType) !== formatAgentLine(a)) {
+        if (announcedBaseline.get(a.agentType) !== formatAgentLine(a)) {
           unchanged = false
           break
         }
@@ -1678,6 +1693,8 @@ export function getAgentListingDeltaAttachment(
     if (unchanged) {
       return []
     }
+    // Changed across resume — keep recovered baseline for add/remove below.
+    announced = announcedBaseline
   }
 
   const added = filtered.filter(a => {
@@ -2962,6 +2979,7 @@ export function resetSentSkillNames(): void {
   sentSkillNames.clear()
   suppressNext = false
   suppressNextAgent = false
+  suppressNextAgentAnnounced = null
 }
 
 /**
@@ -2992,15 +3010,26 @@ let suppressNext = false
  * races ahead of transcript attachment hydration can re-announce the full
  * agent list mid-history and bust OpenAI/Moonshot prefix cache.
  *
- * Consumed once: when the current filtered agent set equals the transcript's
- * announced set, returns an empty delta; when the set changed across the
- * process boundary, the latch still clears but a normal add/remove delta is
- * emitted.
+ * Prefer passing `recoveredLines` (agentType → formatAgentLine) reconstructed
+ * from the transcript / resume-cache so the first attachment pass still has a
+ * baseline when `messages` temporarily lack listings. Boolean-only latch
+ * against an empty announced set would re-emit the full catalog and bust cache.
+ *
+ * Consumed once: when the current filtered agent set equals the recovered /
+ * transcript announced set, returns an empty delta; when the set changed
+ * across the process boundary, the latch still clears but a normal add/remove
+ * delta is emitted against that baseline.
  */
-export function suppressNextAgentListing(): void {
+export function suppressNextAgentListing(
+  recoveredLines?: ReadonlyMap<string, string>,
+): void {
   suppressNextAgent = true
+  if (recoveredLines !== undefined) {
+    suppressNextAgentAnnounced = new Map(recoveredLines)
+  }
 }
 let suppressNextAgent = false
+let suppressNextAgentAnnounced: Map<string, string> | null = null
 
 // When skill-search is enabled and the filtered (bundled + MCP) listing exceeds
 // this count, fall back to bundled-only. Protects MCP-heavy users (100+ servers)

@@ -164,15 +164,24 @@ export function updateResumeCacheFromMessages(
 
   for (const m of messages) {
     if (m.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined payload). Skip those instead of throwing during
+    // recordTranscript → updateResumeCacheFromMessages.
+    if (!m.attachment || typeof m.attachment !== 'object') continue
     const a = m.attachment
     switch (a.type) {
       case 'skill_listing': {
         if (!a.content) break
+        const contentHash = hashContent(a.content)
+        // recordTranscript may re-pass the same skill_listing on every write;
+        // dedupe by contentHash so hydrate does not prepend duplicates and
+        // bust the early API prefix this cache exists to keep stable.
+        if (cache.skillListings.some(l => l.contentHash === contentHash)) break
         cache.skillListings.push({
           content: a.content,
           skillCount: a.skillCount,
           isInitial: a.isInitial,
-          contentHash: hashContent(a.content),
+          contentHash,
         })
         dirty = true
         break
@@ -300,46 +309,4 @@ export async function hydrateListingAttachmentsFromResumeCache(
   // Prepend so normalizeAttachmentForAPI rebuilds the same early prefix the
   // original session sent before the first real user turn content.
   return [...injected, ...messages]
-}
-
-/** Content hash map for MCP instruction blocks currently announced in messages. */
-export function getAnnouncedMcpInstructionHashes(
-  messages: Message[],
-): Map<string, string> {
-  const announced = new Map<string, string>()
-  for (const msg of messages) {
-    if (msg.type !== 'attachment') continue
-    if (msg.attachment.type !== 'mcp_instructions_delta') continue
-    const { addedNames, addedBlocks, removedNames } = msg.attachment
-    // Removals first so same-name updates keep the new block's hash.
-    for (const n of removedNames) announced.delete(n)
-    for (let i = 0; i < addedNames.length; i++) {
-      const name = addedNames[i]
-      const block = addedBlocks[i]
-      if (name && block !== undefined) {
-        announced.set(name, hashContent(block))
-      }
-    }
-  }
-  return announced
-}
-
-/** agentType → rendered line for attachments already in the conversation. */
-export function getAnnouncedAgentListingLines(
-  messages: Message[],
-): Map<string, string> {
-  const announced = new Map<string, string>()
-  for (const msg of messages) {
-    if (msg.type !== 'attachment') continue
-    if (msg.attachment.type !== 'agent_listing_delta') continue
-    const { addedTypes, addedLines, removedTypes } = msg.attachment
-    // Removals first so same-type content updates keep the new line.
-    for (const t of removedTypes) announced.delete(t)
-    for (let i = 0; i < addedTypes.length; i++) {
-      const type = addedTypes[i]
-      const line = addedLines[i]
-      if (type && line !== undefined) announced.set(type, line)
-    }
-  }
-  return announced
 }

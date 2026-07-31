@@ -77,6 +77,14 @@ test('getMcpInstructionsDelta removes disconnected servers by name', () => {
   expect(delta!.removedNames).toEqual(['docs'])
 })
 
+test('getMcpInstructionsDelta removes a connected server that no longer has instructions', () => {
+  const messages = [deltaMessage(['docs'], ['## docs\nUse the search tool.'])]
+  const delta = getMcpInstructionsDelta([connected('docs', '')], messages, [])
+  expect(delta).not.toBeNull()
+  expect(delta!.addedNames).toEqual([])
+  expect(delta!.removedNames).toEqual(['docs'])
+})
+
 test('getAnnouncedMcpInstructionBlocks applies removals before same-name re-adds', () => {
   const messages = [
     deltaMessage(['docs'], ['## docs\nold']),

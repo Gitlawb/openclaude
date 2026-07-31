@@ -617,6 +617,9 @@ function isTerminalToolResult(
  * @internal Exported for testing - use loadConversationForResume instead
  */
 export function restoreSkillStateFromMessages(messages: Message[]): void {
+  let sawAgentListing = false
+  const recoveredAgentLines = new Map<string, string>()
+
   for (const message of messages) {
     if (message.type !== 'attachment') {
       continue
@@ -649,10 +652,35 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
       suppressNextSkillListing()
     }
     // Same for agent_listing_delta — mid-history re-announce busts Moonshot
-    // / OpenAI automatic prefix cache on every --resume.
+    // / OpenAI automatic prefix cache on every --resume. Retain the rendered
+    // announced map with the latch so a race before hydrate still has a
+    // baseline when messages temporarily lack listings.
     if (attachment.type === 'agent_listing_delta') {
-      suppressNextAgentListing()
+      sawAgentListing = true
+      const addedTypes = Array.isArray(attachment.addedTypes)
+        ? attachment.addedTypes
+        : []
+      const addedLines = Array.isArray(attachment.addedLines)
+        ? attachment.addedLines
+        : []
+      const removedTypes = Array.isArray(attachment.removedTypes)
+        ? attachment.removedTypes
+        : []
+      for (const t of removedTypes) {
+        if (typeof t === 'string') recoveredAgentLines.delete(t)
+      }
+      for (let i = 0; i < addedTypes.length; i++) {
+        const type = addedTypes[i]
+        const line = addedLines[i]
+        if (typeof type === 'string' && typeof line === 'string') {
+          recoveredAgentLines.set(type, line)
+        }
+      }
     }
+  }
+
+  if (sawAgentListing) {
+    suppressNextAgentListing(recoveredAgentLines)
   }
 }
 
