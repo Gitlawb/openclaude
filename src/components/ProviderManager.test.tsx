@@ -359,7 +359,7 @@ function mockProviderManagerDependencies(
     completeAimlapiCodeSignIn?: (...args: any[]) => Promise<unknown>
     validateAimlapiApiKey?: (...args: any[]) => Promise<unknown>
     claimAimlapiTopupState?: (...args: any[]) => unknown
-    clearAimlapiTopupState?: (...args: any[]) => unknown
+    clearAimlapiTopupStateAsync?: (...args: any[]) => unknown
     recordAimlapiCheckoutSession?: (...args: any[]) => unknown
     saveAimlapiTopupState?: (...args: any[]) => unknown
     loadAimlapiSignInKey?: (...args: any[]) => unknown
@@ -532,9 +532,9 @@ function mockProviderManagerDependencies(
           resumeSessionToken: '',
         }
       }),
-    clearAimlapiTopupState:
-      options?.clearAimlapiTopupState ??
-      ((intent: Record<string, unknown>) => {
+    clearAimlapiTopupStateAsync:
+      options?.clearAimlapiTopupStateAsync ??
+      (async (intent: Record<string, unknown>) => {
         if (matchesAimlapiIntent(persistedAimlapiTopup, intent)) {
           persistedAimlapiTopup = undefined
         }
@@ -1833,12 +1833,12 @@ test('ProviderManager recovers a settled receipt without re-provisioning', async
     apiKeyId: 'recovered-id',
     model: 'gpt-4o',
   }))
-  const clearAimlapiTopupState = mock(() => {})
+  const clearAimlapiTopupStateAsync = mock(async () => {})
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
     provisionAimlapiKey,
     claimAimlapiTopupState,
-    clearAimlapiTopupState,
+    clearAimlapiTopupStateAsync,
   })
 
   const nonce = `${Date.now()}-${Math.random()}`
@@ -1910,13 +1910,13 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     paymentSessionId: 'persisted-payment-id',
     resumeSessionToken: 'persisted-checkout-session',
   }))
-  const clearAimlapiTopupState = mock(() => {})
+  const clearAimlapiTopupStateAsync = mock(async () => {})
 
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
     provisionAimlapiKey,
     claimAimlapiTopupState,
-    clearAimlapiTopupState,
+    clearAimlapiTopupStateAsync,
     saveAimlapiTopupState,
   })
 
@@ -2033,7 +2033,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       expect.objectContaining({ makeActive: true }),
     )
     expect(claimAimlapiTopupState).toHaveBeenCalledTimes(1)
-    expect(clearAimlapiTopupState).toHaveBeenCalledTimes(1)
+    expect(clearAimlapiTopupStateAsync).toHaveBeenCalledTimes(1)
     // The settled receipt (the paid, one-shot exchanged key) is persisted BEFORE
     // the profile write, so an interrupted or failed write resumes with the paid
     // key instead of stranding it.

@@ -230,7 +230,13 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
     try {
       clearAimlapiTopupState({ ...intent, paymentSessionId: checkoutState.paymentSessionId })
     } catch {
-      // The receipt is a resume aid; a stale one is re-reconciled on the next run.
+      // Non-fatal: the profile is already saved. Note it (the stale receipt is
+      // reconciled — resumed or replaced — on the next run) rather than fail.
+      console.warn(
+        chalk.dim(
+          '    note: could not clear the local checkout receipt; it will be reconciled on the next run.',
+        ),
+      )
     }
     console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
     console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)

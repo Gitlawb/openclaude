@@ -59,7 +59,7 @@ import {
   AimlapiApiError,
   AIMLAPI_MESSAGES,
   claimAimlapiTopupState,
-  clearAimlapiTopupState,
+  clearAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
   saveAimlapiTopupState,
   loadAimlapiSignInKey,
@@ -1003,16 +1003,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const aimlapiTopupPaidRef = React.useRef(false)
 
   function resetAimlapiCheckoutIntent(): void {
-    if (aimlapiPersistedIntentRef.current) {
-      // Best-effort: this also runs in a synchronous save callback after the
-      // profile is written, so a lock/permission/IO failure clearing the receipt
-      // must not turn a successful configuration into a failure.
-      try {
-        clearAimlapiTopupState(aimlapiPersistedIntentRef.current)
-      } catch {
-        // The receipt is a resume aid; a stale one is reconciled on the next run.
-      }
+    const intent = aimlapiPersistedIntentRef.current
+    if (intent) {
       aimlapiPersistedIntentRef.current = null
+      // This runs in a synchronous Ink save callback after the profile is written.
+      // Fire the clear on the ASYNC lock and do not await it, so a contended lock
+      // never freezes the UI; best-effort — a stale receipt is reconciled on the
+      // next run, so a failure must not turn a successful configuration into one.
+      void clearAimlapiTopupStateAsync(intent).catch(() => {})
     }
     setAimlapiResumeSessionToken('')
     setAimlapiPaymentSessionId('')

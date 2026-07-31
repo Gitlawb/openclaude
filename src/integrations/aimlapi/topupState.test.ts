@@ -14,6 +14,7 @@ import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  clearAimlapiTopupStateAsync,
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
@@ -71,6 +72,28 @@ test('top-up state round-trips only for the same checkout intent', () => {
   if (process.platform !== 'win32') {
     expect(statSync(join(directory, 'aimlapi-topup.json')).mode & 0o777).toBe(0o600)
   }
+})
+
+test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'session-token',
+  })
+
+  // The async clear (used by the Ink flow so a contended lock never blocks the
+  // UI) is ownership-aware like the sync one: a foreign intent removes nothing.
+  await clearAimlapiTopupStateAsync({
+    ...intent,
+    email: 'other@example.com',
+    paymentSessionId: claimed.paymentSessionId,
+  })
+  expect(loadAimlapiTopupState(intent)).not.toBeNull()
+
+  await clearAimlapiTopupStateAsync({ ...intent, paymentSessionId: claimed.paymentSessionId })
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
 test('recordAimlapiCheckoutSession elects the first session token and a loser adopts it', () => {
@@ -207,6 +230,31 @@ test('sign-in key cache retains a separate record per email', () => {
 
   expect(loadAimlapiSignInKey('a@example.com')).toEqual({ apiKey: 'k_a', apiKeyId: 'id_a' })
   expect(loadAimlapiSignInKey('b@example.com')).toEqual({ apiKey: 'k_b', apiKeyId: 'id_b' })
+})
+
+test('sign-in key cache migrates a legacy single-record file', () => {
+  const directory = useTemporaryConfig()
+  const cachePath = join(directory, 'aimlapi-signin-key.json')
+  // Pre-collection format: a single { email, apiKey, apiKeyId } record.
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ email: 'User@Example.com', apiKey: 'k_legacy', apiKeyId: 'id_legacy' }),
+  )
+  // Migrated on read, keyed by the normalized email.
+  expect(loadAimlapiSignInKey('user@example.com')).toEqual({
+    apiKey: 'k_legacy',
+    apiKeyId: 'id_legacy',
+  })
+  // A subsequent save for a different account keeps the migrated record too.
+  saveAimlapiSignInKey('other@example.com', 'k_other', 'id_other')
+  expect(loadAimlapiSignInKey('user@example.com')).toEqual({
+    apiKey: 'k_legacy',
+    apiKeyId: 'id_legacy',
+  })
+  expect(loadAimlapiSignInKey('other@example.com')).toEqual({
+    apiKey: 'k_other',
+    apiKeyId: 'id_other',
+  })
 })
 
 test('sign-in key clear removes only the owning email and keeps the others', () => {

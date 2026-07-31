@@ -97,6 +97,13 @@ test('checkout return URLs require a credential-free HTTPS base', () => {
   expect(() =>
     buildPartnerCheckoutReturnUrls('https://user:pass@pay.aimlapi.com', 'sess_1'),
   ).toThrow(/credential/i)
+  // A query string or fragment would swallow the appended checkout params.
+  expect(() =>
+    buildPartnerCheckoutReturnUrls('https://pay.aimlapi.com/#resume', 'sess_1'),
+  ).toThrow(/query string or fragment/i)
+  expect(() =>
+    buildPartnerCheckoutReturnUrls('https://pay.aimlapi.com/?x=1', 'sess_1'),
+  ).toThrow(/query string or fragment/i)
   expect(() => buildPartnerCheckoutReturnUrls('not-a-url', 'sess_1')).toThrow()
 })
 
