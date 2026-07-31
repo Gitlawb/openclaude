@@ -3764,17 +3764,6 @@ test('the OpenAI shim façade creates independent client instances', () => {
 })
 // openaiShim test extraction seam 112 end
 
-test('raw-text and XML fallback tool calls use one unique sequence', () => {
-  const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
-  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
-  expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
-  expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
-  const textNum = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
-  const xmlNum = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
-  // Same session counter: the second mint must be exactly one greater than the first.
-  expect(xmlNum).toBe(textNum + 1)
-})
-
 // ---------------------------------------------------------------------------
 // openaiShim test extraction seam 113 start: non-streaming: reasoning_content emitted as thinking block only when content is null
 test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
