@@ -18,6 +18,19 @@ export function releaseUrl(version: string): string {
 
 export const releases: Release[] = [
   {
+    version: '0.27.0',
+    date: '2026-07-30',
+    theme: 'subscription-safe proxy hosts, catalog models, and a calmer startup UI',
+    highlights: [
+      'opt-in loopback proxy hosts that keep subscription (OAuth) auth',
+      'Opengateway catalog: Ling 3.0 Flash free and Macaron V1 Tall',
+      'single-row centered startup logo with ANSI Shadow wordmark',
+      'web: Ember Block O brand mark; standalone web/ build (no repo-root imports)',
+      'query: parallel same-turn tool failures no longer trip the tool-failure guard',
+      'agents: subagents work from multi-repo parent sessions; MiniMax-M2.7 marked text-only',
+    ],
+  },
+  {
     version: '0.26.0',
     date: '2026-07-27',
     theme: 'polish — steadier long turns, sharper streaming feedback',
