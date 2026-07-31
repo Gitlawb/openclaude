@@ -26,7 +26,7 @@ export const releases: Release[] = [
       'new Ling 3.0 Flash and Macaron V1 Tall catalog entries',
       'centered startup logo and updated Ember Block O web branding',
       'agents can spawn subagents from multi-repository parent sessions',
-      'more reliable tool-failure, SDK timeout, stats, and status UI behavior',
+      'more reliable tool-failure guard, SDK permission-timeout reporting, stats, and status UI',
     ],
   },
   {
