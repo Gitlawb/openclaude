@@ -1863,8 +1863,9 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
     mounted.stdin.write('0')
     // Wait until the edited amount is reflected in the rendered frame (not a fixed
     // delay) before submitting, so Enter is never processed against the stale
-    // amount on a slow runner.
-    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Amount: $250'))
+    // amount on a slow runner. The negative lookahead pins the COMPLETE value so
+    // "$250" cannot match a stray "$2500" and hide an input regression.
+    await waitForFrameOutput(mounted.getOutput, frame => /Amount: \$250(?!\d)/.test(frame))
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('unpaid checkout is still open'),
@@ -1884,9 +1885,9 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
     mounted.stdin.write('0')
-    // Same as above: synchronize on the rendered edited amount rather than a fixed
-    // delay before submitting.
-    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Amount: $2500'))
+    // Same as above: synchronize on the COMPLETE rendered amount rather than a
+    // fixed delay before submitting ("$2500" must not match a stray "$25000").
+    await waitForFrameOutput(mounted.getOutput, frame => /Amount: \$2500(?!\d)/.test(frame))
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('unpaid checkout is still open'),
