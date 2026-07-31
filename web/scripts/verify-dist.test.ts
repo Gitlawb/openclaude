@@ -59,6 +59,23 @@ function withFixture(mutate: (dist: string) => void): string[] {
   }
 }
 
+describe('release data', () => {
+  test('lists the 0.27.0 release with its curated highlights', () => {
+    expect(releases[0]).toEqual({
+      version: '0.27.0',
+      date: '2026-07-30',
+      theme: 'auth-ready local proxies and a refreshed web identity',
+      highlights: [
+        'opt-in loopback proxy hosts preserve subscription OAuth authentication',
+        'new Ling 3.0 Flash and Macaron V1 Tall catalog entries',
+        'centered startup logo and updated Ember Block O web branding',
+        'agents can spawn subagents from multi-repository parent sessions',
+        'more reliable tool-failure, SDK timeout, stats, and status UI behavior',
+      ],
+    })
+  })
+})
+
 describe('verifyDist', () => {
   test('passes on a complete fixture', () => {
     expect(withFixture(() => {})).toEqual([])
