@@ -104,6 +104,14 @@ test('checkout return URLs require a credential-free HTTPS base', () => {
   expect(() =>
     buildPartnerCheckoutReturnUrls('https://pay.aimlapi.com/?x=1', 'sess_1'),
   ).toThrow(/query string or fragment/i)
+  // Bare `?`/`#` delimiters leave url.search/url.hash empty but still corrupt the
+  // appended checkout params, so they must be rejected too.
+  expect(() => buildPartnerCheckoutReturnUrls('https://pay.aimlapi.com/?', 'sess_1')).toThrow(
+    /query string or fragment/i,
+  )
+  expect(() => buildPartnerCheckoutReturnUrls('https://pay.aimlapi.com/#', 'sess_1')).toThrow(
+    /query string or fragment/i,
+  )
   expect(() => buildPartnerCheckoutReturnUrls('not-a-url', 'sess_1')).toThrow()
 })
 
@@ -112,6 +120,9 @@ test('the browser return URL ignores a non-HTTPS override', () => {
   expect(buildPartnerReturnUrl('https://front.example.test')).toBe('https://front.example.test')
   process.env.AIMLAPI_RETURN_URL = 'https://landing.example.test'
   expect(buildPartnerReturnUrl('https://front.example.test')).toBe('https://landing.example.test')
+  // A bare `?`/`#` delimiter is ignored like any other malformed base.
+  process.env.AIMLAPI_RETURN_URL = 'https://landing.example.test/#'
+  expect(buildPartnerReturnUrl('https://front.example.test')).toBe('https://front.example.test')
   delete process.env.AIMLAPI_RETURN_URL
   expect(buildPartnerReturnUrl('http://front.example.test')).toBe('https://aimlapi.com/app')
 })
