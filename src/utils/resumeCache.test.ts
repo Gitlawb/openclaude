@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { unlink } from 'fs/promises'
 import type { Message } from '../types/message.js'
 import { createAttachmentMessage } from './attachments.js'
 import {
+  flushResumeCacheWritesForTesting,
+  getResumeCachePath,
   hydrateListingAttachmentsFromResumeCache,
   resetResumeCacheForTesting,
   updateResumeCacheFromMessages,
@@ -9,12 +12,26 @@ import {
 
 const SESSION = 'test-resume-cache-pr2070'
 
-beforeEach(() => {
+beforeEach(async () => {
   resetResumeCacheForTesting()
+  try {
+    await unlink(getResumeCachePath(SESSION))
+  } catch {
+    // missing is fine
+  }
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // updateResumeCacheFromMessages may schedule async disk writes; wait so
+  // reset does not leave dangling writeChain promises across cases, then
+  // remove the on-disk file so the next case starts from a true empty cache.
+  await flushResumeCacheWritesForTesting()
   resetResumeCacheForTesting()
+  try {
+    await unlink(getResumeCachePath(SESSION))
+  } catch {
+    // missing is fine
+  }
 })
 
 function skillListing(content: string, skillCount = 1): Message {

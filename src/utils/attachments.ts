@@ -1644,6 +1644,9 @@ export function getAgentListingDeltaAttachment(
   let announced = new Map<string, string>()
   for (const msg of messages ?? []) {
     if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
     if (msg.attachment.type !== 'agent_listing_delta') continue
     const { addedTypes, addedLines, removedTypes } = msg.attachment
     for (const t of removedTypes) announced.delete(t)
@@ -1656,8 +1659,9 @@ export function getAgentListingDeltaAttachment(
 
   const currentTypes = new Set(filtered.map(a => a.agentType))
 
-  // Resume path: prior process already injected the listing (now persisted in
-  // the transcript / resume-cache for prefix-cache stability). Fire-once latch
+  // Resume path: prior process already injected the listing. For external
+  // users that listing lives only in the local resume-cache (not the public
+  // transcript); ants may still see it in the transcript. Fire-once latch
   // from conversationRecovery — same role as suppressNextSkillListing.
   //
   // When the first attachment pass races ahead of hydrate (messages still
@@ -1669,7 +1673,7 @@ export function getAgentListingDeltaAttachment(
   // including rendered line content. If agents were added/removed or a
   // same-type definition/tool policy changed across the process boundary,
   // fall through so a corrective delta still emits (using the recovered
-  // baseline when the transcript scan is empty).
+  // baseline when the in-memory scan is empty).
   let announcedBaseline = announced
   if (suppressNextAgent) {
     suppressNextAgent = false
@@ -3005,20 +3009,21 @@ let suppressNext = false
 
 /**
  * Suppress the next agent-listing injection. Called by conversationRecovery
- * on --resume when an agent_listing_delta attachment already exists in the
- * transcript. Mirrors suppressNextSkillListing — without this, a resume that
- * races ahead of transcript attachment hydration can re-announce the full
- * agent list mid-history and bust OpenAI/Moonshot prefix cache.
+ * on --resume when an agent_listing_delta is already present after hydrate
+ * (local resume-cache for external users; transcript for ants). Mirrors
+ * suppressNextSkillListing — without this, a resume that races ahead of
+ * attachment hydration can re-announce the full agent list mid-history and
+ * bust OpenAI/Moonshot prefix cache.
  *
  * Prefer passing `recoveredLines` (agentType → formatAgentLine) reconstructed
- * from the transcript / resume-cache so the first attachment pass still has a
- * baseline when `messages` temporarily lack listings. Boolean-only latch
- * against an empty announced set would re-emit the full catalog and bust cache.
+ * from the hydrated listing so the first attachment pass still has a baseline
+ * when `messages` temporarily lack listings. Boolean-only latch against an
+ * empty announced set would re-emit the full catalog and bust cache.
  *
  * Consumed once: when the current filtered agent set equals the recovered /
- * transcript announced set, returns an empty delta; when the set changed
- * across the process boundary, the latch still clears but a normal add/remove
- * delta is emitted against that baseline.
+ * announced set, returns an empty delta; when the set changed across the
+ * process boundary, the latch still clears but a normal add/remove delta is
+ * emitted against that baseline.
  */
 export function suppressNextAgentListing(
   recoveredLines?: ReadonlyMap<string, string>,

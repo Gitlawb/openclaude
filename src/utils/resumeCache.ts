@@ -9,9 +9,10 @@
  * busting OpenAI/Moonshot automatic prefix cache.
  *
  * This file lives beside the session transcript (`{sessionId}.resume-cache.json`),
- * is never passed through cleanMessagesForLogging / sessionIngress, and holds
- * only what is needed to reinject turn-0-equivalent listing attachments into
- * the in-memory message list on resume (plus content hashes for stale detection).
+ * is never passed through cleanMessagesForLogging / sessionIngress, and stores
+ * the full listing payloads locally so hydrate can reinject turn-0-equivalent
+ * attachments into the in-memory message list on resume (content hashes are for
+ * dedupe / stale detection, not a substitute for the payloads).
  */
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -123,10 +124,16 @@ function scheduleSave(sessionId: string, cache: ResumeCache): void {
     })
 }
 
+/** Test helper — wait for any pending scheduleSave writes to finish. */
+export async function flushResumeCacheWritesForTesting(): Promise<void> {
+  await writeChain
+}
+
 /** Test helper — drop in-memory state between cases. */
 export function resetResumeCacheForTesting(): void {
   memoryCache = null
   memoryCacheSessionId = null
+  writeChain = Promise.resolve()
 }
 
 function hasListingAttachment(messages: Message[]): boolean {

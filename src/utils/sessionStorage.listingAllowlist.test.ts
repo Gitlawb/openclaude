@@ -40,8 +40,9 @@ test('isLoggableMessage filters prefix-cache listing deltas for external users (
 
   // P1-1: these listing deltas carry sensitive payloads (skill descriptions,
   // custom agent whenToUse/tool policy, server-provided MCP instructions).
-  // They must NOT be persisted to the external transcript. Prefix-cache resume
-  // stability is handled by a separate local resume-cache (hashes + names only).
+  // They must NOT be persisted to the external transcript / remote ingress.
+  // Prefix-cache resume stability uses a separate local resume-cache that
+  // stores the full listing payloads on disk only (never via isLoggableMessage).
   expect(
     isLoggableMessage(
       attachment('skill_listing', {

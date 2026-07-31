@@ -54,6 +54,9 @@ export function getAnnouncedMcpInstructionBlocks(
   const announced = new Map<string, string>()
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
     if (msg.attachment.type !== 'mcp_instructions_delta') continue
     const { addedNames, addedBlocks, removedNames } = msg.attachment
     for (const n of removedNames) announced.delete(n)
@@ -87,6 +90,7 @@ export function getMcpInstructionsDelta(
   let midCount = 0
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
     attachmentCount++
     if (msg.attachment.type === 'mcp_instructions_delta') midCount++
   }
