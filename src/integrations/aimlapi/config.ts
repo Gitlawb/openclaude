@@ -236,6 +236,7 @@ function safeHttpsBaseUrl(value: string | undefined): string | null {
     // is not honored. Embedded credentials are never legitimate here either.
     if (url.protocol !== 'https:') return null
     if (url.username || url.password) return null
+    if (url.search || url.hash) return null
     return candidate
   } catch {
     return null
@@ -262,6 +263,11 @@ function requireHttpsBaseUrl(value: string, label: string): string {
   }
   if (url.username || url.password) {
     throw new Error(`${label} must not embed credentials.`)
+  }
+  if (url.search || url.hash) {
+    // A query/fragment would swallow the appended `/checkout?...sessionToken=...`
+    // (e.g. base `https://pay.aimlapi.com/#x` makes the token fragment text).
+    throw new Error(`${label} must not include a query string or fragment.`)
   }
   return candidate
 }

@@ -66,6 +66,9 @@ function statePath(): string {
 
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
+// The interactive (Ink) flow waits for the lock without blocking timers, the UI,
+// or SIGINT, so it can afford a longer ceiling than the sync path.
+const LOCK_TIMEOUT_ASYNC_MS = 15_000
 // Short enough that a dead holder's lock is recoverable well within the deadline
 // (our critical sections are sub-millisecond, so a live holder never approaches
 // this; proper-lockfile also refreshes the mtime while held).
@@ -116,6 +119,12 @@ function jitteredLockDelay(): number {
 
 function waitForLock(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, jitteredLockDelay())
+}
+
+// Non-blocking counterpart of waitForLock for the interactive flow: yields to the
+// event loop between retries instead of freezing timers, the Ink UI, and SIGINT.
+function delayForLock(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, jitteredLockDelay()))
 }
 
 function lockOptions(target: string): Parameters<typeof lockfile.lockSync>[1] {
@@ -219,6 +228,45 @@ function withStateLock<T>(operation: () => T, target: string = statePath()): T {
       retries += 1
       if (Date.now() >= deadline) throw lockTimeoutError(lastCode, retries)
       waitForLock()
+    }
+  }
+  logContendedAcquire(retries, startedAt, lastCode)
+  try {
+    return operation()
+  } finally {
+    try {
+      release()
+    } catch {
+      // Already released, or the lock was compromised and re-acquired by another
+      // owner; proper-lockfile will not delete a lock that is no longer ours.
+    }
+  }
+}
+
+/**
+ * Async counterpart of withStateLock for the interactive (Ink) flow: it awaits
+ * between lock retries so a contended lock never freezes timers, the UI, or
+ * SIGINT while it waits.
+ */
+async function withStateLockAsync<T>(
+  operation: () => T,
+  target: string = statePath(),
+): Promise<T> {
+  ensureOwnerOnlyDir(target)
+  const startedAt = Date.now()
+  const deadline = startedAt + LOCK_TIMEOUT_ASYNC_MS
+  let release: (() => void) | undefined
+  let retries = 0
+  let lastCode: string | undefined
+  const seenCodes = new Set<string>()
+  while (!release) {
+    try {
+      release = lockfile.lockSync(target, lockOptions(target))
+    } catch (error) {
+      lastCode = classifyLockError(error, seenCodes, target)
+      retries += 1
+      if (Date.now() >= deadline) throw lockTimeoutError(lastCode, retries)
+      await delayForLock()
     }
   }
   logContendedAcquire(retries, startedAt, lastCode)
@@ -472,6 +520,21 @@ export function clearAimlapiTopupState(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): void {
   withStateLock(() => {
+    if (matchingStateOrNull(expected)) {
+      rmSync(statePath(), { force: true })
+    }
+  })
+}
+
+/**
+ * Non-blocking clear for the interactive flow. Runs in a synchronous Ink save
+ * callback where the sync lock would freeze the UI on contention, so it awaits
+ * the lock instead. Callers treat it as best-effort (the receipt is a resume aid).
+ */
+export function clearAimlapiTopupStateAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): Promise<void> {
+  return withStateLockAsync(() => {
     if (matchingStateOrNull(expected)) {
       rmSync(statePath(), { force: true })
     }
