@@ -644,8 +644,9 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
         }
       }
     }
-    // A prior process already injected the skills-available reminder — it's
-    // in the transcript the model is about to see. sentSkillNames is
+    // A prior process already injected the skills-available reminder (local
+    // resume-cache for external users; transcript for ants). After hydrate it
+    // is in the message list the model is about to see. sentSkillNames is
     // process-local, so without this every resume re-announces the same
     // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
     if (attachment.type === 'skill_listing') {

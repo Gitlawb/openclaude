@@ -12,13 +12,18 @@ import {
 
 const SESSION = 'test-resume-cache-pr2070'
 
-beforeEach(async () => {
-  resetResumeCacheForTesting()
+async function unlinkResumeCacheIfPresent(): Promise<void> {
   try {
     await unlink(getResumeCachePath(SESSION))
-  } catch {
-    // missing is fine
+  } catch (err) {
+    // Only "file missing" is expected across cases; surface any other failure.
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err
   }
+}
+
+beforeEach(async () => {
+  resetResumeCacheForTesting()
+  await unlinkResumeCacheIfPresent()
 })
 
 afterEach(async () => {
@@ -27,11 +32,7 @@ afterEach(async () => {
   // remove the on-disk file so the next case starts from a true empty cache.
   await flushResumeCacheWritesForTesting()
   resetResumeCacheForTesting()
-  try {
-    await unlink(getResumeCachePath(SESSION))
-  } catch {
-    // missing is fine
-  }
+  await unlinkResumeCacheIfPresent()
 })
 
 function skillListing(content: string, skillCount = 1): Message {

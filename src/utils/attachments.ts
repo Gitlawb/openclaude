@@ -1647,13 +1647,27 @@ export function getAgentListingDeltaAttachment(
     // Legacy transcripts may carry malformed attachment records
     // (null/undefined/non-object payload). Skip instead of throwing.
     if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     if (msg.attachment.type !== 'agent_listing_delta') continue
+    // Require the full recognized schema before processing. Malformed or
+    // partial legacy entries must be skipped — not partially applied.
     const { addedTypes, addedLines, removedTypes } = msg.attachment
-    for (const t of removedTypes) announced.delete(t)
+    if (
+      !Array.isArray(removedTypes) ||
+      !Array.isArray(addedTypes) ||
+      !Array.isArray(addedLines)
+    ) {
+      continue
+    }
+    for (const t of removedTypes) {
+      if (typeof t === 'string') announced.delete(t)
+    }
     for (let i = 0; i < addedTypes.length; i++) {
       const type = addedTypes[i]
       const line = addedLines[i]
-      if (type && line !== undefined) announced.set(type, line)
+      if (typeof type === 'string' && typeof line === 'string') {
+        announced.set(type, line)
+      }
     }
   }
 
@@ -2988,14 +3002,14 @@ export function resetSentSkillNames(): void {
 
 /**
  * Suppress the next skill-listing injection. Called by conversationRecovery
- * on --resume when a skill_listing attachment already exists in the
- * transcript.
+ * on --resume when a skill_listing is already present after hydrate (local
+ * resume-cache for external users; transcript for ants).
  *
  * `sentSkillNames` is module-scope — process-local. Each `claude -p` spawn
  * starts with an empty Map, so without this every resume re-injects the
- * full ~600-token listing even though it's already in the conversation from
- * the prior process. Shows up on every --resume; particularly loud for
- * daemons that respawn frequently.
+ * full ~600-token listing even though the prior process already announced
+ * it. Shows up on every --resume; particularly loud for daemons that
+ * respawn frequently.
  *
  * Trade-off: skills added between sessions won't be announced until the
  * next non-resume session. Acceptable — skill_listing was never meant to
@@ -3104,9 +3118,10 @@ async function getSkillListingAttachments(
     sentSkillNames.set(agentKey, sent)
   }
 
-  // Resume path: prior process already injected a listing; it's in the
-  // transcript. Mark everything current as sent so only post-resume deltas
-  // (skills loaded later via /reload-plugins etc) get announced.
+  // Resume path: prior process already injected a listing (local resume-cache
+  // for external users; transcript for ants). Mark everything current as sent
+  // so only post-resume deltas (skills loaded later via /reload-plugins etc)
+  // get announced.
   if (suppressNext) {
     suppressNext = false
     for (const cmd of allCommands) {

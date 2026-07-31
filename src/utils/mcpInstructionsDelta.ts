@@ -57,13 +57,27 @@ export function getAnnouncedMcpInstructionBlocks(
     // Legacy transcripts may carry malformed attachment records
     // (null/undefined/non-object payload). Skip instead of throwing.
     if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     if (msg.attachment.type !== 'mcp_instructions_delta') continue
+    // Require the full recognized schema before processing. Malformed or
+    // partial legacy entries must be skipped — not partially applied.
     const { addedNames, addedBlocks, removedNames } = msg.attachment
-    for (const n of removedNames) announced.delete(n)
+    if (
+      !Array.isArray(removedNames) ||
+      !Array.isArray(addedNames) ||
+      !Array.isArray(addedBlocks)
+    ) {
+      continue
+    }
+    for (const n of removedNames) {
+      if (typeof n === 'string') announced.delete(n)
+    }
     for (let i = 0; i < addedNames.length; i++) {
       const name = addedNames[i]
       const block = addedBlocks[i]
-      if (name && block !== undefined) announced.set(name, block)
+      if (typeof name === 'string' && typeof block === 'string') {
+        announced.set(name, block)
+      }
     }
   }
   return announced
@@ -91,8 +105,16 @@ export function getMcpInstructionsDelta(
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
     if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     attachmentCount++
-    if (msg.attachment.type === 'mcp_instructions_delta') midCount++
+    if (
+      msg.attachment.type === 'mcp_instructions_delta' &&
+      Array.isArray(msg.attachment.removedNames) &&
+      Array.isArray(msg.attachment.addedNames) &&
+      Array.isArray(msg.attachment.addedBlocks)
+    ) {
+      midCount++
+    }
   }
 
   const announced = getAnnouncedMcpInstructionBlocks(messages)
