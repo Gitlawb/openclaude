@@ -603,7 +603,15 @@ function acquireExchangeLeaseOperation(
   const now = Date.now()
   const leaseOwner = current.exchangeLeaseOwner
   const heldAt = current.exchangeLeaseAt
-  const ageMs = typeof heldAt === 'number' ? now - heldAt : Number.POSITIVE_INFINITY
+  // A lease timestamped in the FUTURE cannot describe a live holder on this
+  // machine (all processes share the wall clock), so it comes from a backwards
+  // clock jump or a hand-edited state file. Treat it — like a non-numeric value —
+  // as an expired lease to reclaim, not a fresh one: a negative age would read as
+  // perpetually fresh and clamping it to 0 would still pin the slot until real
+  // time crawled up to the bogus timestamp (hours, or years). Reclaiming is safe:
+  // a genuinely live holder's parallel /exchange is caught server-side.
+  const ageMs =
+    typeof heldAt === 'number' && heldAt <= now ? now - heldAt : Number.POSITIVE_INFINITY
   // A fresh lease held by another process: it is exchanging right now, so back
   // off. A stale lease (crashed holder) or our own is reclaimed below.
   if (

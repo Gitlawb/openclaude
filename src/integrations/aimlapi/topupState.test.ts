@@ -117,6 +117,48 @@ test('a failed exchange releases the lease so a retry can proceed', async () => 
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
+test('releasing the exchange lease is scoped to the owner and never drops a settled receipt', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  // A peer must not be able to release a lease it does not own — otherwise it
+  // could free a live holder's lease and start a parallel one-shot exchange.
+  await releaseAimlapiExchangeLeaseAsync(expected, 'owner-b')
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('held')
+
+  // A settled receipt supersedes the lease: releasing must leave it intact so a
+  // peer still resumes from the recorded key rather than re-exchanging.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    settled: true,
+  })
+  await releaseAimlapiExchangeLeaseAsync(expected, 'owner-a')
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('settled')
+})
+
+test('a future-dated exchange lease is reclaimed instead of pinning the slot forever', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // A foreign lease timestamped in the future (backwards clock jump or an edited
+  // state file). A negative age would read as perpetually fresh — and clamping it
+  // to 0 would still keep it held — so every peer would deadlock. It must be
+  // treated as stale and reclaimed.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    exchangeLeaseOwner: 'ghost-owner',
+    exchangeLeaseAt: Date.now() + 60 * 60 * 1000,
+  })
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
+})
+
 test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)

@@ -3268,8 +3268,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         const reportStatus = (status: AimlapiTopupStatus, detail?: string): void => {
           if (status === 'opening-checkout') {
             // A checkout URL is now live in the browser; remember its intent so a
-            // later edit that starts a new payment must be confirmed first.
+            // later edit that starts a new payment must be confirmed first. Reset
+            // the acknowledgement: the confirmation is single-use, so a further
+            // edit to a different intent must be confirmed again rather than
+            // silently abandoning THIS freshly-opened, still-chargeable tab.
             aimlapiOpenedCheckoutRef.current = { amountUsdMinor, autoTopUp }
+            aimlapiAbandonAckRef.current = false
           }
           setAimlapiTopupStatus(status)
           if (detail?.trim()) setAimlapiTopupDetail(detail)
@@ -3348,6 +3352,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // A payment just cleared, so the done screen should report the top-up
         // regardless of whether we route through the model picker first.
         aimlapiTopupPaidRef.current = true
+        // The tracked checkout has been paid and settled: there is no longer a
+        // chargeable tab to guard, so a later re-edit (e.g. the by-key route that
+        // stops at the model picker) must not warn "do NOT pay it" for it.
+        aimlapiOpenedCheckoutRef.current = null
+        aimlapiAbandonAckRef.current = false
         if (aimlapiTopupByKey) {
           if (aimlapiExistingProfileId || aimlapiExistingUsesEnv) {
             setCursorOffset(provisioned.model.length)

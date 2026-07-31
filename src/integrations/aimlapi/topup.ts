@@ -39,7 +39,6 @@ import {
   acquireAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
-  loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
   releaseAimlapiExchangeLeaseAsync,
   resetAimlapiCheckoutSession,
@@ -678,8 +677,10 @@ async function resolveTopupSession(
 /**
  * Run the one-shot key exchange under a cross-process lease so racing same-intent
  * processes never call /exchange twice (which strands the paid session). The lease
- * winner exchanges; a peer that finds a live lease waits for the settled receipt;
- * a peer that finds a settled receipt resumes from it. Falls back to a direct
+ * winner exchanges; a peer that finds a live lease backs off and re-attempts,
+ * resuming from the winner's settled receipt or taking the exchange over itself
+ * once the lease is freed (the winner failed, or crashed and it went stale); a
+ * peer that finds a settled receipt resumes from it. Falls back to a direct
  * exchange when no intent is supplied (unit tests with no persisted state).
  */
 async function exchangeKeyWithLease(
@@ -700,53 +701,47 @@ async function exchangeKeyWithLease(
   if (!intent) return doExchange()
 
   const expected = { ...intent, paymentSessionId: options.paymentSessionId }
-  const lease = await acquireAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER)
-  if (lease.status === 'gone') {
-    throw new Error(
-      'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
-    )
-  }
-  if (lease.status === 'settled') {
-    // A peer already exchanged and recorded the key — resume from its receipt.
-    return {
-      apiKey: lease.state.apiKey?.trim() ?? '',
-      apiKeyId: lease.state.apiKeyId?.trim() ?? '',
-    }
-  }
-  if (lease.status === 'held') {
-    // A live peer is exchanging the one-shot session; wait for its settled
-    // receipt instead of exchanging in parallel and stranding the paid session.
-    return waitForExchangedReceipt(expected, options.signal)
-  }
-  // acquired: we are the sole exchanger for this checkout.
-  try {
-    return await doExchange()
-  } catch (error) {
-    // Release the lease so a retry proceeds promptly instead of waiting out the
-    // stale window; the settled receipt supersedes it on success.
-    await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(() => {})
-    throw error
-  }
-}
-
-/**
- * Wait for the lease holder to record its settled receipt (the exchanged key),
- * so a peer that lost the exchange election resumes from the winner's credential.
- */
-async function waitForExchangedReceipt(
-  expected: AimlapiTopupIntent & { paymentSessionId: string },
-  signal?: AbortSignal,
-): Promise<{ apiKey: string; apiKeyId: string }> {
+  // Elect a single exchanger across racing same-intent processes, then keep
+  // re-attempting the lease: a live foreign lease means a peer is exchanging now,
+  // so we resume the moment it records a settled receipt OR frees the lease —
+  // whether it released after a failure or crashed and let the lease go stale —
+  // rather than waiting out the whole 20-minute poll window for a receipt that
+  // may never arrive.
   const deadline = Date.now() + POLL_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    if (signal?.aborted) throw abortError(signal)
-    const state = loadAimlapiTopupState(expected)
-    if (state?.settled && state.apiKey?.trim()) {
-      return { apiKey: state.apiKey.trim(), apiKeyId: state.apiKeyId?.trim() ?? '' }
+  for (;;) {
+    if (options.signal?.aborted) throw abortError(options.signal)
+    const lease = await acquireAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER)
+    if (lease.status === 'gone') {
+      throw new Error(
+        'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
+      )
     }
-    await sleep(POLL_INTERVAL_MS, signal)
+    if (lease.status === 'settled') {
+      // A peer already exchanged and recorded the key — resume from its receipt.
+      return {
+        apiKey: lease.state.apiKey?.trim() ?? '',
+        apiKeyId: lease.state.apiKeyId?.trim() ?? '',
+      }
+    }
+    if (lease.status === 'acquired') {
+      // We are the sole exchanger for this checkout, either from the start or by
+      // taking over from a peer that failed (or crashed) and freed the lease.
+      try {
+        return await doExchange()
+      } catch (error) {
+        // Release the lease so a retry proceeds promptly instead of waiting out
+        // the stale window; the settled receipt supersedes it on success.
+        await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(() => {})
+        throw error
+      }
+    }
+    // held: a live peer is exchanging the one-shot session; back off and
+    // re-attempt rather than exchanging in parallel and stranding the paid session.
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for a concurrent key exchange. Retry to resume.')
+    }
+    await sleep(POLL_INTERVAL_MS, options.signal)
   }
-  throw new Error('Timed out waiting for a concurrent key exchange. Retry to resume.')
 }
 
 async function pollUntilExchangeSettled(

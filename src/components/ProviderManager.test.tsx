@@ -1871,6 +1871,22 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
     // Confirm by submitting again → a new checkout is started.
     mounted.stdin.write('\r')
     await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+
+    // The confirmation is single-use: now that the SECOND checkout is open, a
+    // further edit to yet another amount must warn again rather than silently
+    // abandon this newly-opened tab (the ack is reset when a checkout opens).
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Opening checkout in browser...'),
+    )
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('0')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('unpaid checkout is still open'),
+    )
+    expect(provisionAimlapiKey.mock.calls.length).toBe(2)
   } finally {
     await mounted.dispose()
   }
