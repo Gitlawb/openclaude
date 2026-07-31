@@ -484,20 +484,22 @@ export function clearAimlapiTopupState(
 // This lightweight per-email cache retains that key so a restart before/without
 // completing the checkout reuses it instead of minting another one.
 
-type AimlapiSignInKey = { email: string; apiKey: string; apiKeyId: string }
+type AimlapiSignInKeyEntry = { apiKey: string; apiKeyId: string }
+// Email-keyed collection so concurrent/interrupted sign-ins for different
+// accounts never overwrite each other's recovery key.
+type AimlapiSignInKeyStore = Record<string, AimlapiSignInKeyEntry>
 
 function signInKeyPath(): string {
   return join(getClaudeConfigHomeDir(), 'aimlapi-signin-key.json')
 }
 
 // A cached receipt is only useful if it can bypass createKey, which needs both
-// the key and its identifier; treat a record missing either as absent so the
+// the key and its identifier; treat an entry missing either as absent so the
 // flow mints a fresh, complete credential rather than propagating an empty id.
-function isSignInKey(value: unknown): value is AimlapiSignInKey {
+function isSignInKeyEntry(value: unknown): value is AimlapiSignInKeyEntry {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   return (
-    typeof record.email === 'string' &&
     typeof record.apiKey === 'string' &&
     Boolean(record.apiKey.trim()) &&
     typeof record.apiKeyId === 'string' &&
@@ -505,23 +507,40 @@ function isSignInKey(value: unknown): value is AimlapiSignInKey {
   )
 }
 
-function readSignInKeyUnlocked(): AimlapiSignInKey | null {
+function readSignInKeyStoreUnlocked(): AimlapiSignInKeyStore {
   const path = signInKeyPath()
-  if (!existsSync(path)) return null
+  if (!existsSync(path)) return {}
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    return isSignInKey(raw) ? raw : null
+    if (typeof raw !== 'object' || raw === null) return {}
+    const record = raw as Record<string, unknown>
+    // Migrate a pre-collection single-record file `{ email, apiKey, apiKeyId }`.
+    const legacyEmail = record.email
+    if (typeof legacyEmail === 'string' && isSignInKeyEntry(record)) {
+      return {
+        [normalizeEmail(legacyEmail)]: {
+          apiKey: record.apiKey,
+          apiKeyId: record.apiKeyId,
+        },
+      }
+    }
+    const store: AimlapiSignInKeyStore = {}
+    for (const [email, entry] of Object.entries(record)) {
+      if (email && isSignInKeyEntry(entry)) {
+        store[email] = { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId }
+      }
+    }
+    return store
   } catch {
-    return null
+    return {}
   }
 }
 
 export function loadAimlapiSignInKey(
   email: string,
 ): { apiKey: string; apiKeyId: string } | null {
-  const record = readSignInKeyUnlocked()
-  if (!record || record.email !== normalizeEmail(email)) return null
-  return { apiKey: record.apiKey, apiKeyId: record.apiKeyId }
+  const entry = readSignInKeyStoreUnlocked()[normalizeEmail(email)]
+  return entry ? { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId } : null
 }
 
 export function saveAimlapiSignInKey(
@@ -532,23 +551,27 @@ export function saveAimlapiSignInKey(
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail || !apiKey.trim() || !apiKeyId.trim()) return
   const target = signInKeyPath()
-  const record: AimlapiSignInKey = { email: normalizedEmail, apiKey, apiKeyId }
-  withStateLock(() => writeJsonAtomic(target, record), target)
+  withStateLock(() => {
+    const store = readSignInKeyStoreUnlocked()
+    store[normalizedEmail] = { apiKey, apiKeyId }
+    writeJsonAtomic(target, store)
+  }, target)
 }
 
-// Delete the cache only when it still holds the record this flow saved. A stale
-// completion must not remove a newer key another concurrent flow cached for a
-// different email, which would force that flow to mint a redundant key.
+// Delete only this email's entry, and only when it still holds the key this flow
+// cached, so a stale completion cannot remove a newer key another concurrent
+// flow cached for the same account.
 export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
   const target = signInKeyPath()
+  const normalizedEmail = normalizeEmail(email)
   withStateLock(() => {
-    const record = readSignInKeyUnlocked()
-    if (
-      record &&
-      record.email === normalizeEmail(email) &&
-      record.apiKeyId === apiKeyId
-    ) {
+    const store = readSignInKeyStoreUnlocked()
+    if (store[normalizedEmail]?.apiKeyId !== apiKeyId) return
+    delete store[normalizedEmail]
+    if (Object.keys(store).length === 0) {
       rmSync(target, { force: true })
+    } else {
+      writeJsonAtomic(target, store)
     }
   }, target)
 }

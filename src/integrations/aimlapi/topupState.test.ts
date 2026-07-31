@@ -198,21 +198,36 @@ test('sign-in key cache rejects records missing the key identifier', () => {
   expect(existsSync(cachePath)).toBe(false)
 })
 
-test('sign-in key clear leaves a newer cached record intact', () => {
+test('sign-in key cache retains a separate record per email', () => {
+  useTemporaryConfig()
+  saveAimlapiSignInKey('a@example.com', 'k_a', 'id_a')
+  // A concurrent or interrupted sign-in for another account must NOT evict the
+  // first account's recovery key (which previously forced a duplicate mint).
+  saveAimlapiSignInKey('b@example.com', 'k_b', 'id_b')
+
+  expect(loadAimlapiSignInKey('a@example.com')).toEqual({ apiKey: 'k_a', apiKeyId: 'id_a' })
+  expect(loadAimlapiSignInKey('b@example.com')).toEqual({ apiKey: 'k_b', apiKeyId: 'id_b' })
+})
+
+test('sign-in key clear removes only the owning email and keeps the others', () => {
   useTemporaryConfig()
   saveAimlapiSignInKey('user@example.com', 'k_signin', 'id_signin')
-
-  // A concurrent flow replaced the cache with a newer key for another email.
   saveAimlapiSignInKey('other@example.com', 'k_other', 'id_other')
 
-  // The stale completion for the original email/id must not delete it.
+  // Clearing one email leaves the other account's record intact...
   clearAimlapiSignInKey('user@example.com', 'id_signin')
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
   expect(loadAimlapiSignInKey('other@example.com')).toEqual({
     apiKey: 'k_other',
     apiKeyId: 'id_other',
   })
 
-  // The owning flow still clears its own record.
+  // ...and a mismatched id never deletes an entry.
+  clearAimlapiSignInKey('other@example.com', 'stale-id')
+  expect(loadAimlapiSignInKey('other@example.com')).toEqual({
+    apiKey: 'k_other',
+    apiKeyId: 'id_other',
+  })
   clearAimlapiSignInKey('other@example.com', 'id_other')
   expect(loadAimlapiSignInKey('other@example.com')).toBeNull()
 })

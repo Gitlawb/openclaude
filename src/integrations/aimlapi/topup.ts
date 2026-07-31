@@ -225,7 +225,13 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       },
       createdAt: new Date().toISOString(),
     })
-    clearAimlapiTopupState({ ...intent, paymentSessionId: checkoutState.paymentSessionId })
+    // Best-effort cleanup: the profile is already saved, so a lock/permission/IO
+    // failure clearing the receipt must not report the whole top-up as failed.
+    try {
+      clearAimlapiTopupState({ ...intent, paymentSessionId: checkoutState.paymentSessionId })
+    } catch {
+      // The receipt is a resume aid; a stale one is re-reconciled on the next run.
+    }
     console.log(chalk.green('\n  [OK] Balance topped up and provider configured.'))
     console.log(`    key      ${chalk.dim(maskKey(provisioned.apiKey))}  (id ${provisioned.apiKeyId})`)
     console.log(`    base URL ${chalk.dim(provisioned.baseUrl)}`)

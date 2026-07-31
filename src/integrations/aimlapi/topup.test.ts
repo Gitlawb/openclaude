@@ -85,6 +85,9 @@ test('parseAimlapiAmountUsd enforces checkout bounds', () => {
   expect(() => parseAimlapiAmountUsd('10000.01')).toThrow('Maximum top-up is $10000')
   expect(() => parseAimlapiAmountUsd('19.999')).toThrow('Pass a valid USD amount')
   expect(() => parseAimlapiAmountUsd('10000.004')).toThrow('Pass a valid USD amount')
+  // Scientific notation must not slip sub-cent precision past the rounding.
+  expect(() => parseAimlapiAmountUsd('20.001e0')).toThrow('Pass a valid USD amount')
+  expect(() => parseAimlapiAmountUsd('2.0001e1')).toThrow('Pass a valid USD amount')
   expect(() => parseAimlapiAmountUsd('nope')).toThrow('Pass a positive number of USD')
   expect(() => parseAimlapiAmountUsd('Infinity')).toThrow('Pass a positive number of USD')
 })

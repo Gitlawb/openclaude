@@ -1004,7 +1004,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function resetAimlapiCheckoutIntent(): void {
     if (aimlapiPersistedIntentRef.current) {
-      clearAimlapiTopupState(aimlapiPersistedIntentRef.current)
+      // Best-effort: this also runs in a synchronous save callback after the
+      // profile is written, so a lock/permission/IO failure clearing the receipt
+      // must not turn a successful configuration into a failure.
+      try {
+        clearAimlapiTopupState(aimlapiPersistedIntentRef.current)
+      } catch {
+        // The receipt is a resume aid; a stale one is reconciled on the next run.
+      }
       aimlapiPersistedIntentRef.current = null
     }
     setAimlapiResumeSessionToken('')
