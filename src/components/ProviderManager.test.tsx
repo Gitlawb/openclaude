@@ -1861,7 +1861,10 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
     mounted.stdin.write('0')
-    await Bun.sleep(25)
+    // Wait until the edited amount is reflected in the rendered frame (not a fixed
+    // delay) before submitting, so Enter is never processed against the stale
+    // amount on a slow runner.
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Amount: $250'))
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('unpaid checkout is still open'),
@@ -1881,7 +1884,9 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
     mounted.stdin.write('0')
-    await Bun.sleep(25)
+    // Same as above: synchronize on the rendered edited amount rather than a fixed
+    // delay before submitting.
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Amount: $2500'))
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('unpaid checkout is still open'),

@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import chalk from 'chalk'
 
 import { openBrowser } from '../../utils/browser.js'
+import { logForDebugging } from '../../utils/debug.js'
 import { saveProfileFile } from '../../utils/providerProfile.js'
 import {
   AimlapiApiError,
@@ -730,8 +731,19 @@ async function exchangeKeyWithLease(
         return await doExchange()
       } catch (error) {
         // Release the lease so a retry proceeds promptly instead of waiting out
-        // the stale window; the settled receipt supersedes it on success.
-        await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(() => {})
+        // the stale window; the settled receipt supersedes it on success. If the
+        // release itself fails the lease still expires on its own (only more
+        // slowly), so this is non-fatal — but record why, so a lock/permission
+        // problem behind the delay is diagnosable. Debug logging is file-backed,
+        // so this stays safe on the Ink GUI path too.
+        await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(
+          (releaseError: unknown) => {
+            logForDebugging(
+              `Failed to release the AI/ML API exchange lease: ${String(releaseError)}`,
+              { level: 'warn' },
+            )
+          },
+        )
         throw error
       }
     }

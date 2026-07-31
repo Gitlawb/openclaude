@@ -142,7 +142,7 @@ test('releasing the exchange lease is scoped to the owner and never drops a sett
 })
 
 test('a future-dated exchange lease is reclaimed instead of pinning the slot forever', async () => {
-  useTemporaryConfig()
+  const directory = useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
   const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
 
@@ -150,12 +150,20 @@ test('a future-dated exchange lease is reclaimed instead of pinning the slot for
   // state file). A negative age would read as perpetually fresh — and clamping it
   // to 0 would still keep it held — so every peer would deadlock. It must be
   // treated as stale and reclaimed.
+  const futureLeaseAt = Date.now() + 60 * 60 * 1000
   saveAimlapiTopupState({
     ...expected,
     resumeSessionToken: '',
     exchangeLeaseOwner: 'ghost-owner',
-    exchangeLeaseAt: Date.now() + 60 * 60 * 1000,
+    exchangeLeaseAt: futureLeaseAt,
   })
+  // Guard against a vacuous pass: if the seeding compare-and-swap were rejected,
+  // no lease would exist and acquire would report 'acquired' without ever
+  // exercising the future-dated reclaim path. Confirm the lease actually landed.
+  const seeded = JSON.parse(readFileSync(join(directory, 'aimlapi-topup.json'), 'utf8'))
+  expect(seeded.exchangeLeaseOwner).toBe('ghost-owner')
+  expect(seeded.exchangeLeaseAt).toBe(futureLeaseAt)
+
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
