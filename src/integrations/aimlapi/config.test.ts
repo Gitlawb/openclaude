@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
+  buildPartnerCheckoutReturnUrls,
+  buildPartnerReturnUrl,
   isCanonicalAimlapiInferenceBaseUrl,
   isTrustedAimlapiRequestUrl,
   resolveAimlapiAttributionHeaders,
@@ -12,7 +14,10 @@ import {
 const envNames = [
   'AIMLAPI_AUTH_URL',
   'AIMLAPI_APP_URL',
+  'AIMLAPI_PAY_URL',
   'AIMLAPI_INFERENCE_URL',
+  'AIMLAPI_VERIFICATION_BASE_URL',
+  'AIMLAPI_RETURN_URL',
   'AIMLAPI_PARTNER_ID',
 ] as const
 const originalEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]))
@@ -74,6 +79,34 @@ test('canonical endpoint check excludes proxies and look-alike paths', () => {
   expect(isCanonicalAimlapiInferenceBaseUrl('https://proxy.example.test/v1')).toBe(false)
   // Garbage input fails closed.
   expect(isCanonicalAimlapiInferenceBaseUrl('not-a-url')).toBe(false)
+})
+
+test('checkout return URLs require a credential-free HTTPS base', () => {
+  const { successUrl, cancelUrl } = buildPartnerCheckoutReturnUrls(
+    'https://pay.aimlapi.com',
+    'sess_1',
+  )
+  expect(successUrl).toContain('https://pay.aimlapi.com/checkout?')
+  expect(successUrl).toContain('sessionToken=sess_1')
+  expect(cancelUrl).toContain('checkout=cancel')
+  // These URLs carry the resumable session token, so a cleartext or credentialed
+  // base must be rejected before a session is created.
+  expect(() => buildPartnerCheckoutReturnUrls('http://pay.aimlapi.com', 'sess_1')).toThrow(
+    /https/i,
+  )
+  expect(() =>
+    buildPartnerCheckoutReturnUrls('https://user:pass@pay.aimlapi.com', 'sess_1'),
+  ).toThrow(/credential/i)
+  expect(() => buildPartnerCheckoutReturnUrls('not-a-url', 'sess_1')).toThrow()
+})
+
+test('the browser return URL ignores a non-HTTPS override', () => {
+  process.env.AIMLAPI_RETURN_URL = 'http://landing.example.test'
+  expect(buildPartnerReturnUrl('https://front.example.test')).toBe('https://front.example.test')
+  process.env.AIMLAPI_RETURN_URL = 'https://landing.example.test'
+  expect(buildPartnerReturnUrl('https://front.example.test')).toBe('https://landing.example.test')
+  delete process.env.AIMLAPI_RETURN_URL
+  expect(buildPartnerReturnUrl('http://front.example.test')).toBe('https://aimlapi.com/app')
 })
 
 test('trusted-host gate accepts only https aimlapi.com hosts', () => {

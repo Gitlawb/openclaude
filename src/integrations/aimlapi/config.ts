@@ -199,7 +199,10 @@ export function buildPartnerCheckoutReturnUrls(
   payBaseUrl: string,
   sessionToken: string,
 ): { successUrl: string; cancelUrl: string } {
-  const base = payBaseUrl.replace(/\/+$/, '')
+  // The return URLs carry the resumable sessionToken, so the checkout base MUST
+  // be a credential-free HTTPS URL — a cleartext callback would hand the payment
+  // provider a browser link containing the checkout credential.
+  const base = requireHttpsBaseUrl(payBaseUrl, 'AIMLAPI_PAY_URL').replace(/\/+$/, '')
   const token = encodeURIComponent(sessionToken)
   const query = (status: string): string =>
     `checkout=${status}&partnerCheckout=1&sessionToken=${token}`
@@ -217,22 +220,48 @@ export function buildPartnerCheckoutReturnUrls(
  */
 export function buildPartnerReturnUrl(frontendBaseUrl: string): string {
   return (
-    safeHttpBaseUrl(process.env.AIMLAPI_RETURN_URL) ??
-    safeHttpBaseUrl(frontendBaseUrl) ??
+    safeHttpsBaseUrl(process.env.AIMLAPI_RETURN_URL) ??
+    safeHttpsBaseUrl(frontendBaseUrl) ??
     DEFAULT_RETURN_URL
   )
 }
 
-function safeHttpBaseUrl(value: string | undefined): string | null {
+/** A trimmed https:// base URL without embedded credentials, or null. */
+function safeHttpsBaseUrl(value: string | undefined): string | null {
   const candidate = value?.trim()
   if (!candidate) return null
   try {
     const url = new URL(candidate)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-    // Embedded credentials in a landing URL are never legitimate here.
+    // The setup guide promises an HTTPS return target; a cleartext landing page
+    // is not honored. Embedded credentials are never legitimate here either.
+    if (url.protocol !== 'https:') return null
     if (url.username || url.password) return null
     return candidate
   } catch {
     return null
   }
+}
+
+/**
+ * Require a credential-free https:// base URL, throwing otherwise. Used for the
+ * checkout base, whose return URLs embed the resumable session token and must
+ * never be sent over cleartext.
+ */
+function requireHttpsBaseUrl(value: string, label: string): string {
+  const candidate = value.trim()
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    throw new Error(`${label} must be a valid https:// URL.`)
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(
+      `${label} must use https:// so the checkout callback carrying the session token is not sent in cleartext.`,
+    )
+  }
+  if (url.username || url.password) {
+    throw new Error(`${label} must not embed credentials.`)
+  }
+  return candidate
 }

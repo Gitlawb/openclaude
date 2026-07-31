@@ -16,9 +16,10 @@ export function parseAimlapiAmountUsd(amountUsd: string | undefined): number {
   if (!Number.isFinite(dollars) || dollars <= 0) {
     throw new Error(`Invalid amount: "${amountUsd}". Pass a positive number of USD.`)
   }
-  // Reject sub-cent precision rather than silently rounding a user's amount.
-  const decimal = /^\d+\.(\d+)$/.exec(normalized)
-  if (decimal && decimal[1].length > 2) {
+  // Only accept a plain decimal with at most two fractional digits. This rejects
+  // scientific notation (e.g. "20.001e0"), signs, and sub-cent precision that
+  // Number() would otherwise silently round into a wrong charge.
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
     throw new Error(`Invalid amount: "${amountUsd}". Pass a valid USD amount.`)
   }
   const minor = Math.round(dollars * 100)
