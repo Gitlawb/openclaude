@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { hasUnknownModelCost, resetCostState } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -70,8 +71,10 @@ test('fast-mode Opus 4.8 is charged the elevated fast-mode tier, normal otherwis
 // (both valid arbitrary ids for custom/OpenAI-compatible providers, and already
 // lowercase so getCanonicalName returns them unchanged) resolved to a truthy
 // prototype value, bypassing the `!costs` unknown-model guard: the cost math
-// then read undefined fields and produced NaN, permanently poisoning the running
-// session total, and getModelPricingString rendered "$NaN/$NaN per Mtok".
+// then read undefined fields and produced NaN, which flowed into the running
+// session total and stuck it at $NaN. (getModelPricingString has no production
+// callers; pre-fix it threw a TypeError from formatPrice(undefined) for these
+// ids -- the own-property guard makes it return undefined instead.)
 test('proto-member model ids fall through the unknown-model path, not NaN', async () => {
   mock.module('./model/model.js', () => ({
     firstPartyNameToCanonical: (model: string) => model,
@@ -90,12 +93,21 @@ test('proto-member model ids fall through the unknown-model path, not NaN', asyn
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
 
-  for (const name of ['constructor', '__proto__']) {
-    // DEFAULT_UNKNOWN_MODEL_COST is COST_TIER_5_25 (see modelCost.ts).
-    expect(getModelCosts(name, usage)).toEqual(COST_TIER_5_25)
-    const cost = calculateUSDCost(name, usage)
-    expect(Number.isNaN(cost)).toBe(false)
-    expect(cost).toBeGreaterThan(0)
-    expect(getModelPricingString(name)).toBeUndefined()
+  try {
+    for (const name of ['constructor', '__proto__']) {
+      // DEFAULT_UNKNOWN_MODEL_COST is COST_TIER_5_25 (see modelCost.ts).
+      expect(getModelCosts(name, usage)).toEqual(COST_TIER_5_25)
+      const cost = calculateUSDCost(name, usage)
+      // Number.isFinite rejects Infinity too, not just NaN.
+      expect(Number.isFinite(cost)).toBe(true)
+      expect(cost).toBeGreaterThan(0)
+      expect(getModelPricingString(name)).toBeUndefined()
+    }
+    // Lock in the unknown-model detection path: dropping trackUnknownModelCost
+    // while keeping the fallback tier would otherwise still pass the checks above.
+    expect(hasUnknownModelCost()).toBe(true)
+  } finally {
+    // Clear the process-wide flag so this suite cannot leak into another.
+    resetCostState()
   }
 })
