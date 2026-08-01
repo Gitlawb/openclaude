@@ -8,6 +8,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock'
 import {
+  preferDiscoveredOrKnownContextWindow,
   resolveModelRuntimeLimits,
   resolveOpenAIShimRuntimeContext,
 } from '../integrations/runtimeMetadata'
@@ -419,6 +420,123 @@ describe('resolveModelRuntimeLimits', () => {
         }).contextWindow,
       ).toBe(2_000_000)
     })
+  })
+
+  it('ignores generic 128k discovery defaults when a known model descriptor is larger', async () => {
+    // OmniRoute and similar gateways report context_length: 128000 for every
+    // model when they lack per-model metadata. That must not shadow gpt-5.4's
+    // 1.05M descriptor (premature auto-compact).
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'gpt-5.4',
+              apiName: 'gpt-5.4',
+              label: 'gpt-5.4',
+              contextWindow: 128_000,
+            },
+            {
+              id: 'openai/gpt-5.4',
+              apiName: 'openai/gpt-5.4',
+              label: 'openai/gpt-5.4',
+              contextWindow: 128_000,
+            },
+          ],
+        },
+      )
+
+      for (const model of ['gpt-5.4', 'openai/gpt-5.4']) {
+        expect(
+          resolveModelRuntimeLimits({
+            model,
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
+            },
+          }).contextWindow,
+        ).toBe(1_050_000)
+      }
+    })
+  })
+
+  it('still trusts non-default discovery values over a larger descriptor', async () => {
+    // If a proxy intentionally advertises a non-128k window (e.g. a real 200k
+    // cap), keep trusting discovery even when a descriptor is larger.
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'gpt-5.4',
+              apiName: 'gpt-5.4',
+              label: 'gpt-5.4',
+              contextWindow: 200_000,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'gpt-5.4',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+          },
+        }).contextWindow,
+      ).toBe(200_000)
+    })
+  })
+
+  it('lets an exact env override beat a wrong discovery-cache context window', async () => {
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'my-codex-combo',
+              apiName: 'my-codex-combo',
+              label: 'my-codex-combo',
+              contextWindow: 128_000,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'my-codex-combo',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+            CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+              'my-codex-combo': 1_000_000,
+            }),
+          },
+        }).contextWindow,
+      ).toBe(1_000_000)
+    })
+  })
+
+  it('preferDiscoveredOrKnownContextWindow rescues known models from generic 128k discovery', () => {
+    expect(preferDiscoveredOrKnownContextWindow(128_000, 1_050_000)).toBe(1_050_000)
+    expect(preferDiscoveredOrKnownContextWindow(200_000, 1_050_000)).toBe(200_000)
+    expect(preferDiscoveredOrKnownContextWindow(128_000, 128_000)).toBe(128_000)
+    expect(preferDiscoveredOrKnownContextWindow(undefined, 1_050_000)).toBe(1_050_000)
+    expect(preferDiscoveredOrKnownContextWindow(1_000_000, undefined)).toBe(1_000_000)
   })
 })
 

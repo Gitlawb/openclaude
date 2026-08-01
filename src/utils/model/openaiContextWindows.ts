@@ -9,8 +9,9 @@
  * This module only produces the *override candidates* (exact/prefix env-var
  * matches and the settings `modelLimits` match); it does not decide the overall
  * precedence. The authoritative runtime chain — exact env override, then the
- * catalog/discovery cache, then the prefix env override, then settings
- * `modelLimits`, then the descriptor default — is applied by
+ * built-in catalog, then the prefix env override, then settings `modelLimits`,
+ * then discovery (with a known-descriptor rescue for the generic 128k proxy
+ * default), then the descriptor default — is applied by
  * resolveModelRuntimeLimits in integrations/runtimeMetadata.ts. Keep precedence
  * changes there, not duplicated here.
  */
