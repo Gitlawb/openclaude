@@ -503,7 +503,7 @@ function _temp(s) {
 // every focus change while the picker is open, and the rebuild is the dominant
 // cost with large model catalogs (e.g. hundreds of discovered/catalogued
 // models).
-function isGenuineSwitchProfileValue(value: string): boolean {
+export function isGenuineSwitchProfileValue(value: string): boolean {
   if (!value.startsWith(SWITCH_PROFILE_VALUE_PREFIX)) {
     return false
   }
