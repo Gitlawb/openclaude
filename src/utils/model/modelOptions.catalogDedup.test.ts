@@ -11,6 +11,7 @@ import {
 import * as actualIndex from '../../integrations/index.js'
 import * as actualProviderConfig from '../../services/api/providerConfig.js'
 import * as actualProviderProfiles from '../providerProfiles.js'
+import * as actualProviders from './providers.js'
 import type { ModelOption } from './modelOptions.js'
 
 // Snapshot the real modules before any mock.module runs (same lesson as the
@@ -20,6 +21,7 @@ import type { ModelOption } from './modelOptions.js'
 const realIndex = { ...actualIndex }
 const realProviderConfig = { ...actualProviderConfig }
 const realProviderProfiles = { ...actualProviderProfiles }
+const realProviders = { ...actualProviders }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // each mock installed here is gated and falls through to the real
@@ -28,6 +30,37 @@ const realProviderProfiles = { ...actualProviderProfiles }
 let activeCatalogEntries: ModelCatalogEntry[] | null = null
 let activeCacheScopeOverride: string | null = null
 let activeProfileOverride: Partial<typeof actualProviderProfiles> | null = null
+let activeOpenAIProvider = false
+
+mock.module('./providers.js', () => ({
+  ...realProviders,
+  getAPIProvider: () =>
+    activeOpenAIProvider ? 'openai' : realProviders.getAPIProvider(),
+  getAPIProviderForStatsig: () =>
+    activeOpenAIProvider
+      ? 'openai'
+      : realProviders.getAPIProviderForStatsig(),
+  isFirstPartyAnthropicBaseUrl: (...args: Parameters<typeof realProviders.isFirstPartyAnthropicBaseUrl>) =>
+    activeOpenAIProvider
+      ? false
+      : realProviders.isFirstPartyAnthropicBaseUrl(...args),
+  isFirstPartyAnthropicProvider: (...args: Parameters<typeof realProviders.isFirstPartyAnthropicProvider>) =>
+    activeOpenAIProvider
+      ? false
+      : realProviders.isFirstPartyAnthropicProvider(...args),
+  isCustomAnthropicProvider: (...args: Parameters<typeof realProviders.isCustomAnthropicProvider>) =>
+    activeOpenAIProvider
+      ? false
+      : realProviders.isCustomAnthropicProvider(...args),
+  isGithubNativeAnthropicMode: (...args: Parameters<typeof realProviders.isGithubNativeAnthropicMode>) =>
+    activeOpenAIProvider
+      ? false
+      : realProviders.isGithubNativeAnthropicMode(...args),
+  usesAnthropicAccountFlow: (...args: Parameters<typeof realProviders.usesAnthropicAccountFlow>) =>
+    activeOpenAIProvider
+      ? false
+      : realProviders.usesAnthropicAccountFlow(...args),
+}))
 
 mock.module('../../integrations/index.js', () => ({
   ...realIndex,
@@ -54,15 +87,6 @@ mock.module('../providerProfiles.js', () => ({
 }))
 
 async function importFreshModelOptionsModule() {
-  mock.module('./providers.js', () => ({
-    getAPIProvider: () => 'openai',
-    getAPIProviderForStatsig: () => 'openai',
-    isFirstPartyAnthropicBaseUrl: () => false,
-    isFirstPartyAnthropicProvider: () => false,
-    isCustomAnthropicProvider: () => false,
-    isGithubNativeAnthropicMode: () => false,
-    usesAnthropicAccountFlow: () => false,
-  }))
   const nonce = `${Date.now()}-${Math.random()}`
   const modelModule = await import(`./model.js?catalogDedup=${nonce}`)
   mock.module('./model.js', () => modelModule)
@@ -74,6 +98,7 @@ async function getRouteCatalogModelOptions(
   model: string,
 ): Promise<ModelOption[]> {
   activeCatalogEntries = entries
+  activeOpenAIProvider = true
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
   process.env.OPENAI_API_KEY = 'sk-test'
@@ -119,6 +144,7 @@ beforeEach(async () => {
   activeCatalogEntries = null
   activeCacheScopeOverride = null
   activeProfileOverride = null
+  activeOpenAIProvider = false
   setSessionSettingsCache({ settings: {}, errors: [] })
   for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
     delete process.env[key]
@@ -133,6 +159,7 @@ afterEach(() => {
     activeCatalogEntries = null
     activeCacheScopeOverride = null
     activeProfileOverride = null
+    activeOpenAIProvider = false
     resetSettingsCache()
     for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
       restoreEnvValue(key)

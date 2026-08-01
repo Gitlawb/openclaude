@@ -8,6 +8,7 @@ import {
   setSessionSettingsCache,
 } from '../utils/settings/settingsCache.js'
 import * as actualAuth from '../utils/auth.js'
+import * as actualModelOptions from '../utils/model/modelOptions.js'
 import * as actualProviderProfiles from '../utils/providerProfiles.js'
 import * as actualProviders from '../utils/model/providers.js'
 import type { ProviderProfile } from '../utils/config.js'
@@ -16,6 +17,7 @@ import type { ProviderProfile } from '../utils/config.js'
 // `actual*` namespaces to the active mock, so these plain-object copies are the
 // stable handle on the genuine implementations (2026-04-30 mock-leak lesson).
 const realAuth = { ...actualAuth }
+const realModelOptions = { ...actualModelOptions }
 const realProviderProfiles = { ...actualProviderProfiles }
 const realProviders = { ...actualProviders }
 
@@ -85,7 +87,12 @@ async function importFreshModelPicker(
   const modelOptionsModule = await import(
     `../utils/model/modelOptions.js?switchProfile=${nonce}`
   )
-  mock.module('../utils/model/modelOptions.js', () => modelOptionsModule)
+  // Gated on the profile override: when no test is actively driving the
+  // profiles, later suites importing modelOptions.js keep resolving to the
+  // real canonical module instead of a stale fresh instance.
+  mock.module('../utils/model/modelOptions.js', () =>
+    activeProfilesOverride ? modelOptionsModule : realModelOptions,
+  )
   return import(`./ModelPicker.js?switchProfile=${nonce}`)
 }
 
