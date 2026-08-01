@@ -2070,7 +2070,7 @@ async function run(): Promise<CommanderCommand> {
     // If user didn't specify a model but agent has one, use the agent's model
     let effectiveModel = userSpecifiedModel;
     if (!effectiveModel && mainThreadAgentDefinition?.model && mainThreadAgentDefinition.model !== 'inherit') {
-      effectiveModel = parseUserSpecifiedModel(mainThreadAgentDefinition.model);
+      effectiveModel = mainThreadAgentDefinition.model;
     }
     setMainLoopModelOverride(effectiveModel);
 

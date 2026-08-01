@@ -58,6 +58,7 @@ import { clearSessionHooks } from '../../utils/hooks/sessionHooks.js'
 import { executeSubagentStartHooks } from '../../utils/hooks.js'
 import { createUserMessage } from '../../utils/messages.js'
 import { getAgentModel } from '../../utils/model/agent.js'
+import { getProviderRequestModel } from '../../utils/model/model.js'
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js'
 import { resolveAgentRunModelRouting, shouldEnforceModelAllowlist } from '../../services/api/agentRouting.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
@@ -361,7 +362,11 @@ export async function* runAgent({
   // Resolve per-agent provider routing from settings
   const settings = getInitialSettings()
 
-  const { mainLoopModel: effectiveModel, providerOverride } =
+  const {
+    mainLoopModel: effectiveModel,
+    providerOverride,
+    routed: isExplicitlyRouted,
+  } =
     resolveAgentRunModelRouting({
       resolvedAgentModel,
       parentModel: toolUseContext.options.mainLoopModel,
@@ -372,6 +377,28 @@ export async function* runAgent({
       settings,
       permissionMode,
     })
+
+  // Keep the concrete model in the tool context, but preserve a codexplan
+  // selection in agent state when it still resolves to that concrete model.
+  // Query uses the state value only at the provider boundary, where custom
+  // gateways distinguish the legacy alias from an explicit GPT-5.6 Sol model.
+  const requestedToolModel = model?.trim()
+  const requestedSubagentModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL?.trim()
+  const rawAgentSelection =
+    isExplicitlyRouted
+      ? effectiveModel
+      : requestedSubagentModel ||
+        (requestedToolModel && requestedToolModel.toLowerCase() !== 'inherit'
+        ? requestedToolModel
+        : agentDefinition.model && agentDefinition.model !== 'inherit'
+          ? agentDefinition.model
+          : appState.mainLoopModelForSession ??
+            appState.mainLoopModel ??
+            effectiveModel)
+  const agentProviderRequestModel = getProviderRequestModel(
+    rawAgentSelection,
+    effectiveModel,
+  )
 
   if (
     shouldEnforceModelAllowlist(
@@ -523,8 +550,8 @@ export async function* runAgent({
         : state.effortValue
 
     const modelStateChanged =
-      state.mainLoopModel !== effectiveModel ||
-      state.mainLoopModelForSession !== effectiveModel
+      state.mainLoopModel !== agentProviderRequestModel ||
+      state.mainLoopModelForSession !== agentProviderRequestModel
 
     if (
       toolPermissionContext === state.toolPermissionContext &&
@@ -535,8 +562,8 @@ export async function* runAgent({
     }
     return {
       ...state,
-      mainLoopModel: effectiveModel,
-      mainLoopModelForSession: effectiveModel,
+      mainLoopModel: agentProviderRequestModel,
+      mainLoopModelForSession: agentProviderRequestModel,
       toolPermissionContext,
       effortValue,
     }

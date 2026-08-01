@@ -26,6 +26,20 @@ describe('getActiveSessionAgentModelSelection', () => {
     expect(selection.mainLoopModelForSession).toBe('agent-specific-model')
   })
 
+  test('retains codexplan for provider-boundary routing', () => {
+    const selection = getActiveSessionAgentModelSelection({
+      agent: createAgent('codexplan'),
+      baseMainLoopModel: 'sonnet',
+      hasExplicitModelOverride: false,
+      hasAgentManagedModel: false,
+    })
+
+    expect(selection).toEqual({
+      shouldUpdateModel: true,
+      mainLoopModelForSession: 'codexplan',
+    })
+  })
+
   test('preserves an explicit model override when selecting an agent with a model', () => {
     const selection = getActiveSessionAgentModelSelection({
       agent: createAgent('agent-specific-model'),

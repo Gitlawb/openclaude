@@ -30,6 +30,8 @@ export function isProviderOverride(route: AgentRoute): route is ProviderOverride
 export interface AgentRunModelRouting {
   mainLoopModel: string
   providerOverride?: ProviderOverride
+  /** True when an explicit agent route selected this model. */
+  routed?: boolean
 }
 
 type AgentModelConfig = NonNullable<SettingsJson['agentModels']>[string]
@@ -199,10 +201,11 @@ export function resolveAgentRunModelRouting({
     const route = resolveAgentModelProvider(toolRequestedModel, settings)
     if (!route) return { mainLoopModel: resolvedAgentModel }
     if (isProviderOverride(route)) {
-      return { mainLoopModel: route.model, providerOverride: route }
+      return { mainLoopModel: route.model, providerOverride: route, routed: true }
     }
     return {
       mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
+      routed: true,
     }
   }
 
@@ -211,10 +214,11 @@ export function resolveAgentRunModelRouting({
     resolveAgentModelProvider(agentDefinitionModel, settings)
   if (!route) return { mainLoopModel: resolvedAgentModel }
   if (isProviderOverride(route)) {
-    return { mainLoopModel: route.model, providerOverride: route }
+    return { mainLoopModel: route.model, providerOverride: route, routed: true }
   }
   return {
     mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
+    routed: true,
   }
 }
 

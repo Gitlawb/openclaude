@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  getMainLoopModelOverride,
   getSessionId,
   getSessionProjectDir,
   isSessionPersistenceDisabled,
+  setMainLoopModelOverride,
   setSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
@@ -29,6 +31,7 @@ import {
 } from './sessionStorage.ts'
 import {
   processResumedConversation,
+  restoreAgentFromSession,
   type ProcessedResume,
 } from './sessionRestore.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
@@ -45,6 +48,7 @@ let originalSkipPromptHistory: string | undefined
 let originalSessionId: string
 let originalSessionProjectDir: string | null
 let originalPersistenceDisabled: boolean
+let originalMainLoopModelOverride: ReturnType<typeof getMainLoopModelOverride>
 
 function id(n: number): UUID {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}` as UUID
@@ -251,6 +255,7 @@ beforeEach(async () => {
   originalSessionId = getSessionId()
   originalSessionProjectDir = getSessionProjectDir()
   originalPersistenceDisabled = isSessionPersistenceDisabled()
+  originalMainLoopModelOverride = getMainLoopModelOverride()
 
   process.env.NODE_ENV = 'test'
   process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
@@ -289,6 +294,7 @@ afterEach(async () => {
         originalSkipPromptHistory
     }
     setSessionPersistenceDisabled(originalPersistenceDisabled)
+    setMainLoopModelOverride(originalMainLoopModelOverride)
     switchSession(originalSessionId as never, originalSessionProjectDir)
     resetProjectForTesting()
     releaseSharedMutationLock()
@@ -420,5 +426,22 @@ describe('forked session resume', () => {
     expect(String(getSessionId())).toBe(sourceSessionId)
     expect(getTranscriptPath()).toBe(sourceFile)
     expect(forkInfoMessage(result.messages)).toBeUndefined()
+  })
+})
+
+describe('restoreAgentFromSession', () => {
+  test('retains codexplan as the provider-boundary selection', () => {
+    setMainLoopModelOverride(undefined)
+    const agent = {
+      agentType: 'planner',
+      model: 'codexplan',
+    } as unknown as import('../tools/AgentTool/loadAgentsDir.js').AgentDefinition
+
+    restoreAgentFromSession('planner', undefined, {
+      activeAgents: [agent],
+      allAgents: [agent],
+    })
+
+    expect(getMainLoopModelOverride()).toBe('codexplan')
   })
 })

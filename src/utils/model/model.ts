@@ -896,6 +896,20 @@ export function parseUserSpecifiedModel(
   return modelInputTrimmed
 }
 
+// Keep the concrete runtime model for context, display, and capability lookup,
+// but retain codexplan at the provider boundary: custom gateways deliberately
+// give that legacy alias a different default effort than explicit GPT-5.6 Sol.
+export function getProviderRequestModel(
+  selectedModel: string,
+  runtimeModel: string,
+): string {
+  const selected = selectedModel.trim()
+  const base = selected.replace(/\[1m]$/i, '').split('?', 1)[0]?.toLowerCase()
+  return base === 'codexplan' && parseUserSpecifiedModel(selected) === runtimeModel
+    ? selected
+    : runtimeModel
+}
+
 /**
  * Resolves a skill's `model:` frontmatter against the current model, carrying
  * the `[1m]` suffix over when the target family supports it.
