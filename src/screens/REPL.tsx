@@ -8,6 +8,7 @@ import { count } from '../utils/array.js';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import figures from 'figures';
+import chalk from 'chalk';
 // eslint-disable-next-line custom-rules/prefer-use-keybindings -- / n N Esc [ v are bare letters in transcript modal context, same class as g/G/j/k in ScrollKeybindingHandler
 import { useInput } from '../ink.js';
 import { useSearchInput } from '../hooks/useSearchInput.js';
@@ -38,7 +39,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
-import { resolveReplMaxTurns } from './replMaxTurns.js';
+import { getReplMaxTurnsWarning, resolveReplMaxTurns } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -661,6 +662,15 @@ export function REPL({
   // Resolve at query time so `/config` changes apply on the next prompt
   // without requiring a REPL remount. CLI prop still wins over env/config.
   const isRemoteSession = !!remoteSessionConfig;
+  const foregroundTurnCountRef = useRef(1);
+  const foregroundModelTurnStartedRef = useRef(false);
+
+  useEffect(() => {
+    const warning = getReplMaxTurnsWarning(maxTurnsProp);
+    if (warning && !isRemoteSession && !directConnectConfig && !sshSession) {
+      process.stderr.write(chalk.yellow(`${warning}\n`));
+    }
+  }, [maxTurnsProp, isRemoteSession, directConnectConfig, sshSession]);
 
   // Env-var gates hoisted to mount-time — isEnvTruthy does toLowerCase+trim+
   // includes, and these were on the render path (hot during PageUp spam).
@@ -2877,6 +2887,7 @@ export function REPL({
           toolUseContext,
           fallbackModel,
           maxTurns: resolveReplMaxTurns(maxTurnsProp),
+          initialTurnCount: foregroundTurnCountRef.current + (foregroundModelTurnStartedRef.current ? 1 : 0),
           querySource: getQuerySourceForREPL(),
           autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
           onAutoCompactTrackingChange: tracking => {
@@ -3103,16 +3114,17 @@ export function REPL({
     for await (const event of query({
       messages: messagesIncludingNewMessages,
       requestOnlyMessages,
-      onModelRequestStart: interruptionCorrectionQueryId
-        ? () => {
+      onModelRequestStart: () => {
+            foregroundModelTurnStartedRef.current = true;
+            if (interruptionCorrectionQueryId) {
             interruptionCorrectionTracker.bindModelTurn({
               shouldQuery,
               isInterruptionCorrectionEligible: true,
               queryId: interruptionCorrectionQueryId,
             })
             onModelRequestStart?.()
-          }
-        : undefined,
+            }
+          },
       systemPrompt,
       userContext,
       systemContext,
@@ -3121,6 +3133,10 @@ export function REPL({
       querySource: getQuerySourceForREPL(),
       fallbackModel,
       maxTurns: resolveReplMaxTurns(maxTurnsProp),
+      onTurnCountChange: turnCount => {
+        foregroundTurnCountRef.current = turnCount;
+        foregroundModelTurnStartedRef.current = false;
+      },
       autoCompactTracking: queryAutoCompactTracking,
       onAutoCompactTrackingChange: tracking => {
         if (setAutoCompactTrackingForSessionIfUnchanged(querySessionId, expectedAutoCompactTracking, tracking)) {
@@ -3185,6 +3201,8 @@ export function REPL({
     }
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
+    foregroundTurnCountRef.current = 1;
+    foregroundModelTurnStartedRef.current = false;
     const queryContext = startResult.context;
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);

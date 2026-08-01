@@ -123,7 +123,7 @@ import { getModelDeprecationWarning } from './utils/model/deprecation.js';
 import { getDefaultMainLoopModel, getUserSpecifiedModelSetting, normalizeModelStringForAPI, parseUserSpecifiedModel } from './utils/model/model.js';
 import { ensureModelStringsInitialized } from './utils/model/modelStrings.js';
 import { PERMISSION_MODES } from './utils/permissions/PermissionMode.js';
-import { getReplMaxTurnsWarning, MAX_TURNS_CLI_DESCRIPTION } from './utils/replMaxTurns.js';
+import { MAX_TURNS_CLI_DESCRIPTION } from './utils/replMaxTurns.js';
 import { checkAndDisableBypassPermissions, getAutoModeEnabledStateIfCached, initializeToolPermissionContext, initialPermissionModeFromCLI, isDefaultPermissionModeAuto, parseToolListFromCLI, stripDangerousPermissionsForAutoMode, verifyAutoModeGateAccess } from './utils/permissions/permissionSetup.js';
 import { cleanupOrphanedPluginVersionsInBackground } from './utils/plugins/cacheUtils.js';
 import { initializeVersionedPlugins } from './utils/plugins/installedPluginsManager.js';
@@ -985,11 +985,6 @@ async function run(): Promise<CommanderCommand> {
   // keeps Commander help and unknown-option handling aligned with that bootstrap path.
   .option('--provider-env-file <path>', 'Load provider environment variables from a file before validation (repeatable; existing values win)', (val: string, prev: string[]) => [...prev, val], [] as string[]).action(async (prompt, options) => {
     profileCheckpoint('action_handler_start');
-
-    const maxTurnsWarning = getReplMaxTurnsWarning(options.maxTurns);
-    if (maxTurnsWarning) {
-      process.stderr.write(chalk.yellow(`${maxTurnsWarning}\n`));
-    }
 
     // --bare = one-switch minimal mode. Sets SIMPLE so all the existing
     // gates fire (CLAUDE.md, skills, hooks inside executeHooks, agent

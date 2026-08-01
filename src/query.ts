@@ -444,6 +444,9 @@ export type QueryParams = {
   querySource: QuerySource
   maxOutputTokensOverride?: number
   maxTurns?: number
+  /** Continue an interrupted local REPL prompt without resetting its turn cap. */
+  initialTurnCount?: number
+  onTurnCountChange?: (turnCount: number) => void
   skipCacheWrite?: boolean
   autoCompactTracking?: AutoCompactTrackingState
   onAutoCompactTrackingChange?: (
@@ -617,7 +620,7 @@ async function* queryLoop(
     hasAttemptedReactiveCompact: false,
     hasAttemptedContextOverflowRecovery: false,
     hasAttemptedProviderFallback: false,
-    turnCount: 1,
+    turnCount: params.initialTurnCount ?? 1,
     continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
     transition: undefined,
@@ -2947,6 +2950,7 @@ async function* queryLoop(
 
     // Each time we have tool results and are about to recurse, that's a turn
     const nextTurnCount = turnCount + 1
+    params.onTurnCountChange?.(nextTurnCount)
 
     // Periodic task summary for `claude ps` — fires mid-turn so a
     // long-running agent still refreshes what it's working on. Gated

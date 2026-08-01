@@ -171,6 +171,13 @@ describe('interactive REPL max-turn cap', () => {
     expect(getReplMaxTurnsWarning()).toBeUndefined()
   })
 
+  test('emits the unlimited warning only from a local REPL', () => {
+    const repl = readScreen('REPL.tsx')
+    const main = readSourceUp('main.tsx')
+    expect(repl).toContain('!isRemoteSession && !directConnectConfig && !sshSession')
+    expect(main).not.toContain('getReplMaxTurnsWarning')
+  })
+
   test('normalizeReplMaxTurns matches /config picker persistence', () => {
     expect(normalizeReplMaxTurns(200)).toBe(200)
     expect(normalizeReplMaxTurns('500')).toBe(500)
@@ -191,7 +198,9 @@ describe('interactive REPL max-turn cap', () => {
     const background = objectBody(source, /queryParams:\s*\{/)
 
     expect(foreground).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
+    expect(foreground).toContain('onTurnCountChange: turnCount =>')
     expect(background).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
+    expect(background).toContain('initialTurnCount: foregroundTurnCountRef.current')
   })
 
   test('Config panel exposes Max turns (interactive)', () => {
