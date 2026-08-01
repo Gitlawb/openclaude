@@ -2,6 +2,7 @@ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import {
   getDefaultMainLoopModelSetting,
   type ModelSetting,
+  parseUserSpecifiedModel,
 } from '../utils/model/model.js'
 
 type ActiveSessionAgentModelSelection =
@@ -32,9 +33,7 @@ export function getActiveSessionAgentModelSelection({
   if (agent.model && agent.model !== 'inherit') {
     return {
       shouldUpdateModel: true,
-      // Query resolves this to the concrete runtime model, while retaining the
-      // selection at the provider boundary for custom-gateway defaults.
-      mainLoopModelForSession: agent.model,
+      mainLoopModelForSession: parseUserSpecifiedModel(agent.model),
     }
   }
 

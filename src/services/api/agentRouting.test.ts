@@ -232,7 +232,7 @@ describe('model-only routes', () => {
       subagentType: 'verification',
       settings: modelOnlySettings,
     })
-    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini', routed: true })
+    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
     expect('providerOverride' in result).toBe(false)
   })
 
@@ -316,7 +316,6 @@ describe('resolveAgentRunModelRouting', () => {
 
     expect(result).toEqual({
       mainLoopModel: 'deepseek-chat',
-      routed: true,
       providerOverride: {
         model: 'deepseek-chat',
         baseURL: 'https://api.deepseek.com/v1',
@@ -441,7 +440,7 @@ describe('resolveAgentRunModelRouting', () => {
       subagentType: 'verification',
       settings,
     })
-    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini', routed: true })
+    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
   })
 
   test('permissionMode is threaded into alias resolution, not dropped', () => {
@@ -784,7 +783,6 @@ describe('resolveAgentRunModelRouting: in-process teammate route identity', () =
     })
     expect(result).toEqual({
       mainLoopModel: 'deepseek-chat',
-      routed: true,
       providerOverride: {
         model: 'deepseek-chat',
         baseURL: 'https://api.deepseek.com/v1',

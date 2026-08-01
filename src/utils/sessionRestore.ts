@@ -41,6 +41,7 @@ import { logForDebugging } from './debug.js'
 import type { FileHistorySnapshot } from './fileHistory.js'
 import { fileHistoryRestoreStateFromLog } from './fileHistory.js'
 import { createSystemMessage } from './messages.js'
+import { parseUserSpecifiedModel } from './model/model.js'
 import { getPlansDirectory } from './plans.js'
 import { setCwd } from './Shell.js'
 import {
@@ -243,7 +244,7 @@ export function restoreAgentFromSession(
     resumedAgent.model &&
     resumedAgent.model !== 'inherit'
   ) {
-    setMainLoopModelOverride(resumedAgent.model)
+    setMainLoopModelOverride(parseUserSpecifiedModel(resumedAgent.model))
   }
 
   return { agentDefinition: resumedAgent, agentType: resumedAgent.agentType }

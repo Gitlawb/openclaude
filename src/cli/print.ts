@@ -4610,7 +4610,8 @@ async function handleInitializeRequest(
         mainThreadAgent.model &&
         mainThreadAgent.model !== 'inherit'
       ) {
-        setMainLoopModelOverride(mainThreadAgent.model)
+        const agentModel = parseUserSpecifiedModel(mainThreadAgent.model)
+        setMainLoopModelOverride(agentModel)
       }
 
       // SDK-defined agents arrive via init, so main.tsx's lookup missed them.
