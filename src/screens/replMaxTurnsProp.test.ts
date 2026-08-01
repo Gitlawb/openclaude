@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Command as CommanderCommand, Option } from '@commander-js/extra-typings'
 import {
   DEFAULT_GLOBAL_CONFIG,
   GLOBAL_CONFIG_KEYS,
@@ -9,6 +10,7 @@ import {
 } from '../utils/config.js'
 import {
   DEFAULT_REPL_MAX_TURNS,
+  MAX_TURNS_CLI_DESCRIPTION,
   normalizeReplMaxTurns,
   REPL_MAX_TURNS_OPTIONS,
   resolveReplMaxTurns,
@@ -54,6 +56,19 @@ function setReplMaxTurnsConfig(value: number | undefined): void {
     ...current,
     replMaxTurns: value,
   }))
+}
+
+function createMaxTurnsCliProgram(): CommanderCommand {
+  const program = new CommanderCommand()
+  program
+    .name('openclaude')
+    .addOption(
+      new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION).argParser(
+        Number,
+      ),
+    )
+    .action(() => {})
+  return program
 }
 
 afterEach(() => {
@@ -178,26 +193,52 @@ describe('interactive REPL max-turn cap', () => {
 
   test('passes the cap from the resume selector into REPL', () => {
     const source = readScreen('ResumeConversation.tsx')
-    const repl = source.slice(source.indexOf('<REPL'), source.indexOf('/>', source.indexOf('<REPL')) + 2)
+    const repl = source.slice(
+      source.indexOf('<REPL'),
+      source.indexOf('/>', source.indexOf('<REPL')) + 2,
+    )
 
     expect(repl).toContain('maxTurns={maxTurns}')
   })
 
-  test('sessionConfig wires maxTurns from the CLI flag for local interactive paths', () => {
+  test('Commander --max-turns help scopes the interactive cap to local query loops', () => {
+    // Commander wraps long option help across lines; collapse whitespace.
+    const help = createMaxTurnsCliProgram()
+      .helpInformation()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+    expect(help).toContain('--max-turns')
+    expect(help).toContain('local interactive')
+    expect(help).toContain('remote-backed')
+    expect(help).not.toContain('only works with --print')
+  })
+
+  test('Commander --max-turns parses into the value the local REPL resolves', async () => {
+    clearTurnEnv()
+    setReplMaxTurnsConfig(50)
+    const program = createMaxTurnsCliProgram()
+    await program.parseAsync(['node', 'openclaude', '--max-turns', '200'], {
+      from: 'node',
+    })
+    const parsed = program.opts().maxTurns
+    expect(parsed).toBe(200)
+    // Same handoff the interactive session uses: CLI option → resolveReplMaxTurns.
+    expect(resolveReplMaxTurns(parsed)).toBe(200)
+  })
+
+  test('main imports the shared --max-turns description and wires sessionConfig', () => {
+    // main.tsx is hard to boot in unit tests; assert the import so the
+    // shared constant cannot be referenced without being bundled, plus the
+    // local interactive sessionConfig handoff (same pattern as fallbackModel).
     const source = readSourceUp('main.tsx')
+    expect(source).toMatch(
+      /import\s*\{[^}]*\bMAX_TURNS_CLI_DESCRIPTION\b[^}]*\}\s*from\s*'\.\/utils\/replMaxTurns\.js'/,
+    )
+    expect(source).toContain(
+      "new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION)",
+    )
     const body = objectBody(source, /const sessionConfig = \{/)
     expect(body).toContain('maxTurns: options.maxTurns')
   })
-
-  test('--max-turns help scopes the interactive cap to local query loops', () => {
-    const source = readSourceUp('main.tsx')
-    const optionMatch = source.match(
-      /\.addOption\(\s*new Option\(\s*'--max-turns <turns>',\s*'([^']+)'/,
-    )
-    expect(optionMatch).not.toBeNull()
-    const help = optionMatch![1]
-    expect(help.toLowerCase()).not.toContain('only works with --print')
-    expect(help.toLowerCase()).toContain('local interactive')
-    expect(help.toLowerCase()).toContain('remote-backed')
-  })
 })
+

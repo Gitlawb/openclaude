@@ -6,6 +6,13 @@ export const DEFAULT_REPL_MAX_TURNS = 50
 export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
 
 /**
+ * Shared `--max-turns` help text for Commander registration and behavior tests.
+ * Keep remote-backed sessions explicitly out of scope in this string.
+ */
+export const MAX_TURNS_CLI_DESCRIPTION =
+  'Maximum number of agentic turns per prompt. In local interactive mode this overrides the default 50-turn REPL query cap (also configurable via OPENCLAUDE_MAX_TURNS or /config). Remote-backed sessions (connect/ssh/--remote) are not capped by this flag. In --print mode this early-exits after the specified number of turns.'
+
+/**
  * Prefer OPENCLAUDE_MAX_TURNS; honor legacy CLAUDE_CODE_MAX_TURNS only when
  * the new variable is unset/empty. Invalid, zero, negative, non-integer, or
  * unsafe values are ignored (treated as absent for the chosen variable).
