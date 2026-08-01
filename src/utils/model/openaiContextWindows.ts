@@ -10,8 +10,7 @@
  * matches and the settings `modelLimits` match); it does not decide the overall
  * precedence. The authoritative runtime chain — exact env override, then the
  * built-in catalog, then the prefix env override, then settings `modelLimits`,
- * then discovery (with a known-descriptor rescue for the generic 128k proxy
- * default), then the descriptor default — is applied by
+ * then the discovery cache, then the descriptor default — is applied by
  * resolveModelRuntimeLimits in integrations/runtimeMetadata.ts. Keep precedence
  * changes there, not duplicated here.
  */

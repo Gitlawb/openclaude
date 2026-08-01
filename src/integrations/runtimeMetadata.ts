@@ -474,40 +474,6 @@ function findCachedCatalogEntryForApiName(
   )
 }
 
-// Many OpenAI-compatible proxies (notably OmniRoute and similar gateways) report
-// a generic 128k context_length when they lack per-model metadata. That value
-// matches OPENAI_FALLBACK_CONTEXT_WINDOW's default in utils/context.ts. Prefer a
-// larger known descriptor over that generic discovery default so auto-compact
-// does not fire early on 1M-class models.
-const GENERIC_DISCOVERY_CONTEXT_FALLBACK = 128_000
-
-/**
- * Choose between a discovered context window and a known descriptor limit.
- *
- * Trust discovery when it is present and does not look like the generic 128k
- * proxy default. When discovery is that default and a known descriptor is larger,
- * prefer the descriptor (wrong 128k from OmniRoute-style gateways was shadowing
- * 1M models and triggering premature auto-compact).
- */
-export function preferDiscoveredOrKnownContextWindow(
-  discovered: number | undefined,
-  known: number | undefined,
-): number | undefined {
-  if (discovered === undefined) {
-    return known
-  }
-  if (known === undefined) {
-    return discovered
-  }
-  if (
-    discovered === GENERIC_DISCOVERY_CONTEXT_FALLBACK &&
-    known > GENERIC_DISCOVERY_CONTEXT_FALLBACK
-  ) {
-    return known
-  }
-  return discovered
-}
-
 export function resolveModelRuntimeLimits(options: {
   model: string
   processEnv?: NodeJS.ProcessEnv
@@ -549,11 +515,16 @@ export function resolveModelRuntimeLimits(options: {
   // 2. built-in route catalog (so `:cloud` variants keep their catalog cap over
   //    a broad base-model env *prefix*)
   // 3. env *prefix* override
-  // 4. settings.json `modelLimits` (explicit user pin; must beat discovery so
-  //    wrong proxy metadata cannot lock users out of documented overrides)
-  // 5. discovery cache, unless it is the generic 128k proxy default and a known
-  //    model descriptor is larger
+  // 4. settings.json `modelLimits` (explicit user pin)
+  // 5. discovery cache
   // 6. model descriptor default
+  // Discovery stays authoritative over the descriptor: a gateway's advertised
+  // `context_length` is the endpoint's real cap (it may legitimately be a
+  // smaller deployment/tenant limit for a globally larger model), and the
+  // OpenAI-compatible response carries no signal that would let us tell a
+  // synthetic gateway default apart from a real cap. Users whose gateway
+  // advertises a wrong window pin it explicitly via `modelLimits`, an env
+  // override, or `/set-context-window`; those all sit above discovery here.
   // Keep `settings` strictly below `prefix` so a broad env-prefix override is
   // never silently overtaken by a settings entry — matching the scalar
   // getOpenAIContextWindow, where env (exact or prefix) beats settings.
@@ -563,10 +534,8 @@ export function resolveModelRuntimeLimits(options: {
       catalogEntry?.contextWindow ??
       externalContextWindow.prefix ??
       externalContextWindow.settings ??
-      preferDiscoveredOrKnownContextWindow(
-        cachedCatalogEntry?.contextWindow,
-        modelDescriptor?.contextWindow,
-      ),
+      cachedCatalogEntry?.contextWindow ??
+      modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
