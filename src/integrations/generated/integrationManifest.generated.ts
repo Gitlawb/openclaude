@@ -386,6 +386,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "orcarouter",
+    "routeKind": "gateway",
+    "routeId": "orcarouter",
+    "vendorId": "openai",
+    "gatewayId": "orcarouter",
+    "description": "OrcaRouter OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "ORCAROUTER_API_KEY"
+    ]
+  },
+  {
     "preset": "together",
     "routeKind": "gateway",
     "routeId": "together",
@@ -551,6 +562,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "opencode-go",
   "opencode",
   "openrouter",
+  "orcarouter",
   "together",
   "venice",
   "xai",
