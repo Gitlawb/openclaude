@@ -904,8 +904,17 @@ export function getProviderRequestModel(
   runtimeModel: string,
 ): string {
   const selected = selectedModel.trim()
-  const base = selected.replace(/\[1m]$/i, '').split('?', 1)[0]?.toLowerCase()
-  return base === 'codexplan' && parseUserSpecifiedModel(selected) === runtimeModel
+  const selectedBase = selected
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  const runtimeBase = runtimeModel
+    .trim()
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  return selectedBase === 'codexplan' &&
+    runtimeBase === parseUserSpecifiedModel('codexplan')
     ? selected
     : runtimeModel
 }

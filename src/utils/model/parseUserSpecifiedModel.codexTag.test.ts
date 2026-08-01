@@ -63,6 +63,15 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
     expect(getProviderRequestModel('codexplan', 'gpt-5.6-terra')).toBe(
       'gpt-5.6-terra',
     )
+    expect(
+      getProviderRequestModel('codexplan?reasoning=medium', 'gpt-5.6-sol'),
+    ).toBe('codexplan?reasoning=medium')
+    expect(
+      getProviderRequestModel(
+        'codexplan?reasoning=medium',
+        'gpt-5.6-sol?reasoning=medium',
+      ),
+    ).toBe('codexplan?reasoning=medium')
   })
 })
 
