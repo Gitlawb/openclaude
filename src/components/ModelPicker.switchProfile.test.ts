@@ -93,7 +93,8 @@ async function importFreshModelPicker(
   mock.module('../utils/model/modelOptions.js', () =>
     activeProfilesOverride ? modelOptionsModule : realModelOptions,
   )
-  return import(`./ModelPicker.js?switchProfile=${nonce}`)
+  const pickerModule = await import(`./ModelPicker.js?switchProfile=${nonce}`)
+  return { ...pickerModule, modelOptionsModule }
 }
 
 function buildProfileFixture(
@@ -193,17 +194,15 @@ test('a switch option from the base list is a genuine switch', async () => {
 
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
   try {
-    const { isGenuineSwitchProfileValue } = await importFreshModelPicker({
-      getProviderProfiles: () => [active, inactive],
-      getActiveProviderProfile: () => active,
-      getProfileModelOptions: profile => [
-        { value: profile.model, label: profile.model, description: profile.name },
-      ],
-    })
-    const { getModelOptions } = await import(
-      `../utils/model/modelOptions.js?switchProfile-${Date.now()}-${Math.random()}`
-    )
-    const switchOption = getModelOptions().find(
+    const { isGenuineSwitchProfileValue, modelOptionsModule } =
+      await importFreshModelPicker({
+        getProviderProfiles: () => [active, inactive],
+        getActiveProviderProfile: () => active,
+        getProfileModelOptions: profile => [
+          { value: profile.model, label: profile.model, description: profile.name },
+        ],
+      })
+    const switchOption = modelOptionsModule.getModelOptions().find(
       option => option.switchToProfileId !== undefined,
     )
 
