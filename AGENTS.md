@@ -74,6 +74,8 @@ bun run web:typecheck
 bun run web:build
 ```
 
+Do not “fix” a web CI npm-freshness failure by editing `web/src/data/releases.ts` in an unrelated PR. That file is release/web-owned; leave version drift for the dedicated release/web path.
+
 Diagnostics and PR hygiene:
 
 ```bash
@@ -99,3 +101,4 @@ When modifying provider behavior:
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review.
+- Do not edit `web/src/data/releases.ts` in ordinary feature or bugfix PRs. That curated `/changelog` list is owned by the release/web process (release automation and dedicated web release PRs). If web CI fails because npm is ahead of the site version, leave `releases.ts` alone in your unrelated PR and let the release/web path update it.
