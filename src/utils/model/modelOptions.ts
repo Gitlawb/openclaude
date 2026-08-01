@@ -989,13 +989,36 @@ function getActiveOpenAIRouteCatalogOptions(): ModelOption[] {
   })
 }
 
-function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
-  if (typeof value !== 'string') {
-    return null
-  }
+/**
+ * Route-catalog lookup state for one `getModelOptions()` build. Resolving the
+ * route id, fetching its catalog entries, and computing the duplicate-apiName
+ * set are all O(catalog size) — rebuilding them for every check would make
+ * builds with several catalog lookups (env custom model, each scoped
+ * additional option, the active custom model) repeatedly rescan the whole
+ * catalog. Built once per options build and shared across all lookups.
+ */
+type RouteCatalogContext = {
+  entries: ReturnType<typeof getCatalogEntriesForRoute>
+  duplicateApiNames: Set<string>
+}
 
+function getRouteCatalogContext(): RouteCatalogContext | null {
   const routeId = getActiveOpenAIRouteId()
   if (!routeId) {
+    return null
+  }
+  const entries = getCatalogEntriesForRoute(routeId)
+  return {
+    entries,
+    duplicateApiNames: getDuplicateCatalogApiNames(entries),
+  }
+}
+
+function findRouteCatalogOption(
+  context: RouteCatalogContext | null,
+  value: ModelSetting,
+): ModelOption | null {
+  if (!context || typeof value !== 'string') {
     return null
   }
 
@@ -1004,8 +1027,7 @@ function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
     return null
   }
 
-  const entries = getCatalogEntriesForRoute(routeId)
-  const catalogEntry = entries.find(entry =>
+  const catalogEntry = context.entries.find(entry =>
     normalizeRouteModelOptionKey(entry.apiName) === normalizedValue ||
     normalizeRouteModelOptionKey(entry.id) === normalizedValue ||
     (entry.aliases ?? []).some(
@@ -1017,7 +1039,7 @@ function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
   }
 
   return {
-    value: getCatalogOptionValue(catalogEntry, getDuplicateCatalogApiNames(entries)),
+    value: getCatalogOptionValue(catalogEntry, context.duplicateApiNames),
     label: catalogEntry.label ?? catalogEntry.apiName,
     description: catalogEntry.apiName,
   }
@@ -1031,11 +1053,15 @@ function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
  * making each `getModelOptions()` call O(n²) and the `/model` picker lag on
  * every keystroke.
  */
-function hasOptionValue(options: ModelOption[], value: ModelSetting): boolean {
+function hasOptionValue(
+  options: ModelOption[],
+  value: ModelSetting,
+  getRouteCatalogContext: () => RouteCatalogContext | null,
+): boolean {
   if (options.some(option => option.value === value)) {
     return true
   }
-  const catalogOption = getRouteCatalogModelOption(value)
+  const catalogOption = findRouteCatalogOption(getRouteCatalogContext(), value)
   return (
     catalogOption !== null &&
     options.some(option => option.value === catalogOption.value)
@@ -1049,11 +1075,25 @@ export function getModelOptions(fastMode = false): ModelOption[] {
 
   const options = getModelOptionsBase(fastMode)
 
+  // Route-catalog lookup state is built once per options build (on first use)
+  // and shared by every catalog check below, so repeated lookups — the env
+  // custom model, each scoped additional option, and the active custom model —
+  // don't each rescan the full catalog and rebuild the duplicate-apiName set.
+  let routeCatalogContextBuilt = false
+  let routeCatalogContext: RouteCatalogContext | null = null
+  const getSharedRouteCatalogContext = (): RouteCatalogContext | null => {
+    if (!routeCatalogContextBuilt) {
+      routeCatalogContextBuilt = true
+      routeCatalogContext = getRouteCatalogContext()
+    }
+    return routeCatalogContext
+  }
+
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
   const envCustomModel = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
   if (
     envCustomModel &&
-    !hasOptionValue(options, envCustomModel)
+    !hasOptionValue(options, envCustomModel, getSharedRouteCatalogContext)
   ) {
     options.push({
       value: envCustomModel,
@@ -1066,10 +1106,13 @@ export function getModelOptions(fastMode = false): ModelOption[] {
 
   // Append additional model options fetched during bootstrap
   for (const opt of getScopedAdditionalModelOptions()) {
-    const catalogOption = getRouteCatalogModelOption(opt.value)
+    const catalogOption = findRouteCatalogOption(
+      getSharedRouteCatalogContext(),
+      opt.value,
+    )
     const nextOption = catalogOption ? { ...opt, ...catalogOption } : opt
     if (
-      !hasOptionValue(options, nextOption.value)
+      !hasOptionValue(options, nextOption.value, getSharedRouteCatalogContext)
     ) {
       options.push(nextOption)
     }
@@ -1087,7 +1130,7 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   }
   if (
     customModel === null ||
-    hasOptionValue(options, customModel)
+    hasOptionValue(options, customModel, getSharedRouteCatalogContext)
   ) {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
@@ -1127,7 +1170,10 @@ export function getModelOptions(fastMode = false): ModelOption[] {
       getMergedOpus1MOption(fastMode),
     ])
   } else {
-    const catalogOption = getRouteCatalogModelOption(customModel)
+    const catalogOption = findRouteCatalogOption(
+      getSharedRouteCatalogContext(),
+      customModel,
+    )
     if (catalogOption) {
       options.push(catalogOption)
       return filterModelOptionsByAllowlist(options)
