@@ -84,6 +84,13 @@ describe('interactive REPL max-turn cap', () => {
     expect(resolveReplMaxTurns()).toBe(90)
   })
 
+  test('invalid OPENCLAUDE_MAX_TURNS does not fall through to legacy', () => {
+    clearTurnEnv()
+    process.env.OPENCLAUDE_MAX_TURNS = 'nope'
+    process.env.CLAUDE_CODE_MAX_TURNS = '125'
+    expect(resolveReplMaxTurns()).toBe(DEFAULT_REPL_MAX_TURNS)
+  })
+
   test('explicit CLI cap wins over environment overrides', () => {
     clearTurnEnv()
     process.env.OPENCLAUDE_MAX_TURNS = '200'
@@ -116,30 +123,13 @@ describe('interactive REPL max-turn cap', () => {
     expect(repl).toContain('maxTurns={maxTurns}')
   })
 
-  test('sessionConfig wires maxTurns from the CLI flag', () => {
+  test('sessionConfig wires maxTurns from the CLI flag for local interactive paths', () => {
     const source = readSourceUp('main.tsx')
     const body = objectBody(source, /const sessionConfig = \{/)
     expect(body).toContain('maxTurns: options.maxTurns')
   })
 
-  test('non-sessionConfig interactive launch paths forward maxTurns', () => {
-    // connect / ssh / assistant / --remote build REPL props without
-    // spreading sessionConfig; each must still pass the CLI override.
-    const source = readSourceUp('main.tsx')
-    const markers = [
-      /directConnectConfig,\s*\n\s*thinkingConfig,\s*\n\s*maxTurns: options\.maxTurns/,
-      /sshSession,\s*\n\s*thinkingConfig,\s*\n\s*maxTurns: options\.maxTurns/,
-    ]
-    for (const marker of markers) {
-      expect(source).toMatch(marker)
-    }
-    // Count explicit maxTurns: options.maxTurns assignments outside
-    // sessionConfig — connect, ssh, assistant, remote (+ sessionConfig = 5).
-    const matches = source.match(/maxTurns:\s*options\.maxTurns/g) ?? []
-    expect(matches.length).toBeGreaterThanOrEqual(5)
-  })
-
-  test('--max-turns help no longer claims print-only', () => {
+  test('--max-turns help scopes the interactive cap to local query loops', () => {
     const source = readSourceUp('main.tsx')
     const optionMatch = source.match(
       /\.addOption\(\s*new Option\(\s*'--max-turns <turns>',\s*'([^']+)'/,
@@ -147,6 +137,7 @@ describe('interactive REPL max-turn cap', () => {
     expect(optionMatch).not.toBeNull()
     const help = optionMatch![1]
     expect(help.toLowerCase()).not.toContain('only works with --print')
-    expect(help.toLowerCase()).toContain('interactive')
+    expect(help.toLowerCase()).toContain('local interactive')
+    expect(help.toLowerCase()).toContain('remote-backed')
   })
 })

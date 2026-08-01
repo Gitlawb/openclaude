@@ -572,8 +572,9 @@ function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras
   logForDebugging(formatQueryLifecycleLogMessage(event, context, extras));
 }
 // Default per-prompt cap for every local interactive REPL entrypoint. Headless
-// and SDK callers retain their explicit maxTurns contracts. Interactive callers
-// can raise the cap via --max-turns or OPENCLAUDE_MAX_TURNS / CLAUDE_CODE_MAX_TURNS.
+// and SDK callers retain their explicit maxTurns contracts. Local interactive
+// callers can raise the cap via --max-turns or OPENCLAUDE_MAX_TURNS /
+// CLAUDE_CODE_MAX_TURNS. Remote-backed sessions are not capped here.
 export type Props = {
   commands: Command[];
   debug: boolean;
