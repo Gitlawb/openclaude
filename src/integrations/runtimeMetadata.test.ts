@@ -244,6 +244,48 @@ describe('resolveModelRuntimeLimits', () => {
       ).toBe(1_000_000)
     })
   })
+
+  it('lets env prefix overrides beat discovery for both context and max-output limits', async () => {
+    // CodeRabbit on #2082: exact-key and settings.modelLimits vs discovery are
+    // covered, but not CLAUDE_CODE_OPENAI_* prefix keys. A prefix pin is the
+    // documented way to cover a family of gateway model ids without listing
+    // each one, and must sit above the discovery cache for both limits.
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'my-codex-combo-v2',
+              apiName: 'my-codex-combo-v2',
+              label: 'my-codex-combo-v2',
+              contextWindow: 128_000,
+              maxOutputTokens: 8_192,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'my-codex-combo-v2',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+            CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+              'my-codex-combo': 1_000_000,
+            }),
+            CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS: JSON.stringify({
+              'my-codex-combo': 32_768,
+            }),
+          },
+        }),
+      ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: 32_768 })
+    })
+  })
 })
 
 describe('AIMLAPI runtime attribution', () => {
