@@ -57,8 +57,9 @@ function resolveConfiguredReplMaxTurns(): number {
  *
  * Invalid explicit values fall through so a bad CLI parse cannot disable the
  * interactive safety cap (unlike headless, where omitted maxTurns means no cap).
- * If OPENCLAUDE_MAX_TURNS is set but invalid, the default is used (legacy is
- * not consulted), matching OPENCLAUDE_MAX_RETRIES precedence.
+ * If OPENCLAUDE_MAX_TURNS is set but invalid, DEFAULT_REPL_MAX_TURNS is
+ * used and lower layers (legacy env, /config) are not consulted — matching
+ * OPENCLAUDE_MAX_RETRIES precedence.
  */
 export function resolveReplMaxTurns(maxTurns?: number): number {
   if (
