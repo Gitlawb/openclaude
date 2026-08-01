@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { has1mContext } from '../context.js'
-import { parseUserSpecifiedModel, renderModelSetting } from './model.js'
+import {
+  getProviderRequestModel,
+  parseUserSpecifiedModel,
+  renderModelSetting,
+} from './model.js'
 
 // Regression: the Codex aliases (codexplan/codexspark) dropped the `[1m]`
 // (1M-context) tag while every Claude alias (opus/sonnet/haiku/best) preserved
@@ -47,6 +51,18 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
 
   test('codexplan display identifies the Sol model', () => {
     expect(renderModelSetting('codexplan')).toBe('codexplan (gpt-5.6-sol)')
+  })
+
+  test('keeps codexplan as the provider request selection after runtime resolution', () => {
+    expect(getProviderRequestModel('codexplan', 'gpt-5.6-sol')).toBe(
+      'codexplan',
+    )
+    expect(getProviderRequestModel('gpt-5.6-sol', 'gpt-5.6-sol')).toBe(
+      'gpt-5.6-sol',
+    )
+    expect(getProviderRequestModel('codexplan', 'gpt-5.6-terra')).toBe(
+      'gpt-5.6-terra',
+    )
   })
 })
 

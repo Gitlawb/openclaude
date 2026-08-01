@@ -896,6 +896,20 @@ export function parseUserSpecifiedModel(
   return modelInputTrimmed
 }
 
+// Runtime code needs the concrete model for capabilities and routing, but a
+// custom gateway still distinguishes the legacy codexplan selection from an
+// explicit GPT-5.6 Sol request when applying its default reasoning effort.
+export function getProviderRequestModel(
+  selectedModel: string,
+  runtimeModel: string,
+): string {
+  const selected = selectedModel.trim()
+  const base = selected.replace(/\[1m]$/i, '').split('?', 1)[0]?.toLowerCase()
+  return base === 'codexplan' && parseUserSpecifiedModel(selected) === runtimeModel
+    ? selected
+    : runtimeModel
+}
+
 /**
  * Resolves a skill's `model:` frontmatter against the current model, carrying
  * the `[1m]` suffix over when the target family supports it.

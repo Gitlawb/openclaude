@@ -97,6 +97,7 @@ import { notifyCommandLifecycle } from './utils/commandLifecycle.js'
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import {
   getDefaultMainLoopModelSetting,
+  getProviderRequestModel,
   getRuntimeMainLoopModel,
   parseUserSpecifiedModel,
   renderModelName,
@@ -1389,6 +1390,9 @@ async function* queryLoop(
                 return appState.toolPermissionContext
               },
               model: currentModel,
+              requestModel: pinnedTurnRoute?.routed
+                ? currentModel
+                : getProviderRequestModel(appStateMainLoopModel, currentModel),
               ...(config.gates.fastModeEnabled && {
                 fastMode: appState.fastMode,
               }),
