@@ -8,22 +8,22 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock'
 import {
-  preferDiscoveredOrKnownContextWindow,
   resolveModelRuntimeLimits,
   resolveOpenAIShimRuntimeContext,
 } from '../integrations/runtimeMetadata'
-import { setCachedModels } from './discoveryCache'
+import { clearDiscoveryCache, setCachedModels } from './discoveryCache'
+import {
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../utils/envUtils.js'
 import {
   getDiscoveryCacheKey,
   getRouteDiscoveryHeaders,
 } from './discoveryService'
 import { resolveActiveRouteIdFromEnv } from './routeMetadata.js'
-import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
 import glmBrand from './brands/glm.js'
 import glmModels from './models/glm.js'
 import zaiVendor from './vendors/zai.js'
-
-const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
 describe('Z.AI GLM-5.3 descriptor contract', () => {
   it('wires the verified GLM-5.3-Flash descriptor and direct catalog contract', () => {
@@ -115,25 +115,27 @@ describe('Z.AI GLM-5.3 descriptor contract', () => {
   })
 })
 
+// The discovery cache resolves its path through getClaudeConfigHomeDir(), which
+// deliberately ignores CLAUDE_CONFIG_DIR (OpenClaude config is independent of
+// Claude Code config). Use the explicit test override so these fixtures land in
+// the temp dir instead of the developer's real ~/.openclaude.
 async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
   await acquireSharedMutationLock('integrations/runtimeMetadata.test.ts')
+  const previousOverride = getClaudeConfigHomeDirOverrideForTesting()
   let tempDir: string | null = null
   try {
     tempDir = mkdtempSync(join(tmpdir(), 'openclaude-runtime-metadata-test-'))
     setClaudeConfigHomeDirForTesting(tempDir)
-    process.env.CLAUDE_CONFIG_DIR = tempDir
     return await fn()
   } finally {
     try {
-      if (originalConfigDir === undefined) {
-        delete process.env.CLAUDE_CONFIG_DIR
-      } else {
-        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
-      }
+      // Drops the module-level sync snapshot so a later suite cannot read this
+      // suite's fixture back out of memory after the temp dir is gone.
+      await clearDiscoveryCache()
+      setClaudeConfigHomeDirForTesting(previousOverride)
       if (tempDir) {
         rmSync(tempDir, { recursive: true, force: true })
       }
-      setClaudeConfigHomeDirForTesting(undefined)
     } finally {
       releaseSharedMutationLock()
     }
@@ -422,73 +424,46 @@ describe('resolveModelRuntimeLimits', () => {
     })
   })
 
-  it('ignores generic 128k discovery defaults when a known model descriptor is larger', async () => {
-    // User-reported path: OmniRoute + GPT-5.6 Sol ("gpt sol"). Gateways often
-    // report context_length: 128000 when they lack per-model metadata. That must
-    // not shadow the known gpt-5.6-sol descriptor (272k Codex-safe fallback on
-    // catalog-less custom routes; premature auto-compact at 128k).
-    await withTempConfigDir(async () => {
-      const baseUrl = 'http://localhost:20128/v1'
-      await setCachedModels(
-        getDiscoveryCacheKey('custom', {
-          baseUrl,
-        }),
-        {
-          models: [
-            {
-              id: 'gpt-5.6-sol',
-              apiName: 'gpt-5.6-sol',
-              label: 'gpt-5.6-sol',
-              contextWindow: 128_000,
-            },
-          ],
-        },
-      )
-
-      expect(
-        resolveModelRuntimeLimits({
-          model: 'gpt-5.6-sol',
-          processEnv: {
-            CLAUDE_CODE_USE_OPENAI: '1',
-            OPENAI_BASE_URL: baseUrl,
+  it.each([128_000, 200_000])(
+    'keeps a gateway-advertised %i window for a globally larger known model',
+    async advertised => {
+      // User-reported path: OmniRoute + GPT-5.6 Sol ("gpt sol"), whose gateway
+      // advertised a smaller window than the known descriptor. An advertised
+      // `context_length` is indistinguishable from a real per-deployment cap, so
+      // discovery stays authoritative — budgeting past the endpoint's real limit
+      // would trade an early compact for a mid-session API failure. 128k is
+      // covered explicitly because it is the value gateways most often report as
+      // a flat default.
+      await withTempConfigDir(async () => {
+        const baseUrl = 'http://localhost:20128/v1'
+        await setCachedModels(
+          getDiscoveryCacheKey('custom', {
+            baseUrl,
+          }),
+          {
+            models: [
+              {
+                id: 'gpt-5.6-sol',
+                apiName: 'gpt-5.6-sol',
+                label: 'gpt-5.6-sol',
+                contextWindow: advertised,
+              },
+            ],
           },
-        }).contextWindow,
-      ).toBe(272_000)
-    })
-  })
+        )
 
-  it('still trusts non-default discovery values over a larger descriptor', async () => {
-    // If a proxy intentionally advertises a non-128k window (e.g. a real 200k
-    // cap), keep trusting discovery even when a descriptor is larger.
-    await withTempConfigDir(async () => {
-      const baseUrl = 'http://localhost:20128/v1'
-      await setCachedModels(
-        getDiscoveryCacheKey('custom', {
-          baseUrl,
-        }),
-        {
-          models: [
-            {
-              id: 'gpt-5.6-sol',
-              apiName: 'gpt-5.6-sol',
-              label: 'gpt-5.6-sol',
-              contextWindow: 200_000,
+        expect(
+          resolveModelRuntimeLimits({
+            model: 'gpt-5.6-sol',
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
             },
-          ],
-        },
-      )
-
-      expect(
-        resolveModelRuntimeLimits({
-          model: 'gpt-5.6-sol',
-          processEnv: {
-            CLAUDE_CODE_USE_OPENAI: '1',
-            OPENAI_BASE_URL: baseUrl,
-          },
-        }).contextWindow,
-      ).toBe(200_000)
-    })
-  })
+          }).contextWindow,
+        ).toBe(advertised)
+      })
+    },
+  )
 
   it('lets an exact env override beat a wrong discovery-cache context window', async () => {
     await withTempConfigDir(async () => {
@@ -522,14 +497,6 @@ describe('resolveModelRuntimeLimits', () => {
         }).contextWindow,
       ).toBe(1_000_000)
     })
-  })
-
-  it('preferDiscoveredOrKnownContextWindow rescues known models from generic 128k discovery', () => {
-    expect(preferDiscoveredOrKnownContextWindow(128_000, 1_050_000)).toBe(1_050_000)
-    expect(preferDiscoveredOrKnownContextWindow(200_000, 1_050_000)).toBe(200_000)
-    expect(preferDiscoveredOrKnownContextWindow(128_000, 128_000)).toBe(128_000)
-    expect(preferDiscoveredOrKnownContextWindow(undefined, 1_050_000)).toBe(1_050_000)
-    expect(preferDiscoveredOrKnownContextWindow(1_000_000, undefined)).toBe(1_000_000)
   })
 })
 

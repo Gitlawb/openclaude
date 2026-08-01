@@ -523,13 +523,16 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   omitted to override only one limit.
 - **Precedence** — from highest to lowest: an **exact** env-var override → the
   built-in catalog value → a **prefix** env-var override → `modelLimits` → the
-  discovery-cache value (unless it is the generic 128k proxy default and a known
-  model descriptor is larger) → the descriptor default. So env-var overrides and
-  `modelLimits` always win over discovery, which matters when a gateway such as
-  OmniRoute reports `context_length: 128000` for every model. A known catalog
-  model keeps its catalog limit unless you set an *exact* env override for it.
-  Session-only: `/set-context-window <tokens>` also overrides for the current
-  session without editing settings.
+  discovery-cache value → the descriptor default. So env-var overrides and
+  `modelLimits` both win over discovery. A known catalog model keeps its catalog
+  limit unless you set an *exact* env override for it.
+- **When a gateway advertises the wrong window** — some OpenAI-compatible
+  gateways report a flat `context_length` (often `128000`) for every model they
+  proxy. OpenClaude keeps that value, because an advertised window can just as
+  easily be a real per-deployment cap, and budgeting above the endpoint's true
+  limit turns early auto-compact into a mid-session API failure. If you know the
+  real window, pin it with `modelLimits` or `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS`
+  above, or use `/set-context-window <tokens>` for the current session only.
 
 ### Exact-model pricing overrides (`settings.json`)
 
