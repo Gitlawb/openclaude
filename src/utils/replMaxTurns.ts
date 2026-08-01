@@ -3,7 +3,7 @@ import { logForDebugging } from './debug.js'
 
 export const DEFAULT_REPL_MAX_TURNS = 50
 export const MAX_TURNS_UNLIMITED_WARNING =
-  'Warning: --max-turns 0 disables the turn limit. Use with caution.'
+  'Warning: --max-turns 0 disables the local turn limit when applicable. Use with caution.'
 
 /** Preset values offered in `/config` (plus any current custom value). */
 export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
