@@ -236,15 +236,28 @@ describe('discoverModelsForRoute', () => {
   test('hybrid routes keep curated descriptor entries ahead of discovered duplicates', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
-    process.env.OPENROUTER_API_KEY = 'or-key'
+    // OpenRouter lists models publicly; discovery no longer requires a key.
+    delete process.env.OPENROUTER_API_KEY
     setMockFetch(mock((_input, init) => {
-      expect(init?.headers).toEqual({ Authorization: 'Bearer or-key' })
+      // No Authorization when requiresAuth is false.
+      expect(init?.headers).toBeUndefined()
       return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
-              { id: 'openai/gpt-5-mini' },
-              { id: 'anthropic/claude-sonnet-4' },
+              {
+                id: 'openai/gpt-5-mini',
+                name: 'OpenAI: GPT-5 Mini',
+                context_length: 400000,
+                supported_parameters: ['tools'],
+              },
+              {
+                id: 'anthropic/claude-sonnet-4',
+                name: 'Anthropic: Claude Sonnet 4',
+                context_length: 200000,
+                supported_parameters: ['tools', 'reasoning'],
+              },
+              { id: 'openai/text-embedding-3-large', name: 'Embedding' },
             ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -261,6 +274,65 @@ describe('discoverModelsForRoute', () => {
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
+    expect(result?.models[1]?.label).toBe('Anthropic: Claude Sonnet 4')
+    expect(result?.models[1]?.contextWindow).toBe(200000)
+  })
+
+  test('opengateway hybrid discovery loads the live list without a key', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    delete process.env.OPENGATEWAY_API_KEY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+    setMockFetch(mock((input, init) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      expect(url).toContain('/v1/models')
+      expect(init?.headers).toEqual({ 'Accept-Encoding': 'identity' })
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'auto', name: 'Auto (smart routing)' },
+              {
+                id: 'xiaomi/mimo-v2.5-pro',
+                name: 'MiMo V2.5-Pro',
+                context_window: 262144,
+              },
+              {
+                id: 'moonshotai/kimi-k3',
+                name: 'Kimi K3',
+                context_window: 128000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    const apiNames = result?.models.map(
+      (model: { apiName: string }) => model.apiName,
+    )
+    // Curated static entries stay first; live-only routes are appended.
+    expect(apiNames?.[0]).toBe('auto')
+    expect(apiNames).toContain('mimo-v2.5-pro')
+    expect(apiNames).toContain('xiaomi/mimo-v2.5-pro')
+    expect(apiNames).toContain('moonshotai/kimi-k3')
+    const liveOnly = result?.models.find(
+      (model: { apiName: string }) => model.apiName === 'moonshotai/kimi-k3',
+    )
+    expect(liveOnly?.label).toBe('Kimi K3')
+    expect(liveOnly?.contextWindow).toBe(128000)
   })
 
   test('openai-compatible discovery applies descriptor static headers with auth', async () => {

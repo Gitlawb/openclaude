@@ -1,5 +1,82 @@
 import { defineGateway } from '../define.js'
+import type { ModelCatalogEntry } from '../descriptors.js'
 import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getTrimmedString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value.trim() : undefined
+}
+
+function firstPositiveNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return value
+    }
+  }
+  return undefined
+}
+
+function isKnownNonCodingModelId(id: string): boolean {
+  return /(audio|dall-e|deep-research|embedding|image|moderation|realtime|rerank|sora|speech|transcribe|translate|tts|whisper)/i.test(
+    id,
+  )
+}
+
+function isFreeModel(id: string, raw: Record<string, unknown>): boolean {
+  return (
+    id.toLowerCase().endsWith(':free') ||
+    raw.free === true ||
+    raw.is_free === true
+  )
+}
+
+/**
+ * Map OpenGateway's public GET /v1/models payload into a catalog entry.
+ * The gateway already curates what it exposes, so every non-empty id is kept
+ * except clearly non-coding names if they ever appear.
+ */
+export function mapOpenGatewayModel(raw: unknown): ModelCatalogEntry | null {
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const id = getTrimmedString(raw, 'id')
+  if (!id || isKnownNonCodingModelId(id)) {
+    return null
+  }
+
+  const name =
+    getTrimmedString(raw, 'name') ||
+    getTrimmedString(raw, 'display_name') ||
+    getTrimmedString(raw, 'title')
+  const free = isFreeModel(id, raw)
+  let label = name || id
+  if (free && !label.toLowerCase().includes('free')) {
+    label = `${label} (free)`
+  }
+
+  const contextWindow = firstPositiveNumber(
+    raw.context_window,
+    raw.contextWindow,
+    raw.context_length,
+    raw.max_context_length,
+  )
+
+  return {
+    id,
+    apiName: id,
+    label,
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(free ? { notes: 'Free' } : {}),
+  }
+}
 
 export default defineGateway({
   id: 'gitlawb-opengateway',
@@ -13,6 +90,11 @@ export default defineGateway({
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
+  },
+  startup: {
+    // Refresh the live gateway model list at startup so new routes appear
+    // without a catalog bump (same posture as OpenRouter / aimlapi).
+    probeReadiness: 'openai-compatible-models',
   },
   validation: {
     kind: 'credential-env',
@@ -62,7 +144,18 @@ export default defineGateway({
     fallbackModel: 'mimo-v2.5-pro',
   },
   catalog: {
-    source: 'static',
+    // Hybrid: curated defaults stay first for labels/descriptor links; live
+    // GET /v1/models fills in new gateway routes without a catalog PR.
+    source: 'hybrid',
+    discovery: {
+      kind: 'openai-compatible',
+      // Public model list works without a key (chat still requires auth).
+      requiresAuth: false,
+      mapModel: mapOpenGatewayModel,
+    },
+    discoveryCacheTtl: '1d',
+    discoveryRefreshMode: 'startup',
+    allowManualRefresh: true,
     models: [
       // Virtual model: the gateway's smart router picks the cheapest model
       // expected to handle the request and escalates on upstream failure
@@ -164,3 +257,4 @@ export default defineGateway({
   },
   usage: { supported: false },
 })
+
