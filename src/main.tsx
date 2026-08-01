@@ -3151,7 +3151,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         directConnectConfig,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (feature('SSH_REMOTE') && _pendingSSH?.host) {
@@ -3217,7 +3218,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         sshSession,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (feature('KAIROS') && _pendingAssistantChat && (_pendingAssistantChat.sessionId || _pendingAssistantChat.discover)) {
@@ -3313,7 +3315,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         remoteSessionConfig,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (options.resume || options.fromPr || teleport || remote !== null) {
@@ -3462,7 +3465,8 @@ async function run(): Promise<CommanderCommand> {
           mainThreadAgentDefinition,
           disableSlashCommands,
           remoteSessionConfig,
-          thinkingConfig
+          thinkingConfig,
+          maxTurns: options.maxTurns,
         }, renderAndRun);
         return;
       } else if (teleport) {

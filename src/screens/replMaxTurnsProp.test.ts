@@ -122,6 +122,23 @@ describe('interactive REPL max-turn cap', () => {
     expect(body).toContain('maxTurns: options.maxTurns')
   })
 
+  test('non-sessionConfig interactive launch paths forward maxTurns', () => {
+    // connect / ssh / assistant / --remote build REPL props without
+    // spreading sessionConfig; each must still pass the CLI override.
+    const source = readSourceUp('main.tsx')
+    const markers = [
+      /directConnectConfig,\s*\n\s*thinkingConfig,\s*\n\s*maxTurns: options\.maxTurns/,
+      /sshSession,\s*\n\s*thinkingConfig,\s*\n\s*maxTurns: options\.maxTurns/,
+    ]
+    for (const marker of markers) {
+      expect(source).toMatch(marker)
+    }
+    // Count explicit maxTurns: options.maxTurns assignments outside
+    // sessionConfig — connect, ssh, assistant, remote (+ sessionConfig = 5).
+    const matches = source.match(/maxTurns:\s*options\.maxTurns/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(5)
+  })
+
   test('--max-turns help no longer claims print-only', () => {
     const source = readSourceUp('main.tsx')
     const optionMatch = source.match(
