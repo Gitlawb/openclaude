@@ -518,12 +518,14 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   key is `localhost:4000:my-model`, not `localhost:my-model`. Either field may be
   omitted to override only one limit.
 - **Precedence** — from highest to lowest: an **exact** env-var override → the
-  built-in catalog value → the discovery-cache value → a **prefix** env-var
-  override → `modelLimits` → the descriptor default. (The built-in catalog is
-  checked before the discovery cache.) So env-var overrides always win over
-  `modelLimits`, and `modelLimits` mainly fills in models that have no built-in
-  metadata (a known catalog model keeps its catalog limit unless you set an
-  *exact* env override for it).
+  built-in catalog value → a **prefix** env-var override → `modelLimits` → the
+  discovery-cache value (unless it is the generic 128k proxy default and a known
+  model descriptor is larger) → the descriptor default. So env-var overrides and
+  `modelLimits` always win over discovery, which matters when a gateway such as
+  OmniRoute reports `context_length: 128000` for every model. A known catalog
+  model keeps its catalog limit unless you set an *exact* env override for it.
+  Session-only: `/set-context-window <tokens>` also overrides for the current
+  session without editing settings.
 
 ## Safety strictness
 

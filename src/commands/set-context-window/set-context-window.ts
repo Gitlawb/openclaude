@@ -14,8 +14,13 @@ Examples:
   /set-context-window gpt-4o 200000
   /set-context-window status
 
-The override takes precedence over integration catalog and provider
-profile defaults. Use /clear-context-window to remove it.`
+The override takes precedence over discovery, catalog, and provider defaults
+for this session only. Use /clear-context-window to remove it.
+
+For a permanent override (survives restart), set modelLimits in settings.json
+or CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS, for example:
+  { "modelLimits": { "my-model": { "contextWindow": 1000000 } } }
+See docs/advanced-setup.md (Per-model limit overrides).`
 
 export const call: LocalCommandCall = async (args, context) => {
   const trimmed = args.trim()

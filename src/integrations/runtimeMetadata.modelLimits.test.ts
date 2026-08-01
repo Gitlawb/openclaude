@@ -162,3 +162,58 @@ test('resolveModelRuntimeLimits lets a broad env-prefix override win over an exa
   expect(limits.contextWindow).toBe(111_111)
   expect(limits.maxOutputTokens).toBe(4_096)
 })
+
+test('resolveModelRuntimeLimits lets settings modelLimits beat discovery cache', async () => {
+  const { setCachedModels } = await import(`./discoveryCache.js?ts=${Date.now()}`)
+  const { getDiscoveryCacheKey } = await import(
+    `./discoveryService.js?ts=${Date.now()}`
+  )
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-model-limits-'))
+  process.env.CLAUDE_CONFIG_DIR = tempDir
+  try {
+    const baseUrl = 'http://localhost:20128/v1'
+    await setCachedModels(
+      getDiscoveryCacheKey('custom', { baseUrl }),
+      {
+        models: [
+          {
+            id: 'my-codex-combo',
+            apiName: 'my-codex-combo',
+            label: 'my-codex-combo',
+            contextWindow: 128_000,
+          },
+        ],
+      },
+    )
+
+    mockSettings = {
+      modelLimits: {
+        'my-codex-combo': { contextWindow: 1_000_000, maxOutputTokens: 32_768 },
+      },
+    }
+    const { resolveModelRuntimeLimits } = await importFresh()
+
+    const limits = resolveModelRuntimeLimits({
+      model: 'my-codex-combo',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: baseUrl,
+      },
+    })
+
+    expect(limits.contextWindow).toBe(1_000_000)
+    expect(limits.maxOutputTokens).toBe(32_768)
+  } finally {
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+    }
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
