@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Message } from '../types/message.js'
 import {
   acquireSharedMutationLock,
@@ -11,6 +14,7 @@ import {
   isLoggableMessage,
   isPrefixCacheListingAttachment,
   isSafeForExternalEgress,
+  loadTranscriptFile,
 } from './sessionStorage.ts'
 
 const originalUserType = process.env.USER_TYPE
@@ -295,4 +299,127 @@ test('normalizeMessagesForAPI after egress filter does not bake skill catalog in
   const safe = JSON.stringify(withFilter)
   expect(safe).not.toContain('leak-me-please')
   expect(safe).toContain('plain turn')
+})
+
+test('loadTranscriptFile reloads local JSONL byte-stable through the last pre-resume message', async () => {
+  process.env.USER_TYPE = 'external'
+
+  const sessionId = '00000000-0000-4000-8000-00000000c000'
+  const ts = '2026-08-01T00:00:00.000Z'
+  const base = (uuid: string, parentUuid: string | null) => ({
+    uuid,
+    parentUuid,
+    timestamp: ts,
+    cwd: '/tmp',
+    userType: 'external',
+    sessionId,
+    version: 'test',
+    isSidechain: false,
+  })
+
+  const chain = [
+    {
+      ...base('00000000-0000-4000-8000-00000000c001', null),
+      type: 'user',
+      isMeta: false,
+      message: { role: 'user', content: 'turn one' },
+    },
+    {
+      ...base(
+        '00000000-0000-4000-8000-00000000c002',
+        '00000000-0000-4000-8000-00000000c001',
+      ),
+      type: 'attachment',
+      attachment: {
+        type: 'skill_listing',
+        content: 'Available skills:\n- /demo',
+        skillCount: 1,
+        isInitial: true,
+      },
+    },
+    {
+      ...base(
+        '00000000-0000-4000-8000-00000000c003',
+        '00000000-0000-4000-8000-00000000c002',
+      ),
+      type: 'attachment',
+      attachment: {
+        type: 'mcp_instructions_delta',
+        addedNames: ['demo'],
+        addedBlocks: ['## demo\ninstructions'],
+        removedNames: [],
+      },
+    },
+    {
+      ...base(
+        '00000000-0000-4000-8000-00000000c004',
+        '00000000-0000-4000-8000-00000000c003',
+      ),
+      type: 'assistant',
+      message: {
+        id: '00000000-0000-4000-8000-00000000c004',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply one' }],
+        model: 'test-model',
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    },
+    {
+      ...base(
+        '00000000-0000-4000-8000-00000000c005',
+        '00000000-0000-4000-8000-00000000c004',
+      ),
+      type: 'user',
+      isMeta: false,
+      message: { role: 'user', content: 'last pre-resume turn' },
+    },
+  ]
+
+  const dir = await mkdtemp(join(tmpdir(), 'listing-roundtrip-'))
+  const file = join(dir, 'session.jsonl')
+  const raw = `${chain.map(e => JSON.stringify(e)).join('\n')}\n`
+  try {
+    await writeFile(file, raw, 'utf-8')
+    const { messages } = await loadTranscriptFile(file)
+
+    const ordered: Array<(typeof chain)[number]> = []
+    let cursor: string | null = '00000000-0000-4000-8000-00000000c005'
+    while (cursor) {
+      const entry = messages.get(cursor as never)
+      if (!entry) break
+      ordered.unshift(entry as unknown as (typeof chain)[number])
+      cursor = (entry as { parentUuid: string | null }).parentUuid
+    }
+
+    expect(ordered.map(e => e.uuid)).toEqual(chain.map(e => e.uuid))
+    expect(ordered.map(e => e.type)).toEqual(chain.map(e => e.type))
+    expect(JSON.stringify(ordered[1]?.attachment)).toBe(
+      JSON.stringify(chain[1]?.attachment),
+    )
+    expect(JSON.stringify(ordered[2]?.attachment)).toBe(
+      JSON.stringify(chain[2]?.attachment),
+    )
+    expect(
+      (ordered[1] as { attachment: { content: string } }).attachment.content,
+    ).toBe('Available skills:\n- /demo')
+    expect(
+      (ordered[2] as { attachment: { addedBlocks: string[] } }).attachment
+        .addedBlocks,
+    ).toEqual(['## demo\ninstructions'])
+
+    const egress = filterJsonlForExternalEgress(raw)
+    expect(egress).not.toContain('skill_listing')
+    expect(egress).not.toContain('mcp_instructions_delta')
+    expect(egress).toContain('turn one')
+    expect(egress).toContain('last pre-resume turn')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
