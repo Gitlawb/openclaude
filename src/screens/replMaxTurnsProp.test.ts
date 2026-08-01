@@ -220,7 +220,7 @@ describe('interactive REPL max-turn cap', () => {
     await program.parseAsync(['node', 'openclaude', '--max-turns', '200'], {
       from: 'node',
     })
-    const parsed = program.opts().maxTurns
+    const parsed = program.getOptionValue('maxTurns') as number
     expect(parsed).toBe(200)
     // Same handoff the interactive session uses: CLI option → resolveReplMaxTurns.
     expect(resolveReplMaxTurns(parsed)).toBe(200)

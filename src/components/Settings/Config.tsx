@@ -339,8 +339,8 @@ export function Config({
   }, {
     id: 'replMaxTurns',
     label: 'Max turns (interactive)',
-    // Display and persist through the SAME normalization resolveReplMaxTurns
-    // applies, so a hand-edited 2.5 or 0 shows (and saves) as what actually runs.
+    // Display/persist the saved preference (normalized). Effective runtime cap
+    // may still be overridden by CLI `--max-turns` or OPENCLAUDE_MAX_TURNS.
     value: String(normalizeReplMaxTurns(globalConfig.replMaxTurns)),
     // Include a hand-edited config value so it round-trips through the picker.
     options: [...new Set([...REPL_MAX_TURNS_OPTIONS.map(String), String(normalizeReplMaxTurns(globalConfig.replMaxTurns))])],

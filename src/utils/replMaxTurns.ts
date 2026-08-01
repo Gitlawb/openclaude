@@ -1,4 +1,5 @@
-import { getGlobalConfig } from '../utils/config.js'
+import { getGlobalConfig } from './config.js'
+import { logForDebugging } from './debug.js'
 
 export const DEFAULT_REPL_MAX_TURNS = 50
 
@@ -79,7 +80,16 @@ export function resolveReplMaxTurns(maxTurns?: number): number {
 
   const openClaudeRaw = process.env.OPENCLAUDE_MAX_TURNS
   if (openClaudeRaw?.trim()) {
-    return parsePositiveTurnEnv('OPENCLAUDE_MAX_TURNS') ?? DEFAULT_REPL_MAX_TURNS
+    const parsed = parsePositiveTurnEnv('OPENCLAUDE_MAX_TURNS')
+    if (parsed !== undefined) {
+      return parsed
+    }
+    // Match OPENCLAUDE_MAX_RETRIES: set-but-invalid uses the default and does
+    // not fall through to legacy env or /config; surface a debug diagnostic.
+    logForDebugging(
+      `OPENCLAUDE_MAX_TURNS Invalid value "${openClaudeRaw}" (using default: ${DEFAULT_REPL_MAX_TURNS})`,
+    )
+    return DEFAULT_REPL_MAX_TURNS
   }
 
   const legacy = parsePositiveTurnEnv('CLAUDE_CODE_MAX_TURNS')
