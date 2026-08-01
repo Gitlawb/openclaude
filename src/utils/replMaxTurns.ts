@@ -2,6 +2,8 @@ import { getGlobalConfig } from './config.js'
 import { logForDebugging } from './debug.js'
 
 export const DEFAULT_REPL_MAX_TURNS = 50
+export const MAX_TURNS_UNLIMITED_WARNING =
+  'Warning: --max-turns 0 disables the turn limit. Use with caution.'
 
 /** Preset values offered in `/config` (plus any current custom value). */
 export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
@@ -11,7 +13,7 @@ export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
  * Keep remote-backed sessions explicitly out of scope in this string.
  */
 export const MAX_TURNS_CLI_DESCRIPTION =
-  'Maximum number of agentic turns per prompt. In local interactive mode this overrides the default 50-turn REPL query cap (also configurable via OPENCLAUDE_MAX_TURNS or /config). Remote-backed sessions (connect/ssh/--remote) are not capped by this flag. In --print mode this early-exits after the specified number of turns.'
+  'Maximum number of agentic turns per prompt. Set to 0 for unlimited turns (use with caution). In local interactive mode this overrides the default 50-turn REPL query cap (also configurable via OPENCLAUDE_MAX_TURNS or /config). Remote-backed sessions (connect/ssh/--remote) are not capped by this flag. In --print mode this early-exits after the specified number of turns.'
 
 /**
  * Prefer OPENCLAUDE_MAX_TURNS; honor legacy CLAUDE_CODE_MAX_TURNS only when
@@ -44,6 +46,10 @@ export function normalizeReplMaxTurns(value: unknown): number {
   return DEFAULT_REPL_MAX_TURNS
 }
 
+export function getReplMaxTurnsWarning(maxTurns?: number): string | undefined {
+  return maxTurns === 0 ? MAX_TURNS_UNLIMITED_WARNING : undefined
+}
+
 function resolveConfiguredReplMaxTurns(): number {
   const configured = getGlobalConfig().replMaxTurns
   if (configured === undefined) {
@@ -63,13 +69,17 @@ function resolveConfiguredReplMaxTurns(): number {
  * (connect/ssh/--remote) send prompts to a remote executor and are not
  * capped here.
  *
- * Invalid explicit values fall through so a bad CLI parse cannot disable the
- * interactive safety cap (unlike headless, where omitted maxTurns means no cap).
+ * An explicit CLI value of zero disables the cap. Other invalid explicit
+ * values fall through so a bad CLI parse cannot disable the interactive
+ * safety cap (unlike headless, where omitted maxTurns means no cap).
  * If OPENCLAUDE_MAX_TURNS is set but invalid, DEFAULT_REPL_MAX_TURNS is
  * used and lower layers (legacy env, /config) are not consulted — matching
  * OPENCLAUDE_MAX_RETRIES precedence.
  */
-export function resolveReplMaxTurns(maxTurns?: number): number {
+export function resolveReplMaxTurns(maxTurns?: number): number | undefined {
+  if (maxTurns === 0) {
+    return undefined
+  }
   if (
     typeof maxTurns === 'number' &&
     Number.isSafeInteger(maxTurns) &&

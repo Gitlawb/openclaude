@@ -10,7 +10,9 @@ import {
 } from '../utils/config.js'
 import {
   DEFAULT_REPL_MAX_TURNS,
+  getReplMaxTurnsWarning,
   MAX_TURNS_CLI_DESCRIPTION,
+  MAX_TURNS_UNLIMITED_WARNING,
   normalizeReplMaxTurns,
   REPL_MAX_TURNS_OPTIONS,
   resolveReplMaxTurns,
@@ -151,15 +153,22 @@ describe('interactive REPL max-turn cap', () => {
     expect(resolveReplMaxTurns(90)).toBe(90)
   })
 
-  test('ignores invalid env and explicit values and keeps the default', () => {
+  test('treats an explicit CLI zero as unlimited and invalid values as the default', () => {
     clearTurnEnv()
     setReplMaxTurnsConfig(undefined)
     process.env.OPENCLAUDE_MAX_TURNS = 'nope'
     expect(resolveReplMaxTurns()).toBe(DEFAULT_REPL_MAX_TURNS)
-    expect(resolveReplMaxTurns(0)).toBe(DEFAULT_REPL_MAX_TURNS)
+    clearTurnEnv()
+    expect(resolveReplMaxTurns(0)).toBeUndefined()
     expect(resolveReplMaxTurns(-3)).toBe(DEFAULT_REPL_MAX_TURNS)
     expect(resolveReplMaxTurns(Number.NaN)).toBe(DEFAULT_REPL_MAX_TURNS)
     expect(resolveReplMaxTurns(2.5)).toBe(DEFAULT_REPL_MAX_TURNS)
+  })
+
+  test('warns when the CLI explicitly disables the turn limit', () => {
+    expect(getReplMaxTurnsWarning(0)).toBe(MAX_TURNS_UNLIMITED_WARNING)
+    expect(getReplMaxTurnsWarning(50)).toBeUndefined()
+    expect(getReplMaxTurnsWarning()).toBeUndefined()
   })
 
   test('normalizeReplMaxTurns matches /config picker persistence', () => {
@@ -241,4 +250,3 @@ describe('interactive REPL max-turn cap', () => {
     expect(body).toContain('maxTurns: options.maxTurns')
   })
 })
-
