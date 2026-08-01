@@ -159,7 +159,8 @@ describe('npmFreshnessFailure', () => {
   test('fails when npm has a newer release than releases.ts', async () => {
     const failure = await npmFreshnessFailure(fetchReturning({ version: '999.0.0' }))
     expect(failure).toContain('999.0.0')
-    expect(failure).toContain('src/data/releases.ts')
+    expect(failure).toContain('web/src/data/releases.ts')
+    expect(failure).toContain('do not patch it from unrelated PRs')
   })
 
   test('skips on network failure instead of breaking the build', async () => {

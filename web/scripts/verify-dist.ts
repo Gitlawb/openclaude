@@ -113,7 +113,7 @@ export async function npmFreshnessFailure(fetchImpl: typeof fetch = fetch): Prom
   }
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(published)) return null
   if (newerThan(published, SITE.version))
-    return `npm latest ${published} is newer than site version ${SITE.version} — add it to src/data/releases.ts`
+    return `npm latest ${published} is newer than site version ${SITE.version} — releases.ts is stale; do not patch it from unrelated PRs (release/web process owns web/src/data/releases.ts)`
   return null
 }
 
