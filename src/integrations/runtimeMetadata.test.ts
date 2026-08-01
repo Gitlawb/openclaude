@@ -166,9 +166,10 @@ describe('resolveModelRuntimeLimits', () => {
   })
 
   it('ignores generic 128k discovery defaults when a known model descriptor is larger', async () => {
-    // OmniRoute and similar gateways report context_length: 128000 for every
-    // model when they lack per-model metadata. That must not shadow gpt-5.4's
-    // 1.05M descriptor (premature auto-compact).
+    // User-reported path: OmniRoute + GPT-5.6 Sol ("gpt sol"). Gateways often
+    // report context_length: 128000 when they lack per-model metadata. That must
+    // not shadow the known gpt-5.6-sol descriptor (272k Codex-safe fallback on
+    // catalog-less custom routes; premature auto-compact at 128k).
     await withTempConfigDir(async () => {
       const baseUrl = 'http://localhost:20128/v1'
       await setCachedModels(
@@ -178,32 +179,24 @@ describe('resolveModelRuntimeLimits', () => {
         {
           models: [
             {
-              id: 'gpt-5.4',
-              apiName: 'gpt-5.4',
-              label: 'gpt-5.4',
-              contextWindow: 128_000,
-            },
-            {
-              id: 'openai/gpt-5.4',
-              apiName: 'openai/gpt-5.4',
-              label: 'openai/gpt-5.4',
+              id: 'gpt-5.6-sol',
+              apiName: 'gpt-5.6-sol',
+              label: 'gpt-5.6-sol',
               contextWindow: 128_000,
             },
           ],
         },
       )
 
-      for (const model of ['gpt-5.4', 'openai/gpt-5.4']) {
-        expect(
-          resolveModelRuntimeLimits({
-            model,
-            processEnv: {
-              CLAUDE_CODE_USE_OPENAI: '1',
-              OPENAI_BASE_URL: baseUrl,
-            },
-          }).contextWindow,
-        ).toBe(1_050_000)
-      }
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'gpt-5.6-sol',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+          },
+        }).contextWindow,
+      ).toBe(272_000)
     })
   })
 
@@ -219,9 +212,9 @@ describe('resolveModelRuntimeLimits', () => {
         {
           models: [
             {
-              id: 'gpt-5.4',
-              apiName: 'gpt-5.4',
-              label: 'gpt-5.4',
+              id: 'gpt-5.6-sol',
+              apiName: 'gpt-5.6-sol',
+              label: 'gpt-5.6-sol',
               contextWindow: 200_000,
             },
           ],
@@ -230,7 +223,7 @@ describe('resolveModelRuntimeLimits', () => {
 
       expect(
         resolveModelRuntimeLimits({
-          model: 'gpt-5.4',
+          model: 'gpt-5.6-sol',
           processEnv: {
             CLAUDE_CODE_USE_OPENAI: '1',
             OPENAI_BASE_URL: baseUrl,
