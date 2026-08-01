@@ -241,3 +241,27 @@ test('restoreSkillStateFromMessages retains recovered set for unhydrated first p
   restoreSkillStateFromMessages(messages)
   expect(getAgentListingDeltaAttachment(ctx, [])).toEqual([])
 })
+
+test('restoreSkillStateFromMessages ignores partial agent_listing_delta before arming suppress', () => {
+  const agents = [agent('Explore'), agent('Plan')]
+  const partial = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000a0bad',
+    attachment: {
+      type: 'agent_listing_delta',
+      addedTypes: agents.map(a => a.agentType),
+      // missing addedLines / removedTypes — must not arm suppression
+    },
+  } as unknown as Message
+  const ctx = toolUseContext(agents)
+
+  restoreSkillStateFromMessages([partial])
+  // Latch was not armed, so the normal initial listing is still emitted.
+  const delta = getAgentListingDeltaAttachment(ctx, [])
+  expect(delta).toHaveLength(1)
+  expect(delta[0]?.type).toBe('agent_listing_delta')
+  if (delta[0]?.type === 'agent_listing_delta') {
+    expect(delta[0].isInitial).toBe(true)
+    expect(delta[0].addedTypes).toEqual(['Explore', 'Plan'])
+  }
+})

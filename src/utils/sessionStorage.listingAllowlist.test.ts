@@ -164,6 +164,7 @@ test('isLoggableMessage allows all attachments for ant users', () => {
       }),
     ),
   ).toBe(true)
+  // Local retain still applies for ant; egress must still strip listings.
   expect(
     isSafeForExternalEgress(
       attachment('agent_listing_delta', {
@@ -174,7 +175,43 @@ test('isLoggableMessage allows all attachments for ant users', () => {
         showConcurrencyNote: true,
       }),
     ),
-  ).toBe(true)
+  ).toBe(false)
+})
+
+test('isSafeForExternalEgress strips listing attachments before ant fast path', () => {
+  process.env.USER_TYPE = 'ant'
+
+  for (const c of LISTING_CASES) {
+    const msg = attachment(c.type, c.extra)
+    expect(isPrefixCacheListingAttachment(msg)).toBe(true)
+    expect(isLoggableMessage(msg)).toBe(true)
+    expect(isSafeForExternalEgress(msg)).toBe(false)
+  }
+
+  const user = {
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u0a1',
+    message: { role: 'user', content: 'ant turn' },
+  } as unknown as Message
+  const listing = attachment('skill_listing', {
+    content: 'Available skills:\n- /ant-secret',
+    skillCount: 1,
+    isInitial: true,
+  })
+  expect(filterMessagesForExternalEgress([user, listing])).toEqual([user])
+
+  const userLine = JSON.stringify(user)
+  const listingLine = JSON.stringify({
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000l0a1',
+    attachment: listing.attachment,
+  })
+  const filtered = filterJsonlForExternalEgress(
+    [userLine, listingLine, ''].join('\n'),
+  )
+  expect(filtered).toBe([userLine, ''].join('\n'))
+  expect(filtered).not.toContain('ant-secret')
+  expect(filtered).not.toContain('skill_listing')
 })
 
 test('isLoggableMessage fails closed on malformed null attachment for external users', () => {
@@ -270,6 +307,30 @@ test('filterJsonlForExternalEgress strips listing lines but keeps neighbors', ()
   expect(filtered).toBe([userLine, assistantLine, ''].join('\n'))
   expect(filtered).not.toContain('secret catalog')
   expect(filtered).not.toContain('mcp_instructions_delta')
+})
+
+test('filterJsonlForExternalEgress drops unparseable non-empty lines fail-closed', () => {
+  process.env.USER_TYPE = 'external'
+
+  const userLine = JSON.stringify({
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u00m',
+    message: { role: 'user', content: 'keep me' },
+  })
+  // Corrupt / partial listing fragment — must not reach share or feedback.
+  const malformedListing =
+    '{"type":"attachment","attachment":{"type":"skill_listing","content":"Available skills:\\n- /leak-via-parse-error"'
+  const assistantLine = JSON.stringify({
+    type: 'assistant',
+    uuid: '00000000-0000-4000-8000-00000000a00m',
+    message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+  })
+  const filtered = filterJsonlForExternalEgress(
+    [userLine, malformedListing, assistantLine, ''].join('\n'),
+  )
+  expect(filtered).toBe([userLine, assistantLine, ''].join('\n'))
+  expect(filtered).not.toContain('leak-via-parse-error')
+  expect(filtered).not.toContain('skill_listing')
 })
 
 test('normalizeMessagesForAPI after egress filter does not bake skill catalog into user text', () => {
@@ -400,6 +461,10 @@ test('loadTranscriptFile reloads local JSONL byte-stable through the last pre-re
 
     expect(ordered.map(e => e.uuid)).toEqual(chain.map(e => e.uuid))
     expect(ordered.map(e => e.type)).toEqual(chain.map(e => e.type))
+    // Byte-stability: every persisted field survives the reload unchanged.
+    for (const [i, expected] of chain.entries()) {
+      expect(ordered[i]).toMatchObject(expected)
+    }
     expect(JSON.stringify(ordered[1]?.attachment)).toBe(
       JSON.stringify(chain[1]?.attachment),
     )

@@ -4839,6 +4839,11 @@ export function isSafeForExternalEgress(entry: {
   type?: string
   attachment?: unknown
 }): boolean {
+  // Listing catalogs stay local for --resume but must never cross remote /
+  // share / feedback paths — including the ant fast path below.
+  if (isPrefixCacheListingAttachment(entry)) {
+    return false
+  }
   if (getUserType() === 'ant') {
     return entry.type !== 'progress'
   }
@@ -4849,9 +4854,6 @@ export function isSafeForExternalEgress(entry: {
   }
   const t = (entry.attachment as { type?: unknown }).type
   if (typeof t !== 'string') return false
-  if (PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)) {
-    return false
-  }
   if (
     t === 'hook_additional_context' &&
     isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
@@ -4874,7 +4876,8 @@ export function filterMessagesForExternalEgress<
 
 /**
  * Strip unsafe attachment lines from a raw session JSONL string before any
- * public upload. Non-JSON lines are kept unchanged.
+ * public upload. Unparseable non-empty lines fail closed (dropped) so a
+ * corrupt listing fragment cannot bypass attachment classification.
  */
 export function filterJsonlForExternalEgress(jsonl: string): string {
   if (jsonl.length === 0) return jsonl
@@ -4894,7 +4897,7 @@ export function filterJsonlForExternalEgress(jsonl: string): string {
         kept.push(line)
       }
     } catch {
-      kept.push(line)
+      // Fail closed: corrupt / partial lines must not reach share or feedback.
     }
   }
   return kept.join('\n')

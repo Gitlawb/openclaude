@@ -654,17 +654,18 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // / OpenAI automatic prefix cache on every --resume. Retain the rendered
     // announced map with the latch so a race before message scan still has a
     // baseline when messages temporarily lack listings.
+    // Require the full recognized schema before arming suppression — match
+    // getAgentListingDeltaAttachment, which rejects partial deltas.
     if (attachment.type === 'agent_listing_delta') {
+      const { addedTypes, addedLines, removedTypes } = attachment
+      if (
+        !Array.isArray(addedTypes) ||
+        !Array.isArray(addedLines) ||
+        !Array.isArray(removedTypes)
+      ) {
+        continue
+      }
       sawAgentListing = true
-      const addedTypes = Array.isArray(attachment.addedTypes)
-        ? attachment.addedTypes
-        : []
-      const addedLines = Array.isArray(attachment.addedLines)
-        ? attachment.addedLines
-        : []
-      const removedTypes = Array.isArray(attachment.removedTypes)
-        ? attachment.removedTypes
-        : []
       for (const t of removedTypes) {
         if (typeof t === 'string') recoveredAgentLines.delete(t)
       }
