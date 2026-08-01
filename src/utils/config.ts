@@ -294,6 +294,11 @@ export type GlobalConfig = {
   contextCollapseEnabled: boolean // Opt-in: collapse old transcript spans into summaries (lossy; off by default)
   toolHistoryCompressionEnabled: boolean // Compress old tool_result content (shim providers; Anthropic-native only while prompt caching is inactive)
   compactTailTurns?: number // Recent messages preserved verbatim by auto-compact's relevance pruning (default: 3)
+  /**
+   * Per-prompt local interactive REPL turn cap (default: 50).
+   * Overridden by CLI `--max-turns` and OPENCLAUDE_MAX_TURNS / CLAUDE_CODE_MAX_TURNS.
+   */
+  replMaxTurns?: number
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
   // 'off'     — no display
@@ -771,6 +776,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
   'compactTailTurns',
+  'replMaxTurns',
   'contextCollapseEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',

@@ -573,8 +573,9 @@ function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras
 }
 // Default per-prompt cap for every local interactive REPL entrypoint. Headless
 // and SDK callers retain their explicit maxTurns contracts. Local interactive
-// callers can raise the cap via --max-turns or OPENCLAUDE_MAX_TURNS /
-// CLAUDE_CODE_MAX_TURNS. Remote-backed sessions are not capped here.
+// callers can raise the cap via --max-turns, OPENCLAUDE_MAX_TURNS /
+// CLAUDE_CODE_MAX_TURNS, or `/config` → Max turns (interactive).
+// Remote-backed sessions are not capped here.
 export type Props = {
   commands: Command[];
   debug: boolean;
@@ -657,7 +658,8 @@ export function REPL({
   fallbackModel,
   maxTurns: maxTurnsProp
 }: Props): React.ReactNode {
-  const maxTurns = resolveReplMaxTurns(maxTurnsProp)
+  // Resolve at query time so `/config` changes apply on the next prompt
+  // without requiring a REPL remount. CLI prop still wins over env/config.
   const isRemoteSession = !!remoteSessionConfig;
 
   // Env-var gates hoisted to mount-time — isEnvTruthy does toLowerCase+trim+
@@ -2874,7 +2876,7 @@ export function REPL({
           canUseTool,
           toolUseContext,
           fallbackModel,
-          maxTurns,
+          maxTurns: resolveReplMaxTurns(maxTurnsProp),
           querySource: getQuerySourceForREPL(),
           autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
           onAutoCompactTrackingChange: tracking => {
@@ -2886,7 +2888,7 @@ export function REPL({
         agentDefinition: mainThreadAgentDefinition
       });
     })();
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, maxTurns]);
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, maxTurnsProp]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({
@@ -3118,7 +3120,7 @@ export function REPL({
       toolUseContext,
       querySource: getQuerySourceForREPL(),
       fallbackModel,
-      maxTurns,
+      maxTurns: resolveReplMaxTurns(maxTurnsProp),
       autoCompactTracking: queryAutoCompactTracking,
       onAutoCompactTrackingChange: tracking => {
         if (setAutoCompactTrackingForSessionIfUnchanged(querySessionId, expectedAutoCompactTracking, tracking)) {
@@ -3144,7 +3146,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurns, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurnsProp, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false, onModelRequestStart?: () => void): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {

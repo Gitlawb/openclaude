@@ -1,7 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_REPL_MAX_TURNS, resolveReplMaxTurns } from './replMaxTurns.js'
+import {
+  DEFAULT_GLOBAL_CONFIG,
+  GLOBAL_CONFIG_KEYS,
+  isGlobalConfigKey,
+  saveGlobalConfig,
+} from '../utils/config.js'
+import {
+  DEFAULT_REPL_MAX_TURNS,
+  normalizeReplMaxTurns,
+  REPL_MAX_TURNS_OPTIONS,
+  resolveReplMaxTurns,
+} from '../utils/replMaxTurns.js'
 
 const screenDir = import.meta.dirname
 
@@ -38,6 +49,13 @@ function clearTurnEnv(): void {
   }
 }
 
+function setReplMaxTurnsConfig(value: number | undefined): void {
+  saveGlobalConfig(current => ({
+    ...current,
+    replMaxTurns: value,
+  }))
+}
+
 afterEach(() => {
   for (const key of ENV_KEYS) {
     const previous = savedEnv[key]
@@ -47,6 +65,7 @@ afterEach(() => {
       process.env[key] = previous
     }
   }
+  setReplMaxTurnsConfig(undefined)
 })
 
 for (const key of ENV_KEYS) {
@@ -56,6 +75,7 @@ for (const key of ENV_KEYS) {
 describe('interactive REPL max-turn cap', () => {
   test('supplies the local interactive default at runtime', () => {
     clearTurnEnv()
+    setReplMaxTurnsConfig(undefined)
     expect(DEFAULT_REPL_MAX_TURNS).toBe(50)
     expect(resolveReplMaxTurns()).toBe(50)
   })
@@ -97,8 +117,28 @@ describe('interactive REPL max-turn cap', () => {
     expect(resolveReplMaxTurns(80)).toBe(80)
   })
 
+  test('honors /config replMaxTurns when CLI and env are unset', () => {
+    clearTurnEnv()
+    setReplMaxTurnsConfig(200)
+    expect(resolveReplMaxTurns()).toBe(200)
+  })
+
+  test('env wins over /config replMaxTurns', () => {
+    clearTurnEnv()
+    setReplMaxTurnsConfig(200)
+    process.env.OPENCLAUDE_MAX_TURNS = '80'
+    expect(resolveReplMaxTurns()).toBe(80)
+  })
+
+  test('CLI wins over /config replMaxTurns', () => {
+    clearTurnEnv()
+    setReplMaxTurnsConfig(200)
+    expect(resolveReplMaxTurns(90)).toBe(90)
+  })
+
   test('ignores invalid env and explicit values and keeps the default', () => {
     clearTurnEnv()
+    setReplMaxTurnsConfig(undefined)
     process.env.OPENCLAUDE_MAX_TURNS = 'nope'
     expect(resolveReplMaxTurns()).toBe(DEFAULT_REPL_MAX_TURNS)
     expect(resolveReplMaxTurns(0)).toBe(DEFAULT_REPL_MAX_TURNS)
@@ -107,13 +147,33 @@ describe('interactive REPL max-turn cap', () => {
     expect(resolveReplMaxTurns(2.5)).toBe(DEFAULT_REPL_MAX_TURNS)
   })
 
+  test('normalizeReplMaxTurns matches /config picker persistence', () => {
+    expect(normalizeReplMaxTurns(200)).toBe(200)
+    expect(normalizeReplMaxTurns('500')).toBe(500)
+    expect(normalizeReplMaxTurns(0)).toBe(DEFAULT_REPL_MAX_TURNS)
+    expect(normalizeReplMaxTurns('nope')).toBe(DEFAULT_REPL_MAX_TURNS)
+  })
+
+  test('replMaxTurns is registered for /config', () => {
+    expect(GLOBAL_CONFIG_KEYS).toContain('replMaxTurns')
+    expect(isGlobalConfigKey('replMaxTurns')).toBe(true)
+    expect(DEFAULT_GLOBAL_CONFIG.replMaxTurns).toBeUndefined()
+    expect(REPL_MAX_TURNS_OPTIONS).toEqual([50, 100, 200, 500])
+  })
+
   test('passes the resolved cap to foreground and background queries', () => {
     const source = readScreen('REPL.tsx')
     const foreground = objectBody(source, /for await \(const event of query\(\{/)
     const background = objectBody(source, /queryParams:\s*\{/)
 
-    expect(foreground).toContain('maxTurns,')
-    expect(background).toContain('maxTurns,')
+    expect(foreground).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
+    expect(background).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
+  })
+
+  test('Config panel exposes Max turns (interactive)', () => {
+    const source = readSourceUp(join('components', 'Settings', 'Config.tsx'))
+    expect(source).toContain("id: 'replMaxTurns'")
+    expect(source).toContain("label: 'Max turns (interactive)'")
   })
 
   test('passes the cap from the resume selector into REPL', () => {
