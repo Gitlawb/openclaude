@@ -61,7 +61,7 @@ function withFixture(mutate: (dist: string) => void): string[] {
 
 describe('release data', () => {
   test('lists the 0.27.0 release with its curated highlights', () => {
-    expect(releases[0]).toEqual({
+    expect(releases.find(release => release.version === '0.27.0')).toEqual({
       version: '0.27.0',
       date: '2026-07-30',
       theme: 'auth-ready local proxies and a refreshed web identity',
