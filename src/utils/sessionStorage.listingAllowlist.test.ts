@@ -593,3 +593,234 @@ test('loadTranscriptFile reloads local JSONL byte-stable through the last pre-re
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/**
+ * Remote-resume contract (jatmn review 4835237820):
+ * - Local JSONL retains model-visible listing attachments (prefix-cache hit).
+ * - Remote/CCR/share projection omits those listings and reparents survivors.
+ * - hydrateRemoteSession writes that projection to disk; loadTranscriptFile +
+ *   buildConversationChain must still walk early history (no truncation).
+ * - Remote resume is an explicit listing-prefix cache miss — it must not claim
+ *   byte-stable listing payloads across remote hydrate.
+ */
+test('remote-resume contract: omit-without-reparent truncates early history on hydrate path', async () => {
+  process.env.USER_TYPE = 'external'
+
+  const userUuid = '00000000-0000-4000-8000-00000000h001'
+  const listingUuid = '00000000-0000-4000-8000-00000000h002'
+  const assistantUuid = '00000000-0000-4000-8000-00000000h003'
+  const sessionId = '00000000-0000-4000-8000-00000000h000'
+  const ts = '2026-08-01T00:00:00.000Z'
+  const base = (uuid: string, parentUuid: string | null) => ({
+    uuid,
+    parentUuid,
+    timestamp: ts,
+    cwd: '/tmp',
+    userType: 'external',
+    sessionId,
+    version: 'test',
+    isSidechain: false,
+  })
+
+  // Broken egress: drop listing rows but leave assistant.parentUuid → listing.
+  // This is the failure mode jatmn described before reparenting.
+  const brokenRemote = [
+    {
+      ...base(userUuid, null),
+      type: 'user',
+      isMeta: false,
+      message: { role: 'user', content: 'early history turn' },
+    },
+    {
+      ...base(assistantUuid, listingUuid),
+      type: 'assistant',
+      message: {
+        id: assistantUuid,
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply' }],
+        model: 'test-model',
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    },
+  ]
+
+  const dir = await mkdtemp(join(tmpdir(), 'listing-hydrate-break-'))
+  const file = join(dir, 'remote-broken.jsonl')
+  try {
+    await writeFile(
+      file,
+      `${brokenRemote.map(e => JSON.stringify(e)).join('\n')}\n`,
+      'utf-8',
+    )
+    const { messages } = await loadTranscriptFile(file)
+    const leaf = messages.get(assistantUuid as never)
+    expect(leaf).toBeDefined()
+    const walked = buildConversationChain(
+      messages as never,
+      leaf as never,
+    ) as Array<{ uuid: string; type: string }>
+    // Walk stops at the dangling listing parent — early user is lost.
+    expect(walked.map(m => m.uuid)).toEqual([assistantUuid])
+    expect(walked.some(m => m.uuid === userUuid)).toBe(false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('remote-resume contract: hydrate-equivalent reparented projection walks early history as listing cache miss', async () => {
+  process.env.USER_TYPE = 'external'
+
+  const sessionId = '00000000-0000-4000-8000-00000000k000'
+  const ts = '2026-08-01T00:00:00.000Z'
+  const userUuid = '00000000-0000-4000-8000-00000000k001'
+  const listingUuid = '00000000-0000-4000-8000-00000000k002'
+  const mcpUuid = '00000000-0000-4000-8000-00000000k003'
+  const assistantUuid = '00000000-0000-4000-8000-00000000k004'
+  const leafUuid = '00000000-0000-4000-8000-00000000k005'
+  const base = (uuid: string, parentUuid: string | null) => ({
+    uuid,
+    parentUuid,
+    timestamp: ts,
+    cwd: '/tmp',
+    userType: 'external',
+    sessionId,
+    version: 'test',
+    isSidechain: false,
+  })
+
+  const localChain = [
+    {
+      ...base(userUuid, null),
+      type: 'user',
+      isMeta: false,
+      message: { role: 'user', content: 'early history turn' },
+    },
+    {
+      ...base(listingUuid, userUuid),
+      type: 'attachment',
+      attachment: {
+        type: 'skill_listing',
+        content: 'Available skills:\n- /private-prefix',
+        skillCount: 1,
+        isInitial: true,
+      },
+    },
+    {
+      ...base(mcpUuid, listingUuid),
+      type: 'attachment',
+      attachment: {
+        type: 'mcp_instructions_delta',
+        addedNames: ['demo'],
+        addedBlocks: ['## demo\nsecret-mcp-prefix'],
+        removedNames: [],
+      },
+    },
+    {
+      ...base(assistantUuid, mcpUuid),
+      type: 'assistant',
+      message: {
+        id: assistantUuid,
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply after listings' }],
+        model: 'test-model',
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    },
+    {
+      ...base(leafUuid, assistantUuid),
+      type: 'user',
+      isMeta: false,
+      message: { role: 'user', content: 'post-resume turn' },
+    },
+  ]
+
+  const dir = await mkdtemp(join(tmpdir(), 'listing-hydrate-contract-'))
+  const localFile = join(dir, 'local.jsonl')
+  const remoteFile = join(dir, 'remote-hydrated.jsonl')
+  const localRaw = `${localChain.map(e => JSON.stringify(e)).join('\n')}\n`
+  // hydrateRemoteSession writes remoteLogs as JSONL; filterJsonlForExternalEgress
+  // is the batch projection of what remote/CCR receives after reparent.
+  const remoteProjection = filterJsonlForExternalEgress(localRaw)
+  try {
+    await writeFile(localFile, localRaw, 'utf-8')
+    await writeFile(remoteFile, remoteProjection, 'utf-8')
+
+    // Local resume: listing prefix present (byte-stable / cache hit).
+    const localLoaded = await loadTranscriptFile(localFile)
+    const localLeaf = localLoaded.messages.get(leafUuid as never)
+    expect(localLeaf).toBeDefined()
+    const localWalked = buildConversationChain(
+      localLoaded.messages as never,
+      localLeaf as never,
+    ) as Array<{ uuid: string; type: string; attachment?: { type: string } }>
+    expect(localWalked.map(m => m.uuid)).toEqual(localChain.map(e => e.uuid))
+    expect(localWalked.some(m => m.attachment?.type === 'skill_listing')).toBe(
+      true,
+    )
+    expect(
+      localWalked.some(m => m.attachment?.type === 'mcp_instructions_delta'),
+    ).toBe(true)
+
+    // Remote hydrate path: same leaf, reparented chain, no listing payloads.
+    expect(remoteProjection).not.toContain('skill_listing')
+    expect(remoteProjection).not.toContain('mcp_instructions_delta')
+    expect(remoteProjection).not.toContain('/private-prefix')
+    expect(remoteProjection).not.toContain('secret-mcp-prefix')
+    expect(remoteProjection).not.toContain(listingUuid)
+    expect(remoteProjection).not.toContain(mcpUuid)
+    expect(remoteProjection).toContain('early history turn')
+    expect(remoteProjection).toContain('post-resume turn')
+
+    const remoteLoaded = await loadTranscriptFile(remoteFile)
+    expect(remoteLoaded.messages.has(listingUuid as never)).toBe(false)
+    expect(remoteLoaded.messages.has(mcpUuid as never)).toBe(false)
+    const remoteLeaf = remoteLoaded.messages.get(leafUuid as never)
+    expect(remoteLeaf).toBeDefined()
+    const remoteWalked = buildConversationChain(
+      remoteLoaded.messages as never,
+      remoteLeaf as never,
+    ) as Array<{
+      uuid: string
+      type: string
+      parentUuid: string | null
+      attachment?: { type: string }
+    }>
+
+    // Early history is not truncated; listing UUIDs are absent (cache miss).
+    expect(remoteWalked.map(m => m.uuid)).toEqual([
+      userUuid,
+      assistantUuid,
+      leafUuid,
+    ])
+    expect(remoteWalked[0]?.uuid).toBe(userUuid)
+    expect(remoteWalked.some(m => m.attachment?.type === 'skill_listing')).toBe(
+      false,
+    )
+    expect(
+      remoteWalked.some(m => m.attachment?.type === 'mcp_instructions_delta'),
+    ).toBe(false)
+    // Assistant was reparented past omitted listings onto the early user.
+    expect(remoteWalked[1]?.parentUuid).toBe(userUuid)
+
+    // Explicit contract: remote hydrate ≠ local byte-stable listing prefix.
+    expect(remoteWalked.map(m => m.uuid)).not.toEqual(
+      localWalked.map(m => m.uuid),
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
