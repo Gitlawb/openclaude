@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   deriveTheme,
+  finalizeWebReleaseEntry,
   formatReleaseEntry,
   insertReleaseEntry,
   parseChangelogSection,
@@ -68,7 +69,42 @@ describe('syncWebReleaseEntry', () => {
     if (result.status !== 'updated') return
     expect(result.content).toContain("version: '0.29.0'")
     expect(result.content).not.toContain("version: '0.28.0'")
-    expect(result.content).toContain('release-please: draft')
+    expect(result.content).toContain('release-please: draft 0.29.0')
+  })
+
+  test('preserves an earlier published entry when a later release replaces its draft', () => {
+    const published = finalizeWebReleaseEntry(
+      insertReleaseEntry(SAMPLE_RELEASES_TS, {
+        version: '0.28.0',
+        date: '2026-08-10',
+        theme: 'ready',
+        highlights: ['ready'],
+      }),
+      '0.28.0',
+    )
+    const draft = insertReleaseEntry(published, {
+      version: '0.29.0',
+      date: '2026-08-17',
+      theme: 'draft',
+      highlights: ['draft'],
+    })
+
+    expect(draft).toContain("version: '0.29.0'")
+    expect(draft).toContain("version: '0.28.0'")
+    expect(draft).not.toContain('release-please: draft 0.28.0')
+  })
+
+  test('finalizes only the matching top draft entry', () => {
+    const draft = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-10',
+      theme: 'draft',
+      highlights: ['draft'],
+    })
+    expect(finalizeWebReleaseEntry(draft, '0.28.0')).not.toContain('release-please: draft')
+    expect(() => finalizeWebReleaseEntry(draft, '0.29.0')).toThrow(
+      'top release entry does not match released version 0.29.0',
+    )
   })
 
   test('is a no-op when the top entry already matches without a draft marker', () => {
