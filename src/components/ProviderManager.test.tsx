@@ -1898,6 +1898,78 @@ test('ProviderManager warns before abandoning an already-open checkout on re-edi
   }
 }, 20_000)
 
+test('ProviderManager keeps the open checkout resumable through an edit that is never confirmed', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_CODE
+
+  const provisionAimlapiKey = mock(async (options: any) => {
+    // Open a checkout URL, then stay on the progress screen (never resolve) so
+    // the user can go back and edit the amount.
+    options.onSession?.('live-checkout')
+    options.onStatus?.('opening-checkout', 'https://checkout.test/pay')
+    await new Promise(() => {})
+    return { apiKey: 'k', apiKeyId: 'id', baseUrl: 'https://api.aimlapi.com/v1', model: 'gpt-4o' }
+  })
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+
+    // Submit the default amount → a checkout URL is opened and its resumable
+    // token/payment id are recorded (mirrors a real chargeable browser tab).
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Opening checkout in browser...'),
+    )
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 1)
+    const firstOptions = provisionAimlapiKey.mock.calls[0]?.[0] as any
+
+    // Go back and start editing the amount — a draft edit, never submitted.
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('0')
+    await waitForFrameOutput(mounted.getOutput, frame => /Amount: \$250(?!\d)/.test(frame))
+
+    // Back out of the edit (typed a new amount and changed their mind) by
+    // erasing it, restoring the original amount exactly, instead of ever
+    // pressing Enter to confirm the abandon-ack warning.
+    mounted.stdin.write('\x7f')
+    await waitForFrameOutput(mounted.getOutput, frame => /Amount: \$25(?!\d)/.test(frame))
+    mounted.stdin.write('\r')
+
+    // Resubmitting the ORIGINAL amount must resume the still-open checkout — no
+    // abandon warning, no new payment session — proving the draft edit never
+    // discarded the durable receipt for the checkout that's still live in the
+    // browser.
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+    const secondOptions = provisionAimlapiKey.mock.calls[1]?.[0] as any
+    expect(secondOptions.resumeSessionToken).toBe('live-checkout')
+    expect(secondOptions.paymentSessionId).toBe(firstOptions.paymentSessionId)
+    const output = mounted.getOutput()
+    expect(output).not.toContain('unpaid checkout is still open')
+  } finally {
+    await mounted.dispose()
+  }
+}, 20_000)
+
 test('ProviderManager recovers a settled receipt without re-provisioning', async () => {
   delete process.env.AIMLAPI_EMAIL
   delete process.env.AIMLAPI_CODE

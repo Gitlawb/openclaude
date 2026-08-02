@@ -1002,9 +1002,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   // successful" copy when the user merely continued with a saved key.
   const aimlapiTopupPaidRef = React.useRef(false)
   // A checkout URL that has already been opened in the browser (and is therefore
-  // chargeable). Editing the amount/auto-top-up starts a NEW payment session,
-  // abandoning this one — which no endpoint can cancel — so the next submit for a
-  // different intent must be explicitly confirmed first.
+  // chargeable). Submitting a changed amount/auto-top-up would start a NEW
+  // payment session, abandoning this one — which no endpoint can cancel — so
+  // that submit must be explicitly confirmed first (startAimlapiTopup's
+  // abandon-ack gate). A mere draft edit (typing) does NOT touch this: the
+  // durable receipt must stay resumable until the user actually confirms.
   const aimlapiOpenedCheckoutRef = React.useRef<{
     amountUsdMinor: number
     autoTopUp: boolean
@@ -1013,9 +1015,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function resetAimlapiCheckoutIntent(): void {
     // NOTE: the opened-checkout tracking (aimlapiOpenedCheckoutRef /
-    // aimlapiAbandonAckRef) is deliberately NOT cleared here — this runs on every
-    // amount/auto-top-up edit, and the re-edit confirmation must still see that a
-    // checkout was opened. It is cleared on a fresh flow entry and on success.
+    // aimlapiAbandonAckRef) is deliberately NOT cleared here — callers are a
+    // fresh flow entry or a completed/terminal outcome, and a confirmed
+    // abandonment (startAimlapiTopup, via claimAimlapiTopupState's
+    // abandonExisting) still needs the opened-checkout record until it takes
+    // over the slot itself.
     const intent = aimlapiPersistedIntentRef.current
     if (intent) {
       aimlapiPersistedIntentRef.current = null
@@ -3178,12 +3182,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // starting a new payment session abandons that still-chargeable browser tab
     // (no endpoint can cancel it), so require an explicit acknowledgement first.
     const openedCheckout = aimlapiOpenedCheckoutRef.current
-    if (
+    const abandoningOpenedCheckout = Boolean(
       openedCheckout &&
-      !aimlapiAbandonAckRef.current &&
-      (openedCheckout.amountUsdMinor !== amountUsdMinor ||
-        openedCheckout.autoTopUp !== autoTopUp)
-    ) {
+        (openedCheckout.amountUsdMinor !== amountUsdMinor ||
+          openedCheckout.autoTopUp !== autoTopUp),
+    )
+    if (abandoningOpenedCheckout && !aimlapiAbandonAckRef.current) {
       aimlapiAbandonAckRef.current = true
       setErrorMessage(
         'An unpaid checkout is still open in your browser — do NOT pay it. Press Enter again to abandon it and start a new checkout.',
@@ -3209,7 +3213,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
     let checkoutState: ReturnType<typeof claimAimlapiTopupState>
     try {
-      checkoutState = claimAimlapiTopupState(intent)
+      // The abandon-ack gate above already made the user explicitly confirm
+      // giving up the retained checkout when one conflicts with this intent, so
+      // this claim may overwrite it instead of refusing.
+      checkoutState = claimAimlapiTopupState(intent, {
+        abandonExisting: abandoningOpenedCheckout,
+      })
     } catch (error) {
       setErrorMessage(safeAimlapiErrorMessage(error, [aimlapiIssuedKey]))
       setScreen('aimlapi-topup-amount')
@@ -3599,17 +3608,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           columns={inputColumns}
           cursorOffset={cursorOffset}
           onAmountChange={value => {
-            if (value !== aimlapiTopupAmountUsd) {
-              resetAimlapiCheckoutIntent()
-            }
+            // Do NOT reset the persisted checkout intent here: while a checkout
+            // is still open in the browser, this is just a draft edit, and the
+            // durable receipt must survive it until the user explicitly confirms
+            // abandoning that checkout (see startAimlapiTopup's abandon-ack gate).
             setAimlapiTopupAmountUsd(value)
             setErrorMessage(undefined)
           }}
           onCursorOffsetChange={setCursorOffset}
           onAutoTopUpChange={value => {
-            if (value !== aimlapiAutoTopUp) {
-              resetAimlapiCheckoutIntent()
-            }
             setAimlapiAutoTopUp(value)
           }}
           onSubmit={startAimlapiTopup}
