@@ -32,6 +32,7 @@ jobs:
       - name: Keep the release PR as a draft until web synchronization passes
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
         run: |
@@ -85,6 +86,7 @@ jobs:
       - name: Mark synchronized release PR ready for review
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
         run: gh pr ready "$RELEASE_PR_NUMBER"
