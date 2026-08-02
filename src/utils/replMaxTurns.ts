@@ -1,5 +1,6 @@
 import { getGlobalConfig } from './config.js'
 import { logForDebugging } from './debug.js'
+import { InvalidArgumentError } from '@commander-js/extra-typings'
 
 export const DEFAULT_REPL_MAX_TURNS = 50
 export const MAX_TURNS_UNLIMITED_WARNING =
@@ -21,6 +22,17 @@ export function parseMaxTurnsCli(value: string): number {
     throw new Error('--max-turns must be a non-negative integer')
   }
   return parsed
+}
+
+/** Commander-compatible parser used by the production --max-turns option. */
+export function parseMaxTurnsCommanderArgument(value: string): number {
+  try {
+    return parseMaxTurnsCli(value)
+  } catch (error) {
+    throw new InvalidArgumentError(
+      error instanceof Error ? error.message : String(error),
+    )
+  }
 }
 
 /**

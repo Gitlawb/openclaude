@@ -25,6 +25,7 @@ import {
   MAX_TURNS_CLI_DESCRIPTION,
   MAX_TURNS_UNLIMITED_WARNING,
   normalizeReplMaxTurns,
+  parseMaxTurnsCommanderArgument,
   parseMaxTurnsCli,
   REPL_MAX_TURNS_OPTIONS,
   resolveReplMaxTurns,
@@ -82,13 +83,7 @@ function createMaxTurnsCliProgram(): CommanderCommand {
     .addOption(
       new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION).argParser(
         value => {
-          try {
-            return parseMaxTurnsCli(value)
-          } catch (error) {
-            throw new InvalidArgumentError(
-              error instanceof Error ? error.message : String(error),
-            )
-          }
+          return parseMaxTurnsCommanderArgument(value)
         },
       ),
     )
@@ -339,16 +334,16 @@ describe('interactive REPL max-turn cap', () => {
     })
   })
 
-  test('main imports the shared --max-turns description and wires sessionConfig', () => {
+  test('main uses the production Commander parser and wires sessionConfig', () => {
     // main.tsx is hard to boot in unit tests; assert the import so the
     // shared constant cannot be referenced without being bundled, plus the
     // local interactive sessionConfig handoff (same pattern as fallbackModel).
     const source = readSourceUp('main.tsx')
     expect(source).toMatch(
-      /import\s*\{[^}]*\bMAX_TURNS_CLI_DESCRIPTION\b[^}]*\}\s*from\s*'\.\/utils\/replMaxTurns\.js'/,
+      /import\s*\{[^}]*\bparseMaxTurnsCommanderArgument\b[^}]*\}\s*from\s*'\.\/utils\/replMaxTurns\.js'/,
     )
     expect(source).toContain(
-      "new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION)",
+      'return parseMaxTurnsCommanderArgument(value);',
     )
     const body = objectBody(source, /const sessionConfig = \{/)
     expect(body).toContain('maxTurns: options.maxTurns')

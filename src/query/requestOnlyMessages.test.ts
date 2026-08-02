@@ -311,9 +311,11 @@ test('scopes model-request lifecycle callbacks to provider dispatch', async () =
 
 test('closes the model-request lifecycle when its start callback aborts', async () => {
   const events: string[] = []
+  let providerDispatched = false
   const params = baseParams(
     async function* ({ options }) {
       if (options.onProviderRequestStart?.() === false) return
+      providerDispatched = true
       yield createAssistantMessage({ content: 'must not dispatch' })
     },
     async () => ({ wasCompacted: false }),
@@ -326,6 +328,7 @@ test('closes the model-request lifecycle when its start callback aborts', async 
 
   await collect(params)
 
+  expect(providerDispatched).toBe(false)
   expect(events).toEqual(['start', 'end'])
 })
 
