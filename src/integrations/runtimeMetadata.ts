@@ -544,8 +544,9 @@ export function resolveModelRuntimeLimits(options: {
   // smaller deployment/tenant limit for a globally larger model), and the
   // OpenAI-compatible response carries no signal that would let us tell a
   // synthetic gateway default apart from a real cap. Users whose gateway
-  // advertises a wrong window pin it explicitly via `modelLimits`, an env
-  // override, or `/set-context-window`; those all sit above discovery here.
+  // advertises a wrong window pin it via an exact env override, `modelLimits`
+  // for an uncatalogued model, or `/set-context-window`; each applicable
+  // override sits above discovery here.
   // Keep `settings` strictly below `prefix` so a broad env-prefix override is
   // never silently overtaken by a settings entry — matching the scalar
   // getOpenAIContextWindow, where env (exact or prefix) beats settings.

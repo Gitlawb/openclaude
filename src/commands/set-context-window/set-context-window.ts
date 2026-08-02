@@ -17,9 +17,11 @@ Examples:
 The override takes precedence over discovery, catalog, and provider defaults
 for this session only. Use /clear-context-window to remove it.
 
-For a permanent override (survives restart), set modelLimits in settings.json
-or CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS, for example:
+For a permanent override (survives restart), use modelLimits in settings.json
+for custom/discovered models, for example:
   { "modelLimits": { "my-model": { "contextWindow": 1000000 } } }
+For a catalogued model, use an exact CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS entry;
+catalog values take precedence over modelLimits and prefix env entries.
 See docs/advanced-setup.md (Per-model limit overrides).`
 
 export const call: LocalCommandCall = async (args, context) => {
