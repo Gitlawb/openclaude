@@ -457,13 +457,45 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
     if (!current) return
     writeAimlapiTopupStateUnlocked({
       ...state,
-      apiKey: state.apiKey ?? current.apiKey,
-      apiKeyId: state.apiKeyId ?? current.apiKeyId,
+      // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
+      // top-up path), NOT a value to persist: the reader rejects empty strings, so
+      // a serialized "" would make the whole receipt unreadable and lose an
+      // otherwise-recoverable checkout. Coerce it to absent instead.
+      apiKey: state.apiKey?.trim() || current.apiKey,
+      apiKeyId: state.apiKeyId?.trim() || current.apiKeyId,
       model: state.model ?? current.model,
       settled: state.settled ?? current.settled,
       exchange: state.exchange ?? current.exchange,
       exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
       exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
+    })
+  })
+}
+
+/**
+ * Record a completed one-shot key exchange (apiKey/apiKeyId + settled) under the
+ * same async lock/CAS, MERGING over the stored record so the resume token and
+ * intent survive. The exchange-lease winner calls this BEFORE it returns the key,
+ * so a crash after the non-idempotent /exchange can still recover the paid key
+ * from the receipt instead of re-running (and being rejected by) the spent
+ * exchange. Clears the lease — a settled receipt supersedes it. No-op when the
+ * slot no longer belongs to this intent + payment id (a reset/clear happened).
+ */
+export function recordAimlapiSettledKeyAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  key: { apiKey: string; apiKeyId?: string; model?: string },
+): Promise<void> {
+  return withStateLockAsync(() => {
+    const current = matchingStateOrNull(expected)
+    if (!current) return
+    writeAimlapiTopupStateUnlocked({
+      ...current,
+      apiKey: key.apiKey.trim() || current.apiKey,
+      apiKeyId: key.apiKeyId?.trim() || current.apiKeyId,
+      model: key.model?.trim() || current.model,
+      settled: true,
+      exchangeLeaseOwner: undefined,
+      exchangeLeaseAt: undefined,
     })
   })
 }

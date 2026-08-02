@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
-import { claimAimlapiTopupState, saveAimlapiTopupState } from './topupState.js'
+import {
+  claimAimlapiTopupState,
+  loadAimlapiTopupState,
+  saveAimlapiTopupState,
+} from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 import {
   pollUntilPaid,
@@ -165,6 +169,63 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
   })
   expect(payBodies).toHaveLength(1)
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
+})
+
+test('a successful exchange persists the settled receipt before returning it', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'OpenClaude',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions/paid-session')) {
+      return sessionJson({ sessionToken: 'paid-session', status: 'paid' })
+    }
+    if (url.endsWith('/exchange')) {
+      return Response.json({ apiKey: 'exchanged_key', apiKeyId: 'exchanged_id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const provisioned = await provisionAimlapiKey({
+    sessionToken: 'account-session',
+    resumeSessionToken: 'paid-session',
+    paymentSessionId: claimed.paymentSessionId,
+    exchange: true,
+    intent,
+    amountUsd: '25',
+    model: 'gpt-4o',
+    noOpen: true,
+  })
+  expect(provisioned.apiKey).toBe('exchanged_key')
+
+  // The one-shot /exchange is non-idempotent, so exchangeKeyWithLease records the
+  // settled receipt under the CAS BEFORE returning: an interruption before the
+  // caller's own profile/receipt write still recovers the paid key rather than
+  // re-running (and being rejected by) the spent exchange.
+  const saved = loadAimlapiTopupState(intent)
+  expect(saved?.settled).toBe(true)
+  expect(saved?.apiKey).toBe('exchanged_key')
+  expect(saved?.apiKeyId).toBe('exchanged_id')
 })
 
 test('a sibling that cleared the checkout aborts instead of paying twice', async () => {

@@ -41,6 +41,7 @@ import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
   recordAimlapiCheckoutSession,
+  recordAimlapiSettledKeyAsync,
   releaseAimlapiExchangeLeaseAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
@@ -116,9 +117,6 @@ type TopupPhase = 'pay' | 'poll' | 'exchange' | 'wait-exchange'
 
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000
-// One exchange-lease owner id per process, so this process can reclaim its own
-// (stale) lease and a peer's lease is recognised as foreign.
-const EXCHANGE_OWNER = randomUUID()
 
 // Test seam. The unit tests drive the flow against a stub transport and a
 // capturing profile writer by swapping these in, rather than a process-global
@@ -702,7 +700,13 @@ async function exchangeKeyWithLease(
   if (!intent) return doExchange()
 
   const expected = { ...intent, paymentSessionId: options.paymentSessionId }
-  // Elect a single exchanger across racing same-intent processes, then keep
+  // One lease owner per operation (not per process): two overlapping top-ups in
+  // the same process must each see the other's live lease as foreign and back
+  // off, rather than sharing one owner id that lets both reclaim it and POST the
+  // non-idempotent /exchange concurrently. A retry WITHIN this operation still
+  // reclaims the lease it just released, because it keeps this same owner.
+  const owner = randomUUID()
+  // Elect a single exchanger across racing same-intent operations, then keep
   // re-attempting the lease: a live foreign lease means a peer is exchanging now,
   // so we resume the moment it records a settled receipt OR frees the lease —
   // whether it released after a failure or crashed and let the lease go stale —
@@ -711,7 +715,7 @@ async function exchangeKeyWithLease(
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
     if (options.signal?.aborted) throw abortError(options.signal)
-    const lease = await acquireAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER)
+    const lease = await acquireAimlapiExchangeLeaseAsync(expected, owner)
     if (lease.status === 'gone') {
       throw new Error(
         'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
@@ -727,8 +731,9 @@ async function exchangeKeyWithLease(
     if (lease.status === 'acquired') {
       // We are the sole exchanger for this checkout, either from the start or by
       // taking over from a peer that failed (or crashed) and freed the lease.
+      let exchanged: { apiKey: string; apiKeyId: string }
       try {
-        return await doExchange()
+        exchanged = await doExchange()
       } catch (error) {
         // Release the lease so a retry proceeds promptly instead of waiting out
         // the stale window; the settled receipt supersedes it on success. If the
@@ -736,7 +741,7 @@ async function exchangeKeyWithLease(
         // slowly), so this is non-fatal — but record why, so a lock/permission
         // problem behind the delay is diagnosable. Debug logging is file-backed,
         // so this stays safe on the Ink GUI path too.
-        await releaseAimlapiExchangeLeaseAsync(expected, EXCHANGE_OWNER).catch(
+        await releaseAimlapiExchangeLeaseAsync(expected, owner).catch(
           (releaseError: unknown) => {
             logForDebugging(
               `Failed to release the AI/ML API exchange lease: ${String(releaseError)}`,
@@ -746,6 +751,24 @@ async function exchangeKeyWithLease(
         )
         throw error
       }
+      // The /exchange succeeded and is non-idempotent: persist the key under the
+      // same CAS BEFORE returning it, so a crash before the caller writes the
+      // receipt can still recover the paid key instead of re-running the spent
+      // exchange (which the server would reject as already-exchanged, stranding
+      // it). Best-effort — the exchange already succeeded, so a persist failure
+      // must not discard the key: the caller writes it too, and the lease this
+      // would have cleared expires on its own.
+      await recordAimlapiSettledKeyAsync(expected, {
+        apiKey: exchanged.apiKey,
+        apiKeyId: exchanged.apiKeyId,
+        model: options.model,
+      }).catch((persistError: unknown) => {
+        logForDebugging(
+          `Failed to persist the AI/ML API exchanged key receipt: ${String(persistError)}`,
+          { level: 'warn' },
+        )
+      })
+      return exchanged
     }
     // held: a live peer is exchanging the one-shot session; back off and
     // re-attempt rather than exchanging in parallel and stranding the paid session.
