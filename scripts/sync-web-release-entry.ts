@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 export const RELEASES_TS_PATH = 'web/src/data/releases.ts'
 export const CHANGELOG_PATH = 'CHANGELOG.md'
 export const MANIFEST_PATH = '.release-please-manifest.json'
-const RELEASE_PLEASE_DRAFT_MARKER = '  // release-please: draft\n'
+const RELEASE_PLEASE_DRAFT_PREFIX = '  // release-please: draft '
 
 export type ReleaseEntry = {
   version: string
@@ -74,7 +74,7 @@ export function readManifestVersion(manifest = readFileSync(MANIFEST_PATH, 'utf8
 
 export function readCurrentTopVersion(releasesTs: string): string | null {
   const match = releasesTs.match(
-    /export const releases: Release\[\] = \[\s*(?:\/\/ release-please: draft\s*)?\{\s*version: '([^']+)'/s,
+    /export const releases: Release\[\] = \[\s*(?:\/\/ release-please: draft [^\n]+\s*)?\{\s*version: '([^']+)'/s,
   )
   return match?.[1] ?? null
 }
@@ -82,7 +82,7 @@ export function readCurrentTopVersion(releasesTs: string): string | null {
 export function formatReleaseEntry(entry: ReleaseEntry, indent = '  '): string {
   const quote = (value: string) => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
   const highlightLines = entry.highlights.map(highlight => `${indent}  ${quote(highlight)},`).join('\n')
-  return `${RELEASE_PLEASE_DRAFT_MARKER}${indent}{
+  return `${draftMarker(entry.version)}${indent}{
 ${indent}  version: ${quote(entry.version)},
 ${indent}  date: ${quote(entry.date)},
 ${indent}  theme: ${quote(entry.theme)},
@@ -93,13 +93,27 @@ ${indent}},`
 }
 
 export function insertReleaseEntry(releasesTs: string, entry: ReleaseEntry): string {
-  const withoutDraft = releasesTs.replace(/^  \/\/ release-please: draft\n  \{[\s\S]*?^  \},\n/m, '')
+  const withoutDraft = removeTopDraft(releasesTs)
   const marker = 'export const releases: Release[] = ['
   const index = withoutDraft.indexOf(marker)
   if (index === -1) throw new Error(`could not find releases array in ${RELEASES_TS_PATH}`)
 
   const insertAt = index + marker.length
   return `${withoutDraft.slice(0, insertAt)}\n${formatReleaseEntry(entry)}${withoutDraft.slice(insertAt)}`
+}
+
+export function finalizeWebReleaseEntry(releasesTs: string, version: string): string {
+  if (readCurrentTopVersion(releasesTs) !== version)
+    throw new Error(`top release entry does not match released version ${version}`)
+  return releasesTs.replace(draftMarker(version), '')
+}
+
+function draftMarker(version: string): string {
+  return `${RELEASE_PLEASE_DRAFT_PREFIX}${version}\n`
+}
+
+function removeTopDraft(releasesTs: string): string {
+  return releasesTs.replace(/^  \/\/ release-please: draft [^\n]+\n  \{[\s\S]*?^  \},\n/m, '')
 }
 
 function escapeRegExp(value: string): string {
@@ -118,7 +132,7 @@ export function syncWebReleaseEntry(options: {
   const version = options.manifestVersion ?? readManifestVersion()
   const releasesTs = options.releasesTs ?? readFileSync(RELEASES_TS_PATH, 'utf8')
   const currentTop = readCurrentTopVersion(releasesTs)
-  if (currentTop === version && !releasesTs.includes(RELEASE_PLEASE_DRAFT_MARKER))
+  if (currentTop === version && !releasesTs.includes(draftMarker(version)))
     return { status: 'unchanged', version, reason: 'releases.ts already lists this version first' }
 
   const changelog = options.changelog ?? readFileSync(CHANGELOG_PATH, 'utf8')
@@ -140,13 +154,19 @@ export function syncWebReleaseEntry(options: {
 }
 
 if (import.meta.main) {
-  const result = syncWebReleaseEntry()
-  if (result.status === 'unchanged') console.log(`sync-web-release-entry: ${result.reason}`)
-  else if (process.argv.includes('--write')) {
-    writeFileSync(RELEASES_TS_PATH, result.content)
-    console.log(`sync-web-release-entry: inserted ${result.version} into ${RELEASES_TS_PATH}`)
+  const version = readManifestVersion()
+  if (process.argv.includes('--finalize')) {
+    writeFileSync(RELEASES_TS_PATH, finalizeWebReleaseEntry(readFileSync(RELEASES_TS_PATH, 'utf8'), version))
+    console.log(`sync-web-release-entry: finalized ${version} in ${RELEASES_TS_PATH}`)
   } else {
-    console.error(`sync-web-release-entry: ${RELEASES_TS_PATH} is missing ${result.version}; run with --write`)
-    process.exit(1)
+    const result = syncWebReleaseEntry({ manifestVersion: version })
+    if (result.status === 'unchanged') console.log(`sync-web-release-entry: ${result.reason}`)
+    else if (process.argv.includes('--write')) {
+      writeFileSync(RELEASES_TS_PATH, result.content)
+      console.log(`sync-web-release-entry: inserted ${result.version} into ${RELEASES_TS_PATH}`)
+    } else {
+      console.error(`sync-web-release-entry: ${RELEASES_TS_PATH} is missing ${result.version}; run with --write`)
+      process.exit(1)
+    }
   }
 }
