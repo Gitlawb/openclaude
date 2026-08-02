@@ -2965,7 +2965,7 @@ export function REPL({
     // cancel the handoff before it dispatches a provider request.
     setAbortController(backgroundSession.abortController);
     abortController?.abort('background');
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification]);
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification, terminalTitle]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({

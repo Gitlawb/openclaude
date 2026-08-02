@@ -20,7 +20,11 @@ import {
 } from '../utils/envUtils.js'
 import { dequeueAll } from '../utils/messageQueueManager.js'
 import { getClaudeTempDir } from '../utils/permissions/filesystem.js'
-import { getProjectDir, resetProjectForTesting } from '../utils/sessionStorage.js'
+import {
+  flushSessionStorage,
+  getProjectDir,
+  resetProjectForTesting,
+} from '../utils/sessionStorage.js'
 import {
   _clearOutputsForTest,
   _resetTaskOutputDirForTest,
@@ -71,6 +75,7 @@ afterEach(async () => {
   dequeueAll()
   try {
     await _clearOutputsForTest()
+    await flushSessionStorage()
     resetProjectForTesting()
     _resetTaskOutputDirForTest()
     setClaudeConfigHomeDirForTesting(originalConfigDir)
