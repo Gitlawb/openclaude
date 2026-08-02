@@ -1812,9 +1812,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiIssuedKeyId('')
     setAimlapiTopupByKey(false)
     aimlapiTopupPaidRef.current = false
-    // Fresh flow entry: no open checkout to warn about yet.
+    // Fresh flow entry: no open checkout to warn about yet. Drop the tracked
+    // intent too (in-memory only — do NOT clear its on-disk receipt, which may be
+    // a resumable paid checkout) so a later resetAimlapiCheckoutIntent can never
+    // clear a previous flow's record against a stale payment id.
     aimlapiOpenedCheckoutRef.current = null
     aimlapiAbandonAckRef.current = false
+    aimlapiPersistedIntentRef.current = null
     setAimlapiResumeSessionToken('')
     setAimlapiPaymentSessionId('')
     setAimlapiExistingProfileId(null)

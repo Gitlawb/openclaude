@@ -412,7 +412,19 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
   checkoutState.apiKeyId = provisioned.apiKeyId
   checkoutState.model = provisioned.model
   checkoutState.settled = true
-  saveAimlapiTopupState({ ...intent, ...checkoutState })
+  try {
+    saveAimlapiTopupState({ ...intent, ...checkoutState })
+  } catch {
+    // Best-effort, like the earlier saves: the payment already settled and the
+    // key is already exchanged, so a receipt-write failure (lock/permission/IO)
+    // must not throw before the profile write below — that write is the only copy
+    // the user actually needs.
+    console.warn(
+      chalk.dim(
+        '    note: could not record the local recovery receipt; the provider profile below is the key copy that matters.',
+      ),
+    )
+  }
 
   finishProfile(provisioned)
 }

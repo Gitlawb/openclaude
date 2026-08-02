@@ -488,9 +488,15 @@ export function recordAimlapiSettledKeyAsync(
   return withStateLockAsync(() => {
     const current = matchingStateOrNull(expected)
     if (!current) return
+    const apiKey = key.apiKey.trim() || current.apiKey?.trim()
+    // Never settle without a credential: marking the receipt settled and clearing
+    // the lease with no key would make a peer resume from a receipt that holds
+    // nothing while the one-shot /exchange is already spent. Leave the record
+    // (and its lease) untouched so a retry can still exchange.
+    if (!apiKey) return
     writeAimlapiTopupStateUnlocked({
       ...current,
-      apiKey: key.apiKey.trim() || current.apiKey,
+      apiKey,
       apiKeyId: key.apiKeyId?.trim() || current.apiKeyId,
       model: key.model?.trim() || current.model,
       settled: true,
