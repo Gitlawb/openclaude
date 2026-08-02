@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import {
+  dequeue,
   dequeueAll,
   enqueue,
   getCommandQueue,
@@ -17,8 +18,10 @@ test('prepend restores commands ahead of later enqueues in FIFO order', () => {
     const restored = [
       { value: 'first restored', mode: 'prompt' as const, priority: 'later' as const },
       { value: 'second restored', mode: 'prompt' as const, priority: 'now' as const },
+      { value: 'third restored', mode: 'prompt' as const, priority: 'now' as const },
     ]
     prepend(restored)
+    expect(notifications).toHaveLength(1)
     enqueue({ value: 'later enqueue', mode: 'prompt' })
 
     expect(getCommandQueue()).toEqual([
@@ -26,8 +29,10 @@ test('prepend restores commands ahead of later enqueues in FIFO order', () => {
       { value: 'later enqueue', mode: 'prompt', priority: 'next' },
     ])
     expect(notifications).toHaveLength(2)
+    expect(dequeue()).toMatchObject(restored[1]!)
+    expect(dequeue()).toMatchObject(restored[2]!)
     expect(dequeueAll()).toEqual([
-      ...restored,
+      restored[0],
       { value: 'later enqueue', mode: 'prompt', priority: 'next' },
     ])
   } finally {
