@@ -58,6 +58,7 @@ jobs:
       - name: Commit synced web release entry
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
         run: |
           if git diff --quiet -- web/src/data/releases.ts; then
