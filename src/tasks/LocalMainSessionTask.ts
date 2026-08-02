@@ -336,9 +336,9 @@ type ToolActivity = {
 /**
  * Start a fresh background session with the given messages.
  *
- * Registers the background task synchronously, then prepares and starts an
- * independent query() call. Registration precedes preparation so the caller
- * can safely abort the foreground once this function returns.
+ * Prepares the continuation first, then registers the background task and
+ * starts an independent query() call. A foreground that settles without a
+ * successor therefore never publishes a task.
  */
 export function startBackgroundSession({
   prepare,
@@ -430,7 +430,9 @@ export function startBackgroundSession({
       if (prepared === null) {
         return
       }
+      restoreNotificationsIfUnsent = prepared.restoreNotificationsIfUnsent
       if (abortSignal.aborted) {
+        restorePreDispatchNotifications()
         return
       }
       registerMainSessionTask(
@@ -442,7 +444,6 @@ export function startBackgroundSession({
       )
       taskRegistered = true
       const { messages, queryParams } = prepared
-      restoreNotificationsIfUnsent = prepared.restoreNotificationsIfUnsent
 
       // Persist the pre-backgrounding conversation to the task's isolated
       // transcript so TaskOutput shows context immediately. Subsequent

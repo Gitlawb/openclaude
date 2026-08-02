@@ -1553,6 +1553,9 @@ async function* queryLoop(
                   return false
                 }
                 params.onModelRequestStart?.()
+                // The matching end callback belongs to the lifecycle start,
+                // even when that callback aborts before provider dispatch.
+                providerRequestStarted = true
                 // The lifecycle callback is synchronous but may itself abort.
                 if (toolUseContext.abortController.signal.aborted) {
                   providerDispatchRejected = true
@@ -1567,7 +1570,6 @@ async function* queryLoop(
                   params.turnBudget.turnsStarted = turnCount
                   reservedTurnCount = turnCount
                 }
-                providerRequestStarted = true
                 return true
               },
               // Explicit /effort selection wins. When it is unset, carry the

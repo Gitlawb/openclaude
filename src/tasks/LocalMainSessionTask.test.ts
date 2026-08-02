@@ -46,6 +46,34 @@ describe('LocalMainSessionTask', () => {
     expect(state.tasks[taskId]).toBeUndefined()
   })
 
+  test('restores claimed notifications when preparation returns after abort', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    let restoreCalls = 0
+
+    const taskId = startBackgroundSession({
+      description: 'aborted preparation',
+      setAppState,
+      prepare: async abortController => {
+        abortController.abort('stopped')
+        return {
+          messages: [],
+          restoreNotificationsIfUnsent: () => {
+            restoreCalls++
+          },
+          queryParams: {} as Omit<QueryParams, 'messages'>,
+        }
+      },
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(restoreCalls).toBe(1)
+    expect(state.tasks[taskId]).toBeUndefined()
+  })
+
   test('retains a max-turn terminal attachment in task messages', async () => {
     let state = getDefaultAppState()
     const setAppState = (update: (previous: AppState) => AppState): void => {

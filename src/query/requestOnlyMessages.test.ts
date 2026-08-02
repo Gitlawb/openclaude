@@ -309,6 +309,26 @@ test('scopes model-request lifecycle callbacks to provider dispatch', async () =
   expect(events).toEqual(['start', 'end'])
 })
 
+test('closes the model-request lifecycle when its start callback aborts', async () => {
+  const events: string[] = []
+  const params = baseParams(
+    async function* ({ options }) {
+      if (options.onProviderRequestStart?.() === false) return
+      yield createAssistantMessage({ content: 'must not dispatch' })
+    },
+    async () => ({ wasCompacted: false }),
+  )
+  params.onModelRequestStart = () => {
+    events.push('start')
+    params.toolUseContext.abortController.abort('background')
+  }
+  params.onModelRequestEnd = () => events.push('end')
+
+  await collect(params)
+
+  expect(events).toEqual(['start', 'end'])
+})
+
 for (const preserveCorrection of [false, true]) {
   test(`reapplies request-only context after ${
     preserveCorrection ? 'suffix-preserving' : 'full'
