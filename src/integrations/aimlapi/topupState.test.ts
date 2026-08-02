@@ -21,6 +21,7 @@ import {
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
+  recordAimlapiSettledKeyAsync,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -165,6 +166,55 @@ test('a future-dated exchange lease is reclaimed instead of pinning the slot for
   expect(seeded.exchangeLeaseAt).toBe(futureLeaseAt)
 
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
+})
+
+test('an empty key id is stored as absent so the settled receipt stays readable', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // The existing-key top-up path reports apiKeyId: '' (there is no retrievable
+  // id). A serialized "" fails read validation and would make the whole receipt —
+  // and the paid key it records — unrecoverable. It must round-trip as absent.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: 'paid-session',
+    apiKey: 'existing-key',
+    apiKeyId: '',
+    settled: true,
+  })
+
+  const loaded = loadAimlapiTopupState(intent)
+  expect(loaded?.settled).toBe(true)
+  expect(loaded?.apiKey).toBe('existing-key')
+  expect(loaded?.apiKeyId).toBeUndefined()
+})
+
+test('recordAimlapiSettledKeyAsync persists the key and clears the lease under the CAS', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+  // The winner holds the lease while it runs the one-shot exchange.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+
+  await recordAimlapiSettledKeyAsync(expected, {
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    model: 'gpt-4o',
+  })
+
+  // The receipt is readable (settled + key) and supersedes the lease, so a peer
+  // resumes from it rather than finding a lingering lease.
+  const loaded = loadAimlapiTopupState(intent)
+  expect(loaded?.settled).toBe(true)
+  expect(loaded?.apiKey).toBe('exchanged-key')
+  expect(loaded?.apiKeyId).toBe('exchanged-id')
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('settled')
+
+  // CAS: it is a no-op once the slot no longer belongs to this intent + payment id.
+  clearAimlapiTopupState(expected)
+  await recordAimlapiSettledKeyAsync(expected, { apiKey: 'late-key' })
+  expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
 test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {
