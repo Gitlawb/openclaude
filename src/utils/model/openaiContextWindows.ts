@@ -27,7 +27,7 @@ export type OpenAILimitOverrideMatches = {
   // settings.json `modelLimits` match (exact or prefix). Just a candidate here;
   // its position in the overall precedence is decided by resolveModelRuntimeLimits
   // (integrations/runtimeMetadata.ts), which applies settings after the exact and
-  // prefix env overrides and the catalog/discovery cache.
+  // prefix env overrides and catalog, but before the discovery cache.
   settings?: number
   // Prefix env-var override match.
   prefix?: number

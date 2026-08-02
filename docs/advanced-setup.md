@@ -527,8 +527,10 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   proxy. OpenClaude keeps that value, because an advertised window can just as
   easily be a real per-deployment cap, and budgeting above the endpoint's true
   limit turns early auto-compact into a mid-session API failure. If you know the
-  real window, pin it with `modelLimits` or `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS`
-  above, or use `/set-context-window <tokens>` for the current session only.
+  real window, use an **exact** `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` entry for a
+  catalogued model. For a custom or discovered model, use `modelLimits` or an
+  exact env entry. Use `/set-context-window <tokens>` for the current session
+  only.
 
 ## Safety strictness
 
