@@ -168,6 +168,56 @@ test('a future-dated exchange lease is reclaimed instead of pinning the slot for
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
+test('claiming a different intent refuses to clobber an opened (possibly paid) checkout', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  // The checkout was opened: a resume token is recorded and the session may
+  // already be paid but not yet exchanged.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  // A rerun with a different amount must not drop that record (which would strand
+  // the paid session); it refuses so the caller resumes or cancels it first.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    /hasn't finished and may already be paid/i,
+  )
+  // The in-flight record survives intact for the original intent.
+  expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('paid-session')
+})
+
+test('claiming a different intent refuses to clobber a settled-but-unpersisted key', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: '',
+    apiKey: 'exchanged-key',
+    apiKeyId: 'exchanged-id',
+    settled: true,
+  })
+
+  // A settled key not yet written to a profile is still recoverable only via this
+  // record; a changed intent must not silently discard it.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    /hasn't finished/i,
+  )
+})
+
+test('claiming a different intent replaces a never-advanced claim', () => {
+  useTemporaryConfig()
+  // A fresh claim that never opened a checkout (empty resume token, unsettled, no
+  // key) holds nothing chargeable, so a changed amount safely replaces it.
+  claimAimlapiTopupState(intent)
+  const next = claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })
+  expect(next.paymentSessionId).toBeTruthy()
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+  expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).not.toBeNull()
+})
+
 test('an empty key id is stored as absent so the settled receipt stays readable', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)

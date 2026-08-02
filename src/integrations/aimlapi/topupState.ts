@@ -536,10 +536,16 @@ export function recordAimlapiCheckoutSession(
 }
 
 /**
- * Adopt the stored checkout for this intent, or start a new one. This is a
- * single slot: claiming a different intent replaces the stored record (the
- * identity includes amount/partner/endpoints, so a changed intent is genuinely a
- * different checkout).
+ * Adopt the stored checkout for this intent, or start a new one. This is a single
+ * slot, so claiming a DIFFERENT intent would replace the stored record. That is
+ * safe for a never-advanced claim, but it must NOT silently drop a checkout that
+ * still holds recoverable value — an opened session (a resume token, which may
+ * already be PAID but not yet exchanged) or a settled key not yet written to a
+ * profile. Dropping the resume token there strands a paid session/key that is
+ * only reachable through this record, so a changed intent is refused until the
+ * caller finishes or cancels the retained checkout (re-running the SAME intent
+ * resumes it). The identity includes amount/partner/endpoints, so a changed
+ * intent is genuinely a different checkout.
  */
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
@@ -548,6 +554,19 @@ export function claimAimlapiTopupState(
     const existing = readAimlapiTopupStateUnlocked()
     if (existing && matchesIntent(existing, intent)) {
       return toCheckoutState(existing)
+    }
+    if (
+      existing &&
+      (Boolean(existing.resumeSessionToken?.trim()) ||
+        existing.settled === true ||
+        Boolean(existing.apiKey?.trim()))
+    ) {
+      const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
+      throw new Error(
+        `An earlier AI/ML API top-up of $${priorUsd} hasn't finished and may already be ` +
+          `paid. Re-run that same top-up to complete it (or cancel it) before starting a ` +
+          `different one.`,
+      )
     }
     const claimed: AimlapiCheckoutState = {
       paymentSessionId: randomUUID(),
