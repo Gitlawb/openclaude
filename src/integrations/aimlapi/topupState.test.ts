@@ -280,9 +280,10 @@ test('recordAimlapiSettledKeyAsync never settles a receipt without a key', async
   await recordAimlapiSettledKeyAsync(expected, { apiKey: '' })
 
   expect(loadAimlapiTopupState(intent)?.settled).not.toBe(true)
-  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).not.toBe(
-    'settled',
-  )
+  // The lease must remain HELD (owner-a's, intact) — not merely "not settled":
+  // if the keyless call had wrongly cleared the lease, owner-b would see
+  // 'acquired', so assert 'held' to pin that the retry path is preserved.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('held')
 })
 
 test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {
