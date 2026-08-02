@@ -99,8 +99,9 @@ export function registerMainSessionTask(
   setAppState: SetAppState,
   mainThreadAgentDefinition?: AgentDefinition,
   existingAbortController?: AbortController,
+  existingTaskId?: string,
 ): { taskId: string; abortController: AbortController } {
-  const taskId = generateMainSessionTaskId()
+  const taskId = existingTaskId ?? generateMainSessionTaskId()
 
   // Link output to an isolated per-task transcript file (same layout as
   // sub-agents). Do NOT use getTranscriptPath() — that's the main session's
@@ -359,12 +360,13 @@ export function startBackgroundSession({
   agentDefinition?: AgentDefinition
   queryImpl?: typeof query
 }): string {
-  const { taskId, abortController } = registerMainSessionTask(
-    description,
-    setAppState,
-    agentDefinition,
-  )
+  // Keep a controller while preparation waits for the foreground settlement,
+  // but do not publish a task until a successor is actually required. A
+  // settled foreground can complete normally after Ctrl+B is pressed.
+  const taskId = generateMainSessionTaskId()
+  const abortController = createAbortController()
   const abortSignal = abortController.signal
+  let taskRegistered = false
   let providerRequestStarted = false
   let restoreNotificationsIfUnsent: (() => void) | undefined
 
@@ -422,20 +424,25 @@ export function startBackgroundSession({
 
   void runWithAgentContext(agentContext, async () => {
     try {
-      // The task is registered before preparation begins. Ctrl+B can now
-      // abort the foreground immediately without risking an unowned gap if
-      // system/user context preparation rejects.
+      // Wait for the foreground settlement before publishing a task. This
+      // keeps a completion race from producing a phantom background task.
       const prepared = await prepare(abortController)
       if (prepared === null) {
-        finishAbortedTask()
         return
       }
+      if (abortSignal.aborted) {
+        return
+      }
+      registerMainSessionTask(
+        description,
+        setAppState,
+        agentDefinition,
+        abortController,
+        taskId,
+      )
+      taskRegistered = true
       const { messages, queryParams } = prepared
       restoreNotificationsIfUnsent = prepared.restoreNotificationsIfUnsent
-      if (abortSignal.aborted) {
-        finishAbortedTask()
-        return
-      }
 
       // Persist the pre-backgrounding conversation to the task's isolated
       // transcript so TaskOutput shows context immediately. Subsequent
@@ -543,12 +550,14 @@ export function startBackgroundSession({
       completeMainSessionTask(taskId, true, setAppState)
     } catch (error) {
       if (abortSignal.aborted) {
-        finishAbortedTask()
+        if (taskRegistered) finishAbortedTask()
         return
       }
-      restorePreDispatchNotifications()
       logError(error)
-      completeMainSessionTask(taskId, false, setAppState)
+      if (taskRegistered) {
+        restorePreDispatchNotifications()
+        completeMainSessionTask(taskId, false, setAppState)
+      }
     }
   })
 

@@ -29,6 +29,23 @@ afterEach(() => {
 })
 
 describe('LocalMainSessionTask', () => {
+  test('does not register a task when foreground settlement needs no continuation', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+
+    const taskId = startBackgroundSession({
+      description: 'settled foreground',
+      setAppState,
+      prepare: async () => null,
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(state.tasks[taskId]).toBeUndefined()
+  })
+
   test('retains a max-turn terminal attachment in task messages', async () => {
     let state = getDefaultAppState()
     const setAppState = (update: (previous: AppState) => AppState): void => {
