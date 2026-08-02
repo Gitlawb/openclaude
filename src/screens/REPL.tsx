@@ -663,7 +663,6 @@ export function REPL({
   // without requiring a REPL remount. CLI prop still wins over env/config.
   const isRemoteSession = !!remoteSessionConfig;
   const foregroundTurnCountRef = useRef(1);
-  const foregroundModelTurnStartedRef = useRef(false);
 
   useEffect(() => {
     const warning = getReplMaxTurnsWarning(maxTurnsProp);
@@ -2845,6 +2844,10 @@ export function REPL({
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
     const backgroundSessionId = getSessionId();
+    // Capture the old query's authoritative state before aborting it. The
+    // async setup below may otherwise observe a replacement prompt's refs.
+    const backgroundTurnCount = foregroundTurnCountRef.current;
+    const backgroundMaxTurns = resolveReplMaxTurns(maxTurnsProp);
     // Stop the foreground query so the background one takes over
     abortController?.abort('background');
     // Aborting subagents may produce task-completed notifications.
@@ -2886,8 +2889,8 @@ export function REPL({
           canUseTool,
           toolUseContext,
           fallbackModel,
-          maxTurns: resolveReplMaxTurns(maxTurnsProp),
-          initialTurnCount: foregroundTurnCountRef.current + (foregroundModelTurnStartedRef.current ? 1 : 0),
+          maxTurns: backgroundMaxTurns,
+          initialTurnCount: backgroundTurnCount,
           querySource: getQuerySourceForREPL(),
           autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
           onAutoCompactTrackingChange: tracking => {
@@ -3114,17 +3117,16 @@ export function REPL({
     for await (const event of query({
       messages: messagesIncludingNewMessages,
       requestOnlyMessages,
-      onModelRequestStart: () => {
-            foregroundModelTurnStartedRef.current = true;
-            if (interruptionCorrectionQueryId) {
+      onModelRequestStart: interruptionCorrectionQueryId
+        ? () => {
             interruptionCorrectionTracker.bindModelTurn({
               shouldQuery,
               isInterruptionCorrectionEligible: true,
               queryId: interruptionCorrectionQueryId,
             })
             onModelRequestStart?.()
-            }
-          },
+          }
+        : undefined,
       systemPrompt,
       userContext,
       systemContext,
@@ -3135,7 +3137,6 @@ export function REPL({
       maxTurns: resolveReplMaxTurns(maxTurnsProp),
       onTurnCountChange: turnCount => {
         foregroundTurnCountRef.current = turnCount;
-        foregroundModelTurnStartedRef.current = false;
       },
       autoCompactTracking: queryAutoCompactTracking,
       onAutoCompactTrackingChange: tracking => {
@@ -3202,7 +3203,6 @@ export function REPL({
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
     foregroundTurnCountRef.current = 1;
-    foregroundModelTurnStartedRef.current = false;
     const queryContext = startResult.context;
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);

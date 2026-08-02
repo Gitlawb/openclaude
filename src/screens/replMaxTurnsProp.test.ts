@@ -199,8 +199,9 @@ describe('interactive REPL max-turn cap', () => {
 
     expect(foreground).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
     expect(foreground).toContain('onTurnCountChange: turnCount =>')
-    expect(background).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
-    expect(background).toContain('initialTurnCount: foregroundTurnCountRef.current')
+    expect(background).toContain('maxTurns: backgroundMaxTurns')
+    expect(background).toContain('initialTurnCount: backgroundTurnCount')
+    expect(background).not.toContain('foregroundModelTurnStartedRef')
   })
 
   test('Config panel exposes Max turns (interactive)', () => {

@@ -667,6 +667,18 @@ async function* queryLoop(
   // for what's included and why feature() gates are intentionally excluded.
   const config = buildQueryConfig()
 
+  // A resumed local REPL query can carry its prior turn count. Do not allow
+  // an already-exhausted handoff to make another provider request before the
+  // normal post-tool recursion guard has a chance to run.
+  if (maxTurns && state.turnCount > maxTurns) {
+    yield createAttachmentMessage({
+      type: 'max_turns_reached',
+      maxTurns,
+      turnCount: state.turnCount,
+    })
+    return { reason: 'max_turns', turnCount: state.turnCount }
+  }
+
   // Fired once per user turn — the prompt is invariant across loop iterations,
   // so per-iteration firing would ask sideQuery the same question N times.
   // Consume point polls settledAt (never blocks). `using` disposes on all
@@ -2950,7 +2962,6 @@ async function* queryLoop(
 
     // Each time we have tool results and are about to recurse, that's a turn
     const nextTurnCount = turnCount + 1
-    params.onTurnCountChange?.(nextTurnCount)
 
     // Periodic task summary for `claude ps` — fires mid-turn so a
     // long-running agent still refreshes what it's working on. Gated
@@ -2988,6 +2999,8 @@ async function* queryLoop(
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
+
+    params.onTurnCountChange?.(nextTurnCount)
 
     if (!nextAgentStepLimit?.summaryRequested) {
       pendingToolFailureAdvisories = (

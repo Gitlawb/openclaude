@@ -132,6 +132,30 @@ async function drain(params: QueryParams): Promise<{
 }
 
 describe('agent step limits', () => {
+  test('does not call the model when a resumed query is already over its turn cap', async () => {
+    let modelCalls = 0
+
+    const { yielded, returned } = await drain({
+      ...makeParams(async function* () {
+        modelCalls++
+        yield createAssistantMessage({ content: 'must not run' })
+      }),
+      maxTurns: 1,
+      initialTurnCount: 2,
+    })
+
+    expect(modelCalls).toBe(0)
+    expect(returned).toEqual({ reason: 'max_turns', turnCount: 2 })
+    expect(
+      yielded.some(
+        message =>
+          message.type === 'attachment' &&
+          message.attachment.type === 'max_turns_reached' &&
+          message.attachment.turnCount === 2,
+      ),
+    ).toBe(true)
+  })
+
   test('without a configured limit, tool use behavior is unchanged', async () => {
     echoCalls.length = 0
     let modelCalls = 0
