@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import type { UUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { TranscriptMessage } from '../types/logs.js'
 import type { Message } from '../types/message.js'
 import {
   acquireSharedMutationLock,
@@ -19,6 +21,10 @@ import {
   projectTranscriptParentForExternalEgress,
   recordExternalEgressOmission,
 } from './sessionStorage.ts'
+
+function asUuid(value: string): UUID {
+  return value as unknown as UUID
+}
 
 const originalUserType = process.env.USER_TYPE
 const originalHookSave = process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
@@ -104,7 +110,7 @@ test('isSafeForExternalEgress strips prefix-cache listing deltas for external us
     isSafeForExternalEgress({
       type: 'user',
       message: { role: 'user', content: 'hi' },
-    }),
+    } as { type?: string; attachment?: unknown }),
   ).toBe(true)
 })
 
@@ -337,16 +343,16 @@ test('external egress projection preserves a walkable parentUuid chain without l
 
   type ChainMsg = {
     type: string
-    uuid: string
-    parentUuid: string | null
+    uuid: UUID
+    parentUuid: UUID | null
     attachment?: Record<string, unknown>
     message?: { role: string; content: string }
   }
 
-  const userUuid = '00000000-0000-4000-8000-00000000r001'
-  const listingUuid = '00000000-0000-4000-8000-00000000r002'
-  const mcpUuid = '00000000-0000-4000-8000-00000000r003'
-  const assistantUuid = '00000000-0000-4000-8000-00000000r004'
+  const userUuid = asUuid('00000000-0000-4000-8000-00000000r001')
+  const listingUuid = asUuid('00000000-0000-4000-8000-00000000r002')
+  const mcpUuid = asUuid('00000000-0000-4000-8000-00000000r003')
+  const assistantUuid = asUuid('00000000-0000-4000-8000-00000000r004')
   const chain: ChainMsg[] = [
     {
       type: 'user',
@@ -393,22 +399,24 @@ test('external egress projection preserves a walkable parentUuid chain without l
   // Same contract as hydrateRemoteSession + buildConversationChain: a Map of
   // projected entries must walk from the leaf back to the root without
   // stopping on a missing listing UUID.
-  const byUuid = new Map(
-    projected.map(m => [m.uuid, m as never]),
-  ) as Map<never, never>
+  const leaf = projected[1]
+  expect(leaf?.uuid).toBeDefined()
+  const byUuid = new Map<UUID, TranscriptMessage>(
+    projected.map(m => [m.uuid, m as unknown as TranscriptMessage]),
+  )
   const walked = buildConversationChain(
-    byUuid as never,
-    projected[1] as never,
+    byUuid,
+    leaf as unknown as TranscriptMessage,
   )
   expect(walked.map(m => m.uuid)).toEqual([userUuid, assistantUuid])
 
   // Remote-resume contract: reparent keeps the chain, but does not restore
   // the model-visible listing prefix (cache miss / reconstruction).
-  const omitted = new Map()
-  recordExternalEgressOmission(omitted, listingUuid as never, userUuid as never)
-  recordExternalEgressOmission(omitted, mcpUuid as never, listingUuid as never)
+  const omitted = new Map<UUID, UUID | null>()
+  recordExternalEgressOmission(omitted, listingUuid, userUuid)
+  recordExternalEgressOmission(omitted, mcpUuid, listingUuid)
   const reparented = projectTranscriptParentForExternalEgress(
-    { parentUuid: mcpUuid as never },
+    { parentUuid: mcpUuid },
     omitted,
   )
   expect(reparented.parentUuid).toBe(userUuid)
@@ -558,10 +566,10 @@ test('loadTranscriptFile reloads local JSONL byte-stable through the last pre-re
     const ordered: Array<(typeof chain)[number]> = []
     let cursor: string | null = '00000000-0000-4000-8000-00000000c005'
     while (cursor) {
-      const entry = messages.get(cursor as never)
+      const entry = messages.get(asUuid(cursor))
       if (!entry) break
       ordered.unshift(entry as unknown as (typeof chain)[number])
-      cursor = (entry as { parentUuid: string | null }).parentUuid
+      cursor = entry.parentUuid
     }
 
     expect(ordered.map(e => e.uuid)).toEqual(chain.map(e => e.uuid))
@@ -570,11 +578,23 @@ test('loadTranscriptFile reloads local JSONL byte-stable through the last pre-re
     for (const [i, expected] of chain.entries()) {
       expect(ordered[i]).toMatchObject(expected)
     }
-    expect(JSON.stringify(ordered[1]?.attachment)).toBe(
-      JSON.stringify(chain[1]?.attachment),
+    expect(
+      JSON.stringify(
+        (ordered[1] as { attachment?: unknown } | undefined)?.attachment,
+      ),
+    ).toBe(
+      JSON.stringify(
+        (chain[1] as { attachment?: unknown } | undefined)?.attachment,
+      ),
     )
-    expect(JSON.stringify(ordered[2]?.attachment)).toBe(
-      JSON.stringify(chain[2]?.attachment),
+    expect(
+      JSON.stringify(
+        (ordered[2] as { attachment?: unknown } | undefined)?.attachment,
+      ),
+    ).toBe(
+      JSON.stringify(
+        (chain[2] as { attachment?: unknown } | undefined)?.attachment,
+      ),
     )
     expect(
       (ordered[1] as { attachment: { content: string } }).attachment.content,
@@ -660,12 +680,9 @@ test('remote-resume contract: omit-without-reparent truncates early history on h
       'utf-8',
     )
     const { messages } = await loadTranscriptFile(file)
-    const leaf = messages.get(assistantUuid as never)
+    const leaf = messages.get(asUuid(assistantUuid))
     expect(leaf).toBeDefined()
-    const walked = buildConversationChain(
-      messages as never,
-      leaf as never,
-    ) as Array<{ uuid: string; type: string }>
+    const walked = buildConversationChain(messages, leaf!)
     // Walk stops at the dangling listing parent — early user is lost.
     expect(walked.map(m => m.uuid)).toEqual([assistantUuid])
     expect(walked.some(m => m.uuid === userUuid)).toBe(false)
@@ -761,18 +778,30 @@ test('remote-resume contract: hydrate-equivalent reparented projection walks ear
 
     // Local resume: listing prefix present (byte-stable / cache hit).
     const localLoaded = await loadTranscriptFile(localFile)
-    const localLeaf = localLoaded.messages.get(leafUuid as never)
+    const localLeaf = localLoaded.messages.get(asUuid(leafUuid))
     expect(localLeaf).toBeDefined()
     const localWalked = buildConversationChain(
-      localLoaded.messages as never,
-      localLeaf as never,
-    ) as Array<{ uuid: string; type: string; attachment?: { type: string } }>
-    expect(localWalked.map(m => m.uuid)).toEqual(localChain.map(e => e.uuid))
-    expect(localWalked.some(m => m.attachment?.type === 'skill_listing')).toBe(
-      true,
+      localLoaded.messages,
+      localLeaf!,
+    )
+    expect(localWalked.map(m => m.uuid as string)).toEqual(
+      localChain.map(e => e.uuid),
     )
     expect(
-      localWalked.some(m => m.attachment?.type === 'mcp_instructions_delta'),
+      localWalked.some(
+        m =>
+          m.type === 'attachment' &&
+          (m as { attachment?: { type?: string } }).attachment?.type ===
+            'skill_listing',
+      ),
+    ).toBe(true)
+    expect(
+      localWalked.some(
+        m =>
+          m.type === 'attachment' &&
+          (m as { attachment?: { type?: string } }).attachment?.type ===
+            'mcp_instructions_delta',
+      ),
     ).toBe(true)
 
     // Remote hydrate path: same leaf, reparented chain, no listing payloads.
@@ -786,19 +815,14 @@ test('remote-resume contract: hydrate-equivalent reparented projection walks ear
     expect(remoteProjection).toContain('post-resume turn')
 
     const remoteLoaded = await loadTranscriptFile(remoteFile)
-    expect(remoteLoaded.messages.has(listingUuid as never)).toBe(false)
-    expect(remoteLoaded.messages.has(mcpUuid as never)).toBe(false)
-    const remoteLeaf = remoteLoaded.messages.get(leafUuid as never)
+    expect(remoteLoaded.messages.has(asUuid(listingUuid))).toBe(false)
+    expect(remoteLoaded.messages.has(asUuid(mcpUuid))).toBe(false)
+    const remoteLeaf = remoteLoaded.messages.get(asUuid(leafUuid))
     expect(remoteLeaf).toBeDefined()
     const remoteWalked = buildConversationChain(
-      remoteLoaded.messages as never,
-      remoteLeaf as never,
-    ) as Array<{
-      uuid: string
-      type: string
-      parentUuid: string | null
-      attachment?: { type: string }
-    }>
+      remoteLoaded.messages,
+      remoteLeaf!,
+    )
 
     // Early history is not truncated; listing UUIDs are absent (cache miss).
     expect(remoteWalked.map(m => m.uuid)).toEqual([
@@ -807,11 +831,21 @@ test('remote-resume contract: hydrate-equivalent reparented projection walks ear
       leafUuid,
     ])
     expect(remoteWalked[0]?.uuid).toBe(userUuid)
-    expect(remoteWalked.some(m => m.attachment?.type === 'skill_listing')).toBe(
-      false,
-    )
     expect(
-      remoteWalked.some(m => m.attachment?.type === 'mcp_instructions_delta'),
+      remoteWalked.some(
+        m =>
+          m.type === 'attachment' &&
+          (m as { attachment?: { type?: string } }).attachment?.type ===
+            'skill_listing',
+      ),
+    ).toBe(false)
+    expect(
+      remoteWalked.some(
+        m =>
+          m.type === 'attachment' &&
+          (m as { attachment?: { type?: string } }).attachment?.type ===
+            'mcp_instructions_delta',
+      ),
     ).toBe(false)
     // Assistant was reparented past omitted listings onto the early user.
     expect(remoteWalked[1]?.parentUuid).toBe(userUuid)
