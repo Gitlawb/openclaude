@@ -12,6 +12,7 @@ import * as actualIndex from '../../integrations/index.js'
 import * as actualProviderConfig from '../../services/api/providerConfig.js'
 import * as actualProviderProfiles from '../providerProfiles.js'
 import * as actualProviders from './providers.js'
+import * as actualModel from './model.js'
 import type { ModelOption } from './modelOptions.js'
 
 // Snapshot the real modules before any mock.module runs (same lesson as the
@@ -22,6 +23,7 @@ const realIndex = { ...actualIndex }
 const realProviderConfig = { ...actualProviderConfig }
 const realProviderProfiles = { ...actualProviderProfiles }
 const realProviders = { ...actualProviders }
+const realModel = { ...actualModel }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // each mock installed here is gated and falls through to the real
@@ -31,6 +33,8 @@ let activeCatalogEntries: ModelCatalogEntry[] | null = null
 let activeCacheScopeOverride: string | null = null
 let activeProfileOverride: Partial<typeof actualProviderProfiles> | null = null
 let activeOpenAIProvider = false
+let activeModelOverride: typeof realModel | null = null
+let modelMockRegistered = false
 
 mock.module('./providers.js', () => ({
   ...realProviders,
@@ -89,7 +93,11 @@ mock.module('../providerProfiles.js', () => ({
 async function importFreshModelOptionsModule() {
   const nonce = `${Date.now()}-${Math.random()}`
   const modelModule = await import(`./model.js?catalogDedup=${nonce}`)
-  mock.module('./model.js', () => modelModule)
+  activeModelOverride = modelModule
+  if (!modelMockRegistered) {
+    mock.module('./model.js', () => activeModelOverride ?? realModel)
+    modelMockRegistered = true
+  }
   return import(`./modelOptions.js?ts=${nonce}`)
 }
 
@@ -145,6 +153,7 @@ beforeEach(async () => {
   activeCacheScopeOverride = null
   activeProfileOverride = null
   activeOpenAIProvider = false
+  activeModelOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
     delete process.env[key]
@@ -160,6 +169,7 @@ afterEach(() => {
     activeCacheScopeOverride = null
     activeProfileOverride = null
     activeOpenAIProvider = false
+    activeModelOverride = null
     resetSettingsCache()
     for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
       restoreEnvValue(key)
