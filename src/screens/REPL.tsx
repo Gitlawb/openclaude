@@ -2861,6 +2861,11 @@ export function REPL({
           throw backgroundAbortController.signal.reason;
         }
         if (!shouldContinue) return null;
+
+        // The foreground is settled, but its QueryGuard will shortly release
+        // and allow a new prompt. Capture this continuation's transcript before
+        // any preparation await can observe that later foreground turn.
+        const settledMessages = [...messagesRef.current];
         // Claim foreground-produced notifications immediately after the
         // settlement decision, before any async context preparation can let
         // another queue consumer take ownership.
@@ -2873,7 +2878,7 @@ export function REPL({
             enqueue(notification);
           }
         };
-        const toolUseContext = getToolUseContext(messagesRef.current, [], backgroundAbortController, mainLoopModel);
+        const toolUseContext = getToolUseContext(settledMessages, [], backgroundAbortController, mainLoopModel);
         const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, mainLoopModel, Array.from(toolPermissionContext.additionalWorkingDirectories.keys()), toolUseContext.options.mcpClients), getUserContext(), getSystemContext()]).catch(error => {
           restoreNotificationsIfUnsent();
           throw error;
@@ -2906,14 +2911,14 @@ export function REPL({
         // task-notification QueuedCommands (enqueuePendingNotification callers
         // don't pass uuid), so it would always be undefined.
         const existingPrompts = new Set<string>();
-        for (const m of messagesRef.current) {
+        for (const m of settledMessages) {
           if (m.type === 'attachment' && m.attachment.type === 'queued_command' && m.attachment.commandMode === 'task-notification' && typeof m.attachment.prompt === 'string') {
             existingPrompts.add(m.attachment.prompt);
           }
         }
         const uniqueNotifications = notificationMessages.filter(m => m.attachment.type === 'queued_command' && (typeof m.attachment.prompt !== 'string' || !existingPrompts.has(m.attachment.prompt)));
         return {
-          messages: [...messagesRef.current, ...uniqueNotifications],
+          messages: [...settledMessages, ...uniqueNotifications],
           restoreNotificationsIfUnsent,
           queryParams: {
             systemPrompt,
