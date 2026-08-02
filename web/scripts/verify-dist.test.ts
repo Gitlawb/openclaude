@@ -60,6 +60,18 @@ function withFixture(mutate: (dist: string) => void): string[] {
 }
 
 describe('release data', () => {
+  test('keeps releases newest first', () => {
+    const versions = releases.map(release => release.version.split('.').map(Number))
+    const sorted = [...versions].sort((a, b) => {
+      for (let i = 0; i < 3; i++) {
+        if (a[i] !== b[i]) return (b[i] ?? 0) - (a[i] ?? 0)
+      }
+      return 0
+    })
+
+    expect(versions).toEqual(sorted)
+  })
+
   test('lists the 0.27.0 release with its curated highlights', () => {
     expect(releases.find(release => release.version === '0.27.0')).toEqual({
       version: '0.27.0',
