@@ -702,7 +702,7 @@ async function exchangeKeyWithLease(
 ): Promise<{ apiKey: string; apiKeyId: string }> {
   const doExchange = async (): Promise<{ apiKey: string; apiKeyId: string }> => {
     if (settledPhase === 'wait-exchange') {
-      await pollUntilExchangeSettled(client, options.sessionToken, options.signal, options.onSession)
+      await pollUntilExchangeSettled(client, paidToken, options.signal, options.onSession)
     }
     const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
     return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }

@@ -726,6 +726,9 @@ test('an in-progress exchange is observed without issuing a second exchange', as
     })
   }) as unknown as typeof fetch
 
+  // `sessionToken` (the passwordless-auth bearer) is deliberately different from
+  // `resumeSessionToken` (the checkout token) so a poll that mixed them up would
+  // request the wrong resource and be caught below.
   await expect(
     provisionAimlapiKey({
       sessionToken: 'account-session',
@@ -739,7 +742,12 @@ test('an in-progress exchange is observed without issuing a second exchange', as
     },
     }),
   ).rejects.toThrow('Session was already exchanged')
-  expect(calls.every(call => call.startsWith('GET '))).toBe(true)
+  // The resolve read and the settle-poll read must both target the checkout
+  // token's session resource, never the auth bearer.
+  expect(calls).toEqual([
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+    'GET https://app.example.test/v3/partner-checkout/sessions/session',
+  ])
   expect(sessions).toEqual(['session'])
 })
 
