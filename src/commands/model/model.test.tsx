@@ -1440,6 +1440,10 @@ test('/model applies auto provider surface for single-model static descriptor pr
   mockProviderProfiles({
     getActiveProviderProfile: () => activeProfile,
   })
+  mockDescriptorDiscovery({
+    cachedModels: [],
+    routeId: 'gitlawb-opengateway',
+  })
 
   // Pin the clock inside the Ling Tiny availability window (its catalog
   // entry expires via availableUntil on 2026-08-13T10:00Z) so this expected
