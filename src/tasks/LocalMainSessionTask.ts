@@ -333,6 +333,11 @@ type ToolActivity = {
   input: Record<string, unknown>
 }
 
+export type BackgroundSessionHandle = {
+  taskId: string
+  abortController: AbortController
+}
+
 /**
  * Start a fresh background session with the given messages.
  *
@@ -346,6 +351,9 @@ export function startBackgroundSession({
   setAppState,
   agentDefinition,
   queryImpl = query,
+  onPreparationError,
+  onRegistered,
+  onSettled,
 }: {
   prepare: (abortController: AbortController) => Promise<
     | {
@@ -359,7 +367,10 @@ export function startBackgroundSession({
   setAppState: SetAppState
   agentDefinition?: AgentDefinition
   queryImpl?: typeof query
-}): string {
+  onPreparationError?: (error: unknown) => void
+  onRegistered?: (abortController: AbortController) => void
+  onSettled?: (abortController: AbortController) => void
+}): BackgroundSessionHandle {
   // Keep a controller while preparation waits for the foreground settlement,
   // but do not publish a task until a successor is actually required. A
   // settled foreground can complete normally after Ctrl+B is pressed.
@@ -443,6 +454,7 @@ export function startBackgroundSession({
         taskId,
       )
       taskRegistered = true
+      onRegistered?.(abortController)
       const { messages, queryParams } = prepared
 
       // Persist the pre-backgrounding conversation to the task's isolated
@@ -558,9 +570,13 @@ export function startBackgroundSession({
       if (taskRegistered) {
         restorePreDispatchNotifications()
         completeMainSessionTask(taskId, false, setAppState)
+      } else {
+        onPreparationError?.(error)
       }
+    } finally {
+      onSettled?.(abortController)
     }
   })
 
-  return taskId
+  return { taskId, abortController }
 }

@@ -2851,7 +2851,7 @@ export function REPL({
     // cap while the foreground query is winding down.
     const backgroundHandoff = claimBackgroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef);
     if (!backgroundHandoff) return;
-    startBackgroundSession({
+    const backgroundSession = startBackgroundSession({
       prepare: async backgroundAbortController => {
         // The foreground owns transcript completion. Wait until its abort path
         // has appended terminal tool results before snapshotting continuation
@@ -2876,6 +2876,7 @@ export function REPL({
           notificationOwnershipActive = false;
           prepend(pendingNotifications);
         };
+        try {
         const toolUseContext = getToolUseContext(settledMessages, [], backgroundAbortController, mainLoopModel);
         const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, mainLoopModel, Array.from(toolPermissionContext.additionalWorkingDirectories.keys()), toolUseContext.options.mcpClients), getUserContext(), getSystemContext()]).catch(error => {
           restoreNotificationsIfUnsent();
@@ -2933,15 +2934,38 @@ export function REPL({
             }
           }
         };
+        } catch (error) {
+          restoreNotificationsIfUnsent();
+          throw error;
+        }
       },
       description: terminalTitle,
       setAppState,
-      agentDefinition: mainThreadAgentDefinition
+      agentDefinition: mainThreadAgentDefinition,
+      onPreparationError: () => {
+        addNotification({
+          key: 'background-session-start-failed',
+          text: 'Could not start the background session. The current request was cancelled.',
+          priority: 'high',
+        });
+      },
+      onRegistered: controller => {
+        setAbortController(current =>
+          current === controller ? null : current,
+        );
+      },
+      onSettled: controller => {
+        setAbortController(current =>
+          current === controller ? null : current,
+        );
+      },
     });
-    // The successor task now exists and owns preparation failures, so the
-    // foreground can be aborted without leaving an unowned continuation gap.
+    // The task is intentionally published only after the foreground settles,
+    // but its controller must be reachable during preparation so Escape can
+    // cancel the handoff before it dispatches a provider request.
+    setAbortController(backgroundSession.abortController);
     abortController?.abort('background');
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel]);
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({
@@ -3450,7 +3474,9 @@ export function REPL({
         // reads false at the idle prompt. Without this, the stale non-aborted
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
-        setAbortController(null);
+        setAbortController(current =>
+          current === abortController ? null : current,
+        );
       } else {
         const guardCompletedContext = queryGuard.lastContext;
         if ((guardCompletedContext?.terminalReason === 'query-timeout' || guardCompletedContext?.terminalReason === 'hard-max-query-timeout') && guardCompletedContext.queryGeneration === thisGeneration) {

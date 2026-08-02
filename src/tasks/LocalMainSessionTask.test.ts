@@ -35,7 +35,7 @@ describe('LocalMainSessionTask', () => {
       state = update(state)
     }
 
-    const taskId = startBackgroundSession({
+    const { taskId } = startBackgroundSession({
       description: 'settled foreground',
       setAppState,
       prepare: async () => null,
@@ -53,7 +53,7 @@ describe('LocalMainSessionTask', () => {
     }
     let restoreCalls = 0
 
-    const taskId = startBackgroundSession({
+    const { taskId } = startBackgroundSession({
       description: 'aborted preparation',
       setAppState,
       prepare: async abortController => {
@@ -89,7 +89,7 @@ describe('LocalMainSessionTask', () => {
       return { reason: 'max_turns', turnCount: 2 }
     }
 
-    const taskId = startBackgroundSession({
+    const { taskId } = startBackgroundSession({
       description: 'cap retention test',
       setAppState,
       queryImpl: queryImpl as typeof import('../query.js').query,
@@ -108,5 +108,100 @@ describe('LocalMainSessionTask', () => {
     expect(isMainSessionTask(task)).toBe(true)
     if (!isMainSessionTask(task)) throw new Error('expected main-session task')
     expect(task.messages).toEqual([cap])
+  })
+
+  test('reports a preparation failure before task registration', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    const failure = new Error('context failed')
+    const errors: unknown[] = []
+
+    const { taskId } = startBackgroundSession({
+      description: 'failing preparation',
+      setAppState,
+      prepare: async () => {
+        throw failure
+      },
+      onPreparationError: error => errors.push(error),
+    })
+
+    await waitFor(() => errors.length === 1, 'preparation failure callback')
+
+    expect(errors).toEqual([failure])
+    expect(state.tasks[taskId]).toBeUndefined()
+  })
+
+  test('settles the pending controller after preparation completes', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    const settledControllers: AbortController[] = []
+
+    const { taskId, abortController } = startBackgroundSession({
+      description: 'settled preparation',
+      setAppState,
+      prepare: async () => null,
+      onSettled: controller => settledControllers.push(controller),
+    })
+
+    await waitFor(() => settledControllers.length === 1, 'handoff settlement')
+
+    expect(settledControllers).toEqual([abortController])
+    expect(state.tasks[taskId]).toBeUndefined()
+  })
+
+  test('reports when a pending handoff is registered as a task', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    const registeredControllers: AbortController[] = []
+
+    const { taskId, abortController } = startBackgroundSession({
+      description: 'registered handoff',
+      setAppState,
+      prepare: async () => ({
+        messages: [],
+        queryParams: {} as Omit<QueryParams, 'messages'>,
+      }),
+      onRegistered: controller => registeredControllers.push(controller),
+      queryImpl: (async function* (): AsyncGenerator<Message, Terminal> {
+        return { reason: 'completed' }
+      }) as typeof import('../query.js').query,
+    })
+
+    await waitFor(() => state.tasks[taskId]?.status === 'completed', 'task completion')
+
+    expect(registeredControllers).toEqual([abortController])
+  })
+
+  test('exposes a controller that cancels preparation before registration', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    let releasePreparation!: () => void
+    const preparation = new Promise<void>(resolve => {
+      releasePreparation = resolve
+    })
+
+    const { taskId, abortController } = startBackgroundSession({
+      description: 'cancellable preparation',
+      setAppState,
+      prepare: async controller => {
+        await preparation
+        if (controller.signal.aborted) return null
+        throw new Error('preparation should have been cancelled')
+      },
+    })
+
+    abortController.abort('user-cancel')
+    releasePreparation()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(state.tasks[taskId]).toBeUndefined()
   })
 })
