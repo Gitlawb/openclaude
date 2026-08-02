@@ -81,20 +81,39 @@ mock.module('../utils/providerProfiles.js', () => ({
 // ProfileValue is bound to the fresh instance.
 async function importFreshModelPicker(
   profilesMock: Partial<typeof actualProviderProfiles>,
+  options: {
+    trackGetModelOptions?: boolean
+  } = {},
 ) {
   activeProfilesOverride = profilesMock
   const nonce = `${Date.now()}-${Math.random()}`
   const modelOptionsModule = await import(
     `../utils/model/modelOptions.js?switchProfile=${nonce}`
   )
+  // Wrap getModelOptions in a call-through spy when a test opts in, so the
+  // binding ModelPicker captures is itself tracked. Install before
+  // mock.module / the picker import so the live export slot is the spy.
+  const getModelOptionsSpy = options.trackGetModelOptions
+    ? mock(
+        (...args: Parameters<typeof realModelOptions.getModelOptions>) =>
+          realModelOptions.getModelOptions(...args),
+      )
+    : null
+  const gatedModelOptionsModule = getModelOptionsSpy
+    ? { ...modelOptionsModule, getModelOptions: getModelOptionsSpy }
+    : modelOptionsModule
   // Gated on the profile override: when no test is actively driving the
   // profiles, later suites importing modelOptions.js keep resolving to the
   // real canonical module instead of a stale fresh instance.
   mock.module('../utils/model/modelOptions.js', () =>
-    activeProfilesOverride ? modelOptionsModule : realModelOptions,
+    activeProfilesOverride ? gatedModelOptionsModule : realModelOptions,
   )
   const pickerModule = await import(`./ModelPicker.js?switchProfile=${nonce}`)
-  return { ...pickerModule, modelOptionsModule }
+  return {
+    ...pickerModule,
+    modelOptionsModule,
+    getModelOptionsSpy,
+  }
 }
 
 function buildProfileFixture(
@@ -165,11 +184,16 @@ afterEach(() => {
 })
 
 test('ordinary model ids are never switch values (prefix short-circuit)', async () => {
-  const { isGenuineSwitchProfileValue } = await importFreshModelPicker({})
+  const { isGenuineSwitchProfileValue, getModelOptionsSpy } =
+    await importFreshModelPicker({}, { trackGetModelOptions: true })
 
   expect(isGenuineSwitchProfileValue('gpt-5.5')).toBe(false)
   expect(isGenuineSwitchProfileValue('deepseek-chat')).toBe(false)
   expect(isGenuineSwitchProfileValue('claude-sonnet-4-6')).toBe(false)
+
+  // Ordinary ids don't start with the switch prefix, so the short-circuit
+  // must skip the getModelOptions() rebuild entirely.
+  expect(getModelOptionsSpy).toHaveBeenCalledTimes(0)
 })
 
 test('malformed prefixed values are not genuine switches', async () => {
