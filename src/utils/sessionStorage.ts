@@ -598,6 +598,13 @@ class Project {
   private activeDrain: Promise<void> | null = null
   private FLUSH_INTERVAL_MS = 100
   private readonly MAX_CHUNK_BYTES = 100 * 1024 * 1024
+  /**
+   * UUIDs written to the local JSONL parentUuid chain but withheld from
+   * remote/CCR egress (prefix-cache listing payloads). Maps omitted uuid →
+   * nearest ancestor still present on the remote projection so subsequent
+   * persistToRemote calls can reparent instead of dangling.
+   */
+  private remoteEgressOmittedParents = new Map<UUID, UUID | null>()
 
   constructor() {}
 
@@ -609,6 +616,7 @@ class Project {
     this.flushTimer = null
     this.activeDrain = null
     this.writeQueues = new Map()
+    this.remoteEgressOmittedParents.clear()
   }
 
   private incrementPendingWrites(): void {
@@ -720,6 +728,7 @@ class Project {
   resetSessionFile(): void {
     this.sessionFile = null
     this.pendingEntries = []
+    this.remoteEgressOmittedParents.clear()
   }
 
   /**
@@ -1357,12 +1366,26 @@ class Project {
 
             // Local JSONL may retain model-visible listing attachments for
             // --resume prefix stability. Remote / CCR / public ingress must
-            // not receive those payloads (privacy boundary).
-            if (
-              isTranscriptMessage(entry) &&
-              isSafeForExternalEgress(entry)
-            ) {
-              await this.persistToRemote(sessionId, entry)
+            // not receive those payloads (privacy boundary). When a local
+            // chain participant is withheld, record it in
+            // remoteEgressOmittedParents and reparent the next remote entry
+            // so hydrateRemoteSession / buildConversationChain do not stop
+            // at a missing parentUuid. Remote resume therefore keeps a valid
+            // chain but accepts a listing-prefix cache miss (reconstruction).
+            if (isTranscriptMessage(entry)) {
+              if (isSafeForExternalEgress(entry)) {
+                const remoteEntry = projectTranscriptParentForExternalEgress(
+                  entry,
+                  this.remoteEgressOmittedParents,
+                )
+                await this.persistToRemote(sessionId, remoteEntry)
+              } else {
+                recordExternalEgressOmission(
+                  this.remoteEgressOmittedParents,
+                  entry.uuid,
+                  entry.parentUuid,
+                )
+              }
             }
           }
         }
@@ -4789,6 +4812,47 @@ function attachmentTypeOf(m: { type?: string; attachment?: unknown }): string | 
   return typeof t === 'string' ? t : null
 }
 
+/**
+ * Record a local-chain UUID that was withheld from remote/public egress.
+ * Chain-resolves through consecutive omissions (same pattern as progressBridge
+ * and applySnipRemovals) so one lookup yields the nearest ancestor that still
+ * exists on the projected chain.
+ *
+ * Remote / share / feedback contract: listing payloads stay off egress for
+ * privacy. The projected chain remains walkable, but the original
+ * model-visible listing prefix is not reconstructed — callers must treat
+ * remote/teleported resume as a cache miss for those attachments.
+ */
+export function recordExternalEgressOmission(
+  omittedParents: Map<UUID, UUID | null>,
+  uuid: UUID,
+  parentUuid: UUID | null,
+): void {
+  omittedParents.set(
+    uuid,
+    parentUuid && omittedParents.has(parentUuid)
+      ? (omittedParents.get(parentUuid) ?? null)
+      : parentUuid,
+  )
+}
+
+/**
+ * Reparent a transcript entry whose parentUuid points at a UUID omitted from
+ * the external/remote projection. Returns the same reference when no rewrite
+ * is needed so callers can keep original JSONL bytes where possible.
+ */
+export function projectTranscriptParentForExternalEgress<
+  T extends { parentUuid: UUID | null },
+>(entry: T, omittedParents: Map<UUID, UUID | null>): T {
+  if (!entry.parentUuid || !omittedParents.has(entry.parentUuid)) {
+    return entry
+  }
+  return {
+    ...entry,
+    parentUuid: omittedParents.get(entry.parentUuid) ?? null,
+  }
+}
+
 export function isPrefixCacheListingAttachment(m: {
   type?: string
   attachment?: unknown
@@ -4866,23 +4930,61 @@ export function isSafeForExternalEgress(entry: {
 
 /**
  * Drop entries that must not leave the local machine (share, feedback,
- * analytics payloads built from in-memory messages).
+ * analytics payloads built from in-memory messages). Relinks parentUuid
+ * across omitted listing attachments so the projected array remains a
+ * valid chain (remote-hydrate / buildConversationChain safe) without
+ * carrying listing payloads.
  */
 export function filterMessagesForExternalEgress<
-  T extends { type?: string; attachment?: unknown },
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
 >(messages: readonly T[]): T[] {
-  return messages.filter(isSafeForExternalEgress)
+  const omittedParents = new Map<UUID, UUID | null>()
+  const kept: T[] = []
+  for (const message of messages) {
+    if (!isSafeForExternalEgress(message)) {
+      if (typeof message.uuid === 'string') {
+        recordExternalEgressOmission(
+          omittedParents,
+          message.uuid,
+          message.parentUuid ?? null,
+        )
+      }
+      continue
+    }
+    if (
+      message.parentUuid !== undefined &&
+      message.parentUuid !== null &&
+      omittedParents.has(message.parentUuid)
+    ) {
+      kept.push({
+        ...message,
+        parentUuid: omittedParents.get(message.parentUuid) ?? null,
+      })
+    } else {
+      kept.push(message)
+    }
+  }
+  return kept
 }
 
 /**
  * Strip unsafe attachment lines from a raw session JSONL string before any
  * public upload. Unparseable non-empty lines fail closed (dropped) so a
  * corrupt listing fragment cannot bypass attachment classification.
+ * Surviving lines whose parentUuid pointed at an omitted listing are
+ * rewritten to the nearest kept ancestor so a shared/hydrated log stays a
+ * continuous parentUuid chain.
  */
 export function filterJsonlForExternalEgress(jsonl: string): string {
   if (jsonl.length === 0) return jsonl
   const lines = jsonl.split('\n')
   const kept: string[] = []
+  const omittedParents = new Map<UUID, UUID | null>()
   for (const line of lines) {
     if (line.length === 0) {
       kept.push(line)
@@ -4892,8 +4994,32 @@ export function filterJsonlForExternalEgress(jsonl: string): string {
       const entry = JSON.parse(line) as {
         type?: string
         attachment?: unknown
+        uuid?: UUID
+        parentUuid?: UUID | null
       }
-      if (isSafeForExternalEgress(entry)) {
+      if (!isSafeForExternalEgress(entry)) {
+        if (typeof entry.uuid === 'string') {
+          recordExternalEgressOmission(
+            omittedParents,
+            entry.uuid,
+            entry.parentUuid ?? null,
+          )
+        }
+        continue
+      }
+      if (
+        entry.parentUuid &&
+        omittedParents.has(entry.parentUuid)
+      ) {
+        const projected = projectTranscriptParentForExternalEgress(
+          {
+            ...entry,
+            parentUuid: entry.parentUuid,
+          },
+          omittedParents,
+        )
+        kept.push(JSON.stringify(projected))
+      } else {
         kept.push(line)
       }
     } catch {

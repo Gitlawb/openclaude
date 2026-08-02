@@ -9,12 +9,15 @@ import {
 } from '../test/sharedMutationLock.js'
 import { normalizeMessagesForAPI } from './messages.js'
 import {
+  buildConversationChain,
   filterJsonlForExternalEgress,
   filterMessagesForExternalEgress,
   isLoggableMessage,
   isPrefixCacheListingAttachment,
   isSafeForExternalEgress,
   loadTranscriptFile,
+  projectTranscriptParentForExternalEgress,
+  recordExternalEgressOmission,
 } from './sessionStorage.ts'
 
 const originalUserType = process.env.USER_TYPE
@@ -257,16 +260,22 @@ test('filterMessagesForExternalEgress keeps conversation turns and drops listing
   const user = {
     type: 'user',
     uuid: '00000000-0000-4000-8000-00000000u001',
+    parentUuid: null,
     message: { role: 'user', content: 'hello' },
   } as unknown as Message
-  const listing = attachment('skill_listing', {
-    content: 'Available skills:\n- /demo',
-    skillCount: 1,
-    isInitial: true,
-  })
+  const listing = {
+    ...attachment('skill_listing', {
+      content: 'Available skills:\n- /demo',
+      skillCount: 1,
+      isInitial: true,
+    }),
+    uuid: '00000000-0000-4000-8000-00000000l001',
+    parentUuid: '00000000-0000-4000-8000-00000000u001',
+  } as unknown as Message
   const assistant = {
     type: 'assistant',
     uuid: '00000000-0000-4000-8000-00000000a001',
+    parentUuid: '00000000-0000-4000-8000-00000000l001',
     message: {
       role: 'assistant',
       content: [{ type: 'text', text: 'ok' }],
@@ -276,7 +285,10 @@ test('filterMessagesForExternalEgress keeps conversation turns and drops listing
   const filtered = filterMessagesForExternalEgress([user, listing, assistant])
   expect(filtered).toHaveLength(2)
   expect(filtered[0]).toBe(user)
-  expect(filtered[1]).toBe(assistant)
+  expect(filtered[1]?.uuid).toBe(assistant.uuid)
+  // Relink across the omitted listing so remote/share chains stay walkable.
+  expect(filtered[1]?.parentUuid).toBe(user.uuid)
+  expect(JSON.stringify(filtered)).not.toContain('/demo')
 })
 
 test('filterJsonlForExternalEgress strips listing lines but keeps neighbors', () => {
@@ -285,11 +297,13 @@ test('filterJsonlForExternalEgress strips listing lines but keeps neighbors', ()
   const userLine = JSON.stringify({
     type: 'user',
     uuid: '00000000-0000-4000-8000-00000000u002',
+    parentUuid: null,
     message: { role: 'user', content: 'hi' },
   })
   const listingLine = JSON.stringify({
     type: 'attachment',
     uuid: '00000000-0000-4000-8000-00000000l002',
+    parentUuid: '00000000-0000-4000-8000-00000000u002',
     attachment: {
       type: 'mcp_instructions_delta',
       addedNames: ['demo'],
@@ -300,13 +314,104 @@ test('filterJsonlForExternalEgress strips listing lines but keeps neighbors', ()
   const assistantLine = JSON.stringify({
     type: 'assistant',
     uuid: '00000000-0000-4000-8000-00000000a002',
+    parentUuid: '00000000-0000-4000-8000-00000000l002',
     message: { role: 'assistant', content: [{ type: 'text', text: 'yo' }] },
   })
   const raw = [userLine, listingLine, assistantLine, ''].join('\n')
   const filtered = filterJsonlForExternalEgress(raw)
-  expect(filtered).toBe([userLine, assistantLine, ''].join('\n'))
   expect(filtered).not.toContain('secret catalog')
   expect(filtered).not.toContain('mcp_instructions_delta')
+  expect(filtered).toContain('00000000-0000-4000-8000-00000000u002')
+  expect(filtered).toContain('00000000-0000-4000-8000-00000000a002')
+  expect(filtered).not.toContain('00000000-0000-4000-8000-00000000l002')
+  const assistantProjected = JSON.parse(
+    filtered.split('\n').find(l => l.includes('00000000-0000-4000-8000-00000000a002'))!,
+  )
+  expect(assistantProjected.parentUuid).toBe(
+    '00000000-0000-4000-8000-00000000u002',
+  )
+})
+
+test('external egress projection preserves a walkable parentUuid chain without listing payloads', () => {
+  process.env.USER_TYPE = 'external'
+
+  type ChainMsg = {
+    type: string
+    uuid: string
+    parentUuid: string | null
+    attachment?: Record<string, unknown>
+    message?: { role: string; content: string }
+  }
+
+  const userUuid = '00000000-0000-4000-8000-00000000r001'
+  const listingUuid = '00000000-0000-4000-8000-00000000r002'
+  const mcpUuid = '00000000-0000-4000-8000-00000000r003'
+  const assistantUuid = '00000000-0000-4000-8000-00000000r004'
+  const chain: ChainMsg[] = [
+    {
+      type: 'user',
+      uuid: userUuid,
+      parentUuid: null,
+      message: { role: 'user', content: 'hi' },
+    },
+    {
+      type: 'attachment',
+      uuid: listingUuid,
+      parentUuid: userUuid,
+      attachment: {
+        type: 'skill_listing',
+        content: 'Available skills:\n- /private',
+        skillCount: 1,
+        isInitial: true,
+      },
+    },
+    {
+      type: 'attachment',
+      uuid: mcpUuid,
+      parentUuid: listingUuid,
+      attachment: {
+        type: 'mcp_instructions_delta',
+        addedNames: ['demo'],
+        addedBlocks: ['## demo\nsecret-mcp'],
+        removedNames: [],
+      },
+    },
+    {
+      type: 'assistant',
+      uuid: assistantUuid,
+      parentUuid: mcpUuid,
+      message: { role: 'assistant', content: 'ok' },
+    },
+  ]
+
+  const projected = filterMessagesForExternalEgress(chain)
+  expect(projected.map(m => m.uuid)).toEqual([userUuid, assistantUuid])
+  expect(projected[1]?.parentUuid).toBe(userUuid)
+  expect(JSON.stringify(projected)).not.toContain('/private')
+  expect(JSON.stringify(projected)).not.toContain('secret-mcp')
+
+  // Same contract as hydrateRemoteSession + buildConversationChain: a Map of
+  // projected entries must walk from the leaf back to the root without
+  // stopping on a missing listing UUID.
+  const byUuid = new Map(
+    projected.map(m => [m.uuid, m as never]),
+  ) as Map<never, never>
+  const walked = buildConversationChain(
+    byUuid as never,
+    projected[1] as never,
+  )
+  expect(walked.map(m => m.uuid)).toEqual([userUuid, assistantUuid])
+
+  // Remote-resume contract: reparent keeps the chain, but does not restore
+  // the model-visible listing prefix (cache miss / reconstruction).
+  const omitted = new Map()
+  recordExternalEgressOmission(omitted, listingUuid as never, userUuid as never)
+  recordExternalEgressOmission(omitted, mcpUuid as never, listingUuid as never)
+  const reparented = projectTranscriptParentForExternalEgress(
+    { parentUuid: mcpUuid as never },
+    omitted,
+  )
+  expect(reparented.parentUuid).toBe(userUuid)
 })
 
 test('filterJsonlForExternalEgress drops unparseable non-empty lines fail-closed', () => {
