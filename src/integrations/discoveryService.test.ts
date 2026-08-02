@@ -287,9 +287,15 @@ describe('discoverModelsForRoute', () => {
 
     // OpenRouter lists models publicly; discovery no longer requires a key.
     delete process.env.OPENROUTER_API_KEY
-    setMockFetch(mock((_input, init) => {
-      // No Authorization when requiresAuth is false.
-      expect(init?.headers).toBeUndefined()
+    const openRouterCalls: Array<{ url: string; headers: unknown }> = []
+    setMockFetch(mock((input, init) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      openRouterCalls.push({ url, headers: init?.headers })
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -318,6 +324,9 @@ describe('discoverModelsForRoute', () => {
       forceRefresh: true,
     })
 
+    expect(openRouterCalls).toHaveLength(1)
+    expect(openRouterCalls[0]?.url).toContain('/models')
+    expect(openRouterCalls[0]?.headers).toBeUndefined()
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'openai/gpt-5-mini',
       'x-ai/grok-4.6',
@@ -335,6 +344,7 @@ describe('discoverModelsForRoute', () => {
     delete process.env.OPENGATEWAY_API_KEY
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_API_KEYS
+    const openGatewayCalls: Array<{ url: string; headers: unknown }> = []
     setMockFetch(mock((input, init) => {
       const url =
         typeof input === 'string'
@@ -342,8 +352,7 @@ describe('discoverModelsForRoute', () => {
           : input instanceof URL
             ? input.toString()
             : input.url
-      expect(url).toContain('/v1/models')
-      expect(init?.headers).toEqual({ 'Accept-Encoding': 'identity' })
+      openGatewayCalls.push({ url, headers: init?.headers })
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -370,6 +379,11 @@ describe('discoverModelsForRoute', () => {
       forceRefresh: true,
     })
 
+    expect(openGatewayCalls).toHaveLength(1)
+    expect(openGatewayCalls[0]?.url).toContain('/v1/models')
+    expect(openGatewayCalls[0]?.headers).toEqual({
+      'Accept-Encoding': 'identity',
+    })
     expect(result?.source).toBe('network')
     const apiNames = result?.models.map(
       (model: { apiName: string }) => model.apiName,
@@ -377,7 +391,7 @@ describe('discoverModelsForRoute', () => {
     // Curated static entries stay first; live-only routes are appended.
     expect(apiNames?.[0]).toBe('auto')
     expect(apiNames).toContain('mimo-v2.5-pro')
-    expect(apiNames).toContain('xiaomi/mimo-v2.5-pro')
+    expect(apiNames).not.toContain('xiaomi/mimo-v2.5-pro')
     expect(apiNames).toContain('moonshotai/kimi-k3')
     const liveOnly = result?.models.find(
       (model: { apiName: string }) => model.apiName === 'moonshotai/kimi-k3',
