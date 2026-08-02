@@ -1428,6 +1428,10 @@ test('/model applies auto provider surface for single-model static descriptor pr
   mockProviderProfiles({
     getActiveProviderProfile: () => activeProfile,
   })
+  mockDescriptorDiscovery({
+    cachedModels: [],
+    routeId: 'gitlawb-opengateway',
+  })
 
   const rendered = await renderModelCommandWithCapturedPicker(
     'descriptor-picker-auto-provider-static-mode',
