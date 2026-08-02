@@ -29,6 +29,48 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: node
 
+      # Release Please's PR contains the generated changelog and manifest.
+      # Synchronize the standalone web version there, before that PR merges.
+      - name: Check out Release Please PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Bun for release PR sync
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+          no-cache: true
+
+      - name: Sync and validate web release entry
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: |
+          bun install --frozen-lockfile
+          bun run sync:web-release
+          bun test ./scripts/sync-web-release-entry.test.ts
+          bun install --cwd web --frozen-lockfile
+          bun run --cwd web build
+
+      - name: Commit synced web release entry
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: |
+          if git diff --quiet -- web/src/data/releases.ts; then
+            echo "releases.ts already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src/data/releases.ts
+          git commit -m "chore(web): sync releases.ts from release-please changelog"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${RELEASE_PR_BRANCH}"
+
   # Zero-warning install gate: pack the release tag and install it globally in
   # a sandbox (cold + upgrade scenarios) on the supported Node floor (22 →
   # npm 10) and current (24 → npm 11), whose warning output differs. Publish
