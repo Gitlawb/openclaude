@@ -290,9 +290,7 @@ test('scoped additional options are canonicalized against the catalog and dedupl
     ],
   }))
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
   process.env.OPENAI_API_KEY = 'sk-test'
-  process.env.OPENAI_MODEL = 'a'
 
   const options = await getRouteCatalogModelOptions(
     [
