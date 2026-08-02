@@ -89,38 +89,6 @@ jobs:
           RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
         run: gh pr ready "$RELEASE_PR_NUMBER"
 
-      - name: Check out released main branch
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Set up Bun to finalize released web entry
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-          no-cache: true
-
-      - name: Finalize released web entry
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bun install --frozen-lockfile
-          bun scripts/sync-web-release-entry.ts --finalize
-          if git diff --quiet -- web/src/data/releases.ts; then
-            echo "releases.ts is already finalized"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/src/data/releases.ts
-          git commit -m "chore(web): finalize released changelog entry"
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
-
   # Zero-warning install gate: pack the release tag and install it globally in
   # a sandbox (cold + upgrade scenarios) on the supported Node floor (22 →
   # npm 10) and current (24 → npm 11), whose warning output differs. Publish

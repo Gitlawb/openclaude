@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   deriveTheme,
-  finalizeWebReleaseEntry,
   formatReleaseEntry,
   insertReleaseEntry,
   parseChangelogSection,
@@ -52,8 +51,8 @@ describe('syncWebReleaseEntry', () => {
     expect(result.content).not.toContain('sixth highlight')
   })
 
-  test('replaces an outdated draft instead of accumulating unpublished entries', () => {
-    const draft = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+  test('replaces an already-generated release PR entry when its version changes', () => {
+    const generated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
       version: '0.28.0',
       date: '2026-08-09',
       theme: 'old theme',
@@ -61,56 +60,66 @@ describe('syncWebReleaseEntry', () => {
     })
     const result = syncWebReleaseEntry({
       changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0'),
-      releasesTs: draft,
+      releasesTs: generated,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
       manifestVersion: '0.29.0',
     })
 
     expect(result.status).toBe('updated')
     if (result.status !== 'updated') return
-    expect(result.content).toContain("version: '0.29.0'")
-    expect(result.content).not.toContain("version: '0.28.0'")
-    expect(result.content).toContain('release-please: draft 0.29.0')
+    expect(result.content).toContain('version: "0.29.0"')
+    expect(result.content).not.toContain('version: "0.28.0"')
+    expect(result.content).not.toContain('release-please: draft')
   })
 
-  test('preserves an earlier published entry when a later release replaces its draft', () => {
-    const published = finalizeWebReleaseEntry(
-      insertReleaseEntry(SAMPLE_RELEASES_TS, {
-        version: '0.28.0',
-        date: '2026-08-10',
-        theme: 'ready',
-        highlights: ['ready'],
-      }),
-      '0.28.0',
-    )
-    const draft = insertReleaseEntry(published, {
+  test('preserves a published entry when creating the next release', () => {
+    const published = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-10',
+      theme: 'ready',
+      highlights: ['ready'],
+    })
+    const result = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0'),
+      releasesTs: published,
+      baseReleasesTs: published,
+      manifestVersion: '0.29.0',
+    })
+
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') return
+    expect(result.content).toContain('version: "0.29.0"')
+    expect(result.content).toContain('version: "0.28.0"')
+  })
+
+  test('replaces an updated entry for the same release version', () => {
+    const generated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
       version: '0.29.0',
       date: '2026-08-17',
       theme: 'draft',
       highlights: ['draft'],
     })
-
-    expect(draft).toContain("version: '0.29.0'")
-    expect(draft).toContain("version: '0.28.0'")
-    expect(draft).not.toContain('release-please: draft 0.28.0')
-  })
-
-  test('finalizes only the matching top draft entry', () => {
-    const draft = insertReleaseEntry(SAMPLE_RELEASES_TS, {
-      version: '0.28.0',
-      date: '2026-08-10',
-      theme: 'draft',
-      highlights: ['draft'],
+    const result = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0').replace('opt-in loopback proxy hosts', 'updated'),
+      releasesTs: generated,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
+      manifestVersion: '0.29.0',
     })
-    expect(finalizeWebReleaseEntry(draft, '0.28.0')).not.toContain('release-please: draft')
-    expect(() => finalizeWebReleaseEntry(draft, '0.29.0')).toThrow(
-      'top release entry does not match released version 0.29.0',
-    )
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') return
+    expect(result.content).toContain('theme: "updated"')
+    expect(result.content.match(/version: "0.29.0"/g)).toHaveLength(1)
   })
 
   test('is a no-op when the top entry already matches without a draft marker', () => {
     const releasesTs = SAMPLE_RELEASES_TS.replace("version: '0.27.0'", "version: '0.28.0'")
     expect(
-      syncWebReleaseEntry({ changelog: SAMPLE_CHANGELOG, releasesTs, manifestVersion: '0.28.0' }),
+      syncWebReleaseEntry({
+        changelog: SAMPLE_CHANGELOG,
+        releasesTs,
+        baseReleasesTs: releasesTs,
+        manifestVersion: '0.28.0',
+      }),
     ).toEqual({
       status: 'unchanged',
       version: '0.28.0',
@@ -143,8 +152,8 @@ describe('formatting helpers', () => {
     expect(deriveTheme([])).toBe('release highlights')
     expect(deriveTheme(['plain highlight'])).toBe('plain highlight')
     expect(deriveTheme([`scope: ${'x'.repeat(80)}`])).toBe(`${'x'.repeat(69)}…`)
-    expect(formatReleaseEntry({ version: '0.28.0', date: '2026-08-10', theme: "it's ready", highlights: ["don't"] })).toContain(
-      "theme: 'it\\'s ready'",
+    expect(formatReleaseEntry({ version: '0.28.0', date: '2026-08-10', theme: "it's\rready", highlights: ["don't"] })).toContain(
+      'theme: "it\'s\\rready"',
     )
   })
 
