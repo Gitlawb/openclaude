@@ -1929,7 +1929,7 @@ test('ProviderManager keeps the open checkout resumable through an edit that is 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
     mounted.stdin.write('user@example.com')
-    await Bun.sleep(25)
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('user@example.com'))
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
 
