@@ -141,6 +141,14 @@ availability can vary. Retain the selected catalog ID in client-side routing so
 its route-specific limits and capabilities are not lost when the outbound API
 model is normalized.
 
+### Public aggregator model discovery
+
+OpenRouter and Gitlawb Opengateway use public model-list endpoints to keep their
+hybrid catalogs current. Listing models does not require credentials, but chat
+and other inference requests still require the provider's API key. OpenRouter
+refreshes stale discovery data in the background. Opengateway refreshes once at
+startup and uses that request instead of a separate readiness probe.
+
 ## Descriptor Authoring Pattern
 
 Normal descriptor files should:

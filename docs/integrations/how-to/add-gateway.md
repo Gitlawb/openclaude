@@ -451,6 +451,13 @@ Use `discoveryRefreshMode` to match the operational shape of the route:
 - `startup`
   fast local routes where startup probing is cheap and useful.
 
+If an authenticated inference route exposes a public model endpoint, set
+`catalog.discovery.requiresAuth` to `false` while keeping `setup.requiresAuth`
+enabled. OpenRouter and Gitlawb Opengateway use this split: model listing is
+keyless, but inference still requires an API key. Avoid combining
+`discoveryRefreshMode: 'startup'` with an `openai-compatible-models` readiness
+probe when both execute the same request, because that doubles startup traffic.
+
 ## `max_tokens` vs `max_completion_tokens`
 
 OpenAI-compatible APIs do not all accept the same max-token field.

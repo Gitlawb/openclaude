@@ -11,9 +11,7 @@ describe('gitlawb-opengateway live model mapping', () => {
       }),
     )
     expect(opengateway.catalog?.discovery?.mapModel).toBe(mapOpenGatewayModel)
-    expect(opengateway.startup?.probeReadiness).toBe(
-      'openai-compatible-models',
-    )
+    expect(opengateway.startup?.probeReadiness).toBeUndefined()
   })
 
   test('maps gateway routes including auto and free models', () => {
@@ -36,8 +34,8 @@ describe('gitlawb-opengateway live model mapping', () => {
         context_window: 262144,
       }),
     ).toEqual({
-      id: 'xiaomi/mimo-v2.5-pro',
-      apiName: 'xiaomi/mimo-v2.5-pro',
+      id: 'mimo-v2.5-pro',
+      apiName: 'mimo-v2.5-pro',
       label: 'MiMo V2.5-Pro',
       contextWindow: 262144,
     })
@@ -65,6 +63,14 @@ describe('gitlawb-opengateway live model mapping', () => {
       }),
     ).toBeNull()
     expect(mapOpenGatewayModel({})).toBeNull()
+    expect(mapOpenGatewayModel({ id: '   ' })).toBeNull()
     expect(mapOpenGatewayModel(null)).toBeNull()
+  })
+
+  test('falls back to display_name and title for labels', () => {
+    expect(mapOpenGatewayModel({ id: 'a/b', display_name: 'B' })?.label).toBe(
+      'B',
+    )
+    expect(mapOpenGatewayModel({ id: 'c/d', title: 'D' })?.label).toBe('D')
   })
 })

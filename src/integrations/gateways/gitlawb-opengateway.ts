@@ -1,40 +1,16 @@
 import { defineGateway } from '../define.js'
 import type { ModelCatalogEntry } from '../descriptors.js'
 import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
+import {
+  firstPositiveNumber,
+  getTrimmedString,
+  isFreeModel,
+  isKnownNonCodingModelId,
+  isRecord,
+} from '../modelMapping.js'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function getTrimmedString(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' ? value.trim() : undefined
-}
-
-function firstPositiveNumber(...values: unknown[]): number | undefined {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      return value
-    }
-  }
-  return undefined
-}
-
-function isKnownNonCodingModelId(id: string): boolean {
-  return /(audio|dall-e|deep-research|embedding|image|moderation|realtime|rerank|sora|speech|transcribe|translate|tts|whisper)/i.test(
-    id,
-  )
-}
-
-function isFreeModel(id: string, raw: Record<string, unknown>): boolean {
-  return (
-    id.toLowerCase().endsWith(':free') ||
-    raw.free === true ||
-    raw.is_free === true
-  )
+function normalizeOpenGatewayModelId(id: string): string {
+  return id.replace(/^xiaomi\/(?=mimo(?:-|$))/i, '')
 }
 
 /**
@@ -47,10 +23,11 @@ export function mapOpenGatewayModel(raw: unknown): ModelCatalogEntry | null {
     return null
   }
 
-  const id = getTrimmedString(raw, 'id')
-  if (!id || isKnownNonCodingModelId(id)) {
+  const rawId = getTrimmedString(raw, 'id')
+  if (!rawId || isKnownNonCodingModelId(rawId)) {
     return null
   }
+  const id = normalizeOpenGatewayModelId(rawId)
 
   const name =
     getTrimmedString(raw, 'name') ||
@@ -90,11 +67,6 @@ export default defineGateway({
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
-  },
-  startup: {
-    // Refresh the live gateway model list at startup so new routes appear
-    // without a catalog bump (same posture as OpenRouter / aimlapi).
-    probeReadiness: 'openai-compatible-models',
   },
   validation: {
     kind: 'credential-env',
@@ -257,4 +229,3 @@ export default defineGateway({
   },
   usage: { supported: false },
 })
-

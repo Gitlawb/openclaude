@@ -80,4 +80,24 @@ describe('openrouter gateway live model mapping', () => {
     expect(mapOpenRouterModel({ id: '   ' })).toBeNull()
     expect(mapOpenRouterModel(null)).toBeNull()
   })
+
+  test('keeps unfamiliar text models without declared parameters', () => {
+    expect(
+      mapOpenRouterModel({ id: 'vendor/brand-new-1', name: 'New' }),
+    ).toEqual({
+      id: 'vendor/brand-new-1',
+      apiName: 'vendor/brand-new-1',
+      label: 'New',
+    })
+  })
+
+  test('detects reasoning from the reasoning object', () => {
+    expect(
+      mapOpenRouterModel({
+        id: 'vendor/brand-new-1',
+        name: 'New',
+        reasoning: { supported_efforts: ['low', 'high'] },
+      })?.capabilities,
+    ).toEqual({ supportsReasoning: true })
+  })
 })

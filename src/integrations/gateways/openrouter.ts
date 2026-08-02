@@ -1,41 +1,12 @@
 import { defineGateway } from '../define.js'
 import type { ModelCatalogEntry } from '../descriptors.js'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function getTrimmedString(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' ? value.trim() : undefined
-}
-
-function firstPositiveNumber(...values: unknown[]): number | undefined {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      return value
-    }
-  }
-  return undefined
-}
-
-function isKnownNonCodingModelId(id: string): boolean {
-  return /(audio|dall-e|deep-research|embedding|image|moderation|realtime|rerank|sora|speech|transcribe|translate|tts|whisper)/i.test(
-    id,
-  )
-}
-
-function looksLikeCodingModelId(id: string): boolean {
-  if (!id || isKnownNonCodingModelId(id)) {
-    return false
-  }
-  return /(gpt|claude|sonnet|opus|haiku|gemini|gemma|llama|qwen|deepseek|kimi|moonshot|minimax|mistral|codestral|devstral|magistral|ministral|grok|glm|command|nemotron|mixtral|coder|code|chat|instruct|reasoner|reasoning|mimo|hy3|tencent|maverick|scout|bankr|o[1-5](?:-|$))/i.test(
-    id,
-  )
-}
+import {
+  firstPositiveNumber,
+  getTrimmedString,
+  isFreeModel,
+  isKnownNonCodingModelId,
+  isRecord,
+} from '../modelMapping.js'
 
 function supportsTools(raw: Record<string, unknown>): boolean {
   const params = raw.supported_parameters
@@ -70,14 +41,6 @@ function supportsReasoning(raw: Record<string, unknown>): boolean {
   return false
 }
 
-function isFreeModel(id: string, raw: Record<string, unknown>): boolean {
-  return (
-    id.toLowerCase().endsWith(':free') ||
-    raw.free === true ||
-    raw.is_free === true
-  )
-}
-
 /**
  * Map OpenRouter's public GET /api/v1/models payload into a catalog entry.
  * Keeps coding-capable chat models and drops embeddings/image/audio routes.
@@ -104,10 +67,6 @@ export function mapOpenRouterModel(raw: unknown): ModelCatalogEntry | null {
 
   const toolCall = supportsTools(raw)
   const reasoning = supportsReasoning(raw)
-  if (!toolCall && !reasoning && !looksLikeCodingModelId(id)) {
-    return null
-  }
-
   const name = getTrimmedString(raw, 'name')
   const free = isFreeModel(id, raw)
   let label = name || id
