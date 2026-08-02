@@ -6,10 +6,11 @@ import {
   InvalidArgumentError,
   Option,
 } from '@commander-js/extra-typings'
-import { createQueryTurnBudget } from '../query.js'
 import {
   claimBackgroundTurnBudget,
+  createForegroundTurnBudgetHandoff,
   releaseForegroundTurnBudget,
+  waitForForegroundTurnBudgetSettlement,
 } from './replMaxTurns.js'
 import {
   DEFAULT_GLOBAL_CONFIG,
@@ -231,34 +232,48 @@ describe('interactive REPL max-turn cap', () => {
     expect(REPL_MAX_TURNS_OPTIONS).toEqual([50, 100, 200, 500])
   })
 
-  test('background budget handoff preserves identity and is one-shot', () => {
-    const budget = createQueryTurnBudget(50)
-    const budgetRef = { current: budget }
+  test('background budget handoff preserves identity, settlement, and one-shot ownership', async () => {
+    const handoff = createForegroundTurnBudgetHandoff(50)
+    const budgetRef = { current: handoff }
     const handoffStartedRef = { current: false }
 
     expect(
       claimBackgroundTurnBudget(budgetRef, handoffStartedRef),
-    ).toBe(budget)
+    ).toBe(handoff)
+    expect(handoff.budget.maxTurns).toBe(50)
     expect(
       claimBackgroundTurnBudget(budgetRef, handoffStartedRef),
     ).toBeNull()
 
-    const newerBudget = createQueryTurnBudget(100)
-    budgetRef.current = newerBudget
+    const newerHandoff = createForegroundTurnBudgetHandoff(100)
+    budgetRef.current = newerHandoff
     handoffStartedRef.current = false
-    releaseForegroundTurnBudget(budgetRef, handoffStartedRef, budget)
-    expect(budgetRef.current).toBe(newerBudget)
+    releaseForegroundTurnBudget(budgetRef, handoffStartedRef, handoff, true)
+    await expect(handoff.settled).resolves.toBe(true)
+    expect(budgetRef.current).toBe(newerHandoff)
 
-    releaseForegroundTurnBudget(budgetRef, handoffStartedRef, newerBudget)
+    releaseForegroundTurnBudget(
+      budgetRef,
+      handoffStartedRef,
+      newerHandoff,
+      false,
+    )
+    await expect(newerHandoff.settled).resolves.toBe(false)
     expect(budgetRef.current).toBeNull()
     expect(handoffStartedRef.current).toBe(false)
   })
 
-  test('background tasks retain a max-turn terminal attachment', () => {
-    const backgroundTask = readSourceUp(join('tasks', 'LocalMainSessionTask.ts'))
-    expect(backgroundTask).toContain(
-      "event.attachment.type === 'max_turns_reached'",
+  test('a stopped background task does not remain blocked on foreground settlement', async () => {
+    const handoff = createForegroundTurnBudgetHandoff(50)
+    const abortController = new AbortController()
+    const wait = waitForForegroundTurnBudgetSettlement(
+      handoff,
+      abortController.signal,
     )
+
+    abortController.abort('task stopped')
+
+    await expect(wait).resolves.toBeNull()
   })
 
   test('Config panel exposes Max turns (interactive)', () => {

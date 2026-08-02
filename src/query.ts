@@ -166,9 +166,32 @@ const taskSummaryModule = feature('BG_SESSIONS')
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-function* emitAbortedStreaming(
+async function cleanupComputerUseAtTerminal(
+  toolUseContext: ToolUseContext,
+): Promise<void> {
+  // feature() must remain the direct condition so external builds eliminate
+  // the native Computer Use dependency at bundle time.
+  if (feature('CHICAGO_MCP')) {
+    if (toolUseContext.agentId) return
+    try {
+      const { cleanupComputerUseAfterTurn } = await import(
+        './utils/computerUse/cleanup.js'
+      )
+      await cleanupComputerUseAfterTurn(toolUseContext)
+    } catch {
+      // Failures are silent — this is dogfooding cleanup, not critical path.
+    }
+  }
+}
+
+async function* emitAbortedStreaming(
   signal: AbortSignal,
-): Generator<Message, Extract<Terminal, { reason: 'aborted_streaming' }>> {
+  toolUseContext: ToolUseContext,
+): AsyncGenerator<
+  Message,
+  Extract<Terminal, { reason: 'aborted_streaming' }>
+> {
+  await cleanupComputerUseAtTerminal(toolUseContext)
   const abortReason = signal.reason
   const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
   if (abortSystemMessage) {
@@ -178,6 +201,34 @@ function* emitAbortedStreaming(
     yield createUserInterruptionMessage({ toolUse: false })
   }
   return { reason: 'aborted_streaming' }
+}
+
+function* emitAbortedToolsAfterCleanup(
+  signal: AbortSignal,
+  maxTurns: number | undefined,
+  nextTurnCount: number,
+  hasSharedTurnBudget: boolean,
+): Generator<Message, Extract<Terminal, { reason: 'aborted_tools' }>> {
+  const abortReason = signal.reason
+  const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
+  if (abortSystemMessage) {
+    yield createSystemMessage(abortSystemMessage, 'warning')
+  }
+  if (shouldCreateUserInterruptionMessage(abortReason)) {
+    yield createUserInterruptionMessage({ toolUse: true })
+  }
+  if (
+    maxTurns &&
+    nextTurnCount > maxTurns &&
+    (!hasSharedTurnBudget || normalizeAbortReason(abortReason) !== 'background')
+  ) {
+    yield createAttachmentMessage({
+      type: 'max_turns_reached',
+      maxTurns,
+      turnCount: nextTurnCount,
+    })
+  }
+  return { reason: 'aborted_tools' }
 }
 
 function* yieldMissingToolResultBlocks(
@@ -714,6 +765,7 @@ async function* queryLoop(
   ) {
     return yield* emitAbortedStreaming(
       state.toolUseContext.abortController.signal,
+      state.toolUseContext,
     )
   }
 
@@ -721,6 +773,7 @@ async function* queryLoop(
   // reserve it here: context preparation below can await, and Ctrl+B may hand
   // the prompt off before any provider request is dispatched.
   if (maxTurns && state.turnCount > maxTurns) {
+    await cleanupComputerUseAtTerminal(state.toolUseContext)
     yield createAttachmentMessage({
       type: 'max_turns_reached',
       maxTurns,
@@ -1434,37 +1487,11 @@ async function* queryLoop(
         try {
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
-          // Context preparation above may yield long enough for Ctrl+B to
-          // abort this invocation. Only the query call that actually reaches
-          // provider dispatch owns this turn in the shared prompt budget.
-          if (toolUseContext.abortController.signal.aborted) {
-            return yield* emitAbortedStreaming(
-              toolUseContext.abortController.signal,
-            )
-          }
-          if (
-            params.turnBudget &&
-            params.turnBudget.turnsStarted >= turnCount &&
-            reservedTurnCount !== turnCount
-          ) {
-            return { reason: 'aborted_streaming' }
-          }
-          params.onModelRequestStart?.()
-          // The callback is synchronous but may itself abort the request.
-          if (toolUseContext.abortController.signal.aborted) {
-            return yield* emitAbortedStreaming(
-              toolUseContext.abortController.signal,
-            )
-          }
-          // Fallback attempts reuse the same turnCount, so this assignment is
-          // idempotent for retries and advances only for a new provider turn.
-          if (
-            params.turnBudget &&
-            params.turnBudget.turnsStarted < turnCount
-          ) {
-            params.turnBudget.turnsStarted = turnCount
-            reservedTurnCount = turnCount
-          }
+          // queryModel performs provider-specific asynchronous preparation.
+          // Claim the turn from its callback immediately before the actual
+          // request is dispatched, not merely when callModel is entered.
+          let providerDispatchRejected = false
+          let providerRequestStarted = false
           try {
             for await (const message of deps.callModel({
             messages: prependUserContext(
@@ -1508,6 +1535,41 @@ async function* queryLoop(
               ),
               queryTracking,
               queryLifecycle: toolUseContext.queryLifecycle,
+              onProviderRequestStart: () => {
+                if (toolUseContext.abortController.signal.aborted) {
+                  providerDispatchRejected = true
+                  return false
+                }
+                // Retries reuse this turn's reservation, but they must still
+                // prove the foreground owns dispatch after any asynchronous
+                // credential refresh or client recreation.
+                if (providerRequestStarted) return true
+                if (
+                  params.turnBudget &&
+                  params.turnBudget.turnsStarted >= turnCount &&
+                  reservedTurnCount !== turnCount
+                ) {
+                  providerDispatchRejected = true
+                  return false
+                }
+                params.onModelRequestStart?.()
+                // The lifecycle callback is synchronous but may itself abort.
+                if (toolUseContext.abortController.signal.aborted) {
+                  providerDispatchRejected = true
+                  return false
+                }
+                // Fallback attempts reuse turnCount. The local reservation
+                // makes retries idempotent while rejecting a stale claimant.
+                if (
+                  params.turnBudget &&
+                  params.turnBudget.turnsStarted < turnCount
+                ) {
+                  params.turnBudget.turnsStarted = turnCount
+                  reservedTurnCount = turnCount
+                }
+                providerRequestStarted = true
+                return true
+              },
               // Explicit /effort selection wins. When it is unset, carry the
               // current turn's ultrathink attachment through to the API client
               // so OpenAI-compatible providers receive reasoning_effort=high
@@ -1719,8 +1781,17 @@ async function* queryLoop(
               }
             }
             }
+            if (providerDispatchRejected) {
+              if (toolUseContext.abortController.signal.aborted) {
+                return yield* emitAbortedStreaming(
+                  toolUseContext.abortController.signal,
+                  toolUseContext,
+                )
+              }
+              return { reason: 'aborted_streaming' }
+            }
           } finally {
-            params.onModelRequestEnd?.()
+            if (providerRequestStarted) params.onModelRequestEnd?.()
           }
           queryCheckpoint('query_api_streaming_end')
 
@@ -1947,16 +2018,7 @@ async function* queryLoop(
       // chicago MCP: auto-unhide + lock release on interrupt. Same cleanup
       // as the natural turn-end path in stopHooks.ts. Main thread only —
       // see stopHooks.ts for the subagent-releasing-main's-lock rationale.
-      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
-        try {
-          const { cleanupComputerUseAfterTurn } = await import(
-            './utils/computerUse/cleanup.js'
-          )
-          await cleanupComputerUseAfterTurn(toolUseContext)
-        } catch {
-          // Failures are silent — this is dogfooding cleanup, not critical path
-        }
-      }
+      await cleanupComputerUseAtTerminal(toolUseContext)
 
       const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
       if (abortSystemMessage) {
@@ -2719,45 +2781,16 @@ async function* queryLoop(
 
     // We were aborted during tool calls
     if (toolUseContext.abortController.signal.aborted) {
-      const abortReason = toolUseContext.abortController.signal.reason
       // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
       // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
       // Main thread only — see stopHooks.ts for the subagent rationale.
-      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
-        try {
-          const { cleanupComputerUseAfterTurn } = await import(
-            './utils/computerUse/cleanup.js'
-          )
-          await cleanupComputerUseAfterTurn(toolUseContext)
-        } catch {
-          // Failures are silent — this is dogfooding cleanup, not critical path
-        }
-      }
-      const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
-      if (abortSystemMessage) {
-        yield createSystemMessage(abortSystemMessage, 'warning')
-      }
-
-      if (shouldCreateUserInterruptionMessage(abortReason)) {
-        yield createUserInterruptionMessage({
-          toolUse: true,
-        })
-      }
-      // Check maxTurns before returning when aborted
-      const nextTurnCountOnAbort = turnCount + 1
-      if (
-        maxTurns &&
-        nextTurnCountOnAbort > maxTurns &&
-        (!params.turnBudget ||
-          normalizeAbortReason(abortReason) !== 'background')
-      ) {
-        yield createAttachmentMessage({
-          type: 'max_turns_reached',
-          maxTurns,
-          turnCount: nextTurnCountOnAbort,
-        })
-      }
-      return { reason: 'aborted_tools' }
+      await cleanupComputerUseAtTerminal(toolUseContext)
+      return yield* emitAbortedToolsAfterCleanup(
+        toolUseContext.abortController.signal,
+        maxTurns,
+        turnCount + 1,
+        params.turnBudget !== undefined,
+      )
     }
 
     // If a hook indicated to prevent continuation, stop here
@@ -3077,6 +3110,18 @@ async function* queryLoop(
       nextTurnCount > maxTurns &&
       !nextAgentStepLimit?.summaryRequested
     ) {
+      await cleanupComputerUseAtTerminal(toolUseContext)
+      // Attachment/memory/skill collection above can await after the earlier
+      // post-tool abort check. Re-check immediately before emitting the cap so
+      // a Ctrl+B handoff cannot make both owners persist the terminal record.
+      if (toolUseContext.abortController.signal.aborted) {
+        return yield* emitAbortedToolsAfterCleanup(
+          toolUseContext.abortController.signal,
+          maxTurns,
+          nextTurnCount,
+          params.turnBudget !== undefined,
+        )
+      }
       yield createAttachmentMessage({
         type: 'max_turns_reached',
         maxTurns,

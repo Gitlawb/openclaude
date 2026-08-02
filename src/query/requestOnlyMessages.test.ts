@@ -292,10 +292,11 @@ test('keeps an explicit effort selection over ultrathink', async () => {
   expect(requestEffort).toBe('low')
 })
 
-test('scopes model-request lifecycle callbacks to callModel', async () => {
+test('scopes model-request lifecycle callbacks to provider dispatch', async () => {
   const events: string[] = []
   const params = baseParams(
-    async function* () {
+    async function* ({ options }) {
+      if (options.onProviderRequestStart?.() === false) return
       yield createAssistantMessage({ content: 'done' })
     },
     async () => ({ wasCompacted: false }),
