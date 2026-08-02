@@ -188,6 +188,28 @@ test('claiming a different intent refuses to clobber an opened (possibly paid) c
   expect(loadAimlapiTopupState(intent)?.resumeSessionToken).toBe('paid-session')
 })
 
+test('abandonExisting overrides the refusal once the caller has confirmed abandonment', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  // Same conflict as the refusal test above, but the caller has already gotten
+  // an explicit user confirmation to abandon the retained checkout.
+  const next = claimAimlapiTopupState(
+    { ...intent, amountUsdMinor: 5000 },
+    { abandonExisting: true },
+  )
+  expect(next.paymentSessionId).not.toBe(claimed.paymentSessionId)
+  expect(next.resumeSessionToken).toBe('')
+  // The old record is fully replaced, not left dangling for a stale peer to read.
+  expect(loadAimlapiTopupState(intent)).toBeNull()
+  expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).not.toBeNull()
+})
+
 test('claiming a different intent refuses to clobber a settled-but-unpersisted key', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)

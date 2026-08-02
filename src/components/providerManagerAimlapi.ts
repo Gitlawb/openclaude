@@ -58,8 +58,10 @@ export const completeAimlapiCodeSignIn: typeof completeAimlapiCodeSignInImpl = (
 export const validateAimlapiApiKey: typeof validateAimlapiApiKeyImpl = (...args) =>
   validateAimlapiApiKeyImpl(...args)
 
-export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = intent =>
-  claimAimlapiTopupStateImpl(intent)
+export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = (
+  intent,
+  options,
+) => claimAimlapiTopupStateImpl(intent, options)
 
 export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl = intent =>
   clearAimlapiTopupStateAsyncImpl(intent)

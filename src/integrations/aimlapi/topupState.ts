@@ -552,9 +552,16 @@ export function recordAimlapiCheckoutSession(
  * caller finishes or cancels the retained checkout (re-running the SAME intent
  * resumes it). The identity includes amount/partner/endpoints, so a changed
  * intent is genuinely a different checkout.
+ *
+ * `abandonExisting` overrides that refusal for a caller that has already gotten
+ * an explicit, out-of-band user confirmation to abandon the retained checkout
+ * (e.g. a re-edited amount the user chose to submit anyway). The overwrite still
+ * happens under this same lock acquisition, so the caller never observes a
+ * window where the slot is cleared but not yet re-claimed.
  */
 export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
+  options: { abandonExisting?: boolean } = {},
 ): AimlapiCheckoutState {
   return withStateLock(() => {
     const existing = readAimlapiTopupStateUnlocked()
@@ -562,6 +569,7 @@ export function claimAimlapiTopupState(
       return toCheckoutState(existing)
     }
     if (
+      !options.abandonExisting &&
       existing &&
       (Boolean(existing.resumeSessionToken?.trim()) ||
         existing.settled === true ||
