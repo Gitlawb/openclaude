@@ -1091,10 +1091,10 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
 
     mounted.stdin.write('\r')
     const choiceOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     expect(choiceOutput).toContain('I am a new user')
-    expect(choiceOutput).toContain('I already have aimlapi.com key')
+    expect(choiceOutput).toContain('I already have an aimlapi.com key')
     expect(choiceOutput).not.toContain('One click set up')
     expect(choiceOutput).not.toContain('Proceed to paste the key')
 
@@ -1297,7 +1297,7 @@ test('ProviderManager does not send the OPENAI_API_KEY fallback to a custom AIML
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     expect(validateAimlapiApiKey).not.toHaveBeenCalled()
     expect(addProviderProfile).not.toHaveBeenCalled()
@@ -1334,7 +1334,7 @@ test('ProviderManager refuses guided new-key creation on a custom AIMLAPI endpoi
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     // Selecting "I am a new user" must be refused off the canonical endpoint,
     // since guided provisioning would mint a production key against the proxy.
@@ -1375,7 +1375,7 @@ test('ProviderManager manage flow does not reuse env credentials for a custom AI
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     expect(validateAimlapiApiKey).not.toHaveBeenCalled()
   } finally {
@@ -1467,7 +1467,7 @@ test('ProviderManager rejects an invalid AIMLAPI key using the Zero error copy',
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     mounted.stdin.write('j')
     await Bun.sleep(25)
@@ -1529,7 +1529,7 @@ test('ProviderManager clears the sign-in cache with the minted key id on a suffi
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
@@ -1595,7 +1595,7 @@ test('ProviderManager matches the AIMLAPI code and low-credit screen copy', asyn
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Do you have aimlapi.com key?'),
+      frame.includes('Do you have an aimlapi.com key?'),
     )
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
@@ -1801,7 +1801,7 @@ test('ProviderManager cancellation returns a live checkout to the resumable amou
     const amountOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Add credits'),
     )
-    expect(amountOutput).not.toContain('Do you have aimlapi.com key?')
+    expect(amountOutput).not.toContain('Do you have an aimlapi.com key?')
     expect(firstOptions.signal.aborted).toBe(true)
 
     await Bun.sleep(25)
@@ -1956,6 +1956,13 @@ test('ProviderManager recovers a settled receipt without re-provisioning', async
       expect.objectContaining({ provider: 'aimlapi', apiKey: 'recovered-key' }),
       expect.objectContaining({ makeActive: true }),
     )
+    // Recovery treats the settled receipt as a completed payment, so the done
+    // screen must show the top-up copy — not the plain "ready" copy, which would
+    // wrongly tell the user no payment happened.
+    const doneOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Top-up successful'),
+    )
+    expect(doneOutput).not.toContain('Everything is ready.')
   } finally {
     await mounted.dispose()
   }

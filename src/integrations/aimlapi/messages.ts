@@ -5,8 +5,8 @@ export const AIMLAPI_MESSAGES = {
   apiKeyHiddenHint: 'Your API key will be hidden and verified automatically.',
   apiKeyInvalid:
     'API key is invalid. Please make sure you enter a valid aimlapi.com key.',
-  pickPathPrompt: 'Do you have aimlapi.com key?',
-  pickPathHaveKey: 'I already have aimlapi.com key',
+  pickPathPrompt: 'Do you have an aimlapi.com key?',
+  pickPathHaveKey: 'I already have an aimlapi.com key',
   pickPathNewUser: 'I am a new user',
   enterEmail: 'Enter your email.',
   emailInvalid: 'Email format is incorrect.',

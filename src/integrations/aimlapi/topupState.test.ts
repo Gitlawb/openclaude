@@ -267,6 +267,24 @@ test('recordAimlapiSettledKeyAsync persists the key and clears the lease under t
   expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
+test('recordAimlapiSettledKeyAsync never settles a receipt without a key', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+  // A holder is mid-exchange (holds the lease) but has no stored key yet.
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+
+  // No key resolved (none passed, none stored): the receipt must NOT be marked
+  // settled and the lease must survive, so a retry can still run the exchange
+  // rather than resuming from a keyless receipt for a spent one-shot exchange.
+  await recordAimlapiSettledKeyAsync(expected, { apiKey: '' })
+
+  expect(loadAimlapiTopupState(intent)?.settled).not.toBe(true)
+  expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).not.toBe(
+    'settled',
+  )
+})
+
 test('clearAimlapiTopupStateAsync clears only its matching intent', async () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
