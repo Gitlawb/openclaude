@@ -52,6 +52,7 @@ import { logAntError, logForDebugging } from './utils/debug.js'
 import {
   getMissingToolResultAbortMessage,
   getQueryAbortSystemMessage,
+  normalizeAbortReason,
   shouldCreateUserInterruptionMessage,
 } from './utils/abortReasons.js'
 import {
@@ -164,6 +165,20 @@ const taskSummaryModule = feature('BG_SESSIONS')
   ? (require('./utils/taskSummary.js') as typeof import('./utils/taskSummary.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+function* emitAbortedStreaming(
+  signal: AbortSignal,
+): Generator<Message, Extract<Terminal, { reason: 'aborted_streaming' }>> {
+  const abortReason = signal.reason
+  const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
+  if (abortSystemMessage) {
+    yield createSystemMessage(abortSystemMessage, 'warning')
+  }
+  if (shouldCreateUserInterruptionMessage(abortReason)) {
+    yield createUserInterruptionMessage({ toolUse: false })
+  }
+  return { reason: 'aborted_streaming' }
+}
 
 function* yieldMissingToolResultBlocks(
   assistantMessages: AssistantMessage[],
@@ -444,9 +459,11 @@ export type QueryParams = {
   querySource: QuerySource
   maxOutputTokensOverride?: number
   maxTurns?: number
-  /** Continue an interrupted local REPL prompt without resetting its turn cap. */
-  initialTurnCount?: number
-  onTurnCountChange?: (turnCount: number) => void
+  /**
+   * Mutable per-prompt budget shared by query() calls that continue the same
+   * logical prompt (for example, when a local REPL query is backgrounded).
+   */
+  turnBudget?: QueryTurnBudget
   skipCacheWrite?: boolean
   autoCompactTracking?: AutoCompactTrackingState
   onAutoCompactTrackingChange?: (
@@ -459,6 +476,17 @@ export type QueryParams = {
   taskBudget?: { total: number }
   agentStepLimit?: AgentStepLimitConfig
   deps?: QueryDeps
+}
+
+export type QueryTurnBudget = {
+  readonly maxTurns: number | undefined
+  turnsStarted: number
+}
+
+export function createQueryTurnBudget(
+  maxTurns?: number,
+): QueryTurnBudget {
+  return { maxTurns, turnsStarted: 0 }
 }
 
 /**
@@ -598,9 +626,14 @@ async function* queryLoop(
     canUseTool,
     fallbackModel,
     querySource,
-    maxTurns,
     skipCacheWrite,
   } = params
+  const maxTurns = params.turnBudget
+    ? params.turnBudget.maxTurns
+    : params.maxTurns
+  const initialTurnCount = params.turnBudget
+    ? params.turnBudget.turnsStarted + 1
+    : 1
   const deps = params.deps ?? productionDeps()
   const ultrathinkEffortForCurrentTurn = hasUltrathinkEffortForCurrentTurn(
     params.messages,
@@ -620,7 +653,7 @@ async function* queryLoop(
     hasAttemptedReactiveCompact: false,
     hasAttemptedContextOverflowRecovery: false,
     hasAttemptedProviderFallback: false,
-    turnCount: params.initialTurnCount ?? 1,
+    turnCount: initialTurnCount,
     continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
     transition: undefined,
@@ -662,14 +695,31 @@ async function* queryLoop(
   // at the new endpoint — KTD6 in the plan.
   let pinnedRouteProviderId: string | undefined = undefined
   const toolFailureGuardState = createToolFailureLoopGuardState()
+  // Identifies the turn this queryLoop invocation claimed in a shared budget.
+  // Retries for that turn are allowed; a different invocation that snapped the
+  // same next turn is stale and must not dispatch a duplicate provider call.
+  let reservedTurnCount: number | undefined = undefined
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
   const config = buildQueryConfig()
 
-  // A resumed local REPL query can carry its prior turn count. Do not allow
-  // an already-exhausted handoff to make another provider request before the
-  // normal post-tool recursion guard has a chance to run.
+  // Ctrl+B can abort the foreground while it is still preparing query
+  // context. Let the background continuation reserve the turn in that race;
+  // the aborted invocation never reached a provider request and must not
+  // consume the shared prompt budget.
+  if (
+    params.turnBudget &&
+    state.toolUseContext.abortController.signal.aborted
+  ) {
+    return yield* emitAbortedStreaming(
+      state.toolUseContext.abortController.signal,
+    )
+  }
+
+  // Reject an invocation that cannot start another provider turn. Do not
+  // reserve it here: context preparation below can await, and Ctrl+B may hand
+  // the prompt off before any provider request is dispatched.
   if (maxTurns && state.turnCount > maxTurns) {
     yield createAttachmentMessage({
       type: 'max_turns_reached',
@@ -1384,7 +1434,37 @@ async function* queryLoop(
         try {
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
+          // Context preparation above may yield long enough for Ctrl+B to
+          // abort this invocation. Only the query call that actually reaches
+          // provider dispatch owns this turn in the shared prompt budget.
+          if (toolUseContext.abortController.signal.aborted) {
+            return yield* emitAbortedStreaming(
+              toolUseContext.abortController.signal,
+            )
+          }
+          if (
+            params.turnBudget &&
+            params.turnBudget.turnsStarted >= turnCount &&
+            reservedTurnCount !== turnCount
+          ) {
+            return { reason: 'aborted_streaming' }
+          }
           params.onModelRequestStart?.()
+          // The callback is synchronous but may itself abort the request.
+          if (toolUseContext.abortController.signal.aborted) {
+            return yield* emitAbortedStreaming(
+              toolUseContext.abortController.signal,
+            )
+          }
+          // Fallback attempts reuse the same turnCount, so this assignment is
+          // idempotent for retries and advances only for a new provider turn.
+          if (
+            params.turnBudget &&
+            params.turnBudget.turnsStarted < turnCount
+          ) {
+            params.turnBudget.turnsStarted = turnCount
+            reservedTurnCount = turnCount
+          }
           try {
             for await (const message of deps.callModel({
             messages: prependUserContext(
@@ -2665,7 +2745,12 @@ async function* queryLoop(
       }
       // Check maxTurns before returning when aborted
       const nextTurnCountOnAbort = turnCount + 1
-      if (maxTurns && nextTurnCountOnAbort > maxTurns) {
+      if (
+        maxTurns &&
+        nextTurnCountOnAbort > maxTurns &&
+        (!params.turnBudget ||
+          normalizeAbortReason(abortReason) !== 'background')
+      ) {
         yield createAttachmentMessage({
           type: 'max_turns_reached',
           maxTurns,
@@ -2999,8 +3084,6 @@ async function* queryLoop(
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }
-
-    params.onTurnCountChange?.(nextTurnCount)
 
     if (!nextAgentStepLimit?.summaryRequested) {
       pendingToolFailureAdvisories = (

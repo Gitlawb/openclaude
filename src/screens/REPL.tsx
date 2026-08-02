@@ -39,7 +39,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
-import { getReplMaxTurnsWarning, resolveReplMaxTurns } from './replMaxTurns.js';
+import { claimBackgroundTurnBudget, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -143,7 +143,7 @@ import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
 import type { Message as MessageType, UserMessage, ProgressMessage, HookResultMessage, PartialCompactDirection } from '../types/message.js';
-import { query } from '../query.js';
+import { createQueryTurnBudget, query, type QueryTurnBudget } from '../query.js';
 import type { AutoCompactTrackingState } from '../services/compact/autoCompact.js';
 import { mergeClients, useMergedClients } from '../hooks/useMergedClients.js';
 import { getQuerySourceForREPL } from '../utils/promptCategory.js';
@@ -662,7 +662,8 @@ export function REPL({
   // Resolve at query time so `/config` changes apply on the next prompt
   // without requiring a REPL remount. CLI prop still wins over env/config.
   const isRemoteSession = !!remoteSessionConfig;
-  const foregroundTurnCountRef = useRef(1);
+  const foregroundTurnBudgetRef = useRef<QueryTurnBudget | null>(null);
+  const backgroundHandoffStartedRef = useRef(false);
 
   useEffect(() => {
     const warning = getReplMaxTurnsWarning(maxTurnsProp);
@@ -2844,10 +2845,11 @@ export function REPL({
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
     const backgroundSessionId = getSessionId();
-    // Capture the old query's authoritative state before aborting it. The
-    // async setup below may otherwise observe a replacement prompt's refs.
-    const backgroundTurnCount = foregroundTurnCountRef.current;
-    const backgroundMaxTurns = resolveReplMaxTurns(maxTurnsProp);
+    // Transfer the exact per-prompt budget before aborting. Re-resolving the
+    // limit or copying a callback-maintained count here can reset or skew the
+    // cap while the foreground query is winding down.
+    const backgroundTurnBudget = claimBackgroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef);
+    if (!backgroundTurnBudget) return;
     // Stop the foreground query so the background one takes over
     abortController?.abort('background');
     // Aborting subagents may produce task-completed notifications.
@@ -2889,8 +2891,7 @@ export function REPL({
           canUseTool,
           toolUseContext,
           fallbackModel,
-          maxTurns: backgroundMaxTurns,
-          initialTurnCount: backgroundTurnCount,
+          turnBudget: backgroundTurnBudget,
           querySource: getQuerySourceForREPL(),
           autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
           onAutoCompactTrackingChange: tracking => {
@@ -2902,7 +2903,7 @@ export function REPL({
         agentDefinition: mainThreadAgentDefinition
       });
     })();
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, maxTurnsProp]);
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({
@@ -2977,7 +2978,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string, onModelRequestStart?: () => void) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, turnBudget: QueryTurnBudget, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string, onModelRequestStart?: () => void) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -3134,10 +3135,7 @@ export function REPL({
       toolUseContext,
       querySource: getQuerySourceForREPL(),
       fallbackModel,
-      maxTurns: resolveReplMaxTurns(maxTurnsProp),
-      onTurnCountChange: turnCount => {
-        foregroundTurnCountRef.current = turnCount;
-      },
+      turnBudget,
       autoCompactTracking: queryAutoCompactTracking,
       onAutoCompactTrackingChange: tracking => {
         if (setAutoCompactTrackingForSessionIfUnchanged(querySessionId, expectedAutoCompactTracking, tracking)) {
@@ -3163,7 +3161,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, maxTurnsProp, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false, onModelRequestStart?: () => void): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
@@ -3202,7 +3200,9 @@ export function REPL({
     }
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
-    foregroundTurnCountRef.current = 1;
+    backgroundHandoffStartedRef.current = false;
+    const turnBudget = createQueryTurnBudget(resolveReplMaxTurns(maxTurnsProp));
+    foregroundTurnBudgetRef.current = turnBudget;
     const queryContext = startResult.context;
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);
@@ -3262,7 +3262,7 @@ export function REPL({
       }
       if (!preflightVetoed) {
         modelTurnStarted = true;
-        await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined, onModelRequestStart);
+        await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, turnBudget, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined, onModelRequestStart);
       }
       if (preflightVetoed) {
         return false;
@@ -3276,6 +3276,10 @@ export function REPL({
       }
       throw error;
     } finally {
+      // The ref is only an ownership marker for the currently foregrounded
+      // prompt. A background handoff already captured the budget object, so
+      // clear the ref on every terminal path without disturbing a newer query.
+      releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudget);
       // A provider response can hand off to tools before the assistant turn
       // finishes. Keep correction ownership through that work (and retries),
       // then clear it only when this query reaches its terminal cleanup.
@@ -3434,7 +3438,7 @@ export function REPL({
         }
       }
     }
-  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete]);
+  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp]);
 
   // Handle initial message (from CLI args or plan mode exit with context clear)
   // This effect runs when isLoading becomes false and there's a pending message

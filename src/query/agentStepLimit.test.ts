@@ -1,9 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod/v4'
 
-import { query, type QueryParams } from '../query.js'
+import {
+  createQueryTurnBudget,
+  query,
+  type QueryParams,
+} from '../query.js'
 import { buildTool, type Tools } from '../Tool.js'
 import type { QueryDeps } from './deps.js'
+import { FallbackTriggeredError } from '../services/api/withRetry.js'
 import {
   createAssistantMessage,
   createUserMessage,
@@ -132,19 +137,26 @@ async function drain(params: QueryParams): Promise<{
 }
 
 describe('agent step limits', () => {
-  test('does not call the model when a resumed query is already over its turn cap', async () => {
+  test('shares one turn budget across query calls for the same prompt', async () => {
     let modelCalls = 0
+    const turnBudget = createQueryTurnBudget(1)
+    const callModel = async function* () {
+      modelCalls++
+      yield createAssistantMessage({ content: 'done' })
+    }
 
-    const { yielded, returned } = await drain({
-      ...makeParams(async function* () {
-        modelCalls++
-        yield createAssistantMessage({ content: 'must not run' })
-      }),
-      maxTurns: 1,
-      initialTurnCount: 2,
+    await drain({
+      ...makeParams(callModel),
+      turnBudget,
     })
 
-    expect(modelCalls).toBe(0)
+    const { yielded, returned } = await drain({
+      ...makeParams(callModel),
+      turnBudget,
+    })
+
+    expect(modelCalls).toBe(1)
+    expect(turnBudget.turnsStarted).toBe(1)
     expect(returned).toEqual({ reason: 'max_turns', turnCount: 2 })
     expect(
       yielded.some(
@@ -154,6 +166,210 @@ describe('agent step limits', () => {
           message.attachment.turnCount === 2,
       ),
     ).toBe(true)
+  })
+
+  test('provider fallback retries do not consume another shared turn', async () => {
+    let modelCalls = 0
+    const turnBudget = createQueryTurnBudget(1)
+    const params = makeParams(async function* () {
+      modelCalls++
+      if (modelCalls === 1) {
+        throw new FallbackTriggeredError('primary-model', 'fallback-model')
+      }
+      yield createAssistantMessage({ content: 'completed on fallback' })
+    })
+    params.fallbackModel = 'fallback-model'
+
+    const first = await drain({ ...params, turnBudget })
+    const second = await drain({
+      ...makeParams(async function* () {
+        modelCalls++
+        yield createAssistantMessage({ content: 'must not run' })
+      }),
+      turnBudget,
+    })
+
+    expect(first.returned).toEqual({ reason: 'completed' })
+    expect(second.returned).toEqual({ reason: 'max_turns', turnCount: 2 })
+    expect(modelCalls).toBe(2)
+    expect(turnBudget.turnsStarted).toBe(1)
+  })
+
+  test('concurrent query calls cannot claim the same shared turn', async () => {
+    let modelCalls = 0
+    let preparationArrivals = 0
+    let releasePreparation!: () => void
+    const preparationBarrier = new Promise<void>(resolve => {
+      releasePreparation = resolve
+    })
+    const turnBudget = createQueryTurnBudget(1)
+    const callModel = async function* () {
+      modelCalls++
+      yield createAssistantMessage({ content: 'one claimant' })
+    }
+    const makeConcurrentParams = (): QueryParams => {
+      const params = makeParams(callModel)
+      params.deps!.autocompact = async () => {
+        preparationArrivals++
+        if (preparationArrivals === 2) releasePreparation()
+        await preparationBarrier
+        return {
+          wasCompacted: false,
+          compactionResult: undefined,
+          consecutiveFailures: undefined,
+        }
+      }
+      return { ...params, turnBudget }
+    }
+
+    const results = await Promise.all([
+      drain(makeConcurrentParams()),
+      drain(makeConcurrentParams()),
+    ])
+
+    expect(modelCalls).toBe(1)
+    expect(turnBudget.turnsStarted).toBe(1)
+    expect(results.map(result => result.returned.reason).sort()).toEqual([
+      'aborted_streaming',
+      'completed',
+    ])
+  })
+
+  test('does not charge a handoff aborted before its first request', async () => {
+    let modelCalls = 0
+    const turnBudget = createQueryTurnBudget(1)
+    const callModel = async function* () {
+      modelCalls++
+      yield createAssistantMessage({ content: 'continued in background' })
+    }
+    const foregroundParams = makeParams(callModel)
+    foregroundParams.toolUseContext.abortController.abort('background')
+
+    const foreground = await drain({
+      ...foregroundParams,
+      turnBudget,
+    })
+    const background = await drain({
+      ...makeParams(callModel),
+      turnBudget,
+    })
+
+    expect(foreground.returned).toEqual({ reason: 'aborted_streaming' })
+    expect(background.returned).toEqual({ reason: 'completed' })
+    expect(modelCalls).toBe(1)
+    expect(turnBudget.turnsStarted).toBe(1)
+  })
+
+  test('does not charge a handoff aborted while preparing its first request', async () => {
+    let modelCalls = 0
+    const turnBudget = createQueryTurnBudget(1)
+    const callModel = async function* () {
+      modelCalls++
+      yield createAssistantMessage({ content: 'continued in background' })
+    }
+    const foregroundParams = makeParams(callModel)
+    const foregroundAbortController =
+      foregroundParams.toolUseContext.abortController
+    foregroundParams.deps!.autocompact = async () => {
+      foregroundAbortController.abort('background')
+      return {
+        wasCompacted: false,
+        compactionResult: undefined,
+        consecutiveFailures: undefined,
+      }
+    }
+
+    const foreground = await drain({
+      ...foregroundParams,
+      turnBudget,
+    })
+    const background = await drain({
+      ...makeParams(callModel),
+      turnBudget,
+    })
+
+    expect(foreground.returned).toEqual({ reason: 'aborted_streaming' })
+    expect(background.returned).toEqual({ reason: 'completed' })
+    expect(modelCalls).toBe(1)
+    expect(turnBudget.turnsStarted).toBe(1)
+  })
+
+  test('background handoff emits the final-turn cap only once', async () => {
+    let modelCalls = 0
+    let foregroundAbortController: AbortController
+    const backgroundingTool = buildTool({
+      name: 'Background',
+      inputSchema: z.object({}),
+      maxResultSizeChars: Infinity,
+      async description() {
+        return 'Background the query'
+      },
+      async prompt() {
+        return ''
+      },
+      async call() {
+        foregroundAbortController.abort('background')
+        return { data: 'backgrounded' }
+      },
+      mapToolResultToToolResultBlockParam(content, toolUseID) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUseID,
+          content: String(content),
+        }
+      },
+      renderToolUseMessage() {
+        return null
+      },
+      renderToolResultMessage() {
+        return null
+      },
+    })
+    const foregroundParams = makeParams(
+      async function* () {
+        modelCalls++
+        yield createAssistantMessage({
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_background_1',
+              name: 'Background',
+              input: {},
+            },
+          ],
+        })
+      },
+      [backgroundingTool],
+    )
+    foregroundAbortController =
+      foregroundParams.toolUseContext.abortController
+    const turnBudget = createQueryTurnBudget(1)
+
+    const foreground = await drain({
+      ...foregroundParams,
+      turnBudget,
+    })
+    const background = await drain({
+      ...makeParams(async function* () {
+        modelCalls++
+        yield createAssistantMessage({ content: 'must not run' })
+      }),
+      turnBudget,
+    })
+    const capAttachments = [...foreground.yielded, ...background.yielded].filter(
+      message =>
+        message.type === 'attachment' &&
+        message.attachment.type === 'max_turns_reached',
+    )
+
+    expect(foreground.returned).toEqual({ reason: 'aborted_tools' })
+    expect(background.returned).toEqual({
+      reason: 'max_turns',
+      turnCount: 2,
+    })
+    expect(modelCalls).toBe(1)
+    expect(capAttachments).toHaveLength(1)
+    expect(background.yielded).toContain(capAttachments[0])
   })
 
   test('without a configured limit, tool use behavior is unchanged', async () => {

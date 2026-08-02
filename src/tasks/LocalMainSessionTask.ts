@@ -402,7 +402,11 @@ export function startBackgroundSession({
         if (
           event.type !== 'user' &&
           event.type !== 'assistant' &&
-          event.type !== 'system'
+          event.type !== 'system' &&
+          !(
+            event.type === 'attachment' &&
+            event.attachment.type === 'max_turns_reached'
+          )
         ) {
           continue
         }

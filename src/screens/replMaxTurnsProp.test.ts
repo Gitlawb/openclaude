@@ -1,10 +1,20 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Command as CommanderCommand, Option } from '@commander-js/extra-typings'
+import {
+  Command as CommanderCommand,
+  InvalidArgumentError,
+  Option,
+} from '@commander-js/extra-typings'
+import { createQueryTurnBudget } from '../query.js'
+import {
+  claimBackgroundTurnBudget,
+  releaseForegroundTurnBudget,
+} from './replMaxTurns.js'
 import {
   DEFAULT_GLOBAL_CONFIG,
   GLOBAL_CONFIG_KEYS,
+  getGlobalConfig,
   isGlobalConfigKey,
   saveGlobalConfig,
 } from '../utils/config.js'
@@ -14,15 +24,18 @@ import {
   MAX_TURNS_CLI_DESCRIPTION,
   MAX_TURNS_UNLIMITED_WARNING,
   normalizeReplMaxTurns,
+  parseMaxTurnsCli,
   REPL_MAX_TURNS_OPTIONS,
   resolveReplMaxTurns,
 } from '../utils/replMaxTurns.js'
+import * as debug from '../utils/debug.js'
 
 const screenDir = import.meta.dirname
 
 const ENV_KEYS = ['OPENCLAUDE_MAX_TURNS', 'CLAUDE_CODE_MAX_TURNS'] as const
 const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> =
   {}
+const savedReplMaxTurns = getGlobalConfig().replMaxTurns
 
 function readScreen(name: string): string {
   return readFileSync(join(screenDir, name), 'utf8')
@@ -64,9 +77,18 @@ function createMaxTurnsCliProgram(): CommanderCommand {
   const program = new CommanderCommand()
   program
     .name('openclaude')
+    .exitOverride()
     .addOption(
       new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION).argParser(
-        Number,
+        value => {
+          try {
+            return parseMaxTurnsCli(value)
+          } catch (error) {
+            throw new InvalidArgumentError(
+              error instanceof Error ? error.message : String(error),
+            )
+          }
+        },
       ),
     )
     .action(() => {})
@@ -82,7 +104,7 @@ afterEach(() => {
       process.env[key] = previous
     }
   }
-  setReplMaxTurnsConfig(undefined)
+  setReplMaxTurnsConfig(savedReplMaxTurns)
 })
 
 for (const key of ENV_KEYS) {
@@ -126,6 +148,23 @@ describe('interactive REPL max-turn cap', () => {
     process.env.OPENCLAUDE_MAX_TURNS = 'nope'
     process.env.CLAUDE_CODE_MAX_TURNS = '125'
     expect(resolveReplMaxTurns()).toBe(DEFAULT_REPL_MAX_TURNS)
+  })
+
+  test('does not include an invalid environment value in debug logs', () => {
+    clearTurnEnv()
+    const invalidValue = 'private-value-that-must-not-be-logged'
+    process.env.OPENCLAUDE_MAX_TURNS = invalidValue
+    const logSpy = spyOn(debug, 'logForDebugging').mockImplementation(() => {})
+
+    try {
+      expect(resolveReplMaxTurns()).toBe(DEFAULT_REPL_MAX_TURNS)
+      expect(logSpy).toHaveBeenCalledTimes(1)
+      const logged = logSpy.mock.calls.flat().join(' ')
+      expect(logged).toContain('OPENCLAUDE_MAX_TURNS has an invalid value')
+      expect(logged).not.toContain(invalidValue)
+    } finally {
+      logSpy.mockRestore()
+    }
   })
 
   test('explicit CLI cap wins over environment overrides', () => {
@@ -192,16 +231,34 @@ describe('interactive REPL max-turn cap', () => {
     expect(REPL_MAX_TURNS_OPTIONS).toEqual([50, 100, 200, 500])
   })
 
-  test('passes the resolved cap to foreground and background queries', () => {
-    const source = readScreen('REPL.tsx')
-    const foreground = objectBody(source, /for await \(const event of query\(\{/)
-    const background = objectBody(source, /queryParams:\s*\{/)
+  test('background budget handoff preserves identity and is one-shot', () => {
+    const budget = createQueryTurnBudget(50)
+    const budgetRef = { current: budget }
+    const handoffStartedRef = { current: false }
 
-    expect(foreground).toContain('maxTurns: resolveReplMaxTurns(maxTurnsProp)')
-    expect(foreground).toContain('onTurnCountChange: turnCount =>')
-    expect(background).toContain('maxTurns: backgroundMaxTurns')
-    expect(background).toContain('initialTurnCount: backgroundTurnCount')
-    expect(background).not.toContain('foregroundModelTurnStartedRef')
+    expect(
+      claimBackgroundTurnBudget(budgetRef, handoffStartedRef),
+    ).toBe(budget)
+    expect(
+      claimBackgroundTurnBudget(budgetRef, handoffStartedRef),
+    ).toBeNull()
+
+    const newerBudget = createQueryTurnBudget(100)
+    budgetRef.current = newerBudget
+    handoffStartedRef.current = false
+    releaseForegroundTurnBudget(budgetRef, handoffStartedRef, budget)
+    expect(budgetRef.current).toBe(newerBudget)
+
+    releaseForegroundTurnBudget(budgetRef, handoffStartedRef, newerBudget)
+    expect(budgetRef.current).toBeNull()
+    expect(handoffStartedRef.current).toBe(false)
+  })
+
+  test('background tasks retain a max-turn terminal attachment', () => {
+    const backgroundTask = readSourceUp(join('tasks', 'LocalMainSessionTask.ts'))
+    expect(backgroundTask).toContain(
+      "event.attachment.type === 'max_turns_reached'",
+    )
   })
 
   test('Config panel exposes Max turns (interactive)', () => {
@@ -243,6 +300,28 @@ describe('interactive REPL max-turn cap', () => {
     expect(parsed).toBe(200)
     // Same handoff the interactive session uses: CLI option → resolveReplMaxTurns.
     expect(resolveReplMaxTurns(parsed)).toBe(200)
+  })
+
+  test('Commander --max-turns rejects values that could disable the cap accidentally', () => {
+    expect(parseMaxTurnsCli('0')).toBe(0)
+    expect(parseMaxTurnsCli('200')).toBe(200)
+    for (const invalid of ['', '   ', 'nope', '-3', '2.5', 'Infinity']) {
+      expect(() => parseMaxTurnsCli(invalid)).toThrow(
+        '--max-turns must be a non-negative integer',
+      )
+    }
+  })
+
+  test('Commander formats invalid --max-turns as an option error', async () => {
+    const program = createMaxTurnsCliProgram()
+    await expect(
+      program.parseAsync(['node', 'openclaude', '--max-turns', 'nope'], {
+        from: 'node',
+      }),
+    ).rejects.toMatchObject({
+      code: 'commander.invalidArgument',
+      exitCode: 1,
+    })
   })
 
   test('main imports the shared --max-turns description and wires sessionConfig', () => {
