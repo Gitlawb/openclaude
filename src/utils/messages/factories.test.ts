@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Message } from '../../types/message.js'
+import type { Progress } from '../../Tool.js'
 
 const factories = (await import(
   `./factories.js?factory-test=${Date.now()}-${Math.random()}`
@@ -186,7 +187,7 @@ test('createProgressMessage preserves tool IDs and payload', () => {
   const message = createProgressMessage({
     toolUseID: 'toolu_child',
     parentToolUseID: 'toolu_parent',
-    data: { message: 'working' },
+    data: { message: 'working' } as unknown as Progress,
   })
 
   expect(message).toMatchObject({

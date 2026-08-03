@@ -373,7 +373,7 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
       return message.message.content.some(content => content.type === 'tool_use');
     });
     const latestAssistant = progressMessages.findLast((msg): msg is ProgressMessage<AgentToolProgress> => hasProgressMessage(msg.data) && msg.data.message.type === 'assistant');
-    let tokens = null;
+    let tokens: number | null = null;
     if (latestAssistant?.data.message.type === 'assistant') {
       const usage = latestAssistant.data.message.message.usage;
       tokens = (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + usage.input_tokens + usage.output_tokens;
@@ -524,7 +524,7 @@ function calculateAgentStats(progressMessages: ProgressMessage<Progress>[]): {
     return message.type === 'user' && message.message.content.some(content => content.type === 'tool_result');
   });
   const latestAssistant = progressMessages.findLast((msg): msg is ProgressMessage<AgentToolProgress> => hasProgressMessage(msg.data) && msg.data.message.type === 'assistant');
-  let tokens = null;
+  let tokens: number | null = null;
   if (latestAssistant?.data.message.type === 'assistant') {
     const usage = latestAssistant.data.message.message.usage;
     tokens = (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + usage.input_tokens + usage.output_tokens;

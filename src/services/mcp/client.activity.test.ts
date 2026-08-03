@@ -6,6 +6,7 @@ import {
 import { createAssistantMessage } from '../../utils/messages.js'
 import { fetchToolsForClient } from './client.js'
 import type { ConnectedMCPServer } from './types.js'
+import type { ToolProgress, ToolProgressData } from '../../Tool.js'
 
 describe('MCP tool activity', () => {
   afterEach(() => {
@@ -178,8 +179,8 @@ describe('MCP tool activity', () => {
     } as unknown as ConnectedMCPServer
     const [tool] = await fetchToolsForClient(connection)
     expect(tool).toBeDefined()
-    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
-      if (data.status === 'started') {
+    const onProgress = vi.fn(({ data }: ToolProgress<ToolProgressData>) => {
+      if (data.type === 'mcp_progress' && data.status === 'started') {
         throw new Error('progress consumer failure')
       }
     })
@@ -239,8 +240,8 @@ describe('MCP tool activity', () => {
     } as unknown as ConnectedMCPServer
     const [tool] = await fetchToolsForClient(connection)
     expect(tool).toBeDefined()
-    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
-      if (data.status === 'progress') {
+    const onProgress = vi.fn(({ data }: ToolProgress<ToolProgressData>) => {
+      if (data.type === 'mcp_progress' && data.status === 'progress') {
         throw new Error('progress consumer failure')
       }
     })
@@ -301,8 +302,8 @@ describe('MCP tool activity', () => {
     } as unknown as ConnectedMCPServer
     const [tool] = await fetchToolsForClient(connection)
     expect(tool).toBeDefined()
-    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
-      if (data.status === 'completed') {
+    const onProgress = vi.fn(({ data }: ToolProgress<ToolProgressData>) => {
+      if (data.type === 'mcp_progress' && data.status === 'completed') {
         throw new Error('progress consumer failure')
       }
     })
@@ -357,8 +358,8 @@ describe('MCP tool activity', () => {
     } as unknown as ConnectedMCPServer
     const [tool] = await fetchToolsForClient(connection)
     expect(tool).toBeDefined()
-    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
-      if (data.status === 'failed') {
+    const onProgress = vi.fn(({ data }: ToolProgress<ToolProgressData>) => {
+      if (data.type === 'mcp_progress' && data.status === 'failed') {
         throw new Error('progress consumer failure')
       }
     })
@@ -423,8 +424,8 @@ describe('MCP tool activity', () => {
     } as unknown as ConnectedMCPServer
     const [tool] = await fetchToolsForClient(connection)
     expect(tool).toBeDefined()
-    const onProgress = vi.fn(({ data }: { data: { status: string } }) => {
-      if (data.status === 'progress') {
+    const onProgress = vi.fn(({ data }: ToolProgress<ToolProgressData>) => {
+      if (data.type === 'mcp_progress' && data.status === 'progress') {
         throw new Error('progress consumer failure')
       }
     })

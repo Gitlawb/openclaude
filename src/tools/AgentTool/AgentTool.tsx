@@ -279,10 +279,11 @@ type TeammateSpawnedOutput = {
 // Combined output type including both public and internal types
 // Note: TeammateSpawnedOutput type is fine - TypeScript types are erased at compile time
 type InternalOutput = Output | TeammateSpawnedOutput;
-import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
-// AgentTool forwards both its own progress events and shell progress
-// events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
-export type Progress = AgentToolProgress | ShellProgress;
+import type { AgentToolProgress, MCPProgress, ShellProgress, TaskOutputProgress } from '../../types/tools.js';
+// AgentTool forwards both its own progress events and shell, MCP, and
+// waiting-for-task progress events from the sub-agent so the SDK receives
+// tool_progress updates during bash/powershell/MCP calls and background tasks.
+export type Progress = AgentToolProgress | ShellProgress | MCPProgress | TaskOutputProgress;
 export const AgentTool = buildTool({
   async prompt({
     agents,
