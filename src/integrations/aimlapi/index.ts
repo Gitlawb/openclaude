@@ -2,7 +2,6 @@ export {
   provisionAimlapiKey,
   runAimlapiTopup,
   topUpAimlapiByApiKey,
-  pollUntilPaid,
   type AimlapiByKeyTopupOptions,
   type AimlapiProvisionOptions,
   type AimlapiProvisionedKey,

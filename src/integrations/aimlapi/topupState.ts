@@ -785,7 +785,7 @@ function readSignInKeyStoreUnlocked(): AimlapiSignInKeyStore {
     const store: AimlapiSignInKeyStore = {}
     for (const [email, entry] of Object.entries(record)) {
       if (email && isSignInKeyEntry(entry)) {
-        store[email] = { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId }
+        store[normalizeEmail(email)] = { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId }
       }
     }
     return store
