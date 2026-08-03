@@ -52,7 +52,7 @@ import { AGENT_COLOR_TO_THEME_COLOR, AGENT_COLORS, type AgentColorName } from '.
 import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js';
 import type { Message } from '../../types/message.js';
 import type { PermissionMode } from '../../types/permissions.js';
-import type { BaseTextInputProps, PromptInputMode, VimMode } from '../../types/textInputTypes.js';
+import type { BaseTextInputProps, PromptInputMode, TextInputChangeContext, VimMode } from '../../types/textInputTypes.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { count } from '../../utils/array.js';
 import type { AutoUpdaterResult } from '../../utils/autoUpdater.js';
@@ -123,7 +123,7 @@ import { useMaybeTruncateInput } from './useMaybeTruncateInput.js';
 import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
 import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
-import { isNonSpacePrintable, isVimModeEnabled } from './utils.js';
+import { canAcceptPromptSuggestion, isNonSpacePrintable, isVimModeEnabled, resolveCoalescedModeSubmission } from './utils.js';
 type Props = {
   debug: boolean;
   ideSelection: IDESelection | undefined;
@@ -174,6 +174,7 @@ type Props = {
   }, options?: {
     fromKeybinding?: boolean;
     slashCommandOverride?: Command;
+    inputModeOverride?: PromptInputMode;
   }) => Promise<void>;
   onAgentSubmit?: (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => Promise<void>;
   isSearchingHistory: boolean;
@@ -869,7 +870,8 @@ function PromptInput({
     submitCount,
     viewingAgentName
   });
-  const onChange = useCallback((value: string) => {
+  const pendingCoalescedModeSubmitRef = React.useRef<ReturnType<typeof detectModeEntry>>(null);
+  const onChange = useCallback((value: string, changeContext?: TextInputChangeContext) => {
     if (value === '?') {
       logEvent('tengu_help_toggled', {});
       setHelpOpen(v => !v);
@@ -888,19 +890,26 @@ function PromptInput({
     // mode itself is shown via the prompt prefix in the UI. Without this,
     // typing `!` into empty input would enter bash mode but leave the literal
     // `!` in the buffer (issue #662).
+    const previousValue = changeContext?.previousValue ?? input;
+    const previousCursorOffset = changeContext?.cursorOffset ?? cursorOffset;
     const modeEntry = detectModeEntry({
       value,
-      prevInputLength: input.length,
-      cursorOffset,
+      prevInputLength: previousValue.length,
+      cursorOffset: previousCursorOffset,
     });
     if (modeEntry) {
-      onModeChange(modeEntry.mode);
       const cleaned = modeEntry.strippedValue.replaceAll('\t', '    ');
-      pushToBuffer(input, cursorOffset, pastedContents);
+      pendingCoalescedModeSubmitRef.current = changeContext?.willSubmit ? {
+        ...modeEntry,
+        strippedValue: cleaned
+      } : null;
+      onModeChange(modeEntry.mode);
+      pushToBuffer(previousValue, previousCursorOffset, pastedContents);
       trackAndSetInput(cleaned);
       setCursorOffset(cleaned.length);
       return;
     }
+    pendingCoalescedModeSubmitRef.current = null;
     const processedValue = value.replaceAll('\t', '    ');
 
     // Push current state to buffer before making changes
@@ -998,6 +1007,11 @@ function PromptInput({
     setSuggestionsStateRaw(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
   const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false, slashCommandOverride?: Command) => {
+    const pendingModeEntry = pendingCoalescedModeSubmitRef.current;
+    pendingCoalescedModeSubmitRef.current = null;
+    const modeSubmission = resolveCoalescedModeSubmission(inputParam, mode, pendingModeEntry);
+    inputParam = modeSubmission.input;
+    const effectiveSubmissionMode = modeSubmission.mode;
     inputParam = inputParam.trimEnd();
 
     // Don't submit if a footer indicator is being opened. Read fresh from
@@ -1026,7 +1040,7 @@ function PromptInput({
     // Only in leader view — promptSuggestion is leader-context, not teammate.
     const suggestionText = promptSuggestionState.text;
     const inputMatchesSuggestion = inputParam.trim() === '' || inputParam === suggestionText;
-    if (inputMatchesSuggestion && suggestionText && !hasImages && !state.viewingAgentTaskId) {
+    if (canAcceptPromptSuggestion(effectiveSubmissionMode) && inputMatchesSuggestion && suggestionText && !hasImages && !state.viewingAgentTaskId) {
       // If speculation is active, inject messages immediately as they stream
       if (speculation.status === 'active') {
         markAccepted();
@@ -1042,7 +1056,9 @@ function PromptInput({
           state: speculation,
           speculationSessionTimeSavedMs: speculationSessionTimeSavedMs,
           setAppState
-        });
+        }, modeSubmission.inputModeOverride ? {
+          inputModeOverride: modeSubmission.inputModeOverride
+        } : undefined);
         return; // Skip normal query - speculation handled it
       }
 
@@ -1087,7 +1103,7 @@ function PromptInput({
     // PromptInput UX: Check if suggestions dropdown is showing
     // For directory suggestions, allow submission (Tab is used for completion)
     const hasDirectorySuggestions = suggestionsState.suggestions.length > 0 && suggestionsState.suggestions.every(s => s.description === 'directory');
-    if (suggestionsState.suggestions.length > 0 && !isSubmittingSlashCommand && !hasDirectorySuggestions) {
+    if (canAcceptPromptSuggestion(effectiveSubmissionMode) && suggestionsState.suggestions.length > 0 && !isSubmittingSlashCommand && !hasDirectorySuggestions) {
       logForDebugging(`[onSubmit] early return: suggestions showing (count=${suggestionsState.suggestions.length})`);
       return; // Don't submit, user needs to clear suggestions first
     }
@@ -1113,14 +1129,16 @@ function PromptInput({
     }
 
     // Normal leader submission
+    const submitOptions = slashCommandOverride || modeSubmission.inputModeOverride ? {
+      slashCommandOverride,
+      inputModeOverride: modeSubmission.inputModeOverride
+    } : undefined;
     await onSubmitProp(inputParam, {
       setCursorOffset,
       clearBuffer,
       resetHistory
-    }, undefined, slashCommandOverride ? {
-      slashCommandOverride
-    } : undefined);
-  }, [promptSuggestionState, speculation, speculationSessionTimeSavedMs, teamContext, store, footerItems, suggestionsState.suggestions, onSubmitProp, onAgentSubmit, clearBuffer, resetHistory, logOutcomeAtSubmission, setAppState, markAccepted, pastedContents, removeNotification]);
+    }, undefined, submitOptions);
+  }, [promptSuggestionState, speculation, speculationSessionTimeSavedMs, teamContext, store, footerItems, suggestionsState.suggestions, onSubmitProp, onAgentSubmit, clearBuffer, resetHistory, logOutcomeAtSubmission, setAppState, markAccepted, pastedContents, removeNotification, mode]);
   const {
     suggestions,
     selectedSuggestion,

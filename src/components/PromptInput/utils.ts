@@ -3,8 +3,10 @@ import {
   isShiftEnterKeyBindingInstalled,
 } from '../../commands/terminalSetup/terminalSetup.js'
 import type { Key } from '../../ink.js'
+import type { PromptInputMode } from '../../types/textInputTypes.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { env } from '../../utils/env.js'
+import type { ModeEntryDecision } from './inputModes.js'
 /**
  * Helper function to check if vim mode is currently enabled
  * @returns boolean indicating if vim mode is active
@@ -52,9 +54,34 @@ export function isNonSpacePrintable(input: string, key: Key): boolean {
     key.pageUp ||
     key.pageDown ||
     key.home ||
-    key.end
+    key.end ||
+    input.includes('\x7f')
   ) {
     return false
   }
   return input.length > 0 && !/^\s/.test(input) && !input.startsWith('\x1b')
+}
+
+export function resolveCoalescedModeSubmission(
+  input: string,
+  renderedMode: PromptInputMode,
+  pendingModeEntry: ModeEntryDecision | null,
+): {
+  input: string
+  mode: PromptInputMode
+  inputModeOverride?: PromptInputMode
+} {
+  if (!pendingModeEntry) {
+    return { input, mode: renderedMode }
+  }
+
+  return {
+    input: pendingModeEntry.strippedValue.replaceAll('\t', '    '),
+    mode: pendingModeEntry.mode,
+    inputModeOverride: pendingModeEntry.mode,
+  }
+}
+
+export function canAcceptPromptSuggestion(mode: PromptInputMode): boolean {
+  return mode === 'prompt'
 }
