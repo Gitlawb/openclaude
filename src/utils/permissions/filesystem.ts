@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto'
 import ignore from 'ignore'
 import memoize from 'lodash-es/memoize.js'
 import { homedir, tmpdir } from 'os'
-import { join, normalize, posix, sep } from 'path'
+import { dirname, join, normalize, posix, sep } from 'path'
 import { hasAutoMemPathOverride, isAutoMemPath } from 'src/memdir/paths.js'
 import { isAgentMemoryPath } from 'src/tools/AgentTool/agentMemory.js'
 import {
@@ -304,9 +304,48 @@ export function isPlanFilePath(
   return isCanonicalPlanFileEncoding(encodedAgentId)
 }
 
+/**
+ * SECURITY: the plan-file carve-out grants unprompted read/write on a lexical
+ * name match, so a symlinked path component (e.g. a symlinked `agents`
+ * subdirectory, or a symlinked plans directory) could redirect the real target
+ * outside the plans directory. Resolve the deepest existing ancestor of the
+ * candidate (the file itself may not exist yet on a first write) and require it
+ * to stay within the *resolved* plans directory before honoring the carve-out.
+ */
+function isResolvedWithinPlansDir(
+  absolutePath: string,
+  plansDir: string,
+): boolean {
+  const fs = getFsImplementation()
+  let realPlansDir: string
+  try {
+    realPlansDir = fs.realpathSync(plansDir)
+  } catch {
+    // Cannot resolve the plans directory itself -> cannot prove containment.
+    return false
+  }
+  let probe = absolutePath
+  for (;;) {
+    try {
+      const real = fs.realpathSync(probe)
+      return real === realPlansDir || real.startsWith(realPlansDir + sep)
+    } catch (error) {
+      if (!isENOENT(error)) return false
+      const parent = dirname(probe)
+      // Reached the filesystem root without resolving anything inside plansDir.
+      if (parent === probe) return false
+      probe = parent
+    }
+  }
+}
+
 // Check if file is the plan file for the current session
 function isSessionPlanFile(absolutePath: string): boolean {
-  return isPlanFilePath(getPlansDirectory(), getPlanSlug(), absolutePath)
+  const plansDir = getPlansDirectory()
+  if (!isPlanFilePath(plansDir, getPlanSlug(), absolutePath)) {
+    return false
+  }
+  return isResolvedWithinPlansDir(absolutePath, plansDir)
 }
 
 /**

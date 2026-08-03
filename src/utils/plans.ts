@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
+import type { Stats } from 'fs'
 import { copyFile, writeFile } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
-import { join, resolve, sep } from 'path'
+import { dirname, join, resolve, sep } from 'path'
 import type { AgentId, SessionId } from 'src/types/ids.js'
 import type { LogOption } from 'src/types/logs.js'
 import type {
@@ -269,47 +270,175 @@ export function isPathWithinPlansDir(
   return candidatePath === plansDir || candidatePath.startsWith(plansDir + sep)
 }
 
+/**
+ * Like {@link isPathWithinPlansDir} but resolves symlinks. The lexical check
+ * above cannot see a symlinked intermediate directory (e.g. a slash-bearing
+ * legacy id `writer@a/b` whose `{slug}-agent-writer@a` parent is a symlink to
+ * outside the plans dir); recovery would then read/migrate through it. Resolve
+ * the deepest existing ancestor of the legacy path and require it to stay inside
+ * the resolved plans directory.
+ *
+ * Exported for testing.
+ */
+export function isResolvedPathWithinPlansDir(
+  candidatePath: string,
+  plansDir: string,
+): boolean {
+  const fs = getFsImplementation()
+  let realPlansDir: string
+  try {
+    realPlansDir = fs.realpathSync(plansDir)
+  } catch {
+    return false
+  }
+  let probe = candidatePath
+  for (;;) {
+    try {
+      const real = fs.realpathSync(probe)
+      return real === realPlansDir || real.startsWith(realPlansDir + sep)
+    } catch (error) {
+      if (!isENOENT(error)) return false
+      const parent = dirname(probe)
+      if (parent === probe) return false
+      probe = parent
+    }
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : undefined
+}
+
+/**
+ * Read a path that must be a regular file, proving the object did not change
+ * across the read. A pathname pre-check (`lstat`) followed by a separate
+ * `readFileSync` is a TOCTOU: an attacker who can write the plans directory can
+ * swap the checked regular file for a symlink in the gap, so recovery would
+ * read the link target. Without a no-follow file handle in the fs abstraction we
+ * instead bracket the read with `lstat` and require the same inode/device and a
+ * regular file both before and after -- so a swap in the window is detected and
+ * the read is discarded rather than trusted.
+ */
+function readRegularFileStable(path: string): string | null {
+  const fs = getFsImplementation()
+  let before: Stats
+  try {
+    before = fs.lstatSync(path)
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
+    return null
+  }
+  if (!before.isFile()) return null
+
+  let contents: string
+  try {
+    contents = fs.readFileSync(path, { encoding: 'utf-8' })
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
+    return null
+  }
+
+  let after: Stats
+  try {
+    after = fs.lstatSync(path)
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
+    return null
+  }
+  if (
+    !after.isFile() ||
+    after.ino !== before.ino ||
+    after.dev !== before.dev
+  ) {
+    return null
+  }
+  return contents
+}
+
 export function readAndMigrateLegacyPlan(
   legacyPath: string,
   escapedPath: string,
 ): string | null {
   if (legacyPath === escapedPath) return null
 
-  // SECURITY: recovery reads and then renames this path, so it must be a real
+  const fs = getFsImplementation()
+
+  // SECURITY: recovery reads and then migrates this path, so it must be a real
   // regular file. A symlink planted at the legacy slot would otherwise let
-  // recovery return the contents of (and rename) an arbitrary target outside the
-  // plans directory. lstat does not follow the link, so a symlink fails isFile().
+  // recovery return the contents of an arbitrary target outside the plans
+  // directory. Capture the file identity up front; the migration below pins that
+  // inode via an atomic hard link so a later swap cannot redirect the read.
+  let legacyStat: Stats
   try {
-    if (!getFsImplementation().lstatSync(legacyPath).isFile()) return null
+    legacyStat = fs.lstatSync(legacyPath)
+  } catch (error) {
+    if (!isENOENT(error)) logError(error)
+    return null
+  }
+  if (!legacyStat.isFile()) return null
+
+  // Genuine no-clobber move: `linkSync` fails with EEXIST if the escaped path
+  // already exists, so it never replaces a live plan the way a check-then-act
+  // `existsSync` + `renameSync` would under a concurrent writer. On success the
+  // escaped name is a hard link to the exact inode we just lstat'd, immune to a
+  // symlink swap of the legacy pathname.
+  try {
+    fs.linkSync(legacyPath, escapedPath)
+  } catch (error) {
+    const code = errorCode(error)
+    if (code === 'ENOENT') return null
+    if (code === 'EEXIST') {
+      // A live plan is already at the escaped path: do not migrate. Return the
+      // legacy contents (read with swap detection) without touching either file.
+      return readRegularFileStable(legacyPath)
+    }
+    // Hard links may be unsupported (e.g. cross-device, some Windows FS). Fall
+    // back to reading the legacy file in place without migrating.
+    logForDebugging(
+      `Could not link legacy plan file ${legacyPath} to ${escapedPath}: ${error instanceof Error ? error.message : error}`,
+      { level: 'warn' },
+    )
+    return readRegularFileStable(legacyPath)
+  }
+
+  // Confirm the linked inode is the regular file we captured -- a swap between
+  // the lstat and the link would otherwise pin an attacker's object.
+  try {
+    const linked = fs.lstatSync(escapedPath)
+    if (
+      !linked.isFile() ||
+      linked.ino !== legacyStat.ino ||
+      linked.dev !== legacyStat.dev
+    ) {
+      try {
+        fs.unlinkSync(escapedPath)
+      } catch {
+        // best effort
+      }
+      return null
+    }
   } catch (error) {
     if (!isENOENT(error)) logError(error)
     return null
   }
 
+  // Read from the pinned escaped hard link, then drop the legacy name to
+  // complete the move. Reading the link (not legacyPath) means a swap of the
+  // legacy pathname after this point cannot affect the returned contents.
   let contents: string
   try {
-    contents = getFsImplementation().readFileSync(legacyPath, {
-      encoding: 'utf-8',
-    })
+    contents = fs.readFileSync(escapedPath, { encoding: 'utf-8' })
   } catch (error) {
     if (!isENOENT(error)) logError(error)
     return null
   }
-
-  // No-clobber: never rename a legacy file over a plan that already exists at
-  // the escaped path. getPlan only reaches recovery after the escaped read
-  // missed, but a concurrent writer can create it in between; overwriting it
-  // would lose a live plan. The legacy contents were already read, so return
-  // them without migrating.
-  if (getFsImplementation().existsSync(escapedPath)) {
-    return contents
-  }
-
   try {
-    getFsImplementation().renameSync(legacyPath, escapedPath)
+    fs.unlinkSync(legacyPath)
   } catch (error) {
     logForDebugging(
-      `Could not move legacy plan file ${legacyPath} to ${escapedPath}: ${error instanceof Error ? error.message : error}`,
+      `Could not remove legacy plan file ${legacyPath} after migration: ${error instanceof Error ? error.message : error}`,
       { level: 'warn' },
     )
   }
@@ -335,7 +464,13 @@ export function readLegacyUnescapedPlan(
   // (`a/../{slug}` -> the main plan; `a/../{slug}-agent-victim` -> a sibling),
   // which the migrate step would then read and rename -- moving another agent's
   // file. Reject any traversal segment before building the path.
-  if (agentId.split(/[/\\]/).includes('..')) return null
+  //
+  // Split on the host platform's real separators: on POSIX only `/` is a
+  // separator, and `\` is a legal filename character, so a legitimate legacy id
+  // such as `a\..\b` was persisted as one flat filename and must still recover.
+  // On Windows both `/` and `\` are separators (keep that safeguard).
+  const traversalSeparators = sep === '\\' ? /[/\\]/ : /\//
+  if (agentId.split(traversalSeparators).includes('..')) return null
 
   const legacyPath = join(plansDir, `${slug}-agent-${agentId}.md`)
   // Defense in depth: the legacy file must still sit inside the plans dir and
@@ -344,6 +479,10 @@ export function readLegacyUnescapedPlan(
   const agentPrefix = join(plansDir, `${slug}-agent-`)
   if (!isPathWithinPlansDir(legacyPath, plansDir)) return null
   if (!legacyPath.startsWith(agentPrefix)) return null
+  // SECURITY: a slash-bearing legacy id lands the file under an intermediate
+  // directory; if that directory is a symlink the lexical checks above still
+  // pass. Require the resolved path to stay inside the plans dir before reading.
+  if (!isResolvedPathWithinPlansDir(legacyPath, plansDir)) return null
   return readAndMigrateLegacyPlan(legacyPath, escapedPath)
 }
 

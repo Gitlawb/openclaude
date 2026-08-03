@@ -26,6 +26,7 @@ import {
   getPlan,
   getPlansDirectory,
   isPathWithinPlansDir,
+  isResolvedPathWithinPlansDir,
   readAndMigrateLegacyPlan,
   readLegacyUnescapedPlan,
   setPlanSlug,
@@ -431,6 +432,91 @@ describe('legacy plan file recovery', () => {
       if (configDir) rmSync(configDir, { recursive: true, force: true })
       releaseSharedMutationLock()
     }
+  })
+
+  // On POSIX, `\` is a legal filename character, so a team id like `a\..\b` was
+  // persisted as one flat filename. The traversal guard must not treat those
+  // literal backslashes as separators (that would wrongly reject recovery and
+  // make the existing plan look absent). Windows, where `\` IS a separator,
+  // keeps rejecting it -- so this case is POSIX-only.
+  test.skipIf(process.platform === 'win32')(
+    'recovers a POSIX legacy id containing literal backslash-dotdot-backslash',
+    () => {
+      const plansDir = join(dir, 'plans')
+      mkdirSync(join(plansDir, AGENT_PLANS_SUBDIR), { recursive: true })
+      const rawId = 'a\\..\\b' // literal backslashes, a single flat filename on POSIX
+      const legacy = join(plansDir, `${SLUG}-agent-${rawId}.md`)
+      writeFileSync(legacy, 'posix body')
+      const escaped = join(
+        plansDir,
+        AGENT_PLANS_SUBDIR,
+        `${SLUG}-agent-${encodeAgentIdForPlanFile(rawId)}.md`,
+      )
+
+      expect(
+        readLegacyUnescapedPlan(rawId as AgentId, escaped, plansDir, SLUG),
+      ).toBe('posix body')
+      expect(existsSync(escaped)).toBe(true)
+      expect(existsSync(legacy)).toBe(false)
+    },
+  )
+
+  test('migration is a genuine move: escaped is a new link, legacy is removed', () => {
+    const plansDir = join(dir, 'plans')
+    mkdirSync(join(plansDir, AGENT_PLANS_SUBDIR), { recursive: true })
+    const legacy = join(plansDir, `${SLUG}-agent-writer@team.md`)
+    writeFileSync(legacy, 'move me')
+    const escaped = join(
+      plansDir,
+      AGENT_PLANS_SUBDIR,
+      `${SLUG}-agent-writer@team.md`,
+    )
+    expect(readAndMigrateLegacyPlan(legacy, escaped)).toBe('move me')
+    expect(existsSync(legacy)).toBe(false)
+    expect(readFileSync(escaped, 'utf-8')).toBe('move me')
+  })
+
+  test('isResolvedPathWithinPlansDir rejects a symlinked intermediate directory', () => {
+    const plansDir = join(dir, 'plans')
+    mkdirSync(plansDir, { recursive: true })
+    const outside = join(dir, 'outside')
+    mkdirSync(outside, { recursive: true })
+
+    // A real subdir path resolves inside plansDir.
+    const realSub = join(plansDir, 'sub')
+    mkdirSync(realSub)
+    expect(
+      isResolvedPathWithinPlansDir(join(realSub, 'x.md'), plansDir),
+    ).toBe(true)
+
+    // A symlinked subdir pointing outside plansDir does not.
+    const linkSub = join(plansDir, 'evil')
+    symlinkSync(outside, linkSub)
+    expect(
+      isResolvedPathWithinPlansDir(join(linkSub, 'x.md'), plansDir),
+    ).toBe(false)
+  })
+
+  test('readLegacyUnescapedPlan refuses recovery through a symlinked parent dir', () => {
+    const plansDir = join(dir, 'plans')
+    mkdirSync(join(plansDir, AGENT_PLANS_SUBDIR), { recursive: true })
+    const outside = join(dir, 'outside')
+    mkdirSync(outside, { recursive: true })
+    // Plant the real file outside, then symlink the intermediate legacy dir to it.
+    writeFileSync(join(outside, 'b.md'), 'SECRET')
+    // Legacy id `writer@a/b` -> legacyPath = {plansDir}/{slug}-agent-writer@a/b.md
+    symlinkSync(outside, join(plansDir, `${SLUG}-agent-writer@a`))
+    const escaped = join(
+      plansDir,
+      AGENT_PLANS_SUBDIR,
+      `${SLUG}-agent-${encodeAgentIdForPlanFile('writer@a/b')}.md`,
+    )
+
+    expect(
+      readLegacyUnescapedPlan('writer@a/b' as AgentId, escaped, plansDir, SLUG),
+    ).toBeNull()
+    expect(existsSync(escaped)).toBe(false)
+    expect(readFileSync(join(outside, 'b.md'), 'utf-8')).toBe('SECRET')
   })
 
   // Recovery reads and renames the legacy path, so it must reject a symlink
