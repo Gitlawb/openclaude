@@ -25,7 +25,7 @@ For an email that already has an account, AI/ML API sends a 6-digit sign-in code
 
 When `AIMLAPI_API_KEY` supplies the credential, OpenClaude uses its runtime value for validation and balance checks but saves an empty credential in the provider profile. The literal environment value is not copied into configuration.
 
-Checkout progress is retained while the provider flow remains open. Retrying an ambiguous payment or exchange failure resumes the original partner session instead of creating a second checkout.
+Checkout progress is durable, not just kept for the current session: the payment identity and any issued key are persisted to disk, so a restart resumes the same checkout too. Retrying an ambiguous payment or exchange failure resumes the original partner session instead of creating a second checkout, and if a prior run already paid and exchanged the key, the next run finishes the profile write instead of re-provisioning.
 
 The base URL (`https://api.aimlapi.com/v1`) and default model (`gpt-4o`) are filled in automatically. Switch models any time with `/model`; only chat-capable models from the AI/ML API catalog are listed.
 
