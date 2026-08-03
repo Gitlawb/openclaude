@@ -153,6 +153,22 @@ describe('applyCoalescedDelInput', () => {
     expect(result.shouldCommit).toBe(false)
     expect(notifications).toEqual(['!'])
   })
+
+  test('recommits after a DEL that follows a rejected insertion', () => {
+    const notifications: string[] = []
+    const result = applyCoalescedDelInput(
+      Cursor.fromText('', 80, 0),
+      '!\x7f',
+      (_cursor, text) => {
+        notifications.push(text)
+        return undefined
+      },
+    )
+
+    expect(notifications).toEqual(['!'])
+    expect(result.cursor.text).toBe('')
+    expect(result.shouldCommit).toBe(true)
+  })
 })
 
 describe('prepareTextInputEvent', () => {

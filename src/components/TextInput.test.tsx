@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -9,6 +9,7 @@ import { useTextInput } from '../hooks/useTextInput.js'
 import { useVimInput } from '../hooks/useVimInput.js'
 import { AppStateProvider } from '../state/AppState.js'
 import type {
+  TextInputChangeContext,
   TextInputState,
   VimInputState,
 } from '../types/textInputTypes.js'
@@ -105,6 +106,20 @@ async function waitForOutput(
   }
 
   throw new Error('Timed out waiting for TextInput test output')
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 2500,
+): Promise<void> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return
+    await Bun.sleep(5)
+  }
+
+  throw new Error('Timed out waiting for TextInput state')
 }
 
 function DelayedControlledTextInput(): React.ReactNode {
@@ -411,6 +426,7 @@ async function runInputScenario({
   submissions: string[]
 }> {
   let observedValue = initialValue
+  let receivedInputCount = 0
   const changes: string[] = []
   const submissions: string[] = []
 
@@ -432,7 +448,10 @@ async function runInputScenario({
           columns={60}
           cursorOffset={offset}
           onChangeCursorOffset={setOffset}
-          inputFilter={inputFilter}
+          inputFilter={(nextInput, key) => {
+            receivedInputCount++
+            return inputFilter ? inputFilter(nextInput, key) : nextInput
+          }}
           focus
           showCursor
           multiline
@@ -456,20 +475,15 @@ async function runInputScenario({
         ? output.includes(initialValue)
         : output.includes('Type here...'),
   )
+  const previousInputCount = receivedInputCount
   stdin.write(chunk)
-  await Bun.sleep(75)
+  await waitFor(() => receivedInputCount > previousInputCount)
 
   root.unmount()
   stdin.end()
   stdout.end()
 
   return { value: observedValue, changes, submissions }
-}
-
-type ModeChangeContext = {
-  previousValue: string
-  cursorOffset: number
-  willSubmit?: boolean
 }
 
 async function runPromptModeScenario({
@@ -485,6 +499,7 @@ async function runPromptModeScenario({
 }> {
   let observedMode = 'prompt'
   let observedValue = initialValue
+  let receivedInputCount = 0
   const submissions: Array<{ value: string; mode: string }> = []
 
   function PromptModeTextInput(): React.ReactNode {
@@ -497,7 +512,7 @@ async function runPromptModeScenario({
 
     const handleChange = (
       nextValue: string,
-      context?: ModeChangeContext,
+      context?: TextInputChangeContext,
     ): void => {
       const modeEntry = detectModeEntry({
         value: nextValue,
@@ -536,6 +551,10 @@ async function runPromptModeScenario({
           columns={60}
           cursorOffset={offset}
           onChangeCursorOffset={setOffset}
+          inputFilter={nextInput => {
+            receivedInputCount++
+            return nextInput
+          }}
           focus
           showCursor
           multiline
@@ -559,8 +578,9 @@ async function runPromptModeScenario({
         ? output.includes(initialValue)
         : output.includes('Type here...'),
   )
+  const previousInputCount = receivedInputCount
   stdin.write(chunk)
-  await Bun.sleep(75)
+  await waitFor(() => receivedInputCount > previousInputCount)
 
   root.unmount()
   stdin.end()
@@ -839,29 +859,30 @@ test('TextInput leaves ordinary Backspace and Delete key events unchanged', asyn
   expect(del.value).toBe('ac')
 })
 
-test('TextInput resets kill accumulation once for a raw DEL event', async () => {
-  clearKillRing()
-  pushToKillRing('first')
+describe('raw DEL kill and yank state', () => {
+  beforeEach(clearKillRing)
+  afterEach(clearKillRing)
 
-  await runInputScenario({ initialValue: 'a', chunk: '\x7fă' })
-  pushToKillRing('second')
+  test('TextInput resets kill accumulation once for a raw DEL event', async () => {
+    pushToKillRing('first')
 
-  expect(getKillRingSize()).toBe(2)
-  clearKillRing()
-})
+    await runInputScenario({ initialValue: 'a', chunk: '\x7fă' })
+    pushToKillRing('second')
 
-test('TextInput resets yank-pop state for a raw DEL event', async () => {
-  clearKillRing()
-  pushToKillRing('first')
-  resetKillAccumulation()
-  pushToKillRing('second')
-  recordYank(0, 'second'.length)
-  expect(canYankPop()).toBe(true)
+    expect(getKillRingSize()).toBe(2)
+  })
 
-  await runInputScenario({ initialValue: 'a', chunk: '\x7fă' })
+  test('TextInput resets yank-pop state for a raw DEL event', async () => {
+    pushToKillRing('first')
+    resetKillAccumulation()
+    pushToKillRing('second')
+    recordYank(0, 'second'.length)
+    expect(canYankPop()).toBe(true)
 
-  expect(canYankPop()).toBe(false)
-  clearKillRing()
+    await runInputScenario({ initialValue: 'a', chunk: '\x7fă' })
+
+    expect(canYankPop()).toBe(false)
+  })
 })
 
 test('VimTextInput dot-repeat does not record a raw DEL byte', async () => {
@@ -932,7 +953,7 @@ test('VimTextInput dot-repeat does not record a post-DEL mode sentinel', async (
 
     inputState = useVimInput({
       value,
-      onChange: (nextValue, context?: ModeChangeContext) => {
+      onChange: (nextValue, context?: TextInputChangeContext) => {
         const modeEntry = detectModeEntry({
           value: nextValue,
           prevInputLength: context?.previousValue.length ?? value.length,

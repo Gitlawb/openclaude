@@ -21,6 +21,10 @@ test('does not classify DEL-coalesced replacement text as printable', () => {
   expect(isNonSpacePrintable('\x7fă', unmodifiedKey)).toBe(false)
 })
 
+test('does not classify End key input as printable', () => {
+  expect(isNonSpacePrintable('a', { end: true } as Key)).toBe(false)
+})
+
 test('resolves a coalesced mode submission independently of stale rendered mode', () => {
   expect(
     resolveCoalescedModeSubmission('\tignored', 'prompt', {
@@ -31,6 +35,13 @@ test('resolves a coalesced mode submission independently of stale rendered mode'
     input: '    foo',
     mode: 'bash',
     inputModeOverride: 'bash',
+  })
+})
+
+test('preserves input and rendered mode without a pending mode entry', () => {
+  expect(resolveCoalescedModeSubmission('echo ok', 'bash', null)).toEqual({
+    input: 'echo ok',
+    mode: 'bash',
   })
 })
 
