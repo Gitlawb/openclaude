@@ -35,6 +35,7 @@ let activeProfileOverride: Partial<typeof actualProviderProfiles> | null = null
 let activeOpenAIProvider = false
 let activeModelOverride: typeof realModel | null = null
 let modelMockRegistered = false
+let catalogFetchCount = 0
 
 mock.module('./providers.js', () => ({
   ...realProviders,
@@ -68,8 +69,12 @@ mock.module('./providers.js', () => ({
 
 mock.module('../../integrations/index.js', () => ({
   ...realIndex,
-  getCatalogEntriesForRoute: (...args: Parameters<typeof realIndex.getCatalogEntriesForRoute>) =>
-    activeCatalogEntries ?? realIndex.getCatalogEntriesForRoute(...args),
+  getCatalogEntriesForRoute: (...args: Parameters<typeof realIndex.getCatalogEntriesForRoute>) => {
+    if (activeCatalogEntries !== null) {
+      catalogFetchCount++
+    }
+    return activeCatalogEntries ?? realIndex.getCatalogEntriesForRoute(...args)
+  },
 }))
 
 mock.module('../../services/api/providerConfig.js', () => ({
@@ -154,6 +159,7 @@ beforeEach(async () => {
   activeProfileOverride = null
   activeOpenAIProvider = false
   activeModelOverride = null
+  catalogFetchCount = 0
   setSessionSettingsCache({ settings: {}, errors: [] })
   for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
     delete process.env[key]
@@ -170,6 +176,7 @@ afterEach(() => {
     activeProfileOverride = null
     activeOpenAIProvider = false
     activeModelOverride = null
+    catalogFetchCount = 0
     resetSettingsCache()
     for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
       restoreEnvValue(key)
@@ -312,6 +319,42 @@ test('scoped additional options are canonicalized against the catalog and dedupl
   )
 })
 
+test('scoped additional option aliased to a catalog entry canonicalizes to the entry without duplicating it', async () => {
+  activeCacheScopeOverride = 'openai:http://localhost:1234/v1:catalog-dedup'
+  activeProfileOverride = {
+    getActiveProviderProfile: () => ({
+      id: 'profile_scoped',
+      name: 'Scoped',
+      provider: 'openai',
+      baseUrl: 'http://localhost:1234/v1',
+      model: 'cache-model',
+      apiKey: 'sk-test',
+    }),
+  }
+  saveGlobalConfig(current => ({
+    ...current,
+    additionalModelOptionsCacheScope: 'openai:http://localhost:1234/v1:catalog-dedup',
+    additionalModelOptionsCache: [
+      { value: 'alias-name', label: 'Alias Cached', description: 'Alias Cached' },
+    ],
+  }))
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  const options = await getRouteCatalogModelOptions(
+    [{ id: 'a', apiName: 'real/name', aliases: ['alias-name'] }],
+    'real/name',
+  )
+
+  expect(options.map(option => option.value)).toEqual([
+    null,
+    'cache-model',
+    'real/name',
+  ])
+  expect(options.filter(option => option.value === 'real/name')).toHaveLength(1)
+  expect(options.some(option => option.value === 'alias-name')).toBe(false)
+})
+
 test('large catalogs with mixed duplicates resolve to ids without dropping unique models', async () => {
   const entries: ModelCatalogEntry[] = []
   for (let i = 0; i < 400; i++) {
@@ -329,7 +372,22 @@ test('large catalogs with mixed duplicates resolve to ids without dropping uniqu
     entries.push({ id: `d-${i}-2`, apiName: variant })
   }
 
-  const options = await getRouteCatalogModelOptions(entries, 'uniq/model-0')
+  activeOpenAIProvider = true
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+  process.env.OPENAI_MODEL = 'uniq/model-0'
+  const { getModelOptions } = await importFreshModelOptionsModule()
+  // The shared RouteCatalogContext eliminates per-lookup rescans: the whole
+  // build performs a small fixed number of catalog fetches (base options plus
+  // a handful of metadata/alias lookups) that never scales with catalog size —
+  // a per-option rescan of this 500-entry fixture would fetch 500+ times.
+  // Snapshot + delta are computed synchronously around the build so unrelated
+  // suites sharing this process can't inflate the bound.
+  const fetchesBefore = catalogFetchCount
+  activeCatalogEntries = entries
+  const options = getModelOptions()
+  expect(catalogFetchCount - fetchesBefore).toBeLessThanOrEqual(20)
 
   const values = options.map(option => option.value)
   expect(values.length).toBe(501)

@@ -95,8 +95,8 @@ async function importFreshModelPicker(
   // mock.module / the picker import so the live export slot is the spy.
   const getModelOptionsSpy = options.trackGetModelOptions
     ? mock(
-        (...args: Parameters<typeof realModelOptions.getModelOptions>) =>
-          realModelOptions.getModelOptions(...args),
+        (...args: Parameters<typeof modelOptionsModule.getModelOptions>) =>
+          modelOptionsModule.getModelOptions(...args),
       )
     : null
   const gatedModelOptionsModule = getModelOptionsSpy
