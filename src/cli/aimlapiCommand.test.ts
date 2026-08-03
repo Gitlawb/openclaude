@@ -60,6 +60,25 @@ test('aimlapi topup forwards explicit amount and model', async () => {
   })
 })
 
+test('aimlapi topup defaults to opening the browser when --no-open is absent', async () => {
+  const handler = mock(async () => {})
+  const program = new CommanderCommand().exitOverride()
+  registerAimlapiCommand(program, async () => handler)
+
+  await program.parseAsync([
+    'node',
+    'openclaude',
+    'aimlapi',
+    'topup',
+    '--email',
+    'user@example.com',
+  ])
+
+  expect(handler).toHaveBeenCalledWith(
+    expect.objectContaining({ noOpen: false }),
+  )
+})
+
 test('aimlapi topup rejects the removed method option', async () => {
   const program = new CommanderCommand().exitOverride()
   registerAimlapiCommand(program, async () => async () => {})
