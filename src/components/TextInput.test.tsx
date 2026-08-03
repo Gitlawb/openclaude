@@ -467,21 +467,23 @@ async function runInputScenario({
     patchConsole: false,
   })
 
-  root.render(<ScenarioTextInput />)
-  await waitForOutput(
-    getOutput,
-    output =>
-      initialValue.length > 0
-        ? output.includes(initialValue)
-        : output.includes('Type here...'),
-  )
-  const previousInputCount = receivedInputCount
-  stdin.write(chunk)
-  await waitFor(() => receivedInputCount > previousInputCount)
-
-  root.unmount()
-  stdin.end()
-  stdout.end()
+  try {
+    root.render(<ScenarioTextInput />)
+    await waitForOutput(
+      getOutput,
+      output =>
+        initialValue.length > 0
+          ? output.includes(initialValue)
+          : output.includes('Type here...'),
+    )
+    const previousInputCount = receivedInputCount
+    stdin.write(chunk)
+    await waitFor(() => receivedInputCount > previousInputCount)
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 
   return { value: observedValue, changes, submissions }
 }
@@ -570,21 +572,23 @@ async function runPromptModeScenario({
     patchConsole: false,
   })
 
-  root.render(<PromptModeTextInput />)
-  await waitForOutput(
-    getOutput,
-    output =>
-      initialValue.length > 0
-        ? output.includes(initialValue)
-        : output.includes('Type here...'),
-  )
-  const previousInputCount = receivedInputCount
-  stdin.write(chunk)
-  await waitFor(() => receivedInputCount > previousInputCount)
-
-  root.unmount()
-  stdin.end()
-  stdout.end()
+  try {
+    root.render(<PromptModeTextInput />)
+    await waitForOutput(
+      getOutput,
+      output =>
+        initialValue.length > 0
+          ? output.includes(initialValue)
+          : output.includes('Type here...'),
+    )
+    const previousInputCount = receivedInputCount
+    stdin.write(chunk)
+    await waitFor(() => receivedInputCount > previousInputCount)
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 
   return { mode: observedMode, value: observedValue, submissions }
 }
