@@ -833,6 +833,15 @@ function wrapAimlapiCheckoutUrl(url: string, width: number): string[] {
   return lines
 }
 
+// Structural, not `instanceof AimlapiApiError`: some callers surface a
+// duck-typed error (e.g. an Error with a bolted-on `status`) instead of the
+// real class, and this still needs to recognize its HTTP status.
+function aimlapiApiErrorStatus(error: unknown): number | undefined {
+  return typeof error === 'object' && error !== null && 'status' in error
+    ? Number((error as { status: unknown }).status)
+    : undefined
+}
+
 function safeAimlapiErrorMessage(
   error: unknown,
   secrets: Array<string | undefined> = [],
@@ -976,7 +985,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [aimlapiIssuedKeyId, setAimlapiIssuedKeyId] = React.useState('')
   const [aimlapiTopupByKey, setAimlapiTopupByKey] = React.useState(false)
   const [aimlapiResumeSessionToken, setAimlapiResumeSessionToken] = React.useState('')
-  const [, setAimlapiPaymentSessionId] = React.useState('')
   const [aimlapiExistingProfileId, setAimlapiExistingProfileId] = React.useState<string | null>(null)
   const [aimlapiExistingUsesEnv, setAimlapiExistingUsesEnv] = React.useState(false)
   const [aimlapiInferenceBaseUrl, setAimlapiInferenceBaseUrl] = React.useState(
@@ -990,7 +998,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [aimlapiDoneKind, setAimlapiDoneKind] = React.useState<'ready' | 'topup'>(
     'ready',
   )
-  const [, setIsAimlapiTopupRunning] = React.useState(false)
   const [isAimlapiKeyValidating, setIsAimlapiKeyValidating] = React.useState(false)
   const aimlapiAbortRef = React.useRef<AbortController | null>(null)
   const aimlapiPersistedIntentRef = React.useRef<
@@ -1030,7 +1037,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       void clearAimlapiTopupStateAsync(intent).catch(() => {})
     }
     setAimlapiResumeSessionToken('')
-    setAimlapiPaymentSessionId('')
   }
 
   function resetAimlapiOnboardingIdentity(): void {
@@ -1824,7 +1830,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     aimlapiAbandonAckRef.current = false
     aimlapiPersistedIntentRef.current = null
     setAimlapiResumeSessionToken('')
-    setAimlapiPaymentSessionId('')
     setAimlapiExistingProfileId(null)
     setAimlapiExistingUsesEnv(false)
     setAimlapiInferenceBaseUrl(
@@ -1835,7 +1840,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiTopupStatus(undefined)
     setAimlapiTopupDetail(undefined)
     setAimlapiDoneKind('ready')
-    setIsAimlapiTopupRunning(false)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
@@ -2341,7 +2345,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function handleCancelAimlapiTopupProgress(): void {
     aimlapiAbortRef.current?.abort()
     aimlapiAbortRef.current = null
-    setIsAimlapiTopupRunning(false)
     setErrorMessage(undefined)
     setScreen(
       aimlapiTopupStatus === 'checking-account' ||
@@ -2828,10 +2831,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiExistingUsesEnv(false)
         setAimlapiIssuedKey('')
       }
-      const status =
-        typeof error === 'object' && error !== null && 'status' in error
-          ? Number(error.status)
-          : undefined
+      const status = aimlapiApiErrorStatus(error)
       if (status === 401 || status === 403) {
         setDraft(prev => ({ ...prev, apiKey: '' }))
         setCursorOffset(0)
@@ -2978,7 +2978,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       } catch (error) {
         if (controller.signal.aborted) return
         setIsAimlapiKeyValidating(false)
-        const status = error instanceof AimlapiApiError ? error.status : undefined
+        const status = aimlapiApiErrorStatus(error)
         setErrorMessage(
           status === 401 || status === 403
             ? 'The existing AI/ML API key is invalid. Configure again.'
@@ -3040,7 +3040,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAimlapiTopupStatus('checking-account')
     setAimlapiTopupDetail(undefined)
     setErrorMessage(undefined)
-    setIsAimlapiTopupRunning(true)
     setScreen('aimlapi-topup-progress')
 
     void (async () => {
@@ -3055,7 +3054,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           setAimlapiNewAccount(false)
           setAimlapiSignInCode('')
           setCursorOffset(0)
-          setIsAimlapiTopupRunning(false)
           setScreen('aimlapi-signin-code')
           return
         }
@@ -3064,11 +3062,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiNewAccount(true)
         setAimlapiSessionToken(account.sessionToken)
         setCursorOffset(aimlapiTopupAmountUsd.length)
-        setIsAimlapiTopupRunning(false)
         setScreen('aimlapi-topup-amount')
       } catch (error) {
         if (controller.signal.aborted) return
-        setIsAimlapiTopupRunning(false)
         setErrorMessage(
           safeAimlapiErrorMessage(error, [trimmedEmail]),
         )
@@ -3091,7 +3087,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     aimlapiAbortRef.current = controller
     setAimlapiTopupStatus('verifying-code')
     setErrorMessage(undefined)
-    setIsAimlapiTopupRunning(true)
     setScreen('aimlapi-topup-progress')
 
     void (async () => {
@@ -3120,7 +3115,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           // Retained in component state above; the cache is only a recovery aid.
         }
         if (controller.signal.aborted) return
-        setIsAimlapiTopupRunning(false)
         if (result.balanceStatus === 'unknown') {
           setDraft(prev => ({ ...prev, apiKey: result.apiKey }))
           setCursorOffset(result.apiKey.length)
@@ -3139,7 +3133,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         }
       } catch (error) {
         if (controller.signal.aborted) return
-        setIsAimlapiTopupRunning(false)
         setErrorMessage(
           error instanceof AimlapiApiError && error.status === 400
             ? AIMLAPI_MESSAGES.codeIncorrect
@@ -3228,7 +3221,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       ...intent,
       paymentSessionId: checkoutState.paymentSessionId,
     }
-    setAimlapiPaymentSessionId(checkoutState.paymentSessionId)
     setAimlapiResumeSessionToken(checkoutState.resumeSessionToken)
 
     // Resume: a prior run paid + exchanged the key and saved the settled receipt
@@ -3274,7 +3266,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setErrorMessage(undefined)
     setAimlapiTopupStatus('creating-session')
     setAimlapiTopupDetail(undefined)
-    setIsAimlapiTopupRunning(true)
 
     void (async () => {
       try {
@@ -3347,7 +3338,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               onSession: reportSession,
             })
         if (controller.signal.aborted) return
-        setIsAimlapiTopupRunning(false)
         // Record the settled receipt BEFORE the profile write, so an interruption
         // or a failed save resumes with the paid key instead of stranding a
         // one-shot exchanged credential in resolveTopupSession (mirrors the CLI).
@@ -3394,7 +3384,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           aimlapiSessionToken,
           aimlapiResumeSessionToken,
         ])
-        setIsAimlapiTopupRunning(false)
         setErrorMessage(`${AIMLAPI_MESSAGES.topUpFailed} ${detail}`)
         setCursorOffset(amountUsd.length)
         setScreen('aimlapi-topup-amount')
@@ -3442,7 +3431,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setAimlapiIssuedKey('')
             setAimlapiInferenceBaseUrl(resolveEndpoints().inferenceBaseUrl)
             setAimlapiResumeSessionToken('')
-            setAimlapiPaymentSessionId('')
             setDraft(previous => ({ ...previous, apiKey: '' }))
             setScreen('aimlapi-api-key-choice')
           }}

@@ -35,17 +35,17 @@ export {
 } from '../integrations/aimlapi/index.js'
 export type { AimlapiPersistedTopup, AimlapiTopupIntent }
 
-export const provisionAimlapiKey: typeof provisionAimlapiKeyImpl = options =>
-  provisionAimlapiKeyImpl(options)
+export const provisionAimlapiKey: typeof provisionAimlapiKeyImpl = (...args) =>
+  provisionAimlapiKeyImpl(...args)
 
-export const topUpAimlapiByApiKey: typeof topUpAimlapiByApiKeyImpl = options =>
-  topUpAimlapiByApiKeyImpl(options)
+export const topUpAimlapiByApiKey: typeof topUpAimlapiByApiKeyImpl = (...args) =>
+  topUpAimlapiByApiKeyImpl(...args)
 
-export const parseAimlapiAmountUsd: typeof parseAimlapiAmountUsdImpl = value =>
-  parseAimlapiAmountUsdImpl(value)
+export const parseAimlapiAmountUsd: typeof parseAimlapiAmountUsdImpl = (...args) =>
+  parseAimlapiAmountUsdImpl(...args)
 
-export const isValidAimlapiEmail: typeof isValidAimlapiEmailImpl = value =>
-  isValidAimlapiEmailImpl(value)
+export const isValidAimlapiEmail: typeof isValidAimlapiEmailImpl = (...args) =>
+  isValidAimlapiEmailImpl(...args)
 
 export const beginAimlapiEmailOnboarding: typeof beginAimlapiEmailOnboardingImpl = (
   ...args
@@ -58,30 +58,25 @@ export const completeAimlapiCodeSignIn: typeof completeAimlapiCodeSignInImpl = (
 export const validateAimlapiApiKey: typeof validateAimlapiApiKeyImpl = (...args) =>
   validateAimlapiApiKeyImpl(...args)
 
-export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = (
-  intent,
-  options,
-) => claimAimlapiTopupStateImpl(intent, options)
+export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = (...args) =>
+  claimAimlapiTopupStateImpl(...args)
 
-export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl = intent =>
-  clearAimlapiTopupStateAsyncImpl(intent)
+export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl = (
+  ...args
+) => clearAimlapiTopupStateAsyncImpl(...args)
 
-export const recordAimlapiCheckoutSession: typeof recordAimlapiCheckoutSessionImpl = state =>
-  recordAimlapiCheckoutSessionImpl(state)
+export const recordAimlapiCheckoutSession: typeof recordAimlapiCheckoutSessionImpl = (
+  ...args
+) => recordAimlapiCheckoutSessionImpl(...args)
 
-export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = state =>
-  saveAimlapiTopupStateImpl(state)
+export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = (...args) =>
+  saveAimlapiTopupStateImpl(...args)
 
-export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = email =>
-  loadAimlapiSignInKeyImpl(email)
+export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =>
+  loadAimlapiSignInKeyImpl(...args)
 
-export const saveAimlapiSignInKey: typeof saveAimlapiSignInKeyImpl = (
-  email,
-  apiKey,
-  apiKeyId,
-) => saveAimlapiSignInKeyImpl(email, apiKey, apiKeyId)
+export const saveAimlapiSignInKey: typeof saveAimlapiSignInKeyImpl = (...args) =>
+  saveAimlapiSignInKeyImpl(...args)
 
-export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = (
-  email,
-  apiKeyId,
-) => clearAimlapiSignInKeyImpl(email, apiKeyId)
+export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = (...args) =>
+  clearAimlapiSignInKeyImpl(...args)
