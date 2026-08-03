@@ -22,6 +22,7 @@ import {
   loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
   recordAimlapiSettledKeyAsync,
+  resetAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -238,6 +239,53 @@ test('claiming a different intent replaces a never-advanced claim', () => {
   expect(next.paymentSessionId).toBeTruthy()
   expect(loadAimlapiTopupState(intent)).toBeNull()
   expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).not.toBeNull()
+})
+
+test('resetAimlapiCheckoutSession refreshes the payment session while keeping the minted key', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'dead-session',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+  })
+
+  const refreshed = resetAimlapiCheckoutSession({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+  })
+
+  expect(refreshed).not.toBeNull()
+  expect(refreshed?.paymentSessionId).not.toBe(claimed.paymentSessionId)
+  expect(refreshed?.resumeSessionToken).toBe('')
+  expect(refreshed?.apiKey).toBe('existing-key')
+  expect(refreshed?.apiKeyId).toBe('existing-id')
+  // The refreshed record — not the dead one — is what a subsequent load sees.
+  expect(loadAimlapiTopupState(intent)).toEqual({
+    paymentSessionId: refreshed!.paymentSessionId,
+    resumeSessionToken: '',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+  })
+})
+
+test('resetAimlapiCheckoutSession is a no-op when there is no minted key to preserve', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  // Never advanced past the initial claim: no key was ever issued.
+  const result = resetAimlapiCheckoutSession({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+  })
+
+  expect(result).toBeNull()
+  // Nothing was dropped or rewritten.
+  expect(loadAimlapiTopupState(intent)).toEqual({
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: '',
+  })
 })
 
 test('an empty key id is stored as absent so the settled receipt stays readable', () => {

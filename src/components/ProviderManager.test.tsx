@@ -1142,6 +1142,88 @@ test('ProviderManager saves AI/ML API preset with OpenAI-compatible defaults', a
   }
 })
 
+test('ProviderManager tops up a low-balance saved key by API key, not a new checkout', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 5,
+    lowBalance: true,
+    lowBalanceThreshold: 20,
+  }))
+  const topUpAimlapiByApiKey = mock(async (options: any) => {
+    options.onSession?.('by-key-checkout')
+    options.onStatus?.('waiting-payment')
+    return {
+      apiKey: 'aimlapi-test-key',
+      apiKeyId: '',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    validateAimlapiApiKey,
+    topUpAimlapiByApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Do you have an aimlapi.com key?'))
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your aimlapi.com key.'))
+    mounted.stdin.write('aimlapi-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // A low balance routes to the top-up-or-skip choice instead of saving
+    // straight away; the default (first) option is "top up".
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes(AIMLAPI_MESSAGES.lowBalance))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+
+    // Submit the default amount → charges the EXISTING key by API key, never
+    // opening a new passwordless-account checkout.
+    mounted.stdin.write('\r')
+    await waitForCondition(() => topUpAimlapiByApiKey.mock.calls.length === 1)
+    const topUpOptions = topUpAimlapiByApiKey.mock.calls[0]?.[0] as any
+    expect(topUpOptions.apiKey).toBe('aimlapi-test-key')
+    expect(topUpOptions.paymentSessionId).toEqual(expect.any(String))
+    expect(topUpOptions.paymentSessionId).not.toBe('')
+    expect(topUpOptions.resumeSessionToken).toBe('')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        apiKey: 'aimlapi-test-key',
+        model: 'gpt-4o',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Top-up successful - $25 credited to your account'),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+}, 20_000)
+
 test('ProviderManager offers and reuses an existing AIMLAPI profile', async () => {
   delete process.env.AIMLAPI_API_KEY
   const profile = {
@@ -2136,6 +2218,11 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
     expect(spinnerOutput).not.toContain('Creating checkout session...')
     expect(spinnerOutput).not.toContain('Waiting for payment...')
     expect(spinnerOutput).not.toContain('Issuing API key...')
+    // The three checks above can never fail on their own: none of those strings
+    // are ever rendered by this GUI screen (they're CLI-only console output).
+    // This is the one that actually distinguishes "still provisioning" from a
+    // regression that silently failed and left the failure copy on this frame.
+    expect(spinnerOutput).not.toContain(AIMLAPI_MESSAGES.topUpFailed)
 
     const paymentOutput = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Opening checkout in browser...'),

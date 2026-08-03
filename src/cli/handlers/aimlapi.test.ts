@@ -77,3 +77,9 @@ test('redacts credentials in a generic error before exit', async () => {
   expect(output).not.toContain(SECRET)
   expect(output).toContain('[REDACTED_OPENAI_KEY]')
 })
+
+test('redacts credentials in a thrown non-Error value before exit', async () => {
+  const output = await runHandlerWithError(`unexpected failure ${SECRET}`)
+  expect(output).not.toContain(SECRET)
+  expect(output).toContain('[REDACTED_OPENAI_KEY]')
+})
