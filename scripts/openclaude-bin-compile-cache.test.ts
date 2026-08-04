@@ -172,11 +172,14 @@ describe('openclaude launcher compile cache', () => {
 
   test('NODE_DISABLE_COMPILE_CACHE remains authoritative', () => {
     const scratch = mkdtempSync(join(tmpdir(), 'openclaude-compile-cache-disabled-'))
+    const cacheDir = join(scratch, 'cache')
     try {
       expectNormalVersion(runLauncher(launcherEnv({
+        NODE_COMPILE_CACHE: cacheDir,
         NODE_DISABLE_COMPILE_CACHE: '1',
         OPENCLAUDE_CONFIG_DIR: join(scratch, 'config'),
       })))
+      if (nodeSupportsCompileCache()) expect(hasFileContent(cacheDir)).toBe(false)
     } finally {
       rmSync(scratch, { recursive: true, force: true })
     }
