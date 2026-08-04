@@ -103,6 +103,7 @@ PRs may be closed without review if they:
 - add features, refactors, or dependency changes that were not discussed first
 - drift from the approved scope of a linked issue
 - change the project's language, core runtime, or dependency stack without prior maintainer agreement
+- edit `web/src/data/releases.ts` as a drive-by fix for web CI version drift in an unrelated feature or bugfix PR — that curated changelog is owned by the release/web process
 - are drive-by contributions with no context, no tests, and no clear purpose
 - are automated bounty-hunting or mass-submitted PRs that provide little meaningful value to the codebase
 - are advertisements, sales pitches, or promotional submissions for a product or service — open an issue first to discuss with maintainers if you believe your product or service is relevant to this project
@@ -133,6 +134,7 @@ Dependency changes need a clear project benefit — fixing a bug, addressing a s
 - Preserve existing repo patterns unless the change is intentionally refactoring them.
 - Add or update tests when the change affects behavior.
 - Update docs when setup, commands, or user-facing behavior changes.
+- Do not edit `web/src/data/releases.ts` unless you are on an explicit release/web changelog PR. Release automation and dedicated web release updates own that file. Unrelated PRs must not patch it to silence web CI when npm publishes ahead of the site changelog.
 
 AI-assisted and vibe-coded contributions are welcome, but please review your own changes thoroughly before opening a PR. Even frontier models produce subtle bugs, incorrect assumptions, and code that looks right but isn't.
 
@@ -149,6 +151,8 @@ Self-review up front saves everyone time and reduces back-and-forth during maint
 ## AI Agent Guidelines
 
 If you are an AI agent (Copilot, Cursor, Claude, etc.) working on this codebase, refer to [AGENTS.md](AGENTS.md) for project-specific coding guidelines, conventions, and validation commands. Following these guidelines will help your contributions align with the project's patterns and reduce review friction.
+
+In particular: do not edit `web/src/data/releases.ts` from ordinary feature or bugfix work. Treat web CI failures about npm being ahead of the site version as out of scope unless you are on an explicit release/web changelog PR.
 
 ## Code Style
 

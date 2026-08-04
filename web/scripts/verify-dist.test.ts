@@ -59,6 +59,35 @@ function withFixture(mutate: (dist: string) => void): string[] {
   }
 }
 
+describe('release data', () => {
+  test('keeps releases newest first', () => {
+    const versions = releases.map(release => release.version.split('.').map(Number))
+    const sorted = [...versions].sort((a, b) => {
+      for (let i = 0; i < 3; i++) {
+        if (a[i] !== b[i]) return (b[i] ?? 0) - (a[i] ?? 0)
+      }
+      return 0
+    })
+
+    expect(versions).toEqual(sorted)
+  })
+
+  test('lists the 0.27.0 release with its curated highlights', () => {
+    expect(releases.find(release => release.version === '0.27.0')).toEqual({
+      version: '0.27.0',
+      date: '2026-07-30',
+      theme: 'auth-ready local proxies and a refreshed web identity',
+      highlights: [
+        'opt-in loopback proxy hosts preserve subscription OAuth authentication',
+        'new Ling 3.0 Flash and Macaron V1 Tall catalog entries',
+        'centered startup logo and updated Ember Block O web branding',
+        'agents can spawn subagents from multi-repository parent sessions',
+        'more reliable tool-failure guard, SDK permission-timeout reporting, stats, and status UI',
+      ],
+    })
+  })
+})
+
 describe('verifyDist', () => {
   test('passes on a complete fixture', () => {
     expect(withFixture(() => {})).toEqual([])
@@ -142,7 +171,8 @@ describe('npmFreshnessFailure', () => {
   test('fails when npm has a newer release than releases.ts', async () => {
     const failure = await npmFreshnessFailure(fetchReturning({ version: '999.0.0' }))
     expect(failure).toContain('999.0.0')
-    expect(failure).toContain('src/data/releases.ts')
+    expect(failure).toContain('web/src/data/releases.ts')
+    expect(failure).toContain('do not patch it from unrelated PRs')
   })
 
   test('skips on network failure instead of breaking the build', async () => {
