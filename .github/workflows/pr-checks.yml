@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22, "24.11.x"]
+        node-version: ["22.0.0", 22, "24.11.x"]
 
     steps:
       - name: Check out repository
@@ -37,6 +37,11 @@ jobs:
 
       - name: Smoke and full unit test suite
         run: bun run check
+
+      - name: Launcher compatibility
+        run: |
+          node bin/openclaude --version
+          NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
 
       - name: Suspicious PR intent scan
         env:
