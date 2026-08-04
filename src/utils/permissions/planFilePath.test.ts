@@ -476,7 +476,7 @@ describe('legacy plan file recovery', () => {
     expect(readFileSync(escaped, 'utf-8')).toBe('move me')
   })
 
-  test('isResolvedPathWithinPlansDir rejects a symlinked intermediate directory', () => {
+  test.skipIf(process.platform === 'win32')('isResolvedPathWithinPlansDir rejects a symlinked intermediate directory', () => {
     const plansDir = join(dir, 'plans')
     mkdirSync(plansDir, { recursive: true })
     const outside = join(dir, 'outside')
@@ -497,7 +497,7 @@ describe('legacy plan file recovery', () => {
     ).toBe(false)
   })
 
-  test('readLegacyUnescapedPlan refuses recovery through a symlinked parent dir', () => {
+  test.skipIf(process.platform === 'win32')('readLegacyUnescapedPlan refuses recovery through a symlinked parent dir', () => {
     const plansDir = join(dir, 'plans')
     mkdirSync(join(plansDir, AGENT_PLANS_SUBDIR), { recursive: true })
     const outside = join(dir, 'outside')
