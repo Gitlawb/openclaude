@@ -407,6 +407,10 @@ bun run build
 bun run benchmark:startup
 ```
 
+The benchmark requires Node `>=22.8.0`, where the compile-cache API was added;
+the built OpenClaude launcher continues to support the declared Node `>=22.0.0`
+runtime range.
+
 The benchmark defaults to 30 separate-process warm runs and 10 isolated
 empty-cache runs. It reports the median, IQR, MAD, first cache-populating run,
 first warm-up, Node/OS/CPU details, bundle size, and commit. Direct bundle

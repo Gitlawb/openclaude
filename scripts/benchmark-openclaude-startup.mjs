@@ -34,7 +34,7 @@ if (warmRuns < MIN_WARM_RUNS) {
   throw new Error(`--warm-runs must be at least ${MIN_WARM_RUNS}`)
 }
 if (typeof nodeModule.enableCompileCache !== 'function') {
-  throw new Error(`Node ${process.version} does not expose module.enableCompileCache; benchmark with an active Node 22.x or newer release`)
+  throw new Error(`Node ${process.version} does not expose module.enableCompileCache; the benchmark requires Node >=22.8.0`)
 }
 if (!existsSync(BUNDLE_PATH) || !statSync(BUNDLE_PATH).isFile()) {
   throw new Error('dist/cli.mjs is missing; run `bun run build` first')
@@ -68,11 +68,12 @@ function childEnv(tempRoot, cacheMode) {
 
 function sample(target, tempRoot, cacheMode) {
   const path = target === 'launcher' ? LAUNCHER_PATH : BUNDLE_PATH
+  const env = childEnv(tempRoot, cacheMode)
   const started = performance.now()
   const result = spawnSync(process.execPath, [path, '--version'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    env: childEnv(tempRoot, cacheMode),
+    env,
     timeout: 30_000,
   })
   const elapsedMs = performance.now() - started
@@ -162,10 +163,13 @@ try {
   const launcher = measureWarmPair('launcher', 'default', 'launcher-warm')
   const launcherCold = measureColdLauncher()
   const directBundle = measureWarmPair('bundle', 'environment', 'bundle-warm')
-  const gitCommit = spawnSync('git', ['rev-parse', 'HEAD'], {
+  const gitResult = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-  }).stdout.trim()
+  })
+  const gitCommit = gitResult.status === 0 && typeof gitResult.stdout === 'string'
+    ? gitResult.stdout.trim() || 'unknown'
+    : 'unknown'
 
   console.log(JSON.stringify({
     environment: {
