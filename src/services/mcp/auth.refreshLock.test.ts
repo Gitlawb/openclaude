@@ -1855,6 +1855,33 @@ test('abort before joining the in-process refresh stops the exchange', async () 
   expect(activeStorage.updateCalls).toBe(0)
 })
 
+test('abort during a fresh storage read prevents returning credentials', async () => {
+  const { config, initialData } = makeXaaFixture()
+  const serverKey = getServerKey('enterprise', config)
+  initialData.mcpOAuth![serverKey]!.expiresAt = Date.now() + 3_600_000
+  activeStorage = createSharedStorage(initialData, [])
+  const readStarted = deferred()
+  const resumeRead = deferred()
+  activeStorage.readAsync = async () => {
+    readStarted.resolve()
+    await resumeRead.promise
+    return cloneData(initialData)
+  }
+  const network = installSuccessfulXaaFetch()
+  const controller = new AbortController()
+  const provider = new ClaudeAuthProvider('enterprise', config)
+
+  const tokens = provider.prepareRequest(controller.signal, undefined, true)
+  await readStarted.promise
+  controller.abort(new DOMException('cancelled', 'AbortError'))
+  resumeRead.resolve()
+
+  await expect(tokens).rejects.toMatchObject({ name: 'AbortError' })
+  expect(lockAttempts).toHaveLength(0)
+  expect(network.exchangeCalls()).toBe(0)
+  expect(activeStorage.updateCalls).toBe(0)
+})
+
 test('abort stops a pending lock acquisition and releases a late lock', async () => {
   const { config, initialData } = makeXaaFixture()
   activeStorage = createSharedStorage(initialData, [initialData])
