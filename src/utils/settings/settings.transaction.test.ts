@@ -412,7 +412,7 @@ test('long dangling symlink chains preserve physical lock identity', async () =>
   expect(result.resolvedB).toBe(result.physicalTarget)
 })
 
-test('two dead-owner recoverers cannot remove a newly acquired live lock', async () => {
+test('recovery quarantine cannot remove a newly acquired live lock', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-dead-recovery-')),
   )
@@ -470,19 +470,19 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
     const resultB = await collectChild<{ ok: boolean; error?: string }>(writerB)
 
     expect({ resultA, resultB }).toMatchObject({
-      resultA: { exitCode: 0, value: { ok: true } },
-      resultB: { exitCode: 0, value: { ok: false } },
+      resultA: { exitCode: 0, value: { ok: false } },
+      resultB: { exitCode: 0, value: { ok: true } },
     })
-    expect(existsSync(bMarker)).toBe(false)
+    expect(existsSync(bMarker)).toBe(true)
     expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
-      env: { BASE: '1', RECOVERER_A: 'true' },
+      env: { BASE: '1', RECOVERER_B: 'true' },
     })
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
-test('recovery resumes when a dead claimant left owner metadata absent', async () => {
+test('recovery resumes from a dead claim with owner metadata absent', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-ownerless-recovery-')),
   )
@@ -490,8 +490,6 @@ test('recovery resumes when a dead claimant left owner metadata absent', async (
   const lockPath = `${settingsPath}.lock`
   const ownerPath = join(lockPath, 'owner.json')
   const recoveryPath = join(lockPath, 'recovery.json')
-  const crashMarker = join(tempDir, 'recovery-owner-removed')
-  const neverRelease = join(tempDir, 'never-release')
 
   writeFileSync(
     settingsPath,
@@ -500,31 +498,12 @@ test('recovery resumes when a dead claimant left owner metadata absent', async (
   )
   mkdirSync(lockPath)
   writeFileSync(
-    ownerPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    recoveryPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-recoverer' }),
     'utf8',
   )
 
   try {
-    const crashedRecoverer = startRecoveryWriter(
-      tempDir,
-      settingsPath,
-      'CRASHED_RECOVERER',
-      'pause-recovery-unlink',
-      crashMarker,
-      neverRelease,
-    )
-    await waitFor(
-      () => existsSync(crashMarker),
-      'recoverer to remove owner metadata',
-    )
-    crashedRecoverer.kill('SIGKILL')
-    await Promise.all([
-      new Response(crashedRecoverer.stdout).text(),
-      new Response(crashedRecoverer.stderr).text(),
-      crashedRecoverer.exited,
-    ])
-
     expect(existsSync(ownerPath)).toBe(false)
     expect(existsSync(recoveryPath)).toBe(true)
 
@@ -546,6 +525,74 @@ test('recovery resumes when a dead claimant left owner metadata absent', async (
     expect(existsSync(lockPath)).toBe(false)
     expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
       env: { BASE: '1', RECOVERED_AFTER_CRASH: 'true' },
+    })
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('recovery cleanup crashes only after the live lock path is freed', async () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-recovery-cleanup-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  const lockPath = `${settingsPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const cleanupMarker = join(tempDir, 'recovery-metadata-removed')
+  const neverRelease = join(tempDir, 'never-release')
+
+  writeFileSync(
+    settingsPath,
+    `${JSON.stringify({ env: { BASE: '1' } }, null, 2)}\n`,
+    'utf8',
+  )
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    'utf8',
+  )
+
+  try {
+    const crashedRecoverer = startRecoveryWriter(
+      tempDir,
+      settingsPath,
+      'CRASHED_DURING_CLEANUP',
+      'pause-after-recovery-unlink',
+      cleanupMarker,
+      neverRelease,
+    )
+    await waitFor(
+      () => existsSync(cleanupMarker),
+      'recoverer to remove its recovery metadata',
+    )
+
+    expect(existsSync(lockPath)).toBe(false)
+
+    crashedRecoverer.kill('SIGKILL')
+    await Promise.all([
+      new Response(crashedRecoverer.stdout).text(),
+      new Response(crashedRecoverer.stderr).text(),
+      crashedRecoverer.exited,
+    ])
+
+    const result = await collectChild<{ ok: boolean; error?: string }>(
+      startRecoveryWriter(
+        tempDir,
+        settingsPath,
+        'RECOVERED_AFTER_CLEANUP_CRASH',
+        'complete',
+        join(tempDir, 'unused-marker'),
+        join(tempDir, 'unused-release'),
+      ),
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      value: { ok: true },
+    })
+    expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
+      env: { BASE: '1', RECOVERED_AFTER_CLEANUP_CRASH: 'true' },
     })
   } finally {
     rmSync(tempDir, { recursive: true, force: true })

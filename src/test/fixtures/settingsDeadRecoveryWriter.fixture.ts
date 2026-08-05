@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -31,9 +31,17 @@ getClaudeConfigHomeDir.cache?.clear?.()
 
 const originalFs = getFsImplementation()
 const normalizedTarget = resolve(targetPath)
-const ownerPath = join(`${normalizedTarget}.lock`, 'owner.json')
-const recoveryPath = join(`${normalizedTarget}.lock`, 'recovery.json')
+const lockPath = `${normalizedTarget}.lock`
+const ownerPath = join(lockPath, 'owner.json')
+const recoveryPath = join(lockPath, 'recovery.json')
 let paused = false
+
+function isLockMetadataPath(path: string, filename: string): boolean {
+  return (
+    path === join(lockPath, filename) ||
+    (path.startsWith(`${lockPath}.recovered-`) && basename(path) === filename)
+  )
+}
 
 function pauseAtBarrier(): void {
   paused = true
@@ -62,15 +70,25 @@ setFsImplementation({
     return stats
   },
   unlinkSync(path) {
+    const resolvedPath = resolve(path)
     if (
       !paused &&
-      ((mode === 'pause-owner-unlink' && resolve(path) === ownerPath) ||
+      ((mode === 'pause-owner-unlink' &&
+        isLockMetadataPath(resolvedPath, 'owner.json')) ||
         (mode === 'pause-recovery-unlink' &&
-          resolve(path) === recoveryPath))
+          isLockMetadataPath(resolvedPath, 'recovery.json')))
     ) {
       pauseAtBarrier()
     }
-    return originalFs.unlinkSync(path)
+    const result = originalFs.unlinkSync(path)
+    if (
+      !paused &&
+      mode === 'pause-after-recovery-unlink' &&
+      isLockMetadataPath(resolvedPath, 'recovery.json')
+    ) {
+      pauseAtBarrier()
+    }
+    return result
   },
 })
 
