@@ -5,6 +5,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from '../../bootstrap/state.js'
+import { SETTING_SOURCES } from '../../utils/settings/constants.js'
+import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
@@ -45,6 +50,7 @@ let savedGlobalMcp: ReturnType<typeof getGlobalConfig>['mcpServers']
 let savedProjectMcp: ReturnType<typeof getCurrentProjectConfig>['mcpServers']
 
 let savedNodeEnv: string | undefined
+let savedSettingSources: ReturnType<typeof getAllowedSettingSources>
 
 beforeEach(async () => {
   // This suite swaps NODE_ENV and the process-wide global/project MCP configs,
@@ -54,6 +60,15 @@ beforeEach(async () => {
   await acquireSharedMutationLock('services/mcp/config.protoName.test.ts')
   savedNodeEnv = process.env.NODE_ENV
   process.env.NODE_ENV = 'test'
+  // getMcpConfigsByScope() short-circuits a scope's writability errors to an
+  // empty list when that scope's setting source is disabled, and
+  // allowedSettingSources is a process-wide global other suites mutate (and may
+  // leave without localSettings if they crash before their own teardown). If
+  // localSettings were disabled here the "fatally poisoned local scope" guard
+  // would never fire and addMcpConfig would resolve instead of rejecting, so
+  // pin the full source set for the duration of this suite.
+  savedSettingSources = getAllowedSettingSources()
+  setAllowedSettingSources([...SETTING_SOURCES])
   savedGlobalMcp = getGlobalConfig().mcpServers
   savedProjectMcp = getCurrentProjectConfig().mcpServers
   saveGlobalConfig(config => ({
@@ -78,6 +93,7 @@ afterEach(() => {
     } else {
       process.env.NODE_ENV = savedNodeEnv
     }
+    setAllowedSettingSources(savedSettingSources)
   } finally {
     releaseSharedMutationLock()
   }
