@@ -226,6 +226,11 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     // `p` prints and `m`/`M` redefine ^ and $ inside the pattern space.
     expect(parseSedEditCommand(cmd('s/a/X/p'))).toBeNull()
     expect(parseSedEditCommand(cmd('s/a/X/m'))).toBeNull()
+    // A repeated `g` is not a global rewrite: GNU sed rejects it outright, so a
+    // preview of a successful edit would diverge from the failing command.
+    expect(parseSedEditCommand(cmd('s/a/X/gg'))).toBeNull()
+    // A single `g` still parses.
+    expect(parseSedEditCommand(cmd('s/a/X/g'))).not.toBeNull()
   })
 
   test('rejects replacements carrying sed-specific syntax', () => {

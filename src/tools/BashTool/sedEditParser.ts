@@ -459,7 +459,10 @@ export function parseSedEditCommand(command: string): SedEditInfo | null {
   // rather than sed's locale-based matching. `s/k/X/I` would then rewrite a
   // Kelvin sign, which GNU sed under C.UTF-8 leaves alone. Until that folding
   // can be modeled, an approved preview would not be the edit sed performs.
-  const validFlags = /^g*$/
+  // At most one `g`: GNU sed rejects a repeated flag ("multiple `g' options to
+  // `s' command"), so a `gg` that this module previewed as a successful global
+  // rewrite would diverge from the command sed actually refuses to run.
+  const validFlags = /^g?$/
   if (!validFlags.test(flags)) {
     return null
   }
