@@ -25,6 +25,7 @@ const realSleep = await import('../../utils/sleep.js')
 const realDebug = await import('../../utils/debug.js')
 const realLog = await import('../../utils/log.js')
 const realBrowser = await import('../../utils/browser.js')
+const realXaaIdpLogin = await import('./xaaIdpLogin.js')
 const originalLock = realLockfile.lock
 const originalSleep = realSleep.sleep
 const originalLogForDebugging = realDebug.logForDebugging
@@ -90,6 +91,23 @@ mock.module('../../utils/browser.js', () => ({
     return true
   },
 }))
+mock.module('./xaaIdpLogin.js', () => ({
+  ...realXaaIdpLogin,
+  getCachedIdpIdToken: (idpIssuer: string) => {
+    const issuer = idpIssuer.endsWith('/') ? idpIssuer : `${idpIssuer}/`
+    const entry = activeStorage.read()?.mcpXaaIdp?.[issuer]
+    if (!entry || entry.expiresAt <= Date.now() + 60_000) return undefined
+    return entry.idToken
+  },
+  getIdpClientSecret: (idpIssuer: string) => {
+    const issuer = idpIssuer.endsWith('/') ? idpIssuer : `${idpIssuer}/`
+    return activeStorage.read()?.mcpXaaIdpConfig?.[issuer]?.clientSecret
+  },
+  getXaaIdpSettings: () => ({
+    issuer: IDP_ISSUER,
+    clientId: 'idp-client',
+  }),
+}))
 
 const { ClaudeAuthProvider, getServerKey, wrapFetchWithStepUpDetection } =
   await import('./auth.js')
@@ -118,6 +136,7 @@ function createSharedStorage(
   let data = structuredClone(initialData)
   const queuedReads = staleAsyncReads.map(value => structuredClone(value))
   const updateOutcomes = [...(options?.updateOutcomes ?? [])]
+  let observedClearCalls = clearCacheCalls
   return {
     name: 'shared-test-storage',
     updateCalls: 0,
@@ -130,8 +149,13 @@ function createSharedStorage(
       this.readCalls++
       return cloneData(data)
     },
-    readAsync: async () =>
-      cloneData(queuedReads.length > 0 ? queuedReads.shift()! : data),
+    readAsync: async () => {
+      if (clearCacheCalls > observedClearCalls) {
+        observedClearCalls = clearCacheCalls
+        return cloneData(data)
+      }
+      return cloneData(queuedReads.length > 0 ? queuedReads.shift()! : data)
+    },
     update(next) {
       this.updateCalls++
       const success = updateOutcomes.shift() ?? true
@@ -319,6 +343,7 @@ afterAll(() => {
     ...realBrowser,
     openBrowser: originalOpenBrowser,
   }))
+  mock.module('./xaaIdpLogin.js', () => realXaaIdpLogin)
 })
 
 test(
@@ -425,7 +450,7 @@ test('an already-aborted late waiter does not cancel the active XAA owner', asyn
   let asyncReads = 0
   activeStorage.readAsync = async () => {
     asyncReads++
-    if (asyncReads === 2) {
+    if (asyncReads === 3) {
       secondReadStarted.resolve()
       await resumeSecondRead.promise
     }
@@ -1138,7 +1163,14 @@ test('a reactive waiter never retries the bearer rejected during a shared refres
   const reactive = wrappedFetch(MCP_URL, {
     headers: { Authorization: 'Bearer stale-access-secret' },
   })
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await waitFor(
+    () =>
+      (
+        provider as unknown as {
+          _refreshInProgress?: { waiters: number }
+        }
+      )._refreshInProgress?.waiters === 2,
+  )
   releaseRefresh.resolve()
 
   expect((await proactive)?.access_token).toBe('stale-access-secret')
@@ -1940,13 +1972,17 @@ test('bounded contention fails closed after one final read with a redacted warni
   lockOverride = async () => {
     throw Object.assign(new Error('held'), { code: 'ELOCKED' })
   }
-  sleepOverride = async () => {}
+  let sleepCalls = 0
+  sleepOverride = async () => {
+    sleepCalls++
+  }
   const provider = new ClaudeAuthProvider('enterprise', config)
 
   const tokens = await provider.prepareRequest()
 
   expect(tokens).toBeUndefined()
   expect(lockAttempts).toHaveLength(5)
+  expect(sleepCalls).toBe(4)
   expect(network.exchangeCalls()).toBe(0)
   expect(activeStorage.updateCalls).toBe(0)
   expect(debugMessages.some(message => message.includes('refresh blocked'))).toBe(

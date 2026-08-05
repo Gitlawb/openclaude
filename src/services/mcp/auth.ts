@@ -1602,6 +1602,13 @@ function getStoredRefreshToken(
     : undefined
 }
 
+async function readFreshSecureStorage(
+  storage: ReturnType<typeof getSecureStorage>,
+): Promise<SecureStorageData | null> {
+  clearKeychainCache()
+  return storage.readAsync()
+}
+
 export class ClaudeAuthProvider implements OAuthClientProvider {
   private serverName: string
   private serverConfig: McpSSEServerConfig | McpHTTPServerConfig
@@ -1722,11 +1729,7 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
       abortSignal,
       sharedSignal =>
         latestRefreshToken
-          ? this.refreshAuthorization(
-              latestRefreshToken,
-              sharedSignal,
-              rejectedAccessToken,
-            )
+          ? this.refreshAuthorization(sharedSignal, rejectedAccessToken)
           : this.xaaRefresh(sharedSignal, rejectedAccessToken),
     )
     return refreshed?.access_token !== rejectedAccessToken
@@ -1929,8 +1932,7 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
     const storage = getSecureStorage()
     let data: SecureStorageData | null
     if (forceFreshStorage) {
-      clearKeychainCache()
-      data = storage.read()
+      data = await readFreshSecureStorage(storage)
     } else {
       data = await storage.readAsync()
     }
@@ -1944,8 +1946,7 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
     ) {
       // A reactive request can arrive with a keychain-cached null/stale record
       // after another process has already persisted the winner.
-      clearKeychainCache()
-      tokenData = storage.read()?.mcpOAuth?.[serverKey]
+      tokenData = (await readFreshSecureStorage(storage))?.mcpOAuth?.[serverKey]
       freshTokens = getFreshStoredOAuthTokens(tokenData)
     }
     if (
@@ -1981,11 +1982,7 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
         abortSignal,
         sharedSignal =>
           latestRefreshToken
-            ? this.refreshAuthorization(
-                latestRefreshToken,
-                sharedSignal,
-                rejectedAccessToken,
-              )
+            ? this.refreshAuthorization(sharedSignal, rejectedAccessToken)
             : this.xaaRefresh(
                 sharedSignal,
                 rejectedAccessToken,
@@ -2013,8 +2010,9 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
     // A joined in-process refresh can legitimately return the exact bearer
     // rejected by this request. Re-read, then run one new coordinated refresh
     // with the latest credential state rather than retrying that bearer.
-    clearKeychainCache()
-    const latestTokenData = storage.read()?.mcpOAuth?.[serverKey]
+    const latestTokenData = (await readFreshSecureStorage(storage))?.mcpOAuth?.[
+      serverKey
+    ]
     const latestFreshTokens = getFreshStoredOAuthTokens(latestTokenData)
     if (
       latestFreshTokens &&
@@ -2059,6 +2057,9 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
   async saveTokens(tokens: OAuthTokens): Promise<void> {
     this._pendingStepUpScope = undefined
     const storage = getSecureStorage()
+    // Keep the final whole-record read and synchronous update adjacent. An
+    // await here would let another in-process server write between them and
+    // lose one side of the merge.
     clearKeychainCache()
     const existingData = storage.read() || {}
     const serverKey = getServerKey(this.serverName, this.serverConfig)
@@ -2115,9 +2116,8 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
       async ({ acquired, signal }) => {
         // Another process may have refreshed while this one waited. Bypass the
         // keychain cache before checking the shared credential record.
-        clearKeychainCache()
         const storage = getSecureStorage()
-        const existingData = storage.read() || {}
+        const existingData = (await readFreshSecureStorage(storage)) || {}
         const tokenData = existingData.mcpOAuth?.[serverKey]
         const freshTokens = getFreshStoredOAuthTokens(tokenData)
         if (
@@ -2214,8 +2214,11 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
           // revocation retain the same final-boundary behavior as XAA login.
           // Re-read once more to narrow the merge window for unrelated secure
           // storage updates that are intentionally outside this server lock.
-          clearKeychainCache()
           throwIfAborted(signal, 'MCP token refresh aborted')
+          // Keep this final whole-record merge adjacent to update(), as in
+          // saveTokens(), so concurrent servers in this process cannot both
+          // write snapshots captured before either update.
+          clearKeychainCache()
           const latestData = storage.read() || {}
           const latestTokenData = latestData.mcpOAuth?.[serverKey]
           const updatedData: SecureStorageData = {
@@ -2514,7 +2517,6 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
   }
 
   async refreshAuthorization(
-    _refreshToken: string,
     abortSignal?: AbortSignal,
     rejectedAccessToken?: string,
   ): Promise<OAuthTokens | undefined> {
@@ -2527,8 +2529,8 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
         // Re-read after acquisition or bounded fallback. Never use the token
         // captured before waiting: logout or another refresh may have rotated
         // or removed it in the meantime.
-        clearKeychainCache()
-        const data = getSecureStorage().read()
+        const storage = getSecureStorage()
+        const data = await readFreshSecureStorage(storage)
         const tokenData = data?.mcpOAuth?.[serverKey]
         const freshTokens = getFreshStoredOAuthTokens(tokenData)
         if (
@@ -2686,9 +2688,8 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
           // OAuth error descriptions are provider-controlled and may echo the
           // submitted refresh token. Never persist them in MCP diagnostics.
           logMCPDebug(this.serverName, 'Token refresh failed with invalid_grant')
-          clearKeychainCache()
           const storage = getSecureStorage()
-          const data = storage.read()
+          const data = await readFreshSecureStorage(storage)
           const serverKey = getServerKey(this.serverName, this.serverConfig)
           const tokenData = data?.mcpOAuth?.[serverKey]
           const freshTokens = getFreshStoredOAuthTokens(tokenData)

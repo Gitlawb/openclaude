@@ -199,8 +199,10 @@ export async function withMcpRefreshLock<T>(
         serverName,
         `Refresh lock held by another process, waiting (attempt ${retry + 1}/${MAX_LOCK_RETRIES})`,
       )
-      await sleep(1000 + Math.random() * 1000, signal)
-      throwIfAborted(signal, 'MCP token refresh aborted')
+      if (retry < MAX_LOCK_RETRIES - 1) {
+        await sleep(1000 + Math.random() * 1000, signal)
+        throwIfAborted(signal, 'MCP token refresh aborted')
+      }
     }
   }
 
