@@ -702,7 +702,7 @@ test('empty foreground hydration preserves an existing transcript', async () => 
   expect(await readFile(transcriptPath, 'utf8')).toBe(original)
 
   resetProjectForTesting()
-  setInternalEventReader(async () => [], undefined)
+  setInternalEventReader(async () => [], async () => [])
 
   expect(await hydrateFromCCRv2InternalEvents(SESSION_ID)).toBe(false)
   expect(await readFile(transcriptPath, 'utf8')).toBe(original)
