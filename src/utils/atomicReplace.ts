@@ -259,13 +259,13 @@ export async function replaceFileAtomic(
     await injectFault('close', context)
 
     options.signal?.throwIfAborted()
-    await injectFault('rename', context)
     if (
       options.expectedTargetSize !== undefined &&
       (await stat(targetPath)).size !== options.expectedTargetSize
     ) {
       throw new Error('Atomic replacement target changed before commit')
     }
+    await injectFault('rename', context)
     await rename(tempPath, targetPath)
     committed = true
 

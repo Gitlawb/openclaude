@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import type { UUID } from 'node:crypto'
 import {
-  appendFile,
   chmod,
   lstat,
   mkdir,
@@ -23,6 +22,7 @@ import {
   setSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
+import { renameSession } from '../entrypoints/sdk/sessions.js'
 import * as sessionIngress from '../services/api/sessionIngress.js'
 import {
   acquireSharedMutationLock,
@@ -37,6 +37,7 @@ import {
   getClaudeConfigHomeDirOverrideForTesting,
   setClaudeConfigHomeDirForTesting,
 } from './envUtils.js'
+import { isTranscriptFileLockHeldForTesting } from './transcriptFileLock.js'
 import {
   buildConversationChain,
   flushSessionStorage,
@@ -299,25 +300,40 @@ test.each(['stream-write', 'data-flush', 'rename'] as const)(
   },
 )
 
-test('an external append before commit aborts a stale tombstone replacement', async () => {
+test('an external append after validation waits for the tombstone commit', async () => {
   const original = `${line(KEEP_1)}\n${line(TARGET)}\n${line(KEEP_2)}\n`
-  const appended = `${line(OTHER_SESSION_ID as UUID)}\n`
-  const filePath = await useTranscript(original)
+  const appended = `${JSON.stringify({
+    type: 'custom-title',
+    customTitle: 'external SDK append',
+    sessionId: SESSION_ID,
+  })}\n`
+  const filePath = await prepareHydration()
+  await writeFile(filePath, original)
+  setSessionFileForTesting(filePath)
   let injected = false
+  let appendPromise: Promise<void> | undefined
   setAtomicReplaceFaultInjectorForTesting(async (stage, context) => {
     if (!injected && stage === 'rename' && context.requestedPath === filePath) {
       injected = true
-      await appendFile(filePath, appended)
+      expect(await isTranscriptFileLockHeldForTesting(filePath)).toBe(true)
+      appendPromise = renameSession(SESSION_ID, 'external SDK append', {
+        dir: getOriginalCwd(),
+      })
     }
   })
 
   await removeTranscriptMessage(TARGET)
   await flushSessionStorage()
+  expect(appendPromise).toBeDefined()
+  await appendPromise
 
-  expect(await readFile(filePath, 'utf8')).toBe(original + appended)
+  expect(await readFile(filePath, 'utf8')).toBe(
+    `${line(KEEP_1)}\n${line(KEEP_2)}\n${appended}`,
+  )
   expect(
     (await Array.fromAsync(new Bun.Glob('.*.tmp-*').scan(testRoot))).length,
   ).toBe(0)
+  await expect(lstat(`${filePath}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 test.each(['stream-write', 'data-flush', 'rename'] as const)(

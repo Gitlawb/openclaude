@@ -94,6 +94,10 @@ import {
 } from './sessionStoragePortable.js'
 import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import {
+  withTranscriptFileLock,
+  withTranscriptFileLockSync,
+} from './transcriptFileLock.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
 
@@ -1018,14 +1022,10 @@ class Project {
     data: string,
   ): Promise<void> {
     transcriptRewriteHooksForTesting.beforeFileAppend?.(filePath)
-    try {
+    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
+    await withTranscriptFileLock(filePath, async () => {
       await fsAppendFile(filePath, data, { mode: 0o600 })
-    } catch {
-      // Directory may not exist — some NFS-like filesystems return
-      // unexpected error codes, so don't discriminate on code.
-      await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
-      await fsAppendFile(filePath, data, { mode: 0o600 })
-    }
+    })
   }
 
   private appendToFile(filePath: string, data: string): Promise<void> {
@@ -1080,7 +1080,7 @@ class Project {
   ): Promise<void> {
     const earlierDirectAppends = this.pendingDirectAppends.get(filePath)
     if (earlierDirectAppends) await Promise.all(earlierDirectAppends)
-    await rewrite()
+    await withTranscriptFileLock(filePath, rewrite)
     transcriptRewriteHooksForTesting.beforeBarrierRelease?.(filePath)
   }
 
@@ -3512,12 +3512,10 @@ function appendEntryToFile(
   const fs = getFsImplementation()
   const line = jsonStringify(entry) + '\n'
   if (project?._deferSynchronousAppend(fullPath, line)) return
-  try {
+  fs.mkdirSync(dirname(fullPath), { mode: 0o700 })
+  withTranscriptFileLockSync(fullPath, () => {
     fs.appendFileSync(fullPath, line, { mode: 0o600 })
-  } catch {
-    fs.mkdirSync(dirname(fullPath), { mode: 0o700 })
-    fs.appendFileSync(fullPath, line, { mode: 0o600 })
-  }
+  })
 }
 
 /**
