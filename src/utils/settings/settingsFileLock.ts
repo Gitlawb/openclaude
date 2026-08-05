@@ -186,6 +186,15 @@ function pathIsAbsent(path: string): boolean {
   }
 }
 
+function metadataMatches(
+  ownerPath: string,
+  expectedOwner: SettingsLockOwner | null,
+): boolean {
+  return expectedOwner
+    ? ownersMatch(readOwner(ownerPath), expectedOwner)
+    : pathIsAbsent(ownerPath)
+}
+
 function claimRecoveryPath(
   lockPath: string,
   identity: LockIdentity,
@@ -247,27 +256,29 @@ function claimRecoveryPath(
   }
 }
 
-function removeOwnerlessRecoveryLock(
+function quarantineRecoveredLock(
   lockPath: string,
   identity: LockIdentity,
   ownerPath: string,
+  owner: SettingsLockOwner | null,
+  recoveryOwner: SettingsLockOwner,
 ): boolean {
   const fs = getFsImplementation()
   const recoveryPath = join(lockPath, 'recovery.json')
-  const recoveryOwner = readOwner(recoveryPath)
-  if (!recoveryOwner || !isProcessDead(recoveryOwner.pid)) {
-    return false
-  }
   if (
-    !pathIsAbsent(ownerPath) ||
+    !metadataMatches(ownerPath, owner) ||
     !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
     !ownersMatch(readOwner(recoveryPath), recoveryOwner)
   ) {
     return false
   }
 
+  // Moving the proven-dead directory frees the canonical acquisition path in
+  // one filesystem operation. Cleanup can then be interrupted at any point
+  // without leaving an unmarked empty directory that resembles a live acquire.
+  const cleanupPath = `${lockPath}.recovered-${recoveryOwner.token}`
   try {
-    fs.unlinkSync(recoveryPath)
+    fs.renameSync(lockPath, cleanupPath)
   } catch (error) {
     if (getErrnoCode(error) === 'ENOENT') {
       return false
@@ -275,43 +286,62 @@ function removeOwnerlessRecoveryLock(
     throw error
   }
 
-  // The previous recoverer had already removed owner.json. Remove only the
-  // same directory after confirming no owner appeared in the meantime.
+  const cleanupOwnerPath = join(cleanupPath, 'owner.json')
+  const cleanupRecoveryPath = join(cleanupPath, 'recovery.json')
   if (
-    !pathIsAbsent(ownerPath) ||
-    !lockIdentityMatches(readLockIdentity(lockPath), identity)
+    !metadataMatches(cleanupOwnerPath, owner) ||
+    !lockIdentityMatches(readLockIdentity(cleanupPath), identity) ||
+    !ownersMatch(readOwner(cleanupRecoveryPath), recoveryOwner)
   ) {
-    return false
+    try {
+      if (pathIsAbsent(lockPath)) {
+        fs.renameSync(cleanupPath, lockPath)
+      }
+    } catch {
+      // The ownership-change error below is more useful than cleanup failure.
+    }
+    throw new Error('Settings lock ownership changed during recovery')
   }
 
   try {
-    fs.rmdirSync(lockPath)
-    return true
+    if (owner) {
+      fs.unlinkSync(cleanupOwnerPath)
+    }
+    fs.unlinkSync(cleanupRecoveryPath)
+    fs.rmdirSync(cleanupPath)
   } catch (error) {
-    if (getErrnoCode(error) === 'ENOENT' && !fs.existsSync(lockPath)) {
-      return true
-    }
-    // Preserve a recoverable claim if the directory could not be removed.
-    try {
-      if (
-        pathIsAbsent(ownerPath) &&
-        pathIsAbsent(recoveryPath) &&
-        lockIdentityMatches(readLockIdentity(lockPath), identity)
-      ) {
-        writeOwner(recoveryPath, recoveryOwner)
-      }
-    } catch {
-      // The original cleanup error is the useful one.
-    }
-    throw error
+    // The canonical lock path is already free. A uniquely named cleanup
+    // directory is harmless and must not make this acquisition fail.
+    logForDebugging(`Failed to clean recovered settings lock: ${error}`, {
+      level: 'error',
+    })
   }
+  return true
+}
+
+function removeOwnerlessRecoveryLock(
+  lockPath: string,
+  identity: LockIdentity,
+  ownerPath: string,
+): boolean {
+  const recoveryPath = join(lockPath, 'recovery.json')
+  const recoveryOwner = readOwner(recoveryPath)
+  if (!recoveryOwner || !isProcessDead(recoveryOwner.pid)) {
+    return false
+  }
+  return quarantineRecoveredLock(
+    lockPath,
+    identity,
+    ownerPath,
+    null,
+    recoveryOwner,
+  )
 }
 
 function removeDeadOwnerLock(
   lockPath: string,
   ownerPath: string,
 ): boolean {
-  const fs = getFsImplementation()
   const identity = readLockIdentity(lockPath)
   if (!identity) {
     return false
@@ -345,49 +375,13 @@ function removeDeadOwnerLock(
     return false
   }
 
-  const releaseRecoveryClaim = (): void => {
-    if (ownersMatch(readOwner(recoveryPath), recoveryOwner)) {
-      fs.unlinkSync(recoveryPath)
-    }
-  }
-
-  // Re-read immediately before cleanup so a concurrent recovery winner's
-  // metadata is never removed using the stale snapshot above.
-  const current = readOwner(ownerPath)
-  if (
-    !ownersMatch(current, owner) ||
-    !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
-    !ownersMatch(readOwner(recoveryPath), recoveryOwner)
-  ) {
-    releaseRecoveryClaim()
-    return false
-  }
-
-  try {
-    fs.unlinkSync(ownerPath)
-    releaseRecoveryClaim()
-    fs.rmdirSync(lockPath)
-    return true
-  } catch (error) {
-    // If removing the directory failed, restore the metadata when possible so
-    // a later contender can still make the same conservative liveness check.
-    try {
-      if (fs.existsSync(lockPath) && !fs.existsSync(ownerPath)) {
-        writeOwner(ownerPath, owner)
-      }
-    } catch {
-      // The original cleanup error is the useful one.
-    }
-    try {
-      releaseRecoveryClaim()
-    } catch {
-      // Preserve the original cleanup error.
-    }
-    if (getErrnoCode(error) === 'ENOENT' && !fs.existsSync(lockPath)) {
-      return true
-    }
-    throw error
-  }
+  return quarantineRecoveredLock(
+    lockPath,
+    identity,
+    ownerPath,
+    owner,
+    recoveryOwner,
+  )
 }
 
 export function resolveSettingsFileTarget(filePath: string): string {
