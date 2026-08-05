@@ -421,10 +421,14 @@ async function adjustFinalUnterminatedRemovalSpan(
 async function truncateFinalTranscriptLine(
   filePath: string,
   span: TranscriptLineSpan,
+  expectedSize: number,
 ): Promise<void> {
   const boundary = await finalTombstoneBoundary(filePath, span)
   const handle = await fsOpen(filePath, 'r+')
   try {
+    if ((await handle.stat()).size !== expectedSize) {
+      throw new Error('Transcript changed before final tombstone truncate')
+    }
     await handle.truncate(boundary)
     await handle.datasync()
   } finally {
@@ -1448,7 +1452,11 @@ class Project {
 
             if (tailSpan) {
               if (tailSpan.end === fileSize) {
-                await truncateFinalTranscriptLine(sessionFile, tailSpan)
+                await truncateFinalTranscriptLine(
+                  sessionFile,
+                  tailSpan,
+                  fileSize,
+                )
                 return
               }
               await replaceFileAtomic(
@@ -1457,6 +1465,7 @@ class Project {
                   sessionFile,
                   rangesExcludingSpans(fileSize, [tailSpan]),
                 ),
+                { expectedTargetSize: fileSize },
               )
               return
             }
@@ -1480,7 +1489,11 @@ class Project {
             )
             if (spans.length === 0) return
             if (spans.length === 1 && spans[0]!.end === fileSize) {
-              await truncateFinalTranscriptLine(sessionFile, spans[0]!)
+              await truncateFinalTranscriptLine(
+                sessionFile,
+                spans[0]!,
+                fileSize,
+              )
               return
             }
 
@@ -1496,10 +1509,12 @@ class Project {
                 sessionFile,
                 rangesExcludingSpans(fileSize, removalSpans),
               ),
+              { expectedTargetSize: fileSize },
             )
-          } catch {
+          } catch (error) {
             // Tombstones are best-effort: a missing file or failed atomic
             // replacement leaves the previous transcript intact.
+            logForDebugging(`Tombstone removal failed: ${error}`)
           }
         })
       } catch {
@@ -2228,7 +2243,7 @@ export async function hydrateRemoteSession(
       sessionId,
       ingressUrl,
     )
-    if (remoteLogs === null) {
+    if (remoteLogs === null || remoteLogs.length === 0) {
       logForDebugging('Remote session hydration returned no transcript')
       logForDiagnosticsNoPII('error', 'hydrate_remote_session_read_fail')
       return false
@@ -2283,8 +2298,8 @@ export async function hydrateFromCCRv2InternalEvents(
   try {
     // Fetch foreground events
     const events = await reader()
-    if (!events) {
-      logForDebugging('Failed to read internal events for resume')
+    if (!events || events.length === 0) {
+      logForDebugging('CCR v2 hydration returned no foreground transcript')
       logForDiagnosticsNoPII('error', 'hydrate_ccr_v2_read_fail')
       return false
     }

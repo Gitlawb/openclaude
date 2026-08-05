@@ -798,7 +798,7 @@ export async function acceptSpeculation(
     }
     void recordSpeculationAccept(entry).catch(() => {
       logForDebugging(
-        '[Speculation] Failed to write speculation-accept to transcript',
+        '[Speculation] Failed to queue speculation-accept for transcript',
       )
     })
   }

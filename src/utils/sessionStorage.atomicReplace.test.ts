@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import type { UUID } from 'node:crypto'
 import {
+  appendFile,
   chmod,
   lstat,
   mkdir,
@@ -242,7 +243,8 @@ test('large slow rewrite streams bounded chunks instead of building a second cop
   await flushSessionStorage()
 
   expect((await stat(filePath)).size).toBe(Buffer.byteLength(suffix))
-  expect(writeCount).toBeGreaterThan(100)
+  // Prove bounded streaming without coupling the test to the current chunk size.
+  expect(writeCount).toBeGreaterThan(10)
   expect(await readFile(filePath, 'utf8')).toBe(suffix)
 })
 
@@ -297,6 +299,27 @@ test.each(['stream-write', 'data-flush', 'rename'] as const)(
   },
 )
 
+test('an external append before commit aborts a stale tombstone replacement', async () => {
+  const original = `${line(KEEP_1)}\n${line(TARGET)}\n${line(KEEP_2)}\n`
+  const appended = `${line(OTHER_SESSION_ID as UUID)}\n`
+  const filePath = await useTranscript(original)
+  let injected = false
+  setAtomicReplaceFaultInjectorForTesting(async (stage, context) => {
+    if (!injected && stage === 'rename' && context.requestedPath === filePath) {
+      injected = true
+      await appendFile(filePath, appended)
+    }
+  })
+
+  await removeTranscriptMessage(TARGET)
+  await flushSessionStorage()
+
+  expect(await readFile(filePath, 'utf8')).toBe(original + appended)
+  expect(
+    (await Array.fromAsync(new Bun.Glob('.*.tmp-*').scan(testRoot))).length,
+  ).toBe(0)
+})
+
 test.each(['stream-write', 'data-flush', 'rename'] as const)(
   'slow-path %s failure preserves the old transcript and cleans its temp file',
   async stage => {
@@ -320,6 +343,8 @@ test.each(['stream-write', 'data-flush', 'rename'] as const)(
 )
 
 test('middle tombstone preserves restrictive mode and follows the live symlink target', async () => {
+  if (process.platform === 'win32') return
+
   const realPath = join(testRoot, 'real.jsonl')
   const linkPath = join(testRoot, 'linked.jsonl')
   const original = `${line(KEEP_1)}\n${line(TARGET)}\n${line(KEEP_2)}\n`
@@ -491,11 +516,7 @@ test('a failed queued append settles a following tombstone and releases its barr
   const removal = removeTranscriptMessage(TARGET)
   await expect(flushSessionStorage()).rejects.toThrow('injected append failure')
 
-  const removalResult = await Promise.race([
-    removal.then(() => 'settled'),
-    Bun.sleep(250).then(() => 'timed-out'),
-  ])
-  expect(removalResult).toBe('settled')
+  await removal
 
   resetTranscriptRewriteHooksForTesting()
   await saveCustomTitle(SESSION_ID as UUID, 'barrier released', filePath)
@@ -528,7 +549,6 @@ test('a long rewrite keeps drains single-flight across late appends, tombstones,
   await pausedPromise
   await recordTranscript([message(lateUuid, 'late queued append')])
   const secondRemoval = removeTranscriptMessage(secondTarget)
-  await Bun.sleep(150)
   release()
   await Promise.all([firstRemoval, secondRemoval])
   await flushSessionStorage()
@@ -653,6 +673,22 @@ test('v1 null fetch, serialization failure, and rename failure preserve old cont
     }
   })
   expect(await hydrateRemoteSession(SESSION_ID, 'https://ingress.test')).toBe(false)
+  expect(await readFile(transcriptPath, 'utf8')).toBe(original)
+})
+
+test('empty foreground hydration preserves an existing transcript', async () => {
+  const transcriptPath = await prepareHydration()
+  const original = `${line(KEEP_1)}\n`
+  await writeFile(transcriptPath, original)
+  spyOn(sessionIngress, 'getSessionLogs').mockResolvedValue([] as never)
+
+  expect(await hydrateRemoteSession(SESSION_ID, 'https://ingress.test')).toBe(false)
+  expect(await readFile(transcriptPath, 'utf8')).toBe(original)
+
+  resetProjectForTesting()
+  setInternalEventReader(async () => [])
+
+  expect(await hydrateFromCCRv2InternalEvents(SESSION_ID)).toBe(false)
   expect(await readFile(transcriptPath, 'utf8')).toBe(original)
 })
 

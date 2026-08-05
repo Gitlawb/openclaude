@@ -23,6 +23,8 @@ export type AtomicReplaceOptions = {
   preserveMode?: boolean
   signal?: AbortSignal
   flush?: 'data' | 'full'
+  /** Refuse to commit if a caller's existing-file snapshot is stale. */
+  expectedTargetSize?: number
 }
 
 export type AtomicReplaceFaultStage =
@@ -258,6 +260,12 @@ export async function replaceFileAtomic(
 
     options.signal?.throwIfAborted()
     await injectFault('rename', context)
+    if (
+      options.expectedTargetSize !== undefined &&
+      (await stat(targetPath)).size !== options.expectedTargetSize
+    ) {
+      throw new Error('Atomic replacement target changed before commit')
+    }
     await rename(tempPath, targetPath)
     committed = true
 

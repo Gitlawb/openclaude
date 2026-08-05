@@ -121,6 +121,25 @@ test('an explicit mode overrides preservation for an existing target', async () 
   expect((await stat(existing.target)).mode & 0o777).toBe(0o600)
 })
 
+test('preserveMode false applies the private default to an existing target', async () => {
+  if (process.platform === 'win32') return
+
+  const existing = await tempTarget('old')
+  await chmod(existing.target, 0o644)
+
+  await replaceFileAtomic(existing.target, 'new', { preserveMode: false })
+
+  expect((await stat(existing.target)).mode & 0o777).toBe(0o600)
+})
+
+test('full flush commits complete content', async () => {
+  const { target } = await tempTarget('old')
+
+  await replaceFileAtomic(target, 'new-complete', { flush: 'full' })
+
+  expect(await readFile(target, 'utf8')).toBe('new-complete')
+})
+
 test('writes through live and dangling relative symlinks without replacing them', async () => {
   if (process.platform === 'win32') return
 
