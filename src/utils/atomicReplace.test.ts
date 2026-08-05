@@ -171,6 +171,20 @@ test('an already-aborted replacement preserves the original', async () => {
   expect(await readFile(target, 'utf8')).toBe('old')
 })
 
+test('an abort at the rename boundary preserves the original', async () => {
+  const { dir, target } = await tempTarget('old')
+  const controller = new AbortController()
+  setAtomicReplaceFaultInjectorForTesting(stage => {
+    if (stage === 'rename') controller.abort(new Error('lock compromised'))
+  })
+
+  await expect(
+    replaceFileAtomic(target, 'new', { signal: controller.signal }),
+  ).rejects.toThrow('lock compromised')
+  expect(await readFile(target, 'utf8')).toBe('old')
+  expect(await tempFiles(dir, target)).toEqual([])
+})
+
 const preRenameFaults: AtomicReplaceFaultStage[] = [
   'temp-open',
   'stream-write',

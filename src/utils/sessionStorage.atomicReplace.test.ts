@@ -336,6 +336,44 @@ test('an external append after validation waits for the tombstone commit', async
   await expect(lstat(`${filePath}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+test('a synchronous append through a resolved symlink target waits for the rewrite lock', async () => {
+  if (process.platform === 'win32') return
+
+  const realPath = join(testRoot, 'sync-real.jsonl')
+  const linkPath = join(testRoot, 'sync-linked.jsonl')
+  const original = `${line(KEEP_1)}\n${line(TARGET)}\n${line(KEEP_2)}\n`
+  await writeFile(realPath, original)
+  await symlink('sync-real.jsonl', linkPath)
+  switchSession(SESSION_ID as never, testRoot)
+  resetProjectForTesting()
+  setSessionFileForTesting(linkPath)
+  let injected = false
+  setAtomicReplaceFaultInjectorForTesting(async (stage, context) => {
+    if (!injected && stage === 'rename' && context.requestedPath === linkPath) {
+      injected = true
+      expect(await isTranscriptFileLockHeldForTesting(linkPath)).toBe(true)
+      await saveCustomTitle(
+        SESSION_ID as UUID,
+        'synchronous symlink append',
+        realPath,
+      )
+    }
+  })
+
+  await removeTranscriptMessage(TARGET)
+  await flushSessionStorage()
+
+  expect((await lstat(linkPath)).isSymbolicLink()).toBe(true)
+  const result = await readFile(realPath, 'utf8')
+  expect(result).toBe(
+    `${line(KEEP_1)}\n${line(KEEP_2)}\n${JSON.stringify({
+      type: 'custom-title',
+      customTitle: 'synchronous symlink append',
+      sessionId: SESSION_ID,
+    })}\n`,
+  )
+})
+
 test.each(['stream-write', 'data-flush', 'rename'] as const)(
   'slow-path %s failure preserves the old transcript and cleans its temp file',
   async stage => {

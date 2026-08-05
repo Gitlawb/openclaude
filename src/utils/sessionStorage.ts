@@ -95,6 +95,7 @@ import {
 import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import {
+  isTranscriptFileLockHeldByAsyncOperation,
   withTranscriptFileLock,
   withTranscriptFileLockSync,
 } from './transcriptFileLock.js'
@@ -156,7 +157,7 @@ type QueuedAppend = {
 
 type QueuedRewrite = {
   kind: 'rewrite'
-  rewrite: () => Promise<void>
+  rewrite: (signal: AbortSignal) => Promise<void>
   resolve: () => void
   reject: (error: unknown) => void
 }
@@ -426,13 +427,16 @@ async function truncateFinalTranscriptLine(
   filePath: string,
   span: TranscriptLineSpan,
   expectedSize: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted()
   const boundary = await finalTombstoneBoundary(filePath, span)
   const handle = await fsOpen(filePath, 'r+')
   try {
     if ((await handle.stat()).size !== expectedSize) {
       throw new Error('Transcript changed before final tombstone truncate')
     }
+    signal?.throwIfAborted()
     await handle.truncate(boundary)
     await handle.datasync()
   } finally {
@@ -969,7 +973,7 @@ class Project {
 
   private enqueueRewrite(
     filePath: string,
-    rewrite: () => Promise<void>,
+    rewrite: (signal: AbortSignal) => Promise<void>,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let queue = this.writeQueues.get(filePath)
@@ -1023,7 +1027,8 @@ class Project {
   ): Promise<void> {
     transcriptRewriteHooksForTesting.beforeFileAppend?.(filePath)
     await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
-    await withTranscriptFileLock(filePath, async () => {
+    await withTranscriptFileLock(filePath, async signal => {
+      signal.throwIfAborted()
       await fsAppendFile(filePath, data, { mode: 0o600 })
     })
   }
@@ -1069,18 +1074,23 @@ class Project {
 
   /** @internal Route synchronous metadata appends around a queued rewrite. */
   _deferSynchronousAppend(filePath: string, data: string): boolean {
-    if (!this.rewriteBarrierFiles.has(filePath)) return false
+    if (
+      !this.rewriteBarrierFiles.has(filePath) &&
+      !isTranscriptFileLockHeldByAsyncOperation(filePath)
+    ) {
+      return false
+    }
     this.queueDirectAppend(filePath, { data })
     return true
   }
 
   private async runRewriteOperation(
     filePath: string,
-    rewrite: () => Promise<void>,
+    rewrite: (signal: AbortSignal) => Promise<void>,
   ): Promise<void> {
     const earlierDirectAppends = this.pendingDirectAppends.get(filePath)
     if (earlierDirectAppends) await Promise.all(earlierDirectAppends)
-    await withTranscriptFileLock(filePath, rewrite)
+    await withTranscriptFileLock(filePath, signal => rewrite(signal))
     transcriptRewriteHooksForTesting.beforeBarrierRelease?.(filePath)
   }
 
@@ -1208,7 +1218,9 @@ class Project {
     data: string | Uint8Array | AsyncIterable<string | Uint8Array>,
   ): Promise<void> {
     return this.trackWrite(() =>
-      this.enqueueRewrite(filePath, () => replaceFileAtomic(filePath, data)),
+      this.enqueueRewrite(filePath, signal =>
+        replaceFileAtomic(filePath, data, { signal }),
+      ),
     )
   }
 
@@ -1423,7 +1435,7 @@ class Project {
 
     return this.trackWrite(async () => {
       try {
-        await this.enqueueRewrite(sessionFile, async () => {
+        await this.enqueueRewrite(sessionFile, async signal => {
           try {
             const handle = await fsOpen(sessionFile, 'r')
             let fileSize = 0
@@ -1456,6 +1468,7 @@ class Project {
                   sessionFile,
                   tailSpan,
                   fileSize,
+                  signal,
                 )
                 return
               }
@@ -1465,7 +1478,7 @@ class Project {
                   sessionFile,
                   rangesExcludingSpans(fileSize, [tailSpan]),
                 ),
-                { expectedTargetSize: fileSize },
+                { expectedTargetSize: fileSize, signal },
               )
               return
             }
@@ -1493,6 +1506,7 @@ class Project {
                 sessionFile,
                 spans[0]!,
                 fileSize,
+                signal,
               )
               return
             }
@@ -1509,7 +1523,7 @@ class Project {
                 sessionFile,
                 rangesExcludingSpans(fileSize, removalSpans),
               ),
-              { expectedTargetSize: fileSize },
+              { expectedTargetSize: fileSize, signal },
             )
           } catch (error) {
             // Tombstones are best-effort: a missing file or failed atomic

@@ -7,7 +7,8 @@ import * as lockfile from './lockfile.js'
 const TRANSCRIPT_LOCK_STALE_MS = 30_000
 const TRANSCRIPT_LOCK_WAIT_MS = 30_000
 const syncWaitBuffer = new Int32Array(new SharedArrayBuffer(4))
-const heldLockCounts = new Map<string, number>()
+const asyncHeldLockCounts = new Map<string, number>()
+const syncHeldLockCounts = new Map<string, number>()
 
 async function resolveTranscriptMutationTarget(
   requestedPath: string,
@@ -67,17 +68,26 @@ function resolveTranscriptMutationTargetSync(requestedPath: string): string {
   throw new Error(`Cannot lock transcript symlink chain: ${requestedPath}`)
 }
 
-function incrementHeldLock(targetPath: string): void {
-  heldLockCounts.set(targetPath, (heldLockCounts.get(targetPath) ?? 0) + 1)
+function incrementHeldLock(
+  counts: Map<string, number>,
+  targetPath: string,
+): void {
+  counts.set(targetPath, (counts.get(targetPath) ?? 0) + 1)
 }
 
-function decrementHeldLock(targetPath: string): void {
-  const remaining = (heldLockCounts.get(targetPath) ?? 1) - 1
-  if (remaining === 0) heldLockCounts.delete(targetPath)
-  else heldLockCounts.set(targetPath, remaining)
+function decrementHeldLock(
+  counts: Map<string, number>,
+  targetPath: string,
+): void {
+  const remaining = (counts.get(targetPath) ?? 1) - 1
+  if (remaining === 0) counts.delete(targetPath)
+  else counts.set(targetPath, remaining)
 }
 
-function asyncLockOptions(targetPath: string) {
+function asyncLockOptions(
+  targetPath: string,
+  onCompromised: (error: Error) => void,
+) {
   return {
     lockfilePath: `${targetPath}.lock`,
     realpath: false,
@@ -90,6 +100,7 @@ function asyncLockOptions(targetPath: string) {
       maxTimeout: 250,
       randomize: true,
     },
+    onCompromised,
   }
 }
 
@@ -118,18 +129,32 @@ function acquireTranscriptLockSync(targetPath: string): () => void {
 /** Serialize a complete transcript mutation with writers in other processes. */
 export async function withTranscriptFileLock<T>(
   requestedPath: string,
-  operation: () => Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const targetPath = await resolveTranscriptMutationTarget(requestedPath)
-  const release = await lockfile.lock(targetPath, asyncLockOptions(targetPath))
-  incrementHeldLock(targetPath)
+  const controller = new AbortController()
+  const release = await lockfile.lock(
+    targetPath,
+    asyncLockOptions(targetPath, error => controller.abort(error)),
+  )
+  incrementHeldLock(asyncHeldLockCounts, targetPath)
   try {
-    return await operation()
+    controller.signal.throwIfAborted()
+    return await operation(controller.signal)
   } finally {
     try {
-      await release()
+      try {
+        await release()
+      } catch (error) {
+        if (
+          !controller.signal.aborted ||
+          getErrnoCode(error) !== 'ERELEASED'
+        ) {
+          throw error
+        }
+      }
     } finally {
-      decrementHeldLock(targetPath)
+      decrementHeldLock(asyncHeldLockCounts, targetPath)
     }
   }
 }
@@ -140,19 +165,27 @@ export function withTranscriptFileLockSync<T>(
   operation: () => T,
 ): T {
   const targetPath = resolveTranscriptMutationTargetSync(requestedPath)
-  if ((heldLockCounts.get(targetPath) ?? 0) > 0) return operation()
+  if ((syncHeldLockCounts.get(targetPath) ?? 0) > 0) return operation()
 
   const release = acquireTranscriptLockSync(targetPath)
-  incrementHeldLock(targetPath)
+  incrementHeldLock(syncHeldLockCounts, targetPath)
   try {
     return operation()
   } finally {
     try {
       release()
     } finally {
-      decrementHeldLock(targetPath)
+      decrementHeldLock(syncHeldLockCounts, targetPath)
     }
   }
+}
+
+/** Return whether this process currently holds an async mutation lock. */
+export function isTranscriptFileLockHeldByAsyncOperation(
+  requestedPath: string,
+): boolean {
+  const targetPath = resolveTranscriptMutationTargetSync(requestedPath)
+  return (asyncHeldLockCounts.get(targetPath) ?? 0) > 0
 }
 
 /** @internal Verify exact lock coverage in deterministic concurrency tests. */
@@ -160,5 +193,8 @@ export async function isTranscriptFileLockHeldForTesting(
   requestedPath: string,
 ): Promise<boolean> {
   const targetPath = await resolveTranscriptMutationTarget(requestedPath)
-  return (heldLockCounts.get(targetPath) ?? 0) > 0
+  return (
+    (asyncHeldLockCounts.get(targetPath) ?? 0) > 0 ||
+    (syncHeldLockCounts.get(targetPath) ?? 0) > 0
+  )
 }

@@ -224,7 +224,8 @@ async function appendJsonlEntry(
 ): Promise<void> {
   const line = JSON.stringify(entry) + '\n'
   await mkdir(dirname(filePath), { mode: 0o700, recursive: true })
-  await withTranscriptFileLock(filePath, async () => {
+  await withTranscriptFileLock(filePath, async signal => {
+    signal.throwIfAborted()
     await appendFile(filePath, line, { mode: 0o600 })
   })
 }
