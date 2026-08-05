@@ -159,10 +159,15 @@ describe('conversationArc', () => {
       await updateArcPhase([createMessage('user', 'check the logs for errors')])
       expect(arc.currentPhase).toBe('exploring')
 
-      await updateArcPhase([createMessage('assistant', 'Let me write the fix now')])
+      await updateArcPhase([createMessage('user', 'Let me write the fix now')])
       expect(arc.currentPhase).toBe('implementing')
 
       await updateArcPhase([createMessage('user', 'test the changes')])
+      expect(arc.currentPhase).toBe('reviewing')
+
+      // Phase detection is gated on user-authored text only; assistant turns
+      // must not advance the arc.
+      await updateArcPhase([createMessage('assistant', 'I will implement it')])
       expect(arc.currentPhase).toBe('reviewing')
     })
 

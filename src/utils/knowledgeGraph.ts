@@ -13,11 +13,13 @@ import { getAutoMemPath } from '../memdir/paths.js'
 import { searchMemdirIndex, clearIndex, getIndexPath, getIndexMetaPath } from '../memdir/vectorIndex.js'
 import { parseFrontmatter } from './frontmatterParser.js'
 import { getProjectsDir } from './envUtils.js'
+import { findCanonicalGitRoot } from './git.js'
+import { getProjectRoot } from '../bootstrap/state.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
-import { looksLikeSecretValue } from './providerSecrets.js'
+import { looksLikeSecretValue, redactSecretSubstringsForDisplay } from './providerSecrets.js'
 import { createRequire } from 'module'
 const _require = createRequire(import.meta.url)
 
@@ -92,6 +94,35 @@ function currentProjectKey(): string {
   return sanitizePath(getFsImplementation().cwd())
 }
 
+/**
+ * Returns the deduplicated candidate project keys for legacy-store lookup.
+ * The memdir resolves facts under the canonical git root, but legacy JSON/SQLite
+ * stores were written under the raw cwd key. Probe the git-root key first so a
+ * store created from the repo root is still found when OpenClaude runs from a
+ * subdirectory; the cwd key remains as a fallback (P1).
+ */
+function getLegacyProjectKeys(): string[] {
+  const keys = new Set<string>()
+  const gitRoot = findCanonicalGitRoot(getProjectRoot())
+  if (gitRoot) keys.add(sanitizePath(gitRoot))
+  keys.add(sanitizePath(getFsImplementation().cwd()))
+  return [...keys]
+}
+
+function getLegacyGraphPath(): string {
+  const primary = join(getProjectsDir(), getLegacyProjectKeys()[0]!, 'knowledge_graph.json')
+  return getLegacyProjectKeys()
+    .map(key => join(getProjectsDir(), key, 'knowledge_graph.json'))
+    .find(existsSync) ?? primary
+}
+
+function getLegacySqlitePath(): string {
+  const primary = join(getProjectsDir(), getLegacyProjectKeys()[0]!, 'knowledge.db')
+  return getLegacyProjectKeys()
+    .map(key => join(getProjectsDir(), key, 'knowledge.db'))
+    .find(existsSync) ?? primary
+}
+
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -103,14 +134,6 @@ function slugify(text: string): string {
 function yamlQuote(val: string): string {
   const escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
   return `"${escaped}"`
-}
-
-function getLegacyGraphPath(): string {
-  return join(getProjectsDir(), currentProjectKey(), 'knowledge_graph.json')
-}
-
-function getLegacySqlitePath(): string {
-  return join(getProjectsDir(), currentProjectKey(), 'knowledge.db')
 }
 
 function migrateLegacyKnowledgeGraph(): void {
@@ -446,37 +469,42 @@ Auto-migrated from legacy store: **${entity.name}**
       count++
     }
 
-    // Migrate summaries
+    // Migrate summaries — scrub secret-bearing content before persisting so a
+    // legacy store that captured API keys/tokens does not promote them into
+    // durable memdir files that are later vector-indexed and prompt-injected (P1).
     for (const summary of data.summaries ?? []) {
       const rawId = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       const idSlug = `${slugify(rawId)}-${getShortHash(rawId)}`
+      const safeSummary = redactSecretSubstringsForDisplay(summary.content ?? '', process.env) ?? ''
       const content = `---
 type: reference
 title: "Knowledge Summary"
-description: ${yamlQuote((summary.content ?? '').slice(0, 200))}
+description: ${yamlQuote(safeSummary.slice(0, 200))}
 factType: summary
 keywords: ${yamlQuote((summary.keywords ?? []).join(', '))}
 source: legacy_migration
 ---
-${summary.content ?? ''}
+${safeSummary}
 `
       writeFileSync(join(factsDir, `fact-summary-${idSlug}.md`), content, 'utf-8')
       count++
     }
 
     // Migrate rules — store as fact-type "rule" `.facts` files so they remain
-    // searchable via the vector index.
+    // searchable via the vector index. Scrub rule bodies of any secret-shaped
+    // substrings before persisting (P1).
     for (const rule of data.rules ?? []) {
       if (typeof rule !== 'string') continue
-      const slug = `${slugify(rule).slice(0, 60)}-${getShortHash(rule)}`
+      const safeRule = redactSecretSubstringsForDisplay(rule, process.env) ?? ''
+      const slug = `${slugify(safeRule).slice(0, 60)}-${getShortHash(safeRule)}`
       const content = `---
 type: reference
-title: ${yamlQuote(rule)}
+title: ${yamlQuote(safeRule)}
 description: "Migrated legacy rule"
 factType: rule
 source: legacy_migration
 ---
-${rule}
+${safeRule}
 `
       writeFileSync(join(factsDir, `fact-rule-${slug}.md`), content, 'utf-8')
       count++
@@ -680,7 +708,10 @@ export function getGlobalGraphSummary(): string {
   return summary
 }
 
-export async function getOrchestratedMemory(query: string): Promise<string> {
+export async function getOrchestratedMemory(
+  query: string,
+  prefetchedResults?: Array<{ title: string; description: string; content: string }>,
+): Promise<string> {
   // Ensure any legacy store is migrated before searching so users with only
   // a legacy JSON or SQLite graph receive their prior knowledge during normal
   // conversation, not only after invoking /knowledge status.
@@ -690,7 +721,11 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
   if (!memDir || !query) return ''
 
   try {
-    const results = await searchMemdirIndex(query, memDir, 10)
+    // Reuse pre-fetched results when provided so the system prompt path does
+    // not search the vector index twice (P2).
+    const results = prefetchedResults?.length
+      ? prefetchedResults
+      : await searchMemdirIndex(query, memDir, 10)
 
     if (results.length > 0) {
       let output = 'PERSISTENT PROJECT MEMORY (VECTOR RAG):\n'
@@ -734,13 +769,14 @@ function pruneLegacyGraphArtifacts(projectDir: string): void {
   try {
     if (!existsSync(projectDir)) return
     for (const entry of readdirSync(projectDir)) {
+      // Intentionally retain *.migration-backup files: /knowledge clear
+      // reports that backups are archived alongside originals, so they must
+      // survive the prune for recovery after a bad migration (P2).
       if (
         entry.startsWith('knowledge_graph.json.backup-') ||
         entry.startsWith('knowledge_graph.json.cleared-') ||
-        entry === 'knowledge_graph.json.migration-backup' ||
         entry.startsWith('knowledge.db.backup-') ||
         entry.startsWith('knowledge.db.cleared-') ||
-        entry === 'knowledge.db.migration-backup' ||
         entry.startsWith('knowledge.db-wal.cleared-') ||
         entry.startsWith('knowledge.db-shm.cleared-')
       ) {
@@ -770,9 +806,11 @@ export function resetGlobalGraph(): void {
     try { rmSync(metaPath, { force: true }) } catch { /* ignore */ }
   }
 
-  // 3. Prune any legacy backups, migration-backups, and cleared files (M9)
-  const projectDir = join(getProjectsDir(), currentProjectKey())
-  pruneLegacyGraphArtifacts(projectDir)
+  // 3. Prune any legacy backups and cleared files (M9). Probe every candidate
+  // legacy project key (git-root and cwd) so both locations are covered (P1).
+  for (const key of getLegacyProjectKeys()) {
+    pruneLegacyGraphArtifacts(join(getProjectsDir(), key))
+  }
 
   // 4. Remove live legacy sources
   const legacyPath = getLegacyGraphPath()
@@ -796,9 +834,12 @@ export function resetGlobalGraph(): void {
     }
   }
 
-  // 5. Reset guards and in-memory index
+  // 5. Reset guards and in-memory index. Also clear the skipped-project guard
+  // so a project that deferred migration (e.g. approval required) can migrate
+  // once the condition is lifted (P2).
   legacyMigrationDoneProjects.delete(currentProjectKey())
   migrationAttempts.delete(currentProjectKey())
+  legacyMigrationSkippedProjects.delete(currentProjectKey())
   clearIndex(memDir)
 }
 

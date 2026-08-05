@@ -214,24 +214,23 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
     const content = extractTextFromContent(msg.message?.content)
     if (!content) continue
 
-    const detected = detectPhase(content)
-    if (detected && detected !== arc.currentPhase) {
-      const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
-      const oldIdx = phaseOrder.indexOf(arc.currentPhase)
-      const newIdx = phaseOrder.indexOf(detected)
-
-      if (newIdx > oldIdx) {
-        arc.currentPhase = detected
-        arc.lastUpdateTime = Date.now()
-      }
-    }
-
     // Automatically extract goals from user messages: phrases like "implement X",
     // "add Y", "fix Z" or "build A" are treated as implicit goals so that
     // finalizeArcTurn can produce session-summary memory and getArcSummary can
     // report progress. This replaces the previous approach where only explicit
     // addGoal() calls (which production never issues) created goals.
     if (msg.type === 'user') {
+      const detected = detectPhase(content)
+      if (detected && detected !== arc.currentPhase) {
+        const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
+        const oldIdx = phaseOrder.indexOf(arc.currentPhase)
+        const newIdx = phaseOrder.indexOf(detected)
+
+        if (newIdx > oldIdx) {
+          arc.currentPhase = detected
+          arc.lastUpdateTime = Date.now()
+        }
+      }
       const goalPattern = /\b(?:implement|add|create|build|write|fix|make)\s+(?:a\s+|an\s+)?(.{3,80}?)(?:\.|$)/gi
       let gmatch: RegExpExecArray | null
       while ((gmatch = goalPattern.exec(content)) !== null) {
@@ -251,8 +250,10 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
         arc.goals = arc.goals.slice(-50)
       }
 
-      // Also extract decisions: "decided to X", "chose Y over Z", "use A instead of B"
-      const decisionPattern = /\b(?:decided\s+to|decided\s+on|chose|switching\s+to|using|preferring)\s+(.{10,120}?)(?:\.|$)/gi
+      // Also extract decisions — restricted to explicit decision language so
+      // ordinary phrasing like "I am using React" is not persisted as a durable
+      // decision (P1).
+      const decisionPattern = /\b(?:decided\s+to|decided\s+on|we\s+decided|we\s+chose|switching\s+to)\s+(.{10,120}?)(?:\.|$)/gi
       let dmatch: RegExpExecArray | null
       while ((dmatch = decisionPattern.exec(content)) !== null) {
         const desc = redactLikelySecrets(dmatch[1].trim())
@@ -341,6 +342,12 @@ ${arc.decisions.map(d => `- ${d.description}${d.rationale ? ` — ${d.rationale}
 ${arc.milestones.map(m => `- ${m.description}`).join('\n')}
 `
     try {
+      // Only rebuild the index when the summary actually changed — the filename
+      // and content are deterministic, so repeated tool cycles must not trigger
+      // a full-corpus rebuild (P1).
+      if (existsSync(filePath) && readFileSync(filePath, 'utf-8') === content) {
+        return
+      }
       writeFileSync(filePath, content, 'utf-8')
       await rebuildIndex(dir).catch(() => {})
     } catch {
@@ -443,7 +450,10 @@ export function addMilestone(description: string): Milestone {
   return milestone
 }
 
-export async function getArcSummary(query?: string): Promise<string> {
+export async function getArcSummary(
+  query?: string,
+  prefetchedResults?: Array<{ title: string; description: string; content: string }>,
+): Promise<string> {
   const arc = getArc()
   if (!arc) return 'No conversation arc'
 
@@ -457,12 +467,16 @@ export async function getArcSummary(query?: string): Promise<string> {
     summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\n`
   }
 
-  // Search the memdir vector index
+  // Search the memdir vector index. Reuse pre-fetched results when provided so
+  // the system prompt path does not search the index twice (P2).
   const dir = arcMemoryDir || getAutoMemPath()
   if (dir && query) {
     try {
-      await initMemdirIndex(dir)
-      const results = await searchMemdirIndex(query, dir, 8)
+      let results = prefetchedResults?.length ? prefetchedResults : undefined
+      if (!results) {
+        await initMemdirIndex(dir)
+        results = await searchMemdirIndex(query, dir, 8)
+      }
       if (results.length > 0) {
         summary += '\nRelevant Knowledge:\n'
         for (const r of results.slice(0, 5)) {
@@ -550,9 +564,21 @@ export async function appendArcToSystemPrompt(
         if (userQueryText) break
       }
     }
-    const arcSummary = await getArcSummary(userQueryText)
+    // Fetch retrieval results once and reuse them for both the arc summary and
+    // the orchestrated-memory block so the index is not searched twice (P2).
+    let sharedResults: Array<{ title: string; description: string; content: string }> = []
+    const memDir = arcMemoryDir || getAutoMemPath()
+    if (memDir && userQueryText) {
+      try {
+        await initMemdirIndex(memDir)
+        sharedResults = await searchMemdirIndex(userQueryText, memDir, 10)
+      } catch {
+        // vector search is optional
+      }
+    }
+    const arcSummary = await getArcSummary(userQueryText, sharedResults)
     const { getOrchestratedMemory } = await import('./knowledgeGraph.js')
-    const orchMem = await getOrchestratedMemory(userQueryText)
+    const orchMem = await getOrchestratedMemory(userQueryText, sharedResults)
 
     let multiTurnContent = ''
     if (feature('MULTI_TURN_CONTEXT') || (typeof process !== 'undefined' && process.env.MULTI_TURN_CONTEXT === 'true')) {
