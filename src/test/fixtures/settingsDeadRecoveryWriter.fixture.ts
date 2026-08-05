@@ -32,6 +32,7 @@ getClaudeConfigHomeDir.cache?.clear?.()
 const originalFs = getFsImplementation()
 const normalizedTarget = resolve(targetPath)
 const ownerPath = join(`${normalizedTarget}.lock`, 'owner.json')
+const recoveryPath = join(`${normalizedTarget}.lock`, 'recovery.json')
 let paused = false
 
 function pauseAtBarrier(): void {
@@ -63,8 +64,9 @@ setFsImplementation({
   unlinkSync(path) {
     if (
       !paused &&
-      mode === 'pause-owner-unlink' &&
-      resolve(path) === ownerPath
+      ((mode === 'pause-owner-unlink' && resolve(path) === ownerPath) ||
+        (mode === 'pause-recovery-unlink' &&
+          resolve(path) === recoveryPath))
     ) {
       pauseAtBarrier()
     }

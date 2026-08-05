@@ -358,6 +358,7 @@ function ownerMetadataScenario(): unknown {
   const targetPath = resolveSettingsFileTarget(settingsPath)
   const lockPath = `${targetPath}.lock`
   const ownerPath = join(lockPath, 'owner.json')
+  const recoveryPath = join(lockPath, 'recovery.json')
   const before = readFileSync(settingsPath, 'utf8')
 
   let symlinkError: string | null = null
@@ -398,6 +399,21 @@ function ownerMetadataScenario(): unknown {
     }).error?.message ?? null
   const missingUnchanged =
     readFileSync(settingsPath, 'utf8') === before
+
+  rmSync(lockPath, { recursive: true, force: true })
+  mkdirSync(lockPath)
+  writeFileSync(
+    recoveryPath,
+    JSON.stringify({ pid: process.pid, token: 'live-recoverer' }),
+    'utf8',
+  )
+  const liveRecoveryError =
+    updateSettingsForSource('userSettings', {
+      env: { LIVE_RECOVERY_MUST_NOT_LAND: 'true' },
+    }).error?.message ?? null
+  const liveRecoveryUnchanged =
+    readFileSync(settingsPath, 'utf8') === before
+
   rmSync(lockPath, { recursive: true, force: true })
   const afterCleanup = updateSettingsForSource('userSettings', {
     env: { AFTER_MISSING_OWNER: 'works' },
@@ -409,6 +425,8 @@ function ownerMetadataScenario(): unknown {
     oversizedError,
     missingError,
     missingUnchanged,
+    liveRecoveryError,
+    liveRecoveryUnchanged,
     afterCleanupError: afterCleanup.error?.message ?? null,
   }
 }

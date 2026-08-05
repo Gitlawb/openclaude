@@ -177,6 +177,15 @@ function ownersMatch(
   )
 }
 
+function pathIsAbsent(path: string): boolean {
+  try {
+    lstatSync(path)
+    return false
+  } catch (error) {
+    return getErrnoCode(error) === 'ENOENT'
+  }
+}
+
 function claimRecoveryPath(
   lockPath: string,
   identity: LockIdentity,
@@ -238,6 +247,66 @@ function claimRecoveryPath(
   }
 }
 
+function removeOwnerlessRecoveryLock(
+  lockPath: string,
+  identity: LockIdentity,
+  ownerPath: string,
+): boolean {
+  const fs = getFsImplementation()
+  const recoveryPath = join(lockPath, 'recovery.json')
+  const recoveryOwner = readOwner(recoveryPath)
+  if (!recoveryOwner || !isProcessDead(recoveryOwner.pid)) {
+    return false
+  }
+  if (
+    !pathIsAbsent(ownerPath) ||
+    !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
+    !ownersMatch(readOwner(recoveryPath), recoveryOwner)
+  ) {
+    return false
+  }
+
+  try {
+    fs.unlinkSync(recoveryPath)
+  } catch (error) {
+    if (getErrnoCode(error) === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+
+  // The previous recoverer had already removed owner.json. Remove only the
+  // same directory after confirming no owner appeared in the meantime.
+  if (
+    !pathIsAbsent(ownerPath) ||
+    !lockIdentityMatches(readLockIdentity(lockPath), identity)
+  ) {
+    return false
+  }
+
+  try {
+    fs.rmdirSync(lockPath)
+    return true
+  } catch (error) {
+    if (getErrnoCode(error) === 'ENOENT' && !fs.existsSync(lockPath)) {
+      return true
+    }
+    // Preserve a recoverable claim if the directory could not be removed.
+    try {
+      if (
+        pathIsAbsent(ownerPath) &&
+        pathIsAbsent(recoveryPath) &&
+        lockIdentityMatches(readLockIdentity(lockPath), identity)
+      ) {
+        writeOwner(recoveryPath, recoveryOwner)
+      }
+    } catch {
+      // The original cleanup error is the useful one.
+    }
+    throw error
+  }
+}
+
 function removeDeadOwnerLock(
   lockPath: string,
   ownerPath: string,
@@ -248,7 +317,10 @@ function removeDeadOwnerLock(
     return false
   }
   const owner = readOwner(ownerPath)
-  if (!owner || !isProcessDead(owner.pid)) {
+  if (!owner) {
+    return removeOwnerlessRecoveryLock(lockPath, identity, ownerPath)
+  }
+  if (!isProcessDead(owner.pid)) {
     return false
   }
 

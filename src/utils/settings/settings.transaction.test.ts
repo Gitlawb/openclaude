@@ -68,6 +68,29 @@ function startWriter(
   )
 }
 
+function startRecoveryWriter(
+  configDir: string,
+  targetPath: string,
+  envKey: string,
+  mode: string,
+  marker: string,
+  releaseMarker: string,
+) {
+  return Bun.spawn(
+    [
+      process.execPath,
+      DEAD_RECOVERY_WRITER_FIXTURE,
+      configDir,
+      targetPath,
+      envKey,
+      mode,
+      marker,
+      releaseMarker,
+    ],
+    { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+  )
+}
+
 async function waitFor(
   predicate: () => boolean,
   description: string,
@@ -359,6 +382,8 @@ test('symlinked and oversized owner metadata fail closed', async () => {
     oversizedError: string | null
     missingError: string | null
     missingUnchanged: boolean
+    liveRecoveryError: string | null
+    liveRecoveryUnchanged: boolean
     afterCleanupError: string | null
   }>('metadata')
 
@@ -369,6 +394,8 @@ test('symlinked and oversized owner metadata fail closed', async () => {
   expect(result.oversizedError).toContain('Lock file is already being held')
   expect(result.missingError).toContain('Lock file is already being held')
   expect(result.missingUnchanged).toBe(true)
+  expect(result.liveRecoveryError).toContain('Lock file is already being held')
+  expect(result.liveRecoveryUnchanged).toBe(true)
   expect(result.afterCleanupError).toBeNull()
 })
 
@@ -409,28 +436,10 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
     'utf8',
   )
 
-  const startRecoveryWriter = (
-    envKey: string,
-    mode: string,
-    marker: string,
-    releaseMarker: string,
-  ) =>
-    Bun.spawn(
-      [
-        process.execPath,
-        DEAD_RECOVERY_WRITER_FIXTURE,
-        tempDir,
-        settingsPath,
-        envKey,
-        mode,
-        marker,
-        releaseMarker,
-      ],
-      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
-    )
-
   try {
     const writerA = startRecoveryWriter(
+      tempDir,
+      settingsPath,
       'RECOVERER_A',
       'pause-owner-unlink',
       aMarker,
@@ -439,6 +448,8 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
     await waitFor(() => existsSync(aMarker), 'recoverer A to claim cleanup')
 
     const writerB = startRecoveryWriter(
+      tempDir,
+      settingsPath,
       'RECOVERER_B',
       'pause-write-stat',
       bMarker,
@@ -465,6 +476,76 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
     expect(existsSync(bMarker)).toBe(false)
     expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
       env: { BASE: '1', RECOVERER_A: 'true' },
+    })
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('recovery resumes when a dead claimant left owner metadata absent', async () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-ownerless-recovery-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  const lockPath = `${settingsPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const recoveryPath = join(lockPath, 'recovery.json')
+  const crashMarker = join(tempDir, 'recovery-owner-removed')
+  const neverRelease = join(tempDir, 'never-release')
+
+  writeFileSync(
+    settingsPath,
+    `${JSON.stringify({ env: { BASE: '1' } }, null, 2)}\n`,
+    'utf8',
+  )
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    'utf8',
+  )
+
+  try {
+    const crashedRecoverer = startRecoveryWriter(
+      tempDir,
+      settingsPath,
+      'CRASHED_RECOVERER',
+      'pause-recovery-unlink',
+      crashMarker,
+      neverRelease,
+    )
+    await waitFor(
+      () => existsSync(crashMarker),
+      'recoverer to remove owner metadata',
+    )
+    crashedRecoverer.kill('SIGKILL')
+    await Promise.all([
+      new Response(crashedRecoverer.stdout).text(),
+      new Response(crashedRecoverer.stderr).text(),
+      crashedRecoverer.exited,
+    ])
+
+    expect(existsSync(ownerPath)).toBe(false)
+    expect(existsSync(recoveryPath)).toBe(true)
+
+    const result = await collectChild<{ ok: boolean; error?: string }>(
+      startRecoveryWriter(
+        tempDir,
+        settingsPath,
+        'RECOVERED_AFTER_CRASH',
+        'complete',
+        join(tempDir, 'unused-marker'),
+        join(tempDir, 'unused-release'),
+      ),
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      value: { ok: true },
+    })
+    expect(existsSync(lockPath)).toBe(false)
+    expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
+      env: { BASE: '1', RECOVERED_AFTER_CRASH: 'true' },
     })
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
