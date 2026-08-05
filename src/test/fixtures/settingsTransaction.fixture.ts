@@ -40,6 +40,10 @@ const configDir = realpathSync(
   mkdtempSync(join(tmpdir(), 'openclaude-settings-scenario-')),
 )
 const settingsPath = join(configDir, 'settings.json')
+// Node forwards this PID to the OS, which reports ESRCH, while the invalid PID
+// is rejected before the liveness probe. Recovery is allowed only for ESRCH.
+const MISSING_PROCESS_PID = 2_147_483_647
+const INVALID_PROCESS_PID = Number.MAX_SAFE_INTEGER
 
 setClaudeConfigHomeDirForTesting(configDir)
 getClaudeConfigHomeDir.cache?.clear?.()
@@ -183,7 +187,7 @@ function deadOwnerScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: 2_147_483_647, token: 'dead-owner' }),
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
     'utf8',
   )
   const recovered = updateSettingsForSource('userSettings', {
@@ -193,6 +197,7 @@ function deadOwnerScenario(): unknown {
     !existsSync(lockPath) && !existsSync(ownerPath)
 
   const beforeCorrupt = readFileSync(settingsPath, 'utf8')
+  rmSync(lockPath, { recursive: true, force: true })
   mkdirSync(lockPath)
   writeFileSync(ownerPath, 'not-json', 'utf8')
   const blocked = updateSettingsForSource('userSettings', {
@@ -210,7 +215,7 @@ function deadOwnerScenario(): unknown {
     mkdirSync(foreignLockPath)
     writeFileSync(
       foreignOwnerPath,
-      JSON.stringify({ pid: 2_147_483_647, token: 'foreign-owner' }),
+      JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'foreign-owner' }),
       'utf8',
     )
     symlinkSync(foreignLockPath, lockPath, 'dir')
@@ -228,6 +233,36 @@ function deadOwnerScenario(): unknown {
     corruptUnchanged,
     symlinkBlockedError,
     symlinkOwnerUntouched,
+  }
+}
+
+function orphanedRecoveryClaimScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const recoveryPath = join(lockPath, 'recovery.json')
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    'utf8',
+  )
+  writeFileSync(
+    recoveryPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-recoverer' }),
+    'utf8',
+  )
+
+  const result = updateSettingsForSource('userSettings', {
+    env: { RECOVERED_CLAIM: 'yes' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    final: readSettings(),
   }
 }
 
@@ -300,6 +335,8 @@ function longDanglingChainScenario(): unknown {
   mkdirSync(physicalDir)
   symlinkSync(physicalDir, aliasA, 'dir')
   symlinkSync(physicalDir, aliasB, 'dir')
+  // Seventeen crosses the original 16-link regression boundary while staying
+  // below the OS symlink limit, so resolution reaches the dangling final link.
   for (let index = 1; index <= 17; index++) {
     symlinkSync(
       index === 17 ? 'missing.json' : `link-${index + 1}`,
@@ -329,7 +366,7 @@ function ownerMetadataScenario(): unknown {
     const foreignOwnerPath = join(configDir, 'foreign-owner.json')
     writeFileSync(
       foreignOwnerPath,
-      JSON.stringify({ pid: 2_147_483_647, token: 'foreign-owner' }),
+      JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'foreign-owner' }),
       'utf8',
     )
     mkdirSync(lockPath)
@@ -345,7 +382,7 @@ function ownerMetadataScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    `${JSON.stringify({ pid: 2_147_483_647, token: 'oversized' })}${' '.repeat(8_192)}`,
+    `${JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'oversized' })}${' '.repeat(8_192)}`,
     'utf8',
   )
   const oversizedError =
@@ -386,7 +423,7 @@ function unknownPidScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: Number.MAX_SAFE_INTEGER, token: 'unknown-pid' }),
+    JSON.stringify({ pid: INVALID_PROCESS_PID, token: 'unknown-pid' }),
     'utf8',
   )
   const blocked = updateSettingsForSource('userSettings', {
@@ -424,10 +461,12 @@ function writeFailureScenario(): unknown {
   const second = updateSettingsForSource('userSettings', {
     env: { SECOND: 'landed' },
   })
+  const lockPath = `${resolveSettingsFileTarget(settingsPath)}.lock`
 
   return {
     firstError: first.error?.message ?? null,
     secondError: second.error?.message ?? null,
+    lockExists: existsSync(lockPath),
     final: readSettings(),
   }
 }
@@ -440,6 +479,7 @@ const individualScenarios: Record<string, () => unknown> = {
   'long-dangling': longDanglingChainScenario,
   malformed: malformedScenario,
   metadata: ownerMetadataScenario,
+  'orphaned-recovery-claim': orphanedRecoveryClaimScenario,
   'pid-one': pidOneScenario,
   semantics: semanticsScenario,
   'unknown-pid': unknownPidScenario,
@@ -458,7 +498,13 @@ function allScenarios(): Record<string, unknown> {
   const results: Record<string, unknown> = {}
   for (const [name, run] of Object.entries(individualScenarios)) {
     resetScenarioState()
-    results[name] = run()
+    try {
+      results[name] = run()
+    } catch (error) {
+      results[name] = {
+        scenarioError: error instanceof Error ? error.stack : String(error),
+      }
+    }
   }
   return results
 }
