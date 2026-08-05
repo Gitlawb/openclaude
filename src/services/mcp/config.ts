@@ -720,8 +720,8 @@ export async function addMcpConfig(
   // Check if server already exists in the target scope
   switch (scope) {
     case 'project': {
-      const { servers, errors } = getProjectMcpConfigsFromCwd()
-      assertMcpScopeWritable(errors, '.mcp.json')
+      const { servers } = getProjectMcpConfigsFromCwd()
+      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
       if (Object.hasOwn(servers, name)) {
         throw new Error(`MCP server ${name} already exists in .mcp.json`)
       }
@@ -730,7 +730,7 @@ export async function addMcpConfig(
     case 'user': {
       // A fatally poisoned user scope parses to an empty map, so the add would
       // silently write into a config that then loads no servers at all.
-      assertMcpScopeWritable(getMcpConfigsByScope('user').errors, 'user config')
+      assertMcpScopeWritable(getScopeMutationErrors('user'), 'user config')
       const globalConfig = getGlobalConfig()
       if (Object.hasOwn(globalConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in user config`)
@@ -738,10 +738,7 @@ export async function addMcpConfig(
       break
     }
     case 'local': {
-      assertMcpScopeWritable(
-        getMcpConfigsByScope('local').errors,
-        'local config',
-      )
+      assertMcpScopeWritable(getScopeMutationErrors('local'), 'local config')
       const projectConfig = getCurrentProjectConfig()
       if (Object.hasOwn(projectConfig.mcpServers ?? {}, name)) {
         throw new Error(`MCP server ${name} already exists in local config`)
@@ -759,11 +756,11 @@ export async function addMcpConfig(
   // Add based on scope
   switch (scope) {
     case 'project': {
-      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
       // Re-check the exact snapshot we are about to rebuild from: the file may
       // have become fatally invalid since the existence check above, and writing
       // from the resulting empty map would drop every valid sibling.
-      assertMcpScopeWritable(errors, '.mcp.json')
+      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
 
       const mcpServers: Record<string, McpServerConfig> = {}
       for (const [serverName, serverConfig] of Object.entries(
@@ -823,11 +820,11 @@ export async function removeMcpConfig(
 ): Promise<void> {
   switch (scope) {
     case 'project': {
-      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
       // A fatally poisoned file parses to an empty map, so an empty result is
       // not proof the server is absent -- refuse rather than treat it as such
       // (which would also clobber every valid sibling on write-back).
-      assertMcpScopeWritable(errors, '.mcp.json')
+      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
 
       if (!Object.hasOwn(existingServers, name)) {
         throw new Error(`No MCP server found with name: ${name} in .mcp.json`)
@@ -856,7 +853,7 @@ export async function removeMcpConfig(
       // An empty parsed map from a fatally poisoned scope is not proof of
       // absence; refuse rather than mutate a sibling in the raw map while the
       // scope stays unloadable.
-      assertMcpScopeWritable(getMcpConfigsByScope('user').errors, 'user config')
+      assertMcpScopeWritable(getScopeMutationErrors('user'), 'user config')
       const config = getGlobalConfig()
       if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
         throw new Error(`No user-scoped MCP server found with name: ${name}`)
@@ -872,10 +869,7 @@ export async function removeMcpConfig(
     }
 
     case 'local': {
-      assertMcpScopeWritable(
-        getMcpConfigsByScope('local').errors,
-        'local config',
-      )
+      assertMcpScopeWritable(getScopeMutationErrors('local'), 'local config')
       // Check if server exists before updating
       const config = getCurrentProjectConfig()
       if (!Object.hasOwn(config.mcpServers ?? {}, name)) {
@@ -1084,6 +1078,63 @@ export function getMcpConfigsByScope(
         servers: addScopeToServers(config.mcpServers, scope),
         errors,
       }
+    }
+  }
+}
+
+/**
+ * Fatal parse errors for a scope's *raw* config, independent of whether that
+ * setting source is currently enabled.
+ *
+ * getMcpConfigsByScope() (and getProjectMcpConfigsFromCwd()) suppress errors to
+ * an empty list when isSettingSourceEnabled() is false for the scope. That is
+ * correct for loading -- a disabled source contributes no servers -- but
+ * addMcpConfig()/removeMcpConfig() still mutate the raw mcpServers maps via
+ * getGlobalConfig()/getCurrentProjectConfig()/the .mcp.json file. Reusing the
+ * load-time helper for the write guard means a fatally poisoned scope can be
+ * written or deleted (clobbering valid siblings on write-back) while the CLI
+ * reports success whenever the user runs with a narrowed --setting-sources set.
+ * Parse the raw source directly so the mutation guards fire regardless of the
+ * load-time source filter.
+ */
+function getScopeMutationErrors(
+  scope: 'project' | 'user' | 'local',
+): ValidationError[] {
+  switch (scope) {
+    case 'project': {
+      const mcpJsonPath = join(getCwd(), '.mcp.json')
+      const { errors } = parseMcpConfigFromFilePath({
+        filePath: mcpJsonPath,
+        expandVars: true,
+        scope: 'project',
+      })
+      // A missing .mcp.json is not a poisoned file -- only surface real parse
+      // failures, matching getMcpConfigsByScope('project').
+      return errors.filter(
+        e => !e.message.startsWith('MCP config file not found'),
+      )
+    }
+    case 'user': {
+      const mcpServers = getGlobalConfig().mcpServers
+      if (!mcpServers) {
+        return []
+      }
+      return parseMcpConfig({
+        configObject: { mcpServers },
+        expandVars: true,
+        scope: 'user',
+      }).errors
+    }
+    case 'local': {
+      const mcpServers = getCurrentProjectConfig().mcpServers
+      if (!mcpServers) {
+        return []
+      }
+      return parseMcpConfig({
+        configObject: { mcpServers },
+        expandVars: true,
+        scope: 'local',
+      }).errors
     }
   }
 }

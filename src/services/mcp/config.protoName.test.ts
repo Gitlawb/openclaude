@@ -277,6 +277,29 @@ test('refuses local add/remove when the local scope is fatally poisoned', async 
   )
 })
 
+test('still refuses a poisoned scope whose setting source is disabled', async () => {
+  // The mutation guards must not defer to the load-time source filter:
+  // getMcpConfigsByScope() reports no errors for a disabled source, but
+  // add/remove still write the raw map, so a fatally poisoned scope has to be
+  // refused even when the user narrowed --setting-sources to exclude it.
+  saveCurrentProjectConfig(config => ({
+    ...config,
+    mcpServers: JSON.parse(
+      '{"__proto__":{"command":"echo","args":[]},' +
+        '"reallocal":{"command":"echo","args":[]}}',
+    ),
+  }))
+  setAllowedSettingSources(
+    SETTING_SOURCES.filter(source => source !== 'localSettings'),
+  )
+  await expect(
+    addMcpConfig('newsrv', { command: 'echo', args: [] }, 'local'),
+  ).rejects.toThrow('Cannot modify local config')
+  await expect(removeMcpConfig('reallocal', 'local')).rejects.toThrow(
+    'Cannot modify local config',
+  )
+})
+
 test('still allows adding and removing a real server name', async () => {
   await addMcpConfig('addedserver', { command: 'echo', args: [] }, 'user')
   expect(getMcpConfigByName('addedserver')).not.toBeNull()
