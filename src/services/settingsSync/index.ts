@@ -33,8 +33,8 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
 } from '../../utils/model/providers.js'
-import { markInternalWrite } from '../../utils/settings/internalWrites.js'
 import { getSettingsFilePathForSource } from '../../utils/settings/settings.js'
+import { replaceSettingsFileSync } from '../../utils/settings/settingsFileLock.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import { sleep } from '../../utils/sleep.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
@@ -188,7 +188,12 @@ async function doDownloadUserSettings(
       logForDiagnosticsNoPII('info', 'settings_sync_download_applying', {
         entryCount,
       })
-      await applyRemoteEntriesToLocal(entries, projectId)
+      const applied = await applyRemoteEntriesToLocal(entries, projectId)
+      if (!applied) {
+        logForDiagnosticsNoPII('warn', 'settings_sync_download_apply_failed')
+        logEvent('tengu_settings_sync_download_apply_failed', { entryCount })
+        return false
+      }
       logEvent('tengu_settings_sync_download_success', { entryCount })
       return true
     } catch {
@@ -477,6 +482,20 @@ async function writeFileForSync(
   }
 }
 
+function writeSettingsFileForSync(
+  filePath: string,
+  content: string,
+): boolean {
+  try {
+    replaceSettingsFileSync(filePath, content)
+    logForDiagnosticsNoPII('info', 'settings_sync_file_written')
+    return true
+  } catch {
+    logForDiagnosticsNoPII('warn', 'settings_sync_file_write_failed')
+    return false
+  }
+}
+
 /**
  * Apply remote entries to local files (CCR pull pattern).
  * Only writes files that match expected keys.
@@ -488,9 +507,10 @@ async function writeFileForSync(
 async function applyRemoteEntriesToLocal(
   entries: Record<string, string>,
   projectId: string | null,
-): Promise<void> {
+): Promise<boolean> {
   let appliedCount = 0
   let settingsWritten = false
+  let settingsWriteFailed = false
   let memoryWritten = false
 
   // Helper to check size limit (defense-in-depth, matches backend limit)
@@ -514,11 +534,11 @@ async function applyRemoteEntriesToLocal(
       userSettingsPath &&
       !exceedsSizeLimit(userSettingsContent, userSettingsPath)
     ) {
-      // Mark as internal write to prevent spurious change detection
-      markInternalWrite(userSettingsPath)
-      if (await writeFileForSync(userSettingsPath, userSettingsContent)) {
+      if (writeSettingsFileForSync(userSettingsPath, userSettingsContent)) {
         appliedCount++
         settingsWritten = true
+      } else {
+        settingsWriteFailed = true
       }
     }
   }
@@ -545,11 +565,16 @@ async function applyRemoteEntriesToLocal(
         localSettingsPath &&
         !exceedsSizeLimit(projectSettingsContent, localSettingsPath)
       ) {
-        // Mark as internal write to prevent spurious change detection
-        markInternalWrite(localSettingsPath)
-        if (await writeFileForSync(localSettingsPath, projectSettingsContent)) {
+        if (
+          writeSettingsFileForSync(
+            localSettingsPath,
+            projectSettingsContent,
+          )
+        ) {
           appliedCount++
           settingsWritten = true
+        } else {
+          settingsWriteFailed = true
         }
       }
     }
@@ -578,4 +603,8 @@ async function applyRemoteEntriesToLocal(
   logForDiagnosticsNoPII('info', 'settings_sync_applied', {
     appliedCount,
   })
+  return !settingsWriteFailed
 }
+
+/** Test-only surface for transaction-level settings-sync coverage. */
+export const __test = { applyRemoteEntriesToLocal }
