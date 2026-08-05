@@ -266,17 +266,22 @@ async function performRebuildIndex(memoryDir: string, state: DirIndex): Promise<
 
 export async function rebuildIndex(memoryDir: string): Promise<void> {
   const state = getOrCreateDirState(memoryDir)
-  if (state.pending) {
-    await state.pending
-    return
+  const inFlight = state.pending
+  if (inFlight) {
+    // An init/rebuild is in flight. Await it, then chain a fresh rebuild:
+    // the in-flight scan may have started before the triggering fact write
+    // landed, so returning without rebuilding would leave the index stale (P2).
+    await inFlight
   }
-
-  state.pending = performRebuildIndex(memoryDir, state)
+  const rebuild = performRebuildIndex(memoryDir, state)
+  state.pending = rebuild
 
   try {
-    await state.pending
+    await rebuild
   } finally {
-    state.pending = null
+    if (state.pending === rebuild) {
+      state.pending = null
+    }
   }
 }
 
