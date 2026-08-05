@@ -177,6 +177,67 @@ function ownersMatch(
   )
 }
 
+function claimRecoveryPath(
+  lockPath: string,
+  identity: LockIdentity,
+  ownerPath: string,
+  owner: SettingsLockOwner,
+  recoveryPath: string,
+  recoveryOwner: SettingsLockOwner,
+): boolean {
+  const fs = getFsImplementation()
+  try {
+    writeOwner(recoveryPath, recoveryOwner)
+    return true
+  } catch (error) {
+    if (getErrnoCode(error) !== 'EEXIST') {
+      throw error
+    }
+  }
+
+  // Staleness is intentionally disabled for settings locks, so a recovery
+  // claim left by a confirmed-dead process must itself be recoverable.
+  const existingClaim = readOwner(recoveryPath)
+  if (!existingClaim || !isProcessDead(existingClaim.pid)) {
+    return false
+  }
+  if (
+    !ownersMatch(readOwner(ownerPath), owner) ||
+    !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
+    !ownersMatch(readOwner(recoveryPath), existingClaim)
+  ) {
+    return false
+  }
+
+  try {
+    fs.unlinkSync(recoveryPath)
+  } catch (error) {
+    if (getErrnoCode(error) === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+
+  // Revalidate the dead lock after removing the orphan. If another contender
+  // changed it, leave the path unclaimed and let a later acquisition retry.
+  if (
+    !ownersMatch(readOwner(ownerPath), owner) ||
+    !lockIdentityMatches(readLockIdentity(lockPath), identity)
+  ) {
+    return false
+  }
+
+  try {
+    writeOwner(recoveryPath, recoveryOwner)
+    return true
+  } catch (error) {
+    if (getErrnoCode(error) === 'EEXIST') {
+      return false
+    }
+    throw error
+  }
+}
+
 function removeDeadOwnerLock(
   lockPath: string,
   ownerPath: string,
@@ -199,13 +260,17 @@ function removeDeadOwnerLock(
     pid: process.pid,
     token: randomUUID(),
   }
-  try {
-    writeOwner(recoveryPath, recoveryOwner)
-  } catch (error) {
-    if (getErrnoCode(error) === 'EEXIST') {
-      return false
-    }
-    throw error
+  if (
+    !claimRecoveryPath(
+      lockPath,
+      identity,
+      ownerPath,
+      owner,
+      recoveryPath,
+      recoveryOwner,
+    )
+  ) {
+    return false
   }
 
   const releaseRecoveryClaim = (): void => {
@@ -219,7 +284,8 @@ function removeDeadOwnerLock(
   const current = readOwner(ownerPath)
   if (
     !ownersMatch(current, owner) ||
-    !lockIdentityMatches(readLockIdentity(lockPath), identity)
+    !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
+    !ownersMatch(readOwner(recoveryPath), recoveryOwner)
   ) {
     releaseRecoveryClaim()
     return false

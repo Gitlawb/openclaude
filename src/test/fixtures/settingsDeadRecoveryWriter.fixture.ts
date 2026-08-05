@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -31,7 +31,7 @@ getClaudeConfigHomeDir.cache?.clear?.()
 
 const originalFs = getFsImplementation()
 const normalizedTarget = resolve(targetPath)
-const ownerPath = `${normalizedTarget}.lock/owner.json`
+const ownerPath = join(`${normalizedTarget}.lock`, 'owner.json')
 let paused = false
 
 function pauseAtBarrier(): void {

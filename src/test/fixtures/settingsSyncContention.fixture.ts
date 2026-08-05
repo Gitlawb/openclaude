@@ -28,6 +28,9 @@ try {
 
   let applyPromise: Promise<boolean> | undefined
   withSettingsFileLockSync(settingsPath, () => {
+    // An async function runs synchronously until its first await. This call is
+    // intentionally started under the lock so the settings write contends;
+    // moving that write past an await makes the assertions below fail.
     applyPromise = settingsSyncTest.applyRemoteEntriesToLocal(
       {
         [SYNC_KEYS.USER_SETTINGS]: `${JSON.stringify({ env: { REMOTE: '1' } })}\n`,

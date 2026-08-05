@@ -10,7 +10,12 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
+import {
+  clearInternalWrites,
+  consumeInternalWrite,
+  markInternalWrite,
+} from './internalWrites.js'
 
 const CONCURRENT_WRITER_FIXTURE = join(
   import.meta.dir,
@@ -28,6 +33,8 @@ const SETTINGS_SYNC_CONTENTION_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsSyncContention.fixture.ts',
 )
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
+const MISSING_PROCESS_PID = 2_147_483_647
 
 type ChildResult<T> = {
   exitCode: number
@@ -83,11 +90,19 @@ async function collectChild<T>(
     processHandle.exited,
   ])
   const line = stdout.trim().split('\n').at(-1) ?? ''
+  let value: T
+  try {
+    value = JSON.parse(line) as T
+  } catch {
+    throw new Error(
+      `fixture produced no parsable result\nexitCode: ${exitCode}\nstdout: ${stdout}\nstderr: ${stderr}`,
+    )
+  }
   return {
     exitCode,
     stderr,
     stdout,
-    value: JSON.parse(line) as T,
+    value,
   }
 }
 
@@ -190,7 +205,7 @@ test('concurrent writers through symlink aliases cannot both report success and 
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('locked update ignores a warmed parse cache and merges the fresh disk state', async () => {
   const result = await getScenario<{
@@ -296,6 +311,20 @@ test('dead owner is recovered but corrupt ownership fails closed', async () => {
   }
 })
 
+test('orphaned recovery claims from dead processes are reclaimed', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    final: unknown
+  }>('orphaned-recovery-claim')
+
+  expect(result).toEqual({
+    error: null,
+    lockExists: false,
+    final: { env: { BASE: '1', RECOVERED_CLAIM: 'yes' } },
+  })
+})
+
 test('PID 1 can own and release a settings lock', async () => {
   const result = await getScenario<{
     error: string | null
@@ -376,7 +405,7 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: 2_147_483_647, token: 'dead-owner' }),
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
     'utf8',
   )
 
@@ -440,7 +469,7 @@ test('two dead-owner recoverers cannot remove a newly acquired live lock', async
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('settings sync reports contention as an unapplied download', async () => {
   const result = await collectChild<{
@@ -460,7 +489,7 @@ test('settings sync reports contention as an unapplied download', async () => {
       value: { applied: false, unchanged: true },
     },
   )
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('unexpected PID probe errors do not authorize dead-owner recovery', async () => {
   const result = await getScenario<{
@@ -478,12 +507,24 @@ test('write failure releases the settings lock for a later update', async () => 
   const result = await getScenario<{
     firstError: string | null
     secondError: string | null
+    lockExists: boolean
     final: unknown
   }>('write-failure')
 
   expect(result.firstError).toContain('simulated settings stat failure')
   expect(result.secondError).toBeNull()
+  expect(result.lockExists).toBe(false)
   expect(result.final).toEqual({
     env: { BASE: '1', SECOND: 'landed' },
   })
+})
+
+test('internal write suppression normalizes equivalent watcher paths', () => {
+  clearInternalWrites()
+  const canonicalPath = join('settings-root', 'settings.json')
+  const equivalentPath = `settings-root${sep}nested${sep}..${sep}settings.json`
+
+  markInternalWrite(equivalentPath)
+  expect(consumeInternalWrite(canonicalPath, 5_000)).toBe(true)
+  clearInternalWrites()
 })
