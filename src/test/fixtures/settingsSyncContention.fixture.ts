@@ -26,7 +26,9 @@ try {
   getClaudeConfigHomeDir.cache?.clear?.()
   writeFileSync(settingsPath, original, 'utf8')
 
-  let applyPromise: Promise<boolean> | undefined
+  let applyPromise:
+    | ReturnType<typeof settingsSyncTest.applyRemoteEntriesToLocal>
+    | undefined
   withSettingsFileLockSync(settingsPath, () => {
     // An async function runs synchronously until its first await. This call is
     // intentionally started under the lock so the settings write contends;
@@ -39,7 +41,12 @@ try {
     )
   })
 
-  const applied = await applyPromise
+  if (!applyPromise) throw new Error('Settings sync did not start')
+  const applyResult: unknown = await applyPromise
+  const applied =
+    typeof applyResult === 'boolean'
+      ? applyResult
+      : (applyResult as { complete: boolean }).complete
   process.stdout.write(
     JSON.stringify({
       applied,

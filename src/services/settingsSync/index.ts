@@ -52,6 +52,20 @@ const SETTINGS_SYNC_TIMEOUT_MS = 10000 // 10 seconds
 const DEFAULT_MAX_RETRIES = 3
 const MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB per file (matches backend limit)
 
+export type SettingsDownloadResult = {
+  complete: boolean
+  settingsWritten: boolean
+  settingsSourcesWritten: Array<'userSettings' | 'localSettings'>
+}
+
+function emptySettingsDownloadResult(): SettingsDownloadResult {
+  return {
+    complete: false,
+    settingsWritten: false,
+    settingsSourcesWritten: [],
+  }
+}
+
 /**
  * Upload local settings to remote (interactive CLI only).
  * Called from main.tsx preAction.
@@ -112,7 +126,7 @@ export async function uploadUserSettingsInBackground(): Promise<void> {
 
 // Cached so the fire-and-forget at runHeadless entry and the await in
 // installPluginsAndApplyMcpInBackground share one fetch.
-let downloadPromise: Promise<boolean> | null = null
+let downloadPromise: Promise<SettingsDownloadResult> | null = null
 
 /** Test-only: clear the cached download promise between tests. */
 export function _resetDownloadPromiseForTesting(): void {
@@ -124,9 +138,10 @@ export function _resetDownloadPromiseForTesting(): void {
  * Fired fire-and-forget at the top of print.ts runHeadless(); awaited in
  * installPluginsAndApplyMcpInBackground before plugin install. First call
  * starts the fetch; subsequent calls join it.
- * Returns true if settings were applied, false otherwise.
+ * Reports both whether the full download completed and which settings files
+ * landed. A partial result lets mid-session callers refresh successful writes.
  */
-export function downloadUserSettings(): Promise<boolean> {
+export function downloadUserSettings(): Promise<SettingsDownloadResult> {
   if (downloadPromise) {
     return downloadPromise
   }
@@ -143,20 +158,20 @@ export function downloadUserSettings(): Promise<boolean> {
  * No retries: user-initiated command, one attempt + fail-open. The user
  * can re-run /reload-plugins to retry. Startup path keeps DEFAULT_MAX_RETRIES.
  *
- * Caller is responsible for firing settingsChangeDetector.notifyChange
- * when this returns true — applyRemoteEntriesToLocal uses markInternalWrite
- * to suppress detection (correct for startup, but mid-session needs
- * applySettingsChange to run). Kept out of this module to avoid the
- * settingsSync → changeDetector cycle edge.
+ * Caller is responsible for firing settingsChangeDetector.notifyChange for
+ * every returned settingsSourcesWritten entry. applyRemoteEntriesToLocal uses
+ * markInternalWrite to suppress detection (correct for startup, but
+ * mid-session needs applySettingsChange to run). Kept out of this module to
+ * avoid the settingsSync → changeDetector cycle edge.
  */
-export function redownloadUserSettings(): Promise<boolean> {
+export function redownloadUserSettings(): Promise<SettingsDownloadResult> {
   downloadPromise = doDownloadUserSettings(0)
   return downloadPromise
 }
 
 async function doDownloadUserSettings(
   maxRetries = DEFAULT_MAX_RETRIES,
-): Promise<boolean> {
+): Promise<SettingsDownloadResult> {
   if (feature('DOWNLOAD_USER_SETTINGS')) {
     try {
       if (
@@ -165,7 +180,7 @@ async function doDownloadUserSettings(
       ) {
         logForDiagnosticsNoPII('info', 'settings_sync_download_skipped')
         logEvent('tengu_settings_sync_download_skipped', {})
-        return false
+        return emptySettingsDownloadResult()
       }
 
       logForDiagnosticsNoPII('info', 'settings_sync_download_starting')
@@ -173,13 +188,13 @@ async function doDownloadUserSettings(
       if (!result.success) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_fetch_failed')
         logEvent('tengu_settings_sync_download_fetch_failed', {})
-        return false
+        return emptySettingsDownloadResult()
       }
 
       if (result.isEmpty) {
         logForDiagnosticsNoPII('info', 'settings_sync_download_empty')
         logEvent('tengu_settings_sync_download_empty', {})
-        return false
+        return emptySettingsDownloadResult()
       }
 
       const entries = result.data!.content.entries
@@ -188,22 +203,22 @@ async function doDownloadUserSettings(
       logForDiagnosticsNoPII('info', 'settings_sync_download_applying', {
         entryCount,
       })
-      const applied = await applyRemoteEntriesToLocal(entries, projectId)
-      if (!applied) {
+      const applyResult = await applyRemoteEntriesToLocal(entries, projectId)
+      if (!applyResult.complete) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_apply_failed')
         logEvent('tengu_settings_sync_download_apply_failed', { entryCount })
-        return false
+        return applyResult
       }
       logEvent('tengu_settings_sync_download_success', { entryCount })
-      return true
+      return applyResult
     } catch {
       // Fail-open: log error but don't block CCR startup
       logForDiagnosticsNoPII('error', 'settings_sync_download_error')
       logEvent('tengu_settings_sync_download_error', {})
-      return false
+      return emptySettingsDownloadResult()
     }
   }
-  return false
+  return emptySettingsDownloadResult()
 }
 
 /**
@@ -507,9 +522,10 @@ function writeSettingsFileForSync(
 async function applyRemoteEntriesToLocal(
   entries: Record<string, string>,
   projectId: string | null,
-): Promise<boolean> {
+): Promise<SettingsDownloadResult> {
   let appliedCount = 0
-  let settingsWritten = false
+  const settingsSourcesWritten: SettingsDownloadResult['settingsSourcesWritten'] =
+    []
   let settingsWriteFailed = false
   let memoryWritten = false
 
@@ -536,7 +552,7 @@ async function applyRemoteEntriesToLocal(
     ) {
       if (writeSettingsFileForSync(userSettingsPath, userSettingsContent)) {
         appliedCount++
-        settingsWritten = true
+        settingsSourcesWritten.push('userSettings')
       } else {
         settingsWriteFailed = true
       }
@@ -572,7 +588,7 @@ async function applyRemoteEntriesToLocal(
           )
         ) {
           appliedCount++
-          settingsWritten = true
+          settingsSourcesWritten.push('localSettings')
         } else {
           settingsWriteFailed = true
         }
@@ -593,7 +609,7 @@ async function applyRemoteEntriesToLocal(
   }
 
   // Invalidate caches so subsequent reads pick up new content
-  if (settingsWritten) {
+  if (settingsSourcesWritten.length > 0) {
     resetSettingsCache()
   }
   if (memoryWritten) {
@@ -603,7 +619,11 @@ async function applyRemoteEntriesToLocal(
   logForDiagnosticsNoPII('info', 'settings_sync_applied', {
     appliedCount,
   })
-  return !settingsWriteFailed
+  return {
+    complete: !settingsWriteFailed,
+    settingsWritten: settingsSourcesWritten.length > 0,
+    settingsSourcesWritten,
+  }
 }
 
 /** Test-only surface for transaction-level settings-sync coverage. */

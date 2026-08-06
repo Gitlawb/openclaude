@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -37,9 +37,16 @@ const recoveryPath = join(lockPath, 'recovery.json')
 let paused = false
 
 function isLockMetadataPath(path: string, filename: string): boolean {
+  const metadataDir = dirname(path)
   return (
     path === join(lockPath, filename) ||
-    (path.startsWith(`${lockPath}.recovered-`) && basename(path) === filename)
+    (path.startsWith(`${lockPath}.recovered-`) && basename(path) === filename) ||
+    (filename === 'recovery.json' &&
+      dirname(path) === dirname(lockPath) &&
+      basename(path).startsWith('.openclaude-settings-claim-')) ||
+    (dirname(metadataDir) === dirname(lockPath) &&
+      basename(metadataDir).startsWith('.openclaude-settings-') &&
+      basename(path) === filename)
   )
 }
 
@@ -83,8 +90,10 @@ setFsImplementation({
     const result = originalFs.unlinkSync(path)
     if (
       !paused &&
-      mode === 'pause-after-recovery-unlink' &&
-      isLockMetadataPath(resolvedPath, 'recovery.json')
+      ((mode === 'pause-after-recovery-unlink' &&
+        isLockMetadataPath(resolvedPath, 'recovery.json')) ||
+        (mode === 'pause-after-owner-unlink' &&
+          isLockMetadataPath(resolvedPath, 'owner.json')))
     ) {
       pauseAtBarrier()
     }
