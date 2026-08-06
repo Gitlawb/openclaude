@@ -6,6 +6,7 @@ import {
 } from '@commander-js/extra-typings'
 import {
   claimBackgroundTurnBudget,
+  computeDeferredMaxTurnsCapForBackgroundHandoff,
   createForegroundTurnBudgetHandoff,
   isLocalInteractiveMaxTurnsSession,
   releaseForegroundTurnBudget,
@@ -294,6 +295,33 @@ describe('interactive REPL max-turn cap', () => {
     abortController.abort('task stopped')
 
     await expect(wait).resolves.toBeNull()
+  })
+
+  test('defers max-turn cap restoration when foreground suppresses it for background handoff', () => {
+    expect(
+      computeDeferredMaxTurnsCapForBackgroundHandoff(
+        'background',
+        { reason: 'aborted_tools' },
+        1,
+        1,
+      ),
+    ).toEqual({ maxTurns: 1, turnCount: 2 })
+    expect(
+      computeDeferredMaxTurnsCapForBackgroundHandoff(
+        'background',
+        { reason: 'aborted_streaming' },
+        1,
+        1,
+      ),
+    ).toBeUndefined()
+    expect(
+      computeDeferredMaxTurnsCapForBackgroundHandoff(
+        'user',
+        { reason: 'aborted_tools' },
+        1,
+        1,
+      ),
+    ).toBeUndefined()
   })
 
   test('does not continue a background handoff after the foreground query throws', () => {

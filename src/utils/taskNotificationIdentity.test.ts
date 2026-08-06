@@ -113,4 +113,22 @@ describe('task notification identity', () => {
       pendingCommandsForEmbeddedNotifications([first, second], [embedded]),
     ).toEqual([first])
   })
+
+  test('does not dedupe non-task-notification queued commands in the batch', () => {
+    const prompt = taskNotification('s1111111', 'done')
+    const taskAttachment = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt,
+    })
+    const promptAttachment = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'prompt',
+      prompt,
+    })
+
+    expect(dedupeQueuedTaskNotifications([], [taskAttachment, promptAttachment])).toEqual(
+      [taskAttachment, promptAttachment],
+    )
+  })
 })

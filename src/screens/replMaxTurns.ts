@@ -3,6 +3,7 @@ import {
   type QueryTurnBudget,
 } from '../query.js'
 import type { Terminal as QueryTerminal } from '../query/transitions.js'
+import { normalizeAbortReason } from '../utils/abortReasons.js'
 import { getReplMaxTurnsWarning } from '../utils/replMaxTurns.js'
 
 export {
@@ -60,10 +61,37 @@ export function shouldContinueBackgroundAfterForegroundQuery({
 
 type MutableRef<T> = { current: T }
 
+export type DeferredMaxTurnsCap = {
+  maxTurns: number
+  turnCount: number
+}
+
 export type ForegroundTurnBudgetHandoff = {
   budget: QueryTurnBudget
   settled: Promise<boolean>
   settle: (shouldContinue: boolean) => void
+  /** Cap suppressed on foreground `background` abort; restore if handoff is cancelled. */
+  deferredMaxTurnsCap?: DeferredMaxTurnsCap
+}
+
+export function computeDeferredMaxTurnsCapForBackgroundHandoff(
+  abortReason: unknown,
+  queryTerminal: QueryTerminal | undefined,
+  maxTurns: number | undefined,
+  turnsStarted: number,
+): DeferredMaxTurnsCap | undefined {
+  if (
+    normalizeAbortReason(abortReason) !== 'background' ||
+    queryTerminal?.reason !== 'aborted_tools' ||
+    maxTurns === undefined
+  ) {
+    return undefined
+  }
+  const turnCount = turnsStarted + 1
+  if (turnCount <= maxTurns) {
+    return undefined
+  }
+  return { maxTurns, turnCount }
 }
 
 export function createForegroundTurnBudgetHandoff(

@@ -39,7 +39,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
-import { claimBackgroundTurnBudget, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
+import { claimBackgroundTurnBudget, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -2860,6 +2860,16 @@ export function REPL({
     // cap while the foreground query is winding down.
     const backgroundHandoff = claimBackgroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef);
     if (!backgroundHandoff) return;
+    const restoreDeferredMaxTurnsCap = () => {
+      const cap = backgroundHandoff.deferredMaxTurnsCap;
+      if (!cap) return;
+      backgroundHandoff.deferredMaxTurnsCap = undefined;
+      setMessages(prev => [...prev, createAttachmentMessage({
+        type: 'max_turns_reached',
+        maxTurns: cap.maxTurns,
+        turnCount: cap.turnCount
+      })]);
+    };
     const backgroundSession = startBackgroundSession({
       prepare: async backgroundAbortController => {
         // The foreground owns transcript completion. Wait until its abort path
@@ -2961,12 +2971,14 @@ export function REPL({
       setAppState,
       agentDefinition: mainThreadAgentDefinition,
       onPreparationError: () => {
+        restoreDeferredMaxTurnsCap();
         addNotification({
           key: 'background-session-start-failed',
           text: 'Could not start the background session. The current request was cancelled.',
           priority: 'high',
         });
       },
+      onContinuationCancelled: restoreDeferredMaxTurnsCap,
       onRegistered: controller => {
         setAbortController(current =>
           current === controller ? null : current,
@@ -3383,6 +3395,12 @@ export function REPL({
           abortReason: abortController.signal.reason,
           queryTerminal,
         });
+      if (shouldContinueBackground) {
+        const deferredCap = computeDeferredMaxTurnsCapForBackgroundHandoff(abortController.signal.reason, queryTerminal, turnBudget.maxTurns, turnBudget.turnsStarted);
+        if (deferredCap) {
+          turnBudgetHandoff.deferredMaxTurnsCap = deferredCap;
+        }
+      }
       releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
       // A provider response can hand off to tools before the assistant turn
       // finishes. Keep correction ownership through that work (and retries),

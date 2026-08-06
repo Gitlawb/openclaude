@@ -9,6 +9,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { QueryParams } from '../query.js'
+import { createQueryTurnBudget } from '../query.js'
 import type { Terminal } from '../query/transitions.js'
 import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
 import type { Message } from '../types/message.js'
@@ -228,6 +229,49 @@ describe('LocalMainSessionTask', () => {
     expect(restoreCalls).toBe(0)
   })
 
+  test('does not restore merged notifications when background completes at turn cap without provider dispatch', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    let restoreCalls = 0
+    let commitCalls = 0
+    const notificationAttachment = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt:
+        '<task-notification><task-id>sabc1234</task-id><summary>done</summary></task-notification>',
+    })
+
+    const { taskId } = startBackgroundSession({
+      description: 'turn-cap completion',
+      setAppState,
+      prepare: async () => ({
+        messages: [notificationAttachment],
+        restoreNotificationsIfUnsent: () => {
+          restoreCalls++
+        },
+        commitNotificationOwnership: () => {
+          commitCalls++
+        },
+        queryParams: {
+          turnBudget: createQueryTurnBudget(1),
+        } as Omit<QueryParams, 'messages'>,
+      }),
+      queryImpl: (async function* (): AsyncGenerator<Message, Terminal> {
+        return { reason: 'max_turns', turnCount: 2 }
+      }) as typeof import('../query.js').query,
+    })
+
+    await waitFor(
+      () => state.tasks[taskId]?.status === 'completed',
+      'background task completion',
+    )
+
+    expect(restoreCalls).toBe(0)
+    expect(commitCalls).toBe(1)
+  })
+
   test('retains a max-turn terminal attachment in task messages', async () => {
     let state = getDefaultAppState()
     const setAppState = (update: (previous: AppState) => AppState): void => {
@@ -271,6 +315,7 @@ describe('LocalMainSessionTask', () => {
     }
     const failure = new Error('context failed')
     const errors: unknown[] = []
+    const cancelled: boolean[] = []
 
     const { taskId } = startBackgroundSession({
       description: 'failing preparation',
@@ -279,11 +324,13 @@ describe('LocalMainSessionTask', () => {
         throw failure
       },
       onPreparationError: error => errors.push(error),
+      onContinuationCancelled: () => cancelled.push(true),
     })
 
     await waitFor(() => errors.length === 1, 'preparation failure callback')
 
     expect(errors).toEqual([failure])
+    expect(cancelled).toEqual([true])
     expect(state.tasks[taskId]).toBeUndefined()
   })
 

@@ -98,6 +98,7 @@ export function dedupeQueuedTaskNotifications(
     if (
       message.type !== 'attachment' ||
       message.attachment.type !== 'queued_command' ||
+      message.attachment.commandMode !== 'task-notification' ||
       typeof message.attachment.prompt !== 'string'
     ) {
       return true

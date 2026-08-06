@@ -352,6 +352,7 @@ export function startBackgroundSession({
   agentDefinition,
   queryImpl = query,
   onPreparationError,
+  onContinuationCancelled,
   onRegistered,
   onSettled,
 }: {
@@ -369,6 +370,7 @@ export function startBackgroundSession({
   agentDefinition?: AgentDefinition
   queryImpl?: typeof query
   onPreparationError?: (error: unknown) => void
+  onContinuationCancelled?: () => void
   onRegistered?: (abortController: AbortController) => void
   onSettled?: (abortController: AbortController) => void
 }): BackgroundSessionHandle {
@@ -447,15 +449,25 @@ export function startBackgroundSession({
       commitNotificationOwnership = prepared.commitNotificationOwnership
       if (abortSignal.aborted) {
         restorePreDispatchNotifications()
+        onContinuationCancelled?.()
         return
       }
-      registerMainSessionTask(
-        description,
-        setAppState,
-        agentDefinition,
-        abortController,
-        taskId,
-      )
+      try {
+        registerMainSessionTask(
+          description,
+          setAppState,
+          agentDefinition,
+          abortController,
+          taskId,
+        )
+      } catch (error) {
+        restorePreDispatchNotifications()
+        if (abortSignal.aborted) {
+          onContinuationCancelled?.()
+          return
+        }
+        throw error
+      }
       taskRegistered = true
       onRegistered?.(abortController)
       const { messages, queryParams } = prepared
@@ -565,7 +577,7 @@ export function startBackgroundSession({
         finishAbortedTask()
         return
       }
-      restorePreDispatchNotifications()
+      commitNotificationOwnership?.()
       completeMainSessionTask(taskId, true, setAppState)
     } catch (error) {
       if (abortSignal.aborted) {
@@ -573,15 +585,18 @@ export function startBackgroundSession({
           finishAbortedTask()
         } else {
           restorePreDispatchNotifications()
+          onContinuationCancelled?.()
         }
         return
       }
       logError(error)
       if (taskRegistered) {
-        restorePreDispatchNotifications()
+        commitNotificationOwnership?.()
         completeMainSessionTask(taskId, false, setAppState)
       } else {
+        restorePreDispatchNotifications()
         onPreparationError?.(error)
+        onContinuationCancelled?.()
       }
     } finally {
       onSettled?.(abortController)
