@@ -55,6 +55,8 @@ beforeEach(async () => {
   delete process.env.LONGCAT_API_KEY
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   delete process.env.USER_TYPE
+  delete process.env.OPENCLAUDE_MAX_TURNS
+  delete process.env.CLAUDE_CODE_MAX_TURNS
 })
 
 afterEach(() => {
@@ -549,8 +551,6 @@ test('unknown openai-compatible model fallback logs one debug warning and no con
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
-  delete process.env.OPENCLAUDE_MAX_TURNS
-  delete process.env.CLAUDE_CODE_MAX_TURNS
 
   const actualDebugModule = await import('./debug.js')
   const logForDebugging = spyOn(

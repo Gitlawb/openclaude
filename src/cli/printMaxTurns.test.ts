@@ -12,6 +12,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from '../utils/messages.js'
+import * as processModule from '../utils/process.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { parseMaxTurnsCli, resolveReplMaxTurns } from '../utils/replMaxTurns.js'
 import { runHeadless } from './print.js'
@@ -182,6 +183,9 @@ describe('headless --print max-turns', () => {
   test('forwards maxTurns 0 through runHeadless into ask()', async () => {
     process.env.CLAUDE_CODE_SIMPLE = '1'
 
+    const stdoutSpy = spyOn(processModule, 'writeToStdout').mockImplementation(
+      () => {},
+    )
     const askSpy = spyOn(queryEngineModule, 'ask').mockImplementation(
       async function* () {
         yield createHeadlessSuccessResult()
@@ -194,22 +198,24 @@ describe('headless --print max-turns', () => {
       state = update(state)
     }
 
-    const runPromise = runHeadless(
-      'headless prompt',
-      getAppState,
-      setAppState,
-      [] as Command[],
-      [] as Tools,
-      {},
-      [],
-      createHeadlessRunOptions(0),
-    ).catch(() => {})
+    try {
+      const runPromise = runHeadless(
+        'headless prompt',
+        getAppState,
+        setAppState,
+        [] as Command[],
+        [] as Tools,
+        {},
+        [],
+        createHeadlessRunOptions(0),
+      )
 
-    await waitForAskCall(askSpy)
-
-    expect(askSpy.mock.calls[0]?.[0]?.maxTurns).toBe(0)
-
-    askSpy.mockRestore()
-    await runPromise
+      await waitForAskCall(askSpy)
+      expect(askSpy.mock.calls[0]?.[0]?.maxTurns).toBe(0)
+      await runPromise
+    } finally {
+      askSpy.mockRestore()
+      stdoutSpy.mockRestore()
+    }
   })
 })
