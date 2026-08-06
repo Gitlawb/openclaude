@@ -18,6 +18,7 @@ import {
   claimAimlapiTopupState as claimAimlapiTopupStateImpl,
   clearAimlapiTopupStateAsync as clearAimlapiTopupStateAsyncImpl,
   recordAimlapiCheckoutSession as recordAimlapiCheckoutSessionImpl,
+  resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
   saveAimlapiTopupState as saveAimlapiTopupStateImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKey as saveAimlapiSignInKeyImpl,
@@ -68,6 +69,10 @@ export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl
 export const recordAimlapiCheckoutSession: typeof recordAimlapiCheckoutSessionImpl = (
   ...args
 ) => recordAimlapiCheckoutSessionImpl(...args)
+
+export const resetAimlapiCheckoutSessionAsync: typeof resetAimlapiCheckoutSessionAsyncImpl = (
+  ...args
+) => resetAimlapiCheckoutSessionAsyncImpl(...args)
 
 export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = (...args) =>
   saveAimlapiTopupStateImpl(...args)
