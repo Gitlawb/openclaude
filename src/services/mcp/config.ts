@@ -720,8 +720,8 @@ export async function addMcpConfig(
   // Check if server already exists in the target scope
   switch (scope) {
     case 'project': {
-      const { servers } = getProjectMcpConfigsFromCwd()
-      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
+      const { servers, errors } = getProjectMcpConfigsFromCwd()
+      assertMcpScopeWritable(errors, '.mcp.json')
       if (Object.hasOwn(servers, name)) {
         throw new Error(`MCP server ${name} already exists in .mcp.json`)
       }
@@ -756,11 +756,11 @@ export async function addMcpConfig(
   // Add based on scope
   switch (scope) {
     case 'project': {
-      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
       // Re-check the exact snapshot we are about to rebuild from: the file may
       // have become fatally invalid since the existence check above, and writing
       // from the resulting empty map would drop every valid sibling.
-      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
+      assertMcpScopeWritable(errors, '.mcp.json')
 
       const mcpServers: Record<string, McpServerConfig> = {}
       for (const [serverName, serverConfig] of Object.entries(
@@ -820,11 +820,11 @@ export async function removeMcpConfig(
 ): Promise<void> {
   switch (scope) {
     case 'project': {
-      const { servers: existingServers } = getProjectMcpConfigsFromCwd()
+      const { servers: existingServers, errors } = getProjectMcpConfigsFromCwd()
       // A fatally poisoned file parses to an empty map, so an empty result is
       // not proof the server is absent -- refuse rather than treat it as such
       // (which would also clobber every valid sibling on write-back).
-      assertMcpScopeWritable(getScopeMutationErrors('project'), '.mcp.json')
+      assertMcpScopeWritable(errors, '.mcp.json')
 
       if (!Object.hasOwn(existingServers, name)) {
         throw new Error(`No MCP server found with name: ${name} in .mcp.json`)
@@ -895,17 +895,19 @@ export async function removeMcpConfig(
  * Used by addMcpConfig and removeMcpConfig to modify the local .mcp.json file.
  * Exported for testing purposes.
  *
+ * This is a *mutation-path* read, so it deliberately does NOT gate on
+ * isSettingSourceEnabled('projectSettings'): add/remove rebuild .mcp.json from
+ * the servers it returns, and suppressing them to an empty map when the source
+ * is disabled would drop every valid sibling on write-back (and hide a fatally
+ * poisoned file from the write guard). The load-time source filter is applied
+ * by getMcpConfigsByScope('project') instead, which this never feeds.
+ *
  * @returns Servers with scope information and any validation errors from current directory's .mcp.json
  */
 export function getProjectMcpConfigsFromCwd(): {
   servers: Record<string, ScopedMcpServerConfig>
   errors: ValidationError[]
 } {
-  // Check if project source is enabled
-  if (!isSettingSourceEnabled('projectSettings')) {
-    return { servers: {}, errors: [] }
-  }
-
   const mcpJsonPath = join(getCwd(), '.mcp.json')
 
   const { config, errors } = parseMcpConfigFromFilePath({
@@ -1083,37 +1085,25 @@ export function getMcpConfigsByScope(
 }
 
 /**
- * Fatal parse errors for a scope's *raw* config, independent of whether that
- * setting source is currently enabled.
+ * Fatal parse errors for the user/local scope's *raw* config, independent of
+ * whether that setting source is currently enabled.
  *
- * getMcpConfigsByScope() (and getProjectMcpConfigsFromCwd()) suppress errors to
- * an empty list when isSettingSourceEnabled() is false for the scope. That is
- * correct for loading -- a disabled source contributes no servers -- but
- * addMcpConfig()/removeMcpConfig() still mutate the raw mcpServers maps via
- * getGlobalConfig()/getCurrentProjectConfig()/the .mcp.json file. Reusing the
- * load-time helper for the write guard means a fatally poisoned scope can be
- * written or deleted (clobbering valid siblings on write-back) while the CLI
- * reports success whenever the user runs with a narrowed --setting-sources set.
- * Parse the raw source directly so the mutation guards fire regardless of the
- * load-time source filter.
+ * getMcpConfigsByScope() suppresses errors to an empty list when
+ * isSettingSourceEnabled() is false for the scope. That is correct for loading
+ * -- a disabled source contributes no servers -- but addMcpConfig()/
+ * removeMcpConfig() still mutate the raw mcpServers maps via getGlobalConfig()/
+ * getCurrentProjectConfig(). Reusing the load-time helper for the write guard
+ * means a fatally poisoned scope can be written or deleted (clobbering valid
+ * siblings on write-back) while the CLI reports success whenever the user runs
+ * with a narrowed --setting-sources set. Parse the raw source directly so the
+ * mutation guards fire regardless of the load-time source filter.
+ *
+ * The project scope is not handled here: getProjectMcpConfigsFromCwd() is
+ * already an ungated mutation-path read and returns both the raw servers and
+ * their errors together, so the project mutations use it directly.
  */
-function getScopeMutationErrors(
-  scope: 'project' | 'user' | 'local',
-): ValidationError[] {
+function getScopeMutationErrors(scope: 'user' | 'local'): ValidationError[] {
   switch (scope) {
-    case 'project': {
-      const mcpJsonPath = join(getCwd(), '.mcp.json')
-      const { errors } = parseMcpConfigFromFilePath({
-        filePath: mcpJsonPath,
-        expandVars: true,
-        scope: 'project',
-      })
-      // A missing .mcp.json is not a poisoned file -- only surface real parse
-      // failures, matching getMcpConfigsByScope('project').
-      return errors.filter(
-        e => !e.message.startsWith('MCP config file not found'),
-      )
-    }
     case 'user': {
       const mcpServers = getGlobalConfig().mcpServers
       if (!mcpServers) {

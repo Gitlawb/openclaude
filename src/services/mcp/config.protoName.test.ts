@@ -241,6 +241,39 @@ test('still adds and removes a project server when .mcp.json is clean', async ()
   }
 })
 
+test('preserves .mcp.json siblings on mutation when projectSettings is disabled', async () => {
+  // A mutation must read the real .mcp.json, not the load-time source view.
+  // With projectSettings excluded from --setting-sources the load helper
+  // reports no project servers, so rebuilding the file from that empty view
+  // would drop the valid sibling on add and mis-report the server as absent on
+  // remove. The mutation path reads the raw file, so both stay correct.
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-project-disabled-'))
+  const mcpPath = join(dir, '.mcp.json')
+  writeFileSync(
+    mcpPath,
+    '{"mcpServers":{"realone":{"command":"echo","args":[]}}}',
+  )
+  setAllowedSettingSources(
+    SETTING_SOURCES.filter(source => source !== 'projectSettings'),
+  )
+  try {
+    await runWithCwdOverride(dir, async () => {
+      await addMcpConfig('newsrv', { command: 'echo', args: [] }, 'project')
+      const afterAdd = JSON.parse(readFileSync(mcpPath, 'utf8'))
+      // The valid sibling survives the rebuild instead of being dropped.
+      expect(Object.keys(afterAdd.mcpServers).sort()).toEqual([
+        'newsrv',
+        'realone',
+      ])
+      await removeMcpConfig('realone', 'project')
+      const afterRemove = JSON.parse(readFileSync(mcpPath, 'utf8'))
+      expect(Object.keys(afterRemove.mcpServers)).toEqual(['newsrv'])
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('refuses user add/remove when the user scope is fatally poisoned', async () => {
   // A hand-authored ~/.openclaude.json can carry an own "__proto__" server. The
   // scope then parses to config: null, so an add would claim success while the
