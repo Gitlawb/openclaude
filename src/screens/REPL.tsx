@@ -2921,10 +2921,12 @@ export function REPL({
           settledMessages,
           notificationMessages,
         );
-        notificationOwnershipActive = false;
         return {
           messages: [...settledMessages, ...uniqueNotifications],
           restoreNotificationsIfUnsent,
+          commitNotificationOwnership: () => {
+            notificationOwnershipActive = false;
+          },
           queryParams: {
             systemPrompt,
             userContext,

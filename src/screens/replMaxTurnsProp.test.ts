@@ -13,6 +13,7 @@ import {
   shouldShowReplMaxTurnsUnlimitedWarning,
   waitForForegroundTurnBudgetSettlement,
 } from './replMaxTurns.js'
+import { createQueryTurnBudget } from '../query.js'
 import {
   DEFAULT_GLOBAL_CONFIG,
   GLOBAL_CONFIG_KEYS,
@@ -242,6 +243,10 @@ describe('interactive REPL max-turn cap', () => {
   test('headless --max-turns 0 stays distinct from interactive unlimited resolution', () => {
     expect(parseMaxTurnsCli('0')).toBe(0)
     expect(resolveReplMaxTurns(0)).toBeUndefined()
+    const headlessTurnBudget = createQueryTurnBudget(parseMaxTurnsCli('0'))
+    expect(headlessTurnBudget.maxTurns).toBe(0)
+    // Headless passes the CLI value through; falsy maxTurns disables turn-cap guards.
+    expect(Boolean(headlessTurnBudget.maxTurns)).toBe(false)
     const help = MAX_TURNS_CLI_DESCRIPTION.toLowerCase()
     expect(help).toContain('local interactive mode')
     expect(help).toContain('--print mode')

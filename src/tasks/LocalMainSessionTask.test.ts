@@ -13,6 +13,7 @@ import type { Terminal } from '../query/transitions.js'
 import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
 import type { Message } from '../types/message.js'
 import { createAttachmentMessage } from '../utils/attachments.js'
+import { createAssistantMessage } from '../utils/messages.js'
 import {
   getClaudeConfigHomeDir,
   getClaudeConfigHomeDirOverrideForTesting,
@@ -138,6 +139,45 @@ describe('LocalMainSessionTask', () => {
 
     expect(restoreCalls).toBe(1)
     expect(state.tasks[taskId]).toBeUndefined()
+  })
+
+  test('restores claimed notifications when background aborts before provider dispatch', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    let restoreCalls = 0
+    let releaseQuery!: () => void
+    const queryBlocked = new Promise<void>(resolve => {
+      releaseQuery = resolve
+    })
+    let taskRegistered = false
+
+    const { taskId, abortController } = startBackgroundSession({
+      description: 'pre-dispatch abort',
+      setAppState,
+      prepare: async () => ({
+        messages: [],
+        restoreNotificationsIfUnsent: () => {
+          restoreCalls++
+        },
+        queryParams: {} as Omit<QueryParams, 'messages'>,
+      }),
+      onRegistered: () => {
+        taskRegistered = true
+      },
+      queryImpl: (async function* (): AsyncGenerator<Message, Terminal> {
+        await queryBlocked
+        yield createAssistantMessage({ content: 'late' })
+        return { reason: 'completed' }
+      }) as typeof import('../query.js').query,
+    })
+
+    await waitFor(() => taskRegistered, 'task registration')
+    abortController.abort('stopped')
+    releaseQuery()
+    await waitFor(() => restoreCalls === 1, 'notification restore')
+    expect(state.tasks[taskId]?.status).toBe('killed')
   })
 
   test('retains a max-turn terminal attachment in task messages', async () => {

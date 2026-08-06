@@ -359,6 +359,7 @@ export function startBackgroundSession({
     | {
       messages: Message[]
       restoreNotificationsIfUnsent?: () => void
+      commitNotificationOwnership?: () => void
       queryParams: Omit<QueryParams, 'messages'>
     }
     | null
@@ -380,6 +381,7 @@ export function startBackgroundSession({
   let taskRegistered = false
   let providerRequestStarted = false
   let restoreNotificationsIfUnsent: (() => void) | undefined
+  let commitNotificationOwnership: (() => void) | undefined
 
   const restorePreDispatchNotifications = (): void => {
     if (providerRequestStarted) return
@@ -442,6 +444,7 @@ export function startBackgroundSession({
         return
       }
       restoreNotificationsIfUnsent = prepared.restoreNotificationsIfUnsent
+      commitNotificationOwnership = prepared.commitNotificationOwnership
       if (abortSignal.aborted) {
         restorePreDispatchNotifications()
         return
@@ -475,7 +478,10 @@ export function startBackgroundSession({
         ...queryParams,
         onModelRequestStart: () => {
           queryParams.onModelRequestStart?.()
-          if (!abortSignal.aborted) providerRequestStarted = true
+          if (!abortSignal.aborted) {
+            providerRequestStarted = true
+            commitNotificationOwnership?.()
+          }
         },
       })) {
         if (abortSignal.aborted) {
