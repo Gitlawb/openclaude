@@ -3408,7 +3408,7 @@ export function REPL({
         if (deferredCap) {
           turnBudgetHandoff.deferredMaxTurnsCap = deferredCap;
           turnBudgetHandoff.settledTranscriptTailUuid =
-            persistentMessages.at(-1)?.uuid ?? null;
+            messagesRef.current.at(-1)?.uuid ?? null;
         }
       }
       releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
