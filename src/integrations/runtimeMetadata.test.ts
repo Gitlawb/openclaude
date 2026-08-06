@@ -1039,4 +1039,17 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       }).contextWindow,
     ).toBe(262_144)
   })
+
+  it('preserves OpenGateway maxTokensField wire contract for live-only inferred models', () => {
+    for (const model of ['moonshotai/kimi-k3', 'deepseek/deepseek-r1', 'z-ai/glm-5.2']) {
+      const result = resolveOpenAIShimRuntimeContext({
+        baseUrl: 'https://opengateway.gitlawb.com/v1',
+        model,
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      })
+      expect(result.routeId).toBe('gitlawb-opengateway')
+      expect(result.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
+      expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    }
+  })
 })

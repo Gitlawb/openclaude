@@ -692,7 +692,7 @@ describe('plan mode mechanical read-only policy', () => {
         value: platform,
         configurable: true,
       })
-      getPlatform.cache.clear()
+      getPlatform.cache?.clear?.()
       try {
         const planPath = getActiveSessionPlanFilePath()
         const differentlyCasedPath = planPath.replace(/([a-z])/, character =>
@@ -710,7 +710,7 @@ describe('plan mode mechanical read-only policy', () => {
         if (originalPlatform) {
           Object.defineProperty(process, 'platform', originalPlatform)
         }
-        getPlatform.cache.clear()
+        getPlatform.cache?.clear?.()
       }
     },
   )
