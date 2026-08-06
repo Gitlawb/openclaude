@@ -39,7 +39,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
-import { claimBackgroundTurnBudget, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
+import { claimBackgroundTurnBudget, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -291,6 +291,7 @@ import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type M
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
+import { getTaskNotificationDedupKey } from '../utils/taskNotificationIdentity.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -667,9 +668,17 @@ export function REPL({
   const backgroundHandoffStartedRef = useRef(false);
 
   useEffect(() => {
-    const warning = getReplMaxTurnsWarning(maxTurnsProp);
-    if (warning && !isRemoteSession && !directConnectConfig && !sshSession) {
-      process.stderr.write(chalk.yellow(`${warning}\n`));
+    if (
+      shouldShowReplMaxTurnsUnlimitedWarning(maxTurnsProp, {
+        isRemoteSession,
+        directConnectConfig,
+        sshSession,
+      })
+    ) {
+      const warning = getReplMaxTurnsWarning(maxTurnsProp)
+      if (warning) {
+        process.stderr.write(chalk.yellow(`${warning}\n`))
+      }
     }
   }, [maxTurnsProp, isRemoteSession, directConnectConfig, sshSession]);
 
@@ -2869,7 +2878,10 @@ export function REPL({
         // Claim foreground-produced notifications immediately after the
         // settlement decision, before any async context preparation can let
         // another queue consumer take ownership.
-        const pendingNotifications = removeByFilter(cmd => cmd.mode === 'task-notification');
+        const pendingNotifications = removeByFilter(
+          cmd =>
+            cmd.mode === 'task-notification' && cmd.agentId === undefined,
+        );
         let notificationOwnershipActive = true;
         const restoreNotificationsIfUnsent = () => {
           if (!notificationOwnershipActive) return;
@@ -2906,16 +2918,16 @@ export function REPL({
 
         // Deduplicate: if the query loop already yielded a notification into
         // messagesRef before we removed it from the queue, skip duplicates.
-        // We use prompt text for dedup because source_uuid is not set on
-        // task-notification QueuedCommands (enqueuePendingNotification callers
-        // don't pass uuid), so it would always be undefined.
-        const existingPrompts = new Set<string>();
+        // Use the embedded task id so distinct tasks with identical summary
+        // text are not collapsed.
+        const existingNotificationKeys = new Set<string>();
         for (const m of settledMessages) {
           if (m.type === 'attachment' && m.attachment.type === 'queued_command' && m.attachment.commandMode === 'task-notification' && typeof m.attachment.prompt === 'string') {
-            existingPrompts.add(m.attachment.prompt);
+            existingNotificationKeys.add(getTaskNotificationDedupKey(m.attachment.prompt));
           }
         }
-        const uniqueNotifications = notificationMessages.filter(m => m.attachment.type === 'queued_command' && (typeof m.attachment.prompt !== 'string' || !existingPrompts.has(m.attachment.prompt)));
+        const uniqueNotifications = notificationMessages.filter(m => m.attachment.type === 'queued_command' && (typeof m.attachment.prompt !== 'string' || !existingNotificationKeys.has(getTaskNotificationDedupKey(m.attachment.prompt))));
+        notificationOwnershipActive = false;
         return {
           messages: [...settledMessages, ...uniqueNotifications],
           restoreNotificationsIfUnsent,
@@ -3359,11 +3371,12 @@ export function REPL({
       // prompt. A background handoff already captured the budget object, so
       // clear the ref on every terminal path without disturbing a newer query.
       const shouldContinueBackground =
-        !didThrow &&
-        abortController.signal.reason === 'background' &&
-        (queryTerminal === undefined ||
-          queryTerminal.reason === 'aborted_streaming' ||
-          queryTerminal.reason === 'aborted_tools');
+        shouldContinueBackgroundAfterForegroundQuery({
+          didThrow,
+          preflightVetoed,
+          abortReason: abortController.signal.reason,
+          queryTerminal,
+        });
       releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
       // A provider response can hand off to tools before the assistant turn
       // finishes. Keep correction ownership through that work (and retries),

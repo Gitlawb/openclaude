@@ -2,6 +2,8 @@ import {
   createQueryTurnBudget,
   type QueryTurnBudget,
 } from '../query.js'
+import type { Terminal as QueryTerminal } from '../query/transitions.js'
+import { getReplMaxTurnsWarning } from '../utils/replMaxTurns.js'
 
 export {
   DEFAULT_REPL_MAX_TURNS,
@@ -11,6 +13,50 @@ export {
   normalizeReplMaxTurns,
   resolveReplMaxTurns,
 } from '../utils/replMaxTurns.js'
+
+export function isLocalInteractiveMaxTurnsSession(session: {
+  isRemoteSession: boolean
+  directConnectConfig: unknown
+  sshSession: unknown
+}): boolean {
+  return (
+    !session.isRemoteSession &&
+    !session.directConnectConfig &&
+    !session.sshSession
+  )
+}
+
+export function shouldShowReplMaxTurnsUnlimitedWarning(
+  maxTurns: number | undefined,
+  session: {
+    isRemoteSession: boolean
+    directConnectConfig: unknown
+    sshSession: unknown
+  },
+): boolean {
+  const warning = getReplMaxTurnsWarning(maxTurns)
+  return warning !== undefined && isLocalInteractiveMaxTurnsSession(session)
+}
+
+export function shouldContinueBackgroundAfterForegroundQuery({
+  didThrow,
+  preflightVetoed,
+  abortReason,
+  queryTerminal,
+}: {
+  didThrow: boolean
+  preflightVetoed: boolean
+  abortReason: unknown
+  queryTerminal: QueryTerminal | undefined
+}): boolean {
+  return (
+    !didThrow &&
+    !preflightVetoed &&
+    abortReason === 'background' &&
+    (queryTerminal?.reason === 'aborted_streaming' ||
+      queryTerminal?.reason === 'aborted_tools')
+  )
+}
 
 type MutableRef<T> = { current: T }
 

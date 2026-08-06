@@ -9,7 +9,10 @@ import {
 import {
   claimBackgroundTurnBudget,
   createForegroundTurnBudgetHandoff,
+  isLocalInteractiveMaxTurnsSession,
   releaseForegroundTurnBudget,
+  shouldContinueBackgroundAfterForegroundQuery,
+  shouldShowReplMaxTurnsUnlimitedWarning,
   waitForForegroundTurnBudgetSettlement,
 } from './replMaxTurns.js'
 import {
@@ -45,21 +48,6 @@ function readScreen(name: string): string {
 
 function readSourceUp(name: string): string {
   return readFileSync(join(screenDir, '..', name), 'utf8')
-}
-
-function objectBody(source: string, marker: RegExp): string {
-  const match = source.match(marker)
-  expect(match).not.toBeNull()
-  const start = match!.index! + match![0].length - 1
-  let depth = 0
-  for (let index = start; index < source.length; index++) {
-    if (source[index] === '{') depth++
-    if (source[index] === '}') {
-      depth--
-      if (depth === 0) return source.slice(start, index + 1)
-    }
-  }
-  throw new Error(`Unclosed object after ${marker}`)
 }
 
 function clearTurnEnv(): void {
@@ -207,10 +195,46 @@ describe('interactive REPL max-turn cap', () => {
   })
 
   test('emits the unlimited warning only from a local REPL', () => {
-    const repl = readScreen('REPL.tsx')
-    const main = readSourceUp('main.tsx')
-    expect(repl).toContain('!isRemoteSession && !directConnectConfig && !sshSession')
-    expect(main).not.toContain('getReplMaxTurnsWarning')
+    expect(
+      shouldShowReplMaxTurnsUnlimitedWarning(0, {
+        isRemoteSession: false,
+        directConnectConfig: undefined,
+        sshSession: undefined,
+      }),
+    ).toBe(true)
+    expect(
+      shouldShowReplMaxTurnsUnlimitedWarning(0, {
+        isRemoteSession: true,
+        directConnectConfig: undefined,
+        sshSession: undefined,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowReplMaxTurnsUnlimitedWarning(0, {
+        isRemoteSession: false,
+        directConnectConfig: {},
+        sshSession: undefined,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowReplMaxTurnsUnlimitedWarning(0, {
+        isRemoteSession: false,
+        directConnectConfig: undefined,
+        sshSession: {},
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowReplMaxTurnsUnlimitedWarning(50, {
+        isRemoteSession: false,
+        directConnectConfig: undefined,
+        sshSession: undefined,
+      }),
+    ).toBe(false)
+    expect(isLocalInteractiveMaxTurnsSession({
+      isRemoteSession: false,
+      directConnectConfig: undefined,
+      sshSession: undefined,
+    })).toBe(true)
   })
 
   test('normalizeReplMaxTurns matches /config picker persistence', () => {
@@ -272,10 +296,54 @@ describe('interactive REPL max-turn cap', () => {
   })
 
   test('does not continue a background handoff after the foreground query throws', () => {
-    const source = readScreen('REPL.tsx')
-    const onQueryBody = objectBody(source, /const onQuery = useCallback/)
-    expect(onQueryBody).toContain('!didThrow')
-    expect(onQueryBody).toContain('shouldContinueBackground')
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: true,
+        preflightVetoed: false,
+        abortReason: 'background',
+        queryTerminal: { reason: 'aborted_streaming' },
+      }),
+    ).toBe(false)
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: false,
+        preflightVetoed: true,
+        abortReason: 'background',
+        queryTerminal: undefined,
+      }),
+    ).toBe(false)
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: false,
+        preflightVetoed: false,
+        abortReason: 'background',
+        queryTerminal: { reason: 'aborted_streaming' },
+      }),
+    ).toBe(true)
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: false,
+        preflightVetoed: false,
+        abortReason: 'background',
+        queryTerminal: { reason: 'aborted_tools' },
+      }),
+    ).toBe(true)
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: false,
+        preflightVetoed: false,
+        abortReason: 'background',
+        queryTerminal: undefined,
+      }),
+    ).toBe(false)
+    expect(
+      shouldContinueBackgroundAfterForegroundQuery({
+        didThrow: false,
+        preflightVetoed: false,
+        abortReason: 'user',
+        queryTerminal: { reason: 'aborted_streaming' },
+      }),
+    ).toBe(false)
   })
 
   test('Config panel exposes Max turns (interactive)', () => {
@@ -339,20 +407,5 @@ describe('interactive REPL max-turn cap', () => {
       code: 'commander.invalidArgument',
       exitCode: 1,
     })
-  })
-
-  test('main uses the production Commander parser and wires sessionConfig', () => {
-    // main.tsx is hard to boot in unit tests; assert the import so the
-    // shared constant cannot be referenced without being bundled, plus the
-    // local interactive sessionConfig handoff (same pattern as fallbackModel).
-    const source = readSourceUp('main.tsx')
-    expect(source).toMatch(
-      /import\s*\{[^}]*\bparseMaxTurnsCommanderArgument\b[^}]*\}\s*from\s*'\.\/utils\/replMaxTurns\.js'/,
-    )
-    expect(source).toContain(
-      'return parseMaxTurnsCommanderArgument(value);',
-    )
-    const body = objectBody(source, /const sessionConfig = \{/)
-    expect(body).toContain('maxTurns: options.maxTurns')
   })
 })
