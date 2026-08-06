@@ -1,3 +1,4 @@
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import React, { useCallback, useState } from 'react'
 import { isInputModeCharacter } from '../components/PromptInput/inputModes.js'
 import type { Key } from '../ink.js'
@@ -270,9 +271,18 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
           insertedText: insertedTextCursor.text,
         }
       } else {
+        const visibleInput = stripAnsi(input)
+        const modeCharacter = visibleInput[0]
+        const recordedInput =
+          cursor.text.length === 0 &&
+          cursor.isAtStart() &&
+          modeCharacter !== undefined &&
+          isInputModeCharacter(modeCharacter)
+            ? visibleInput.slice(modeCharacter.length)
+            : input
         vimStateRef.current = {
           mode: 'INSERT',
-          insertedText: state.insertedText + input,
+          insertedText: state.insertedText + recordedInput,
         }
       }
       textInput.onInput(input, key)

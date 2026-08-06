@@ -3,10 +3,25 @@ import { describe, expect, test } from 'bun:test'
 import { Cursor } from '../utils/Cursor.js'
 import {
   applyCoalescedDelInput,
+  applyPrintableInput,
   prepareTextInputEvent,
 } from './useTextInput.js'
 
 const insert = (cursor: Cursor, text: string): Cursor => cursor.insert(text)
+
+test('applyPrintableInput detects an ANSI-wrapped mode character', () => {
+  const notifications: string[] = []
+  const result = applyPrintableInput(
+    Cursor.fromText('', 80, 0),
+    '\x1b[0m!',
+    {
+      onModeCharacter: text => notifications.push(text),
+    },
+  )
+
+  expect(result).toBeUndefined()
+  expect(notifications).toEqual(['!'])
+})
 
 function apply(
   text: string,

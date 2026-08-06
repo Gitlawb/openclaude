@@ -89,7 +89,7 @@ export function applyPrintableInput(
     !options.modeCharacterIsText &&
     cursor.text.length === 0 &&
     cursor.isAtStart() &&
-    isInputModeCharacter(input)
+    isInputModeCharacter(text)
   ) {
     options.onModeCharacter?.(text, {
       previousValue: cursor.text,
@@ -711,6 +711,20 @@ export function useTextInput({
                   columns,
                   modeEntryChangeContext.character.length +
                     result.cursor.offset,
+                  )
+                : result.cursor
+          const acceptedCursor =
+            modeEntryChangeContext?.representedInCursor
+              ? Cursor.fromText(
+                  result.cursor.text.slice(
+                    modeEntryChangeContext.character.length,
+                  ),
+                  columns,
+                  Math.max(
+                    0,
+                    result.cursor.offset -
+                      modeEntryChangeContext.character.length,
+                  ),
                 )
               : result.cursor
           commitValue(
@@ -718,6 +732,11 @@ export function useTextInput({
             committedCursor.offset,
             changeContext,
           )
+          if (modeEntryChangeContext) {
+            // onChange consumes the mode sentinel. Keep the synchronous mirror
+            // on that accepted value for later keys from the same stdin read.
+            updateRenderedInput(acceptedCursor.text, acceptedCursor.offset)
+          }
         } else {
           // A final mode-character notification owns the parent value update,
           // but preceding DELs must still advance the synchronous local mirror.
@@ -731,6 +750,9 @@ export function useTextInput({
       resetKillAccumulation()
       resetYankState()
       if (result.shouldCommit && preparedInput.shouldSubmit) {
+        // committedCursor may contain a synthetic mode sentinel used only to
+        // notify onChange. Submit the actual final cursor; PromptInput carries
+        // the detected mode separately through its pending submission state.
         onSubmit?.(result.cursor.text)
       }
       return

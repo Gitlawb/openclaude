@@ -513,12 +513,14 @@ async function runPromptModeScenario({
   mode: string
   value: string
   cursorOffset: number
+  rawSubmissions: string[]
   submissions: Array<{ value: string; mode: string }>
 }> {
   let observedMode = 'prompt'
   let observedValue = initialValue
   let observedCursorOffset = initialValue.length
   let receivedInputCount = 0
+  const rawSubmissions: string[] = []
   const submissions: Array<{ value: string; mode: string }> = []
 
   function PromptModeTextInput(): React.ReactNode {
@@ -563,6 +565,7 @@ async function runPromptModeScenario({
           value={value}
           onChange={handleChange}
           onSubmit={nextValue => {
+            rawSubmissions.push(nextValue)
             const pendingMode = pendingSubmitModeRef.current
             pendingSubmitModeRef.current = null
             submissions.push({
@@ -615,6 +618,7 @@ async function runPromptModeScenario({
     mode: observedMode,
     value: observedValue,
     cursorOffset: observedCursorOffset,
+    rawSubmissions,
     submissions,
   }
 }
@@ -865,6 +869,17 @@ test('TextInput carries DEL-coalesced bash text into submission mode', async () 
   expect(result.submissions).toEqual([{ value: 'ls', mode: 'bash' }])
 })
 
+test('TextInput keeps later keys in one stdin batch on the stripped mode value', async () => {
+  const result = await runPromptModeScenario({
+    initialValue: 'a',
+    chunk: '\x7f!ls\x1b[Dx',
+  })
+
+  expect(result.mode).toBe('bash')
+  expect(result.value).toBe('lxs')
+  expect(result.cursorOffset).toBe(2)
+})
+
 test('TextInput retains mode entry across later edits in one submitted chunk', async () => {
   const result = await runPromptModeScenario({
     initialValue: 'a',
@@ -884,6 +899,7 @@ test('TextInput retains mode after a later DEL consumes its sentinel', async () 
 
   expect(result.mode).toBe('bash')
   expect(result.value).toBe('a')
+  expect(result.rawSubmissions).toEqual(['a'])
   expect(result.submissions).toEqual([{ value: 'a', mode: 'bash' }])
 })
 
@@ -895,6 +911,7 @@ test('TextInput preserves a literal mode character typed after consuming the sen
 
   expect(result.mode).toBe('bash')
   expect(result.value).toBe('!a')
+  expect(result.rawSubmissions).toEqual(['!a'])
   expect(result.submissions).toEqual([{ value: '!a', mode: 'bash' }])
 })
 
@@ -957,21 +974,23 @@ test('useTextInput notifies mode entry when one raw chunk returns to the initial
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <EqualCursorModeInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.onInput('!\x7f\r', {} as Key)
-  await Bun.sleep(25)
+  try {
+    root.render(
+      <AppStateProvider>
+        <EqualCursorModeInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('!\x7f\r', {} as Key)
+    await waitFor(() => submissions.length === 1)
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
-
-  expect(observedMode).toBe('bash')
-  expect(submissions).toEqual([{ value: '', mode: 'bash' }])
+    expect(observedMode).toBe('bash')
+    expect(submissions).toEqual([{ value: '', mode: 'bash' }])
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
 
 test('TextInput leaves ordinary Backspace and Delete key events unchanged', async () => {
@@ -1049,27 +1068,28 @@ test('VimTextInput dot-repeat does not record a raw DEL byte', async () => {
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <RawDelVimInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.onInput('a', {} as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('\x7fb', {} as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('', { escape: true } as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('.', {} as Key)
-  await Bun.sleep(25)
+  try {
+    root.render(
+      <AppStateProvider>
+        <RawDelVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('a', {} as Key)
+    await waitFor(() => observedValue === 'a')
+    inputState!.onInput('\x7fb', {} as Key)
+    await waitFor(() => observedValue === 'b')
+    inputState!.onInput('', { escape: true } as Key)
+    inputState!.onInput('.', {} as Key)
+    await waitFor(() => observedValue === 'bb')
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
-
-  expect(observedValue).toBe('bb')
-  expect(observedValue).not.toContain('\x7f')
+    expect(observedValue).toBe('bb')
+    expect(observedValue).not.toContain('\x7f')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
 
 test('VimTextInput dot-repeat does not record a post-DEL mode sentinel', async () => {
@@ -1120,28 +1140,104 @@ test('VimTextInput dot-repeat does not record a post-DEL mode sentinel', async (
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <RawDelModeVimInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.onInput('a', {} as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('\x7f!ls', {} as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('', { escape: true } as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('.', {} as Key)
-  await Bun.sleep(25)
+  try {
+    root.render(
+      <AppStateProvider>
+        <RawDelModeVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('a', {} as Key)
+    await waitFor(() => observedValue === 'a')
+    inputState!.onInput('\x7f!ls', {} as Key)
+    await waitFor(() => observedMode === 'bash' && observedValue === 'ls')
+    inputState!.onInput('', { escape: true } as Key)
+    inputState!.onInput('.', {} as Key)
+    await waitFor(() => observedValue === 'llss')
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
+    expect(observedMode).toBe('bash')
+    expect(observedValue).toBe('llss')
+    expect(observedValue).not.toContain('!')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
 
-  expect(observedMode).toBe('bash')
-  expect(observedValue).toBe('llss')
-  expect(observedValue).not.toContain('!')
+test('VimTextInput dot-repeat excludes a mode sentinel entered before raw DEL', async () => {
+  let observedMode = 'prompt'
+  let observedValue = ''
+  let inputState: VimInputState | undefined
+
+  function OrdinaryModeThenDelVimInputHook(): React.ReactNode {
+    const [value, setValue] = React.useState('')
+    const [cursorOffset, setCursorOffset] = React.useState(0)
+
+    inputState = useVimInput({
+      value,
+      onChange: (nextValue, context?: TextInputChangeContext) => {
+        const modeEntry = detectModeEntry({
+          value: nextValue,
+          prevInputLength: context?.previousValue.length ?? value.length,
+          cursorOffset: context?.cursorOffset ?? cursorOffset,
+        })
+        if (modeEntry) {
+          observedMode = modeEntry.mode
+          observedValue = modeEntry.strippedValue
+          setValue(modeEntry.strippedValue)
+          setCursorOffset(modeEntry.strippedValue.length)
+          return
+        }
+
+        observedValue = nextValue
+        setValue(nextValue)
+      },
+      onSubmit: () => {},
+      cursorChar: ' ',
+      invert: text => text,
+      themeText: text => text,
+      columns: 60,
+      externalOffset: cursorOffset,
+      onOffsetChange: setCursorOffset,
+      multiline: true,
+    })
+
+    return null
+  }
+
+  const { stdout, stdin } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  try {
+    root.render(
+      <AppStateProvider>
+        <OrdinaryModeThenDelVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('!', {} as Key)
+    await waitFor(() => observedMode === 'bash')
+    inputState!.onInput('ls', {} as Key)
+    await waitFor(() => observedValue === 'ls')
+    inputState!.onInput('\x7fb', {} as Key)
+    await waitFor(() => observedValue === 'lb')
+    inputState!.onInput('', { escape: true } as Key)
+    inputState!.onInput('.', {} as Key)
+    await waitFor(() => observedValue === 'llbb')
+
+    expect(observedMode).toBe('bash')
+    expect(observedValue).toBe('llbb')
+    expect(observedValue).not.toContain('!')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
 
 test('VimTextInput records post-DEL text from the live cursor in one batch', async () => {
@@ -1178,26 +1274,26 @@ test('VimTextInput records post-DEL text from the live cursor in one batch', asy
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <BatchedVimInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.onInput('ab', {} as Key)
-  inputState!.onInput('', { leftArrow: true } as Key)
-  inputState!.onInput('\x7f!', {} as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('', { escape: true } as Key)
-  await Bun.sleep(25)
-  inputState!.onInput('.', {} as Key)
-  await Bun.sleep(25)
+  try {
+    root.render(
+      <AppStateProvider>
+        <BatchedVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('ab', {} as Key)
+    inputState!.onInput('', { leftArrow: true } as Key)
+    inputState!.onInput('\x7f!', {} as Key)
+    inputState!.onInput('', { escape: true } as Key)
+    inputState!.onInput('.', {} as Key)
+    await waitFor(() => observedValue === 'a!!b')
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
-
-  expect(observedValue).toBe('a!!b')
+    expect(observedValue).toBe('a!!b')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
 
 test('VimTextInput Escape uses the live cursor after same-batch insertion', async () => {
@@ -1234,20 +1330,23 @@ test('VimTextInput Escape uses the live cursor after same-batch insertion', asyn
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <BatchedEscapeVimInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.onInput('ab', {} as Key)
-  inputState!.onInput('', { escape: true } as Key)
+  try {
+    root.render(
+      <AppStateProvider>
+        <BatchedEscapeVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.onInput('ab', {} as Key)
+    inputState!.onInput('', { escape: true } as Key)
+    await waitFor(() => observedOffset === 1)
 
-  expect(observedOffset).toBe(1)
-
-  root.unmount()
-  stdin.end()
-  stdout.end()
+    expect(observedOffset).toBe(1)
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
 
 test('VimTextInput operators use one live snapshot within a parser batch', async () => {
@@ -1284,21 +1383,23 @@ test('VimTextInput operators use one live snapshot within a parser batch', async
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <BatchedOperatorVimInputHook />
-    </AppStateProvider>,
-  )
-  await Bun.sleep(25)
-  inputState!.setMode('NORMAL')
-  inputState!.onInput('x', {} as Key)
-  inputState!.onInput('', { rightArrow: true } as Key)
-  inputState!.onInput('x', {} as Key)
-  await Bun.sleep(25)
+  try {
+    root.render(
+      <AppStateProvider>
+        <BatchedOperatorVimInputHook />
+      </AppStateProvider>,
+    )
+    await waitFor(() => inputState !== undefined)
+    inputState!.setMode('NORMAL')
+    inputState!.onInput('x', {} as Key)
+    inputState!.onInput('', { rightArrow: true } as Key)
+    inputState!.onInput('x', {} as Key)
+    await waitFor(() => observedValue === 'b')
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
-
-  expect(observedValue).toBe('b')
+    expect(observedValue).toBe('b')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
 })
