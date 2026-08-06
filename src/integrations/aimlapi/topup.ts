@@ -831,12 +831,20 @@ async function pollUntilExchangeSettled(
   const deadline = Date.now() + POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
     if (signal?.aborted) throw abortError(signal)
-    // Best-effort: POLL_INTERVAL_MS (3s) refreshes the lease well within
-    // EXCHANGE_LEASE_STALE_MS (75s), so a live holder's lease never goes stale
-    // mid-wait. A failed refresh is not fatal here — it just means a peer may
-    // race to reclaim the lease, which acquireAimlapiExchangeLeaseAsync already
-    // resolves safely (one winner) on this function's next outer retry.
-    await refreshLease?.().catch(() => false)
+    // POLL_INTERVAL_MS (3s) refreshes the lease well within EXCHANGE_LEASE_STALE_MS
+    // (75s), so a live holder's lease never goes stale mid-wait. A THROWN refresh
+    // (e.g. transient lock contention) is treated as still-ours and best-effort —
+    // it'll retry next iteration. An explicit `false`, though, means a peer
+    // already reclaimed the lease: this function returning normally afterward
+    // would let the caller walk straight into the non-idempotent /exchange POST
+    // with no ownership check of its own, racing whatever the peer is doing.
+    // Bail out instead so the caller's catch block re-checks for that peer's
+    // settled receipt (or fails the run, requiring a re-run) rather than racing it.
+    if (refreshLease && !(await refreshLease().catch(() => true))) {
+      throw new Error(
+        'The exchange lease was reclaimed by another process. Re-run to resume from its result.',
+      )
+    }
     try {
       const session = await client.getSession(sessionToken, signal)
       if (session.status === 'exchanged') throw alreadyExchangedError(session)
