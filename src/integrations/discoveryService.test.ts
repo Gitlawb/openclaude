@@ -13,6 +13,7 @@ const originalFetch = globalThis.fetch
 const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -88,6 +89,7 @@ afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true })
     restoreEnvValue('CLAUDE_CONFIG_DIR')
     restoreEnvValue('OPENROUTER_API_KEY')
+    restoreEnvValue('OPENGATEWAY_API_KEY')
     restoreEnvValue('OPENAI_BASE_URL')
     restoreEnvValue('OPENAI_API_BASE')
     restoreEnvValue('OPENAI_API_KEY')
