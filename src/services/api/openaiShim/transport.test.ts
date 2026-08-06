@@ -112,30 +112,42 @@ test('disarms the deadline once response headers arrive', async () => {
   expect(await response.text()).toBe('ok')
 })
 
-test('keeps the request signal alive after headers when the body is cancelled early', async () => {
+test('cleans up the caller signal after early body cancellation', async () => {
   jest.useFakeTimers()
-  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
-  let capturedSignal: AbortSignal | undefined
-  const caller = new AbortController()
-  globalThis.fetch = (async (_input, init) => {
-    capturedSignal = init?.signal
-    return new Response(new ReadableStream<Uint8Array>({
-      start(value) {
-        controller = value
-      },
-    }))
-  }) as typeof globalThis.fetch
-
-  const response = await fetchWithHeadersDeadline(
-    'https://example.test/v1/chat/completions',
-    {},
-    { callerSignal: caller.signal, timeoutMs: 20 },
+  const originalAbortSignalAny = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'any',
   )
-  await response.body?.cancel()
-  jest.advanceTimersByTime(30)
-  expect(capturedSignal?.aborted).toBe(false)
+  Object.defineProperty(AbortSignal, 'any', {
+    value: undefined,
+    configurable: true,
+  })
+  try {
+    let capturedSignal: AbortSignal | undefined
+    const caller = new AbortController()
+    globalThis.fetch = (async (_input, init) => {
+      capturedSignal = init?.signal
+      return new Response(new ReadableStream<Uint8Array>({
+        start(value) {
+          value.enqueue(new TextEncoder().encode('partial'))
+        },
+      }))
+    }) as typeof globalThis.fetch
 
-  caller.abort(new DOMException('Caller stopped', 'AbortError'))
-  expect(capturedSignal?.aborted).toBe(true)
-  expect(capturedSignal?.reason).toBe(caller.signal.reason)
+    const response = await fetchWithHeadersDeadline(
+      'https://example.test/v1/chat/completions',
+      {},
+      { callerSignal: caller.signal, timeoutMs: 20 },
+    )
+    await response.body?.cancel()
+    jest.advanceTimersByTime(30)
+    expect(capturedSignal?.aborted).toBe(false)
+
+    caller.abort(new DOMException('Caller stopped', 'AbortError'))
+    expect(capturedSignal?.aborted).toBe(false)
+  } finally {
+    if (originalAbortSignalAny) {
+      Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    }
+  }
 })
