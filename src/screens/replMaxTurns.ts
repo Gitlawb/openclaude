@@ -4,7 +4,7 @@ import {
 } from '../query.js'
 import type { Terminal as QueryTerminal } from '../query/transitions.js'
 import { normalizeAbortReason } from '../utils/abortReasons.js'
-import { getReplMaxTurnsWarning } from '../utils/replMaxTurns.js'
+import { getReplMaxTurnsWarning, resolveReplMaxTurns } from '../utils/replMaxTurns.js'
 
 export {
   DEFAULT_REPL_MAX_TURNS,
@@ -72,6 +72,36 @@ export type ForegroundTurnBudgetHandoff = {
   settle: (shouldContinue: boolean) => void
   /** Cap suppressed on foreground `background` abort; restore if handoff is cancelled. */
   deferredMaxTurnsCap?: DeferredMaxTurnsCap
+  /**
+   * Last settled transcript message before a cancelled handoff may restore a
+   * deferred cap. When the live tail uuid differs, a newer prompt owns the view.
+   */
+  settledTranscriptTailUuid?: string | null
+}
+
+export function canRestoreDeferredMaxTurnsCap(
+  handoff: ForegroundTurnBudgetHandoff,
+  currentMessages: readonly { uuid: string }[],
+): boolean {
+  if (!handoff.deferredMaxTurnsCap) return false
+  const anchor = handoff.settledTranscriptTailUuid
+  if (anchor === undefined) return true
+  if (anchor === null) return currentMessages.length === 0
+  return currentMessages.at(-1)?.uuid === anchor
+}
+
+export function resolveReplMaxTurnsForSession(
+  maxTurns: number | undefined,
+  session: {
+    isRemoteSession: boolean
+    directConnectConfig: unknown
+    sshSession: unknown
+  },
+): number | undefined {
+  if (!isLocalInteractiveMaxTurnsSession(session)) {
+    return undefined
+  }
+  return resolveReplMaxTurns(maxTurns)
 }
 
 export function computeDeferredMaxTurnsCapForBackgroundHandoff(

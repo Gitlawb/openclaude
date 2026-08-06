@@ -39,7 +39,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
-import { claimBackgroundTurnBudget, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurns, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
+import { claimBackgroundTurnBudget, canRestoreDeferredMaxTurnsCap, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurnsForSession, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -2862,7 +2862,7 @@ export function REPL({
     if (!backgroundHandoff) return;
     const restoreDeferredMaxTurnsCap = () => {
       const cap = backgroundHandoff.deferredMaxTurnsCap;
-      if (!cap) return;
+      if (!cap || !canRestoreDeferredMaxTurnsCap(backgroundHandoff, messagesRef.current)) return;
       backgroundHandoff.deferredMaxTurnsCap = undefined;
       setMessages(prev => [...prev, createAttachmentMessage({
         type: 'max_turns_reached',
@@ -2885,6 +2885,8 @@ export function REPL({
         // and allow a new prompt. Capture this continuation's transcript before
         // any preparation await can observe that later foreground turn.
         const settledMessages = [...messagesRef.current];
+        backgroundHandoff.settledTranscriptTailUuid =
+          settledMessages.at(-1)?.uuid ?? null;
         // Claim main-thread notifications only. Subagent-addressed entries keep
         // their owner-scoped drain path (QueuedCommand.agentId); issue #2079 is
         // about configurable interactive turn caps, not queue isolation.
@@ -3308,7 +3310,13 @@ export function REPL({
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
     backgroundHandoffStartedRef.current = false;
-    const turnBudgetHandoff = createForegroundTurnBudgetHandoff(resolveReplMaxTurns(maxTurnsProp));
+    const turnBudgetHandoff = createForegroundTurnBudgetHandoff(
+      resolveReplMaxTurnsForSession(maxTurnsProp, {
+        isRemoteSession,
+        directConnectConfig,
+        sshSession,
+      }),
+    );
     const turnBudget = turnBudgetHandoff.budget;
     foregroundTurnBudgetRef.current = turnBudgetHandoff;
     const queryContext = startResult.context;
@@ -3399,6 +3407,8 @@ export function REPL({
         const deferredCap = computeDeferredMaxTurnsCapForBackgroundHandoff(abortController.signal.reason, queryTerminal, turnBudget.maxTurns, turnBudget.turnsStarted);
         if (deferredCap) {
           turnBudgetHandoff.deferredMaxTurnsCap = deferredCap;
+          turnBudgetHandoff.settledTranscriptTailUuid =
+            persistentMessages.at(-1)?.uuid ?? null;
         }
       }
       releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
@@ -3562,7 +3572,7 @@ export function REPL({
         }
       }
     }
-  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp]);
+  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp, isRemoteSession, directConnectConfig, sshSession]);
 
   // Handle initial message (from CLI args or plan mode exit with context clear)
   // This effect runs when isLoading becomes false and there's a pending message

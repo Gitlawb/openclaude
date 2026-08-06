@@ -14,7 +14,7 @@ export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
  * Keep remote-backed sessions explicitly out of scope in this string.
  */
 export const MAX_TURNS_CLI_DESCRIPTION =
-  'Maximum number of agentic turns per prompt. In local interactive mode, set to 0 for unlimited turns (use with caution). This overrides the default 50-turn REPL query cap and is also configurable via OPENCLAUDE_MAX_TURNS or /config. Remote-backed sessions (connect/ssh/--remote) are not capped by this flag. In --print mode this early-exits after the specified number of turns.'
+  'Maximum number of agentic turns per prompt. In local interactive mode, set to 0 for unlimited turns (use with caution). This overrides the default 50-turn REPL query cap and is also configurable via OPENCLAUDE_MAX_TURNS or /config. Does not apply to remote-backed sessions (connect/ssh/--remote). In --print mode this early-exits after the specified number of turns.'
 
 export function parseMaxTurnsCli(value: string): number {
   const parsed = value.trim() === '' ? Number.NaN : Number(value)

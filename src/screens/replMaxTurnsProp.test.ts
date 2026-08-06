@@ -5,11 +5,13 @@ import {
   Option,
 } from '@commander-js/extra-typings'
 import {
+  canRestoreDeferredMaxTurnsCap,
   claimBackgroundTurnBudget,
   computeDeferredMaxTurnsCapForBackgroundHandoff,
   createForegroundTurnBudgetHandoff,
   isLocalInteractiveMaxTurnsSession,
   releaseForegroundTurnBudget,
+  resolveReplMaxTurnsForSession,
   shouldContinueBackgroundAfterForegroundQuery,
   shouldShowReplMaxTurnsUnlimitedWarning,
   waitForForegroundTurnBudgetSettlement,
@@ -322,6 +324,57 @@ describe('interactive REPL max-turn cap', () => {
         1,
       ),
     ).toBeUndefined()
+  })
+
+  test('skips deferred max-turn restoration when a newer prompt owns the transcript', () => {
+    const handoff = createForegroundTurnBudgetHandoff(1)
+    handoff.deferredMaxTurnsCap = { maxTurns: 1, turnCount: 2 }
+    handoff.settledTranscriptTailUuid = 'prior-tail'
+
+    expect(
+      canRestoreDeferredMaxTurnsCap(handoff, [
+        { uuid: 'prior-tail' },
+      ]),
+    ).toBe(true)
+    expect(
+      canRestoreDeferredMaxTurnsCap(handoff, [
+        { uuid: 'prior-tail' },
+        { uuid: 'new-user-turn' },
+      ]),
+    ).toBe(false)
+  })
+
+  test('does not apply the local interactive cap in remote-backed sessions', () => {
+    clearTurnEnv()
+    process.env.OPENCLAUDE_MAX_TURNS = '80'
+    expect(
+      resolveReplMaxTurnsForSession(undefined, {
+        isRemoteSession: true,
+        directConnectConfig: undefined,
+        sshSession: undefined,
+      }),
+    ).toBeUndefined()
+    expect(
+      resolveReplMaxTurnsForSession(90, {
+        isRemoteSession: false,
+        directConnectConfig: {},
+        sshSession: undefined,
+      }),
+    ).toBeUndefined()
+    expect(
+      resolveReplMaxTurnsForSession(90, {
+        isRemoteSession: false,
+        directConnectConfig: undefined,
+        sshSession: {},
+      }),
+    ).toBeUndefined()
+    expect(
+      resolveReplMaxTurnsForSession(90, {
+        isRemoteSession: false,
+        directConnectConfig: undefined,
+        sshSession: undefined,
+      }),
+    ).toBe(90)
   })
 
   test('does not continue a background handoff after the foreground query throws', () => {
