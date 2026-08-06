@@ -52,6 +52,13 @@ const ULTRACODE_SHIMMER_FALLBACK = {
 const THINKING_DELAY_MS = 3000;
 const THINKING_GLOW_PERIOD_S = 2;
 
+// Exported for tests: renderToString strips ANSI color, so the shimmer color
+// selection (theme-token interpolation vs ANSI-theme fallback) is only
+// observable through this helper.
+export function getThinkingShimmerColor(theme: Pick<Theme, 'ultracode' | 'ultracodeShimmer'>, isUltracodeOverride: boolean, thinkingOpacity: number) {
+  return isUltracodeOverride ? toRGBColor(interpolateColor(parseRGB(theme.ultracode) ?? ULTRACODE_INACTIVE_FALLBACK, parseRGB(theme.ultracodeShimmer) ?? ULTRACODE_SHIMMER_FALLBACK, thinkingOpacity)) : toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
+}
+
 export function getCurrentResponseTokenCount(responseLength: number): number {
   return Math.round(responseLength / 4);
 }
@@ -625,9 +632,7 @@ export function SpinnerAnimationRow({
   const thinkingElapsedSec = (time - THINKING_DELAY_MS) / 1000;
   const thinkingOpacity = time < THINKING_DELAY_MS ? 0 : (Math.sin(thinkingElapsedSec * Math.PI * 2 / THINKING_GLOW_PERIOD_S) + 1) / 2;
   const isUltracodeOverride = overrideColor === 'ultracode';
-  const thinkingShimmerColor = isUltracodeOverride
-    ? toRGBColor(interpolateColor(parseRGB(theme.ultracode) ?? ULTRACODE_INACTIVE_FALLBACK, parseRGB(theme.ultracodeShimmer) ?? ULTRACODE_SHIMMER_FALLBACK, thinkingOpacity))
-    : toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
+  const thinkingShimmerColor = getThinkingShimmerColor(theme, isUltracodeOverride, thinkingOpacity);
 
   // === Build status parts ===
   // bareThinkingOnly nests parens on the thinking word (no outer status parens).
