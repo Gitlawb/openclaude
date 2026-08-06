@@ -26,8 +26,24 @@ function responseFor(...payloads: Array<Record<string, unknown>>): Response {
   })
 }
 
+async function collectEvents(
+  response: Response,
+  signal?: AbortSignal,
+): Promise<Array<Record<string, unknown>>> {
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of geminiSseToAnthropic(
+    response,
+    'gemini-test',
+    signal,
+    dependencies,
+  )) {
+    events.push(event as unknown as Record<string, unknown>)
+  }
+  return events
+}
+
 test('converts Gemini text, tool calls, usage, and finish state', async () => {
-  const response = responseFor({
+  const events = await collectEvents(responseFor({
     candidates: [{
       content: {
         parts: [
@@ -42,17 +58,7 @@ test('converts Gemini text, tool calls, usage, and finish state', async () => {
       candidatesTokenCount: 2,
       thoughtsTokenCount: 1,
     },
-  })
-  const events: Array<Record<string, unknown>> = []
-
-  for await (const event of geminiSseToAnthropic(
-    response,
-    'gemini-test',
-    undefined,
-    dependencies,
-  )) {
-    events.push(event as unknown as Record<string, unknown>)
-  }
+  }))
 
   expect(events[0]).toMatchObject({
     type: 'message_start',
@@ -62,10 +68,23 @@ test('converts Gemini text, tool calls, usage, and finish state', async () => {
     event.type === 'content_block_delta' &&
     (event.delta as { text?: string })?.text === 'Inspecting.',
   )).toBe(true)
-  expect(events.some(event =>
+
+  const toolStartIndex = events.findIndex(event =>
     event.type === 'content_block_start' &&
     (event.content_block as { name?: string })?.name === 'Read',
-  )).toBe(true)
+  )
+  expect(toolStartIndex).toBeGreaterThan(-1)
+  expect(events[toolStartIndex + 1]).toMatchObject({
+    type: 'content_block_delta',
+    delta: {
+      type: 'input_json_delta',
+      partial_json: '{"file_path":"a.ts"}',
+    },
+  })
+  expect(events[toolStartIndex + 2]).toEqual({
+    type: 'content_block_stop',
+    index: (events[toolStartIndex] as { index: number }).index,
+  })
   expect(events.at(-2)).toMatchObject({
     type: 'message_delta',
     delta: { stop_reason: 'tool_use' },
@@ -74,15 +93,52 @@ test('converts Gemini text, tool calls, usage, and finish state', async () => {
   expect(events.at(-1)).toEqual({ type: 'message_stop' })
 })
 
+test('maps STOP to end_turn when no tool call is present', async () => {
+  const events = await collectEvents(responseFor({
+    candidates: [{
+      content: { parts: [{ text: 'Done.' }] },
+      finishReason: 'STOP',
+    }],
+  }))
+
+  expect(events.at(-2)).toMatchObject({
+    type: 'message_delta',
+    delta: { stop_reason: 'end_turn' },
+  })
+  expect(events.at(-1)).toEqual({ type: 'message_stop' })
+})
+
+test('maps MAX_TOKENS to max_tokens when no tool call is present', async () => {
+  const events = await collectEvents(responseFor({
+    candidates: [{
+      content: { parts: [{ text: 'Truncated.' }] },
+      finishReason: 'MAX_TOKENS',
+    }],
+  }))
+
+  expect(events.at(-2)).toMatchObject({
+    type: 'message_delta',
+    delta: { stop_reason: 'max_tokens' },
+  })
+  expect(events.at(-1)).toEqual({ type: 'message_stop' })
+})
+
 test('rejects an already-aborted Gemini stream without yielding events', async () => {
+  const cancelReasons: unknown[] = []
+  const response = new Response(new ReadableStream<Uint8Array>({
+    cancel(reason) {
+      cancelReasons.push(reason)
+    },
+  }), { headers: { 'Content-Type': 'text/event-stream' } })
   const controller = new AbortController()
   controller.abort()
   const stream = geminiSseToAnthropic(
-    responseFor({ candidates: [] }),
+    response,
     'gemini-test',
     controller.signal,
     dependencies,
   )
 
   await expect(stream.next()).rejects.toMatchObject({ name: 'AbortError' })
+  expect(cancelReasons).toHaveLength(1)
 })

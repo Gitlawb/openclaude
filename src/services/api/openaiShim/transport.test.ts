@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, jest, test } from 'bun:test'
 import {
   fetchWithHeadersDeadline,
   getApiTimeoutMs,
@@ -16,6 +16,7 @@ afterEach(() => {
   else process.env.API_TIMEOUT_MS = originalApiTimeoutMs
   if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY
   else process.env.OPENAI_API_KEY = originalApiKey
+  jest.useRealTimers()
 })
 
 test('API timeout parser accepts bounded positive integers', () => {
@@ -84,21 +85,57 @@ test('preserves caller cancellation instead of reporting a deadline', async () =
 })
 
 test('disarms the deadline once response headers arrive', async () => {
+  jest.useFakeTimers()
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined
-  globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
-    start(value) {
-      controller = value
-    },
-  }))) as unknown as typeof globalThis.fetch
+  let capturedSignal: AbortSignal | undefined
+  globalThis.fetch = (async (_input, init) => {
+    capturedSignal = init?.signal
+    return new Response(new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+      },
+    }))
+  }) as typeof globalThis.fetch
 
-  const response = await fetchWithHeadersDeadline(
+  const responsePromise = fetchWithHeadersDeadline(
     'https://example.test/v1/chat/completions',
     {},
     { timeoutMs: 20 },
   )
-  await new Promise(resolve => setTimeout(resolve, 30))
+  await Promise.resolve()
+  jest.advanceTimersByTime(30)
+  expect(capturedSignal?.aborted).toBe(false)
+
   controller?.enqueue(new TextEncoder().encode('ok'))
   controller?.close()
-
+  const response = await responsePromise
   expect(await response.text()).toBe('ok')
+})
+
+test('keeps the request signal alive after headers when the body is cancelled early', async () => {
+  jest.useFakeTimers()
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+  let capturedSignal: AbortSignal | undefined
+  const caller = new AbortController()
+  globalThis.fetch = (async (_input, init) => {
+    capturedSignal = init?.signal
+    return new Response(new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+      },
+    }))
+  }) as typeof globalThis.fetch
+
+  const response = await fetchWithHeadersDeadline(
+    'https://example.test/v1/chat/completions',
+    {},
+    { callerSignal: caller.signal, timeoutMs: 20 },
+  )
+  await response.body?.cancel()
+  jest.advanceTimersByTime(30)
+  expect(capturedSignal?.aborted).toBe(false)
+
+  caller.abort(new DOMException('Caller stopped', 'AbortError'))
+  expect(capturedSignal?.aborted).toBe(true)
+  expect(capturedSignal?.reason).toBe(caller.signal.reason)
 })

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'bun:test'
 
@@ -22,15 +23,15 @@ const extractionDeltas = [
   ['codexDispatch.ts', 109],
 ] as const
 
-const upstreamExtractionCount = 10
+const upstreamExtractionCount = 11
 
 describe('openaiShim facade architecture', () => {
   test('does not regain logic removed by the independent extractions', () => {
     for (const [moduleName] of extractionDeltas.slice(0, upstreamExtractionCount)) {
-      expect(existsSync(`${moduleDirectory}/${moduleName}`)).toBe(true)
+      expect(existsSync(join(moduleDirectory, moduleName))).toBe(true)
     }
     const activeReduction = extractionDeltas
-      .filter(([moduleName]) => existsSync(`${moduleDirectory}/${moduleName}`))
+      .filter(([moduleName]) => existsSync(join(moduleDirectory, moduleName)))
       .reduce(
         (total, [, reduction]) => total + reduction,
         0,
