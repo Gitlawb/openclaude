@@ -18,7 +18,7 @@ None. You do not need to visit <https://aimlapi.com> first - the guided top-up f
    - **Continue with your saved API key** - validate the saved key or `AIMLAPI_API_KEY`, check its balance, optionally top up a low balance, then choose a model.
    - **Set up a new key or switch account** - enter the new-user or existing-key flow.
 4. Otherwise choose how to get an API key:
-   - **I am a new user** - enter your email. OpenClaude creates a passwordless account, lets you pick a top-up amount and automatic top-up preference, opens card checkout, then saves the issued key.
+   - **I am a new user** - enter your email. OpenClaude creates a passwordless account, lets you pick a top-up amount and automatic top-up preference (auto top-up is pre-selected **on** here; toggle it off if you don't want it), opens card checkout, then saves the issued key.
    - **I already have aimlapi.com key** - paste a key from the dashboard. OpenClaude validates it, checks its balance, and offers an optional API-key top-up when the balance is low.
 
 For an email that already has an account, AI/ML API sends a 6-digit sign-in code. OpenClaude creates a new API key for that account, checks its balance, and only offers checkout when the balance is low. You can top up or save the key and skip funding for now.
@@ -40,7 +40,7 @@ openclaude aimlapi topup --email you@example.com --amount 25
 - Pass `--email` (or set `AIMLAPI_EMAIL`). Existing accounts also need the emailed `--code` (or `AIMLAPI_CODE`); interactive terminals prompt for missing values.
 - `--amount`: top-up amount in USD (min 20, max 10000; defaults to 25).
 - Checkout always uses card payment; there is no separate payment-method step.
-- `--auto-top-up`: enroll the account in automatic top-up at checkout.
+- `--auto-top-up`: enroll the account in automatic top-up at checkout. Off by default here, unlike the interactive flow above, where it's pre-selected on.
 - `--model`: default model id written into the provider profile (defaults to `gpt-4o`).
 - `--no-open`: print the payment URL instead of auto-opening a browser.
 
