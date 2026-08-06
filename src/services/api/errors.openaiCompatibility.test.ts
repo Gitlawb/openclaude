@@ -1,6 +1,10 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { getAssistantMessageFromError } from './errors.js'
 
 function getFirstText(message: ReturnType<typeof getAssistantMessageFromError>): string {
@@ -145,4 +149,51 @@ test('maps tool_stream_unsupported without promising a retry after failure', () 
   expect(text).toContain('switch models')
   expect(text).toMatch(/(\/model|--model)/)
   expect(text).not.toContain('Retrying')
+})
+
+test('request_timeout echoes the API_TIMEOUT_MS note from describeApiTimeoutEnvForError', async () => {
+  // Serialize against the other suites that mutate this process-global env var
+  // (apiTimeout.test.ts, openaiShim.test.ts) so no parallel test observes the
+  // temporary values.
+  await acquireSharedMutationLock(
+    'services/api/errors.openaiCompatibility.test.ts',
+  )
+  const saved = process.env.API_TIMEOUT_MS
+  const makeMessage = () => {
+    const error = APIError.generate(
+      408,
+      undefined,
+      'OpenAI API error 408: Request timed out [openai_category=request_timeout]',
+      new Headers(),
+    )
+    return getFirstText(getAssistantMessageFromError(error, 'llama3.3:70b'))
+  }
+  try {
+    // Unset: keep the generic advice to raise the knob.
+    delete process.env.API_TIMEOUT_MS
+    const unset = makeMessage()
+    expect(unset).toContain('Provider request timed out')
+    expect(unset).toContain('retry shortly or increase API_TIMEOUT_MS')
+
+    // Valid: echo the effective timeout instead of the generic advice.
+    process.env.API_TIMEOUT_MS = '900000'
+    const valid = makeMessage()
+    expect(valid).toContain('(API_TIMEOUT_MS=900000ms, try increasing it)')
+
+    // Invalid: say it was ignored -- do not advise raising a knob that never
+    // took effect.
+    process.env.API_TIMEOUT_MS = '30s'
+    const invalid = makeMessage()
+    expect(invalid).toContain(
+      '(API_TIMEOUT_MS=30s is not a positive integer (ms) and was ignored)',
+    )
+    expect(invalid).not.toContain('increase API_TIMEOUT_MS')
+  } finally {
+    if (saved === undefined) {
+      delete process.env.API_TIMEOUT_MS
+    } else {
+      process.env.API_TIMEOUT_MS = saved
+    }
+    releaseSharedMutationLock()
+  }
 })

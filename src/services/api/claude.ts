@@ -233,6 +233,7 @@ import {
 import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
+import { parseApiTimeoutMsEnv } from './apiTimeout.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
 import {
   API_ERROR_MESSAGE_PREFIX,
@@ -877,7 +878,7 @@ function shouldDeferLspTool(tool: Tool): boolean {
  * approaching the API's 10-minute non-streaming boundary.
  */
 function getNonstreamingFallbackTimeoutMs(): number {
-  const override = parseInt(process.env.API_TIMEOUT_MS || '', 10)
+  const override = parseApiTimeoutMsEnv()
   if (override) return override
   return isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ? 120_000 : 300_000
 }

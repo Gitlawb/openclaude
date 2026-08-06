@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useState } from 'react'
 import { Box, Text } from 'src/ink.js'
+import { describeApiTimeoutEnvForError } from 'src/services/api/apiTimeout.js'
 import { briefAPIErrorReason, formatAPIError } from 'src/services/api/errorUtils.js'
 import type { SystemAPIErrorMessage } from 'src/types/message.js'
 import { useInterval } from 'usehooks-ts'
@@ -43,6 +44,7 @@ export function SystemAPIErrorMessage({ message, verbose }: Props) {
 
   const formatted = formatAPIError(error)
   const truncated = !verbose && formatted.length > MAX_API_ERROR_CHARS
+  const apiTimeoutHint = describeApiTimeoutEnvForError()
   return (
     <MessageResponse>
       <Box flexDirection="column">
@@ -56,9 +58,7 @@ export function SystemAPIErrorMessage({ message, verbose }: Props) {
           Retrying in {retryInSecondsLive}{' '}
           {retryInSecondsLive === 1 ? 'second' : 'seconds'}
           {'…'} (attempt {retryAttempt}/{maxRetries})
-          {process.env.API_TIMEOUT_MS
-            ? ` · API_TIMEOUT_MS=${process.env.API_TIMEOUT_MS}ms, try increasing it`
-            : ''}
+          {apiTimeoutHint ? ` · ${apiTimeoutHint}` : ''}
         </Text>
       </Box>
     </MessageResponse>
