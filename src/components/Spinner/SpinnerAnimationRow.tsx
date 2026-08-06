@@ -34,6 +34,17 @@ const THINKING_INACTIVE_SHIMMER = {
   g: 185,
   b: 185
 };
+// Ultracode thinking shimmer (blue/cyan) — distinct from the gray thinking shimmer
+const ULTRACODE_INACTIVE = {
+  r: 0,
+  g: 155,
+  b: 196
+};
+const ULTRACODE_INACTIVE_SHIMMER = {
+  r: 44,
+  g: 200,
+  b: 237
+};
 const THINKING_DELAY_MS = 3000;
 const THINKING_GLOW_PERIOD_S = 2;
 
@@ -607,7 +618,10 @@ export function SpinnerAnimationRow({
   // second useAnimationFrame(50) subscription.
   const thinkingElapsedSec = (time - THINKING_DELAY_MS) / 1000;
   const thinkingOpacity = time < THINKING_DELAY_MS ? 0 : (Math.sin(thinkingElapsedSec * Math.PI * 2 / THINKING_GLOW_PERIOD_S) + 1) / 2;
-  const thinkingShimmerColor = toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
+  const isUltracodeOverride = overrideColor === 'ultracode';
+  const thinkingShimmerColor = isUltracodeOverride
+    ? toRGBColor(interpolateColor(ULTRACODE_INACTIVE, ULTRACODE_INACTIVE_SHIMMER, thinkingOpacity))
+    : toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
 
   // === Build status parts ===
   // bareThinkingOnly nests parens on the thinking word (no outer status parens).

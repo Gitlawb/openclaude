@@ -217,7 +217,7 @@ import { diagnosticTracker } from '../services/diagnosticTracking.js';
 import { handleSpeculationAccept, type ActiveSpeculationState } from '../services/PromptSuggestion/speculation.js';
 import { IdeOnboardingDialog } from '../components/IdeOnboardingDialog.js';
 import { EffortCallout, shouldShowEffortCallout } from '../components/EffortCallout.js';
-import type { EffortValue } from '../utils/effort.js';
+import { getDisplayedEffortLevel, type EffortValue } from '../utils/effort.js';
 import { RemoteCallout } from '../components/RemoteCallout.js';
 import { getAPIProvider } from '../utils/model/providers.js';
 import { activityManager } from '../utils/activityManager.js';
@@ -3068,6 +3068,13 @@ export function REPL({
         ...previousGetAppState(),
         effortValue: effort
       });
+    }
+    // Set blue/cyan spinner color for ultracode mode so the thinking
+    // indicator is visually distinct from regular thinking/ultrathink.
+    const effectiveEffort = effort ?? store.getState().effortValue;
+    if (getDisplayedEffortLevel(mainLoopModelParam, effectiveEffort) === 'ultracode') {
+      setSpinnerColor('ultracode');
+      setSpinnerShimmerColor('ultracodeShimmer');
     }
     queryCheckpoint('query_context_loading_start');
     const [, , defaultSystemPrompt, baseUserContext, systemContext] = await Promise.all([
