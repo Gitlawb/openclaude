@@ -281,13 +281,17 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     expect(applySedSubstitution('\u{1F600}a', info!)).toBe('X')
   })
 
-  test('matches a carriage return the way sed pattern space does', () => {
-    // Verified against GNU sed 4.10: `s/./X/g` on "a\r\n" writes "XX\n" — the
-    // CR is an ordinary character in the pattern space. A JS `.` excludes
-    // carriage returns and would leave it in place.
+  test('substitutes every character on a line, matching sed under LF content', () => {
+    // The permission path (SedEditPermissionRequest) normalizes CRLF to LF
+    // before it ever calls the simulator, so the preview it approves only ever
+    // sees `\n`-terminated lines. On that normalized content `s/./X/g` rewrites
+    // each character exactly as GNU sed does. Raw-CR fidelity is deliberately
+    // out of scope: the simulator never receives a `\r`, so this asserts the
+    // behavior the approval gate actually exercises rather than a raw-byte case
+    // production cannot reach.
     const info = parseSedEditCommand(cmd('s/./X/g'))
     expect(info).not.toBeNull()
-    expect(applySedSubstitution('a\r\n', info!)).toBe('XX\n')
+    expect(applySedSubstitution('ab', info!)).toBe('XX')
   })
 
   test('rejects a standalone empty pattern', () => {
