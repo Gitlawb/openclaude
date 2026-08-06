@@ -26,5 +26,5 @@ export const AIMLAPI_MESSAGES = {
   topUpSuccess: (amountUsd: string) =>
     `Top-up successful - $${amountUsd} credited to your account`,
   successMagicLink: (email: string) =>
-    `We've emailed you a magic link to ${email}. Use it to access your aimlapi.com account and review your usage.`,
+    `Your aimlapi.com account is ready. Sign in at https://aimlapi.com/app with ${email} to review your usage.`,
 } as const

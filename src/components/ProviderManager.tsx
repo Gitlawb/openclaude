@@ -61,6 +61,7 @@ import {
   claimAimlapiTopupState,
   clearAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
+  resetAimlapiCheckoutSessionAsync,
   saveAimlapiTopupState,
   loadAimlapiSignInKey,
   saveAimlapiSignInKey,
@@ -1019,6 +1020,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     autoTopUp: boolean
   } | null>(null)
   const aimlapiAbandonAckRef = React.useRef(false)
+  // Set when the user explicitly chose "switch account" from the configured
+  // screen. Unlike the ack ref above (which confirms abandoning a checkout
+  // THIS mount opened), a stale on-disk receipt here can be from an earlier,
+  // separate process — this mount's refs are never populated for it, so the
+  // normal ref-based abandon detection can't see the conflict at all. Forces
+  // the next claim to override it unconditionally, once.
+  const aimlapiForceAbandonExistingRef = React.useRef(false)
 
   function resetAimlapiCheckoutIntent(): void {
     // NOTE: the opened-checkout tracking (aimlapiOpenedCheckoutRef /
@@ -2856,11 +2864,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       profile.provider === 'aimlapi' ||
       resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
     const inferenceBaseUrl = resolveEndpoints().inferenceBaseUrl
-    if (!isCanonicalAimlapiInferenceBaseUrl(inferenceBaseUrl)) return null
-    const envKey = resolveRouteCredentialValue({
-      routeId: 'aimlapi',
-      baseUrl: inferenceBaseUrl,
-    })?.trim()
+    // Discovering an already-saved profile must not depend on the AMBIENT
+    // endpoint: a saved production-endpoint profile is still eligible even
+    // while AIMLAPI_INFERENCE_URL currently points elsewhere (e.g. staging) —
+    // the per-profile canonical check below is what actually enforces "never
+    // send a saved key to another environment". The ambient env's key is a
+    // different matter: it's only valid to read AT the ambient endpoint, so
+    // it stays gated on the ambient endpoint being canonical.
+    const ambientIsCanonical = isCanonicalAimlapiInferenceBaseUrl(inferenceBaseUrl)
+    const envKey = ambientIsCanonical
+      ? resolveRouteCredentialValue({
+          routeId: 'aimlapi',
+          baseUrl: inferenceBaseUrl,
+        })?.trim()
+      : undefined
     const active = profiles.find(profile => profile.id === activeProfileId)
     const candidates = active
       ? [active, ...profiles.filter(profile => profile.id !== active.id)]
@@ -3032,6 +3049,25 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // Submitting the email starts a fresh account-bound flow. Retaining a
     // checkout from an earlier email/key path could poll or exchange the wrong
     // payment intent, so retries that should resume stay on the amount screen.
+    // A checkout that is already chargeable (a resume token recorded, a key
+    // minted, or a browser tab opened) must not be silently abandoned this way
+    // though — e.g. an accidental Esc-back-and-resubmit of the SAME email —
+    // so require the same explicit confirmation an amount edit does. A
+    // never-advanced claim (nothing paid or minted yet) is safe to drop.
+    const hasChargeableCheckout = Boolean(
+      aimlapiPersistedIntentRef.current &&
+        (aimlapiResumeSessionToken.trim() ||
+          aimlapiIssuedKey.trim() ||
+          aimlapiOpenedCheckoutRef.current),
+    )
+    if (hasChargeableCheckout && !aimlapiAbandonAckRef.current) {
+      aimlapiAbandonAckRef.current = true
+      setErrorMessage(
+        'A checkout from a previous email is still pending — if a browser tab for it is open, do NOT pay it. Press Enter again to abandon it and continue with this email.',
+      )
+      return
+    }
+    aimlapiAbandonAckRef.current = false
     resetAimlapiOnboardingIdentity()
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()
@@ -3180,10 +3216,27 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         (openedCheckout.amountUsdMinor !== amountUsdMinor ||
           openedCheckout.autoTopUp !== autoTopUp),
     )
-    if (abandoningOpenedCheckout && !aimlapiAbandonAckRef.current) {
+    // A session can already be recorded on disk (elected via onSession, inside
+    // resolveTopupSession) before a checkout URL ever surfaces — e.g. the user
+    // backed out while createSession was still in flight, so opening-checkout
+    // never ran and aimlapiOpenedCheckoutRef was never armed. claimAimlapiTopupState
+    // still refuses a differing intent against that record, so it needs the same
+    // confirmed-abandon path, just without the "do NOT pay it" browser-tab wording.
+    const persistedIntent = aimlapiPersistedIntentRef.current
+    const abandoningPersistedIntent = Boolean(
+      persistedIntent &&
+        (persistedIntent.amountUsdMinor !== amountUsdMinor ||
+          persistedIntent.autoTopUp !== autoTopUp),
+    )
+    if (
+      (abandoningOpenedCheckout || abandoningPersistedIntent) &&
+      !aimlapiAbandonAckRef.current
+    ) {
       aimlapiAbandonAckRef.current = true
       setErrorMessage(
-        'An unpaid checkout is still open in your browser — do NOT pay it. Press Enter again to abandon it and start a new checkout.',
+        abandoningOpenedCheckout
+          ? 'An unpaid checkout is still open in your browser — do NOT pay it. Press Enter again to abandon it and start a new checkout.'
+          : 'A checkout for the previous amount is still pending. Press Enter again to abandon it and start a new one.',
       )
       setScreen('aimlapi-topup-amount')
       return
@@ -3204,13 +3257,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       payBaseUrl: endpoints.payBaseUrl.trim().replace(/\/+$/, ''),
       verificationBaseUrl: endpoints.verificationBaseUrl.trim().replace(/\/+$/, ''),
     }
+    // Single-use: consume it for this claim regardless of outcome, so it can
+    // never leak into a later, unrelated claim in the same mount.
+    const forceAbandonExisting = aimlapiForceAbandonExistingRef.current
+    aimlapiForceAbandonExistingRef.current = false
     let checkoutState: ReturnType<typeof claimAimlapiTopupState>
     try {
       // The abandon-ack gate above already made the user explicitly confirm
-      // giving up the retained checkout when one conflicts with this intent, so
-      // this claim may overwrite it instead of refusing.
+      // giving up the retained checkout when one conflicts with this intent
+      // (abandoningOpenedCheckout / abandoningPersistedIntent), so this claim
+      // may overwrite it instead of refusing. forceAbandonExisting covers the
+      // "switch account" case: an on-disk record from an earlier process that
+      // this mount's refs were never populated for, so the checks above can't
+      // see it, but the user already agreed to abandon whatever's there.
       checkoutState = claimAimlapiTopupState(intent, {
-        abandonExisting: abandoningOpenedCheckout,
+        abandonExisting:
+          abandoningOpenedCheckout || abandoningPersistedIntent || forceAbandonExisting,
       })
     } catch (error) {
       setErrorMessage(safeAimlapiErrorMessage(error, [aimlapiIssuedKey]))
@@ -3252,6 +3314,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // minting an unrelated key (mirrors the CLI). By-key top-ups never exchange.
     if (!aimlapiTopupByKey && checkoutState.exchange === undefined) {
       checkoutState.exchange = aimlapiNewAccount
+      // Mirror the CLI (topup.ts): an existing-account key already minted at
+      // sign-in is otherwise only recorded in the separate sign-in-key cache,
+      // not in this receipt. A restart before settlement would then depend on
+      // BOTH files staying consistent to resume; persisting it here too makes
+      // the receipt self-contained, matching the CLI's recovery guarantee.
+      if (aimlapiIssuedKey.trim()) {
+        checkoutState.apiKey = aimlapiIssuedKey
+        checkoutState.apiKeyId = aimlapiIssuedKeyId
+      }
       try {
         saveAimlapiTopupState({ ...intent, ...checkoutState })
       } catch {
@@ -3284,7 +3355,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         }
         const reportSession = (sessionToken: string): string | undefined => {
           if (!sessionToken) {
-            resetAimlapiCheckoutIntent()
+            // Mirrors the CLI's persistSession: a terminal checkout invalidates
+            // the payment session but not an already-minted existing-account
+            // key, so try to retain it (with a fresh payment session) before
+            // falling back to a full clear. Fire-and-forget on the async lock —
+            // this runs off a synchronous onSession callback, so it must never
+            // risk freezing the UI on lock contention.
+            const stale = aimlapiPersistedIntentRef.current
+            if (stale) {
+              aimlapiPersistedIntentRef.current = null
+              void resetAimlapiCheckoutSessionAsync(stale)
+                .then(reset => (reset ? undefined : clearAimlapiTopupStateAsync(stale)))
+                .catch(() => {})
+            }
+            setAimlapiResumeSessionToken('')
             return undefined
           }
           // Atomic election: a peer that already opened a payable checkout for
@@ -3432,6 +3516,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setAimlapiInferenceBaseUrl(resolveEndpoints().inferenceBaseUrl)
             setAimlapiResumeSessionToken('')
             setDraft(previous => ({ ...previous, apiKey: '' }))
+            // Explicit user-initiated "start over" — unlike an accidental
+            // re-submit elsewhere, no confirmation is needed here. But it must
+            // still abandon a durable receipt from an earlier interrupted
+            // top-up: this only clears the fields above, so without either of
+            // the next two lines a stale on-disk record for a DIFFERENT
+            // email/key would otherwise make the very next onboarding attempt
+            // hit claimAimlapiTopupState's refusal with no way to recover
+            // short of deleting the file by hand. resetAimlapiCheckoutIntent
+            // covers a checkout interrupted earlier in THIS mount; the force
+            // flag covers one already on disk from an earlier process, which
+            // this mount's refs were never populated for and so can't detect.
+            resetAimlapiCheckoutIntent()
+            aimlapiForceAbandonExistingRef.current = true
             setScreen('aimlapi-api-key-choice')
           }}
           onCancel={handleBackFromAimlapiConfigured}
