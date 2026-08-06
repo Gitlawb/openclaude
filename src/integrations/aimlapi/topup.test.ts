@@ -7,6 +7,7 @@ import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   claimAimlapiTopupState,
   loadAimlapiTopupState,
+  recordAimlapiSettledKeyAsync,
   saveAimlapiTopupState,
 } from './topupState.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
@@ -749,6 +750,59 @@ test('an in-progress exchange is observed without issuing a second exchange', as
     'GET https://app.example.test/v3/partner-checkout/sessions/session',
   ])
   expect(sessions).toEqual(['session'])
+})
+
+test('a peer settling mid-wait is resumed from instead of hard-failing the exchange', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_test',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  let reads = 0
+  globalThis.fetch = mock(async () => {
+    reads += 1
+    if (reads === 1) {
+      // resolveTopupSession's resume read: still exchanging → wait-exchange.
+      return sessionJson({ sessionToken: 'session', status: 'exchanging' })
+    }
+    // pollUntilExchangeSettled's read: by the time this lands, a PEER process
+    // has already finished /exchange and recorded the settled key — simulated
+    // here as a side effect of the same request racing that write.
+    await recordAimlapiSettledKeyAsync(expected, {
+      apiKey: 'peer-exchanged-key',
+      apiKeyId: 'peer-exchanged-id',
+    })
+    return sessionJson({ sessionToken: 'session', status: 'exchanged' })
+  }) as unknown as typeof fetch
+
+  const result = await provisionAimlapiKey({
+    sessionToken: 'account-session',
+    resumeSessionToken: 'session',
+    paymentSessionId: claimed.paymentSessionId,
+    exchange: true,
+    intent,
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  // Resumed from the peer's settled receipt instead of throwing "Session was
+  // already exchanged".
+  expect(result.apiKey).toBe('peer-exchanged-key')
+  expect(result.apiKeyId).toBe('peer-exchanged-id')
 })
 
 test('email-session checkout carries the stable payment id', async () => {
