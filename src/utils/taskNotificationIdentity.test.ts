@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
   dedupeQueuedTaskNotifications,
+  filterClaimedTaskNotificationsForRestore,
   getTaskNotificationDedupKey,
   parseTaskNotificationTaskId,
+  pendingCommandsForEmbeddedNotifications,
 } from './taskNotificationIdentity.js'
 import { createAttachmentMessage } from './attachments.js'
 
@@ -61,5 +63,54 @@ describe('task notification identity', () => {
     expect(
       dedupeQueuedTaskNotifications([], [first, duplicate, distinct]),
     ).toEqual([first, distinct])
+  })
+
+  test('restore excludes notifications already present in the settled transcript', () => {
+    const summary = 'Background session "work" completed'
+    const settledPrompt = taskNotification('s1111111', summary)
+    const settled = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt: settledPrompt,
+    })
+    const pending = [
+      {
+        value: settledPrompt,
+        mode: 'task-notification' as const,
+        priority: 'later' as const,
+      },
+      {
+        value: taskNotification('s2222222', summary),
+        mode: 'task-notification' as const,
+        priority: 'later' as const,
+      },
+    ]
+
+    expect(
+      filterClaimedTaskNotificationsForRestore(pending, [settled]),
+    ).toEqual([pending[1]])
+  })
+
+  test('restore maps embedded successor notifications back to claimed commands', () => {
+    const summary = 'Background session "work" completed'
+    const first = {
+      value: taskNotification('s1111111', summary),
+      mode: 'task-notification' as const,
+      priority: 'later' as const,
+    }
+    const second = {
+      value: taskNotification('s2222222', summary),
+      mode: 'task-notification' as const,
+      priority: 'later' as const,
+    }
+    const embedded = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt: first.value,
+    })
+
+    expect(
+      pendingCommandsForEmbeddedNotifications([first, second], [embedded]),
+    ).toEqual([first])
   })
 })

@@ -291,7 +291,7 @@ import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type M
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
-import { dedupeQueuedTaskNotifications } from '../utils/taskNotificationIdentity.js';
+import { dedupeQueuedTaskNotifications, filterClaimedTaskNotificationsForRestore, pendingCommandsForEmbeddedNotifications } from '../utils/taskNotificationIdentity.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -2875,18 +2875,24 @@ export function REPL({
         // and allow a new prompt. Capture this continuation's transcript before
         // any preparation await can observe that later foreground turn.
         const settledMessages = [...messagesRef.current];
-        // Claim foreground-produced notifications immediately after the
-        // settlement decision, before any async context preparation can let
-        // another queue consumer take ownership.
+        // Claim main-thread notifications only. Subagent-addressed entries keep
+        // their owner-scoped drain path (QueuedCommand.agentId); issue #2079 is
+        // about configurable interactive turn caps, not queue isolation.
         const pendingNotifications = removeByFilter(
           cmd =>
             cmd.mode === 'task-notification' && cmd.agentId === undefined,
+        );
+        let restorableNotifications = filterClaimedTaskNotificationsForRestore(
+          pendingNotifications,
+          settledMessages,
         );
         let notificationOwnershipActive = true;
         const restoreNotificationsIfUnsent = () => {
           if (!notificationOwnershipActive) return;
           notificationOwnershipActive = false;
-          prepend(pendingNotifications);
+          if (restorableNotifications.length > 0) {
+            prepend(restorableNotifications);
+          }
         };
         try {
         const toolUseContext = getToolUseContext(settledMessages, [], backgroundAbortController, mainLoopModel);
@@ -2920,6 +2926,10 @@ export function REPL({
         const uniqueNotifications = dedupeQueuedTaskNotifications(
           settledMessages,
           notificationMessages,
+        );
+        restorableNotifications = pendingCommandsForEmbeddedNotifications(
+          pendingNotifications,
+          uniqueNotifications,
         );
         return {
           messages: [...settledMessages, ...uniqueNotifications],
