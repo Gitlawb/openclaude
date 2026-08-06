@@ -1366,15 +1366,21 @@ test('ProviderManager switch-account overrides a stale receipt left by an earlie
     )
 
     // Select "Set up a new key or switch account" (the second option). Wait
-    // for the frame to settle (unchanged across a poll) after moving focus,
-    // rather than a fixed delay, so Enter never lands before the highlighted
-    // row actually moved and could select "Continue with your saved API key"
+    // for the frame to both DIFFER from its pre-keypress snapshot (proof Ink
+    // actually processed "j" and re-rendered, not just caught the same old
+    // frame twice in a row) and then settle (unchanged across a poll), rather
+    // than a fixed delay — so Enter never lands before the highlighted row
+    // actually moved and could select "Continue with your saved API key"
     // instead.
+    const beforeFocusMove = mounted.getOutput()
     mounted.stdin.write('j')
     let previousConfiguredFrame = ''
     await waitForCondition(() => {
       const frame = mounted.getOutput()
-      const settled = frame === previousConfiguredFrame && frame.includes('already configured')
+      const settled =
+        frame !== beforeFocusMove &&
+        frame === previousConfiguredFrame &&
+        frame.includes('already configured')
       previousConfiguredFrame = frame
       return settled
     })
