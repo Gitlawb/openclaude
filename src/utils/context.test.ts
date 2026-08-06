@@ -32,6 +32,8 @@ const originalEnv = {
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
   USER_TYPE: process.env.USER_TYPE,
+  OPENCLAUDE_MAX_TURNS: process.env.OPENCLAUDE_MAX_TURNS,
+  CLAUDE_CODE_MAX_TURNS: process.env.CLAUDE_CODE_MAX_TURNS,
 }
 
 beforeEach(async () => {
@@ -141,6 +143,16 @@ afterEach(() => {
       delete process.env.USER_TYPE
     } else {
       process.env.USER_TYPE = originalEnv.USER_TYPE
+    }
+    if (originalEnv.OPENCLAUDE_MAX_TURNS === undefined) {
+      delete process.env.OPENCLAUDE_MAX_TURNS
+    } else {
+      process.env.OPENCLAUDE_MAX_TURNS = originalEnv.OPENCLAUDE_MAX_TURNS
+    }
+    if (originalEnv.CLAUDE_CODE_MAX_TURNS === undefined) {
+      delete process.env.CLAUDE_CODE_MAX_TURNS
+    } else {
+      process.env.CLAUDE_CODE_MAX_TURNS = originalEnv.CLAUDE_CODE_MAX_TURNS
     }
   } finally {
     clearSessionContextWindowOverride()

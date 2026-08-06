@@ -1,14 +1,20 @@
-import { describe, expect, spyOn, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 
+import type { Command } from '../commands.js'
+import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import * as queryEngineModule from '../QueryEngine.js'
 import * as queryModule from '../query.js'
 import { type QueryParams } from '../query.js'
 import type { QueryDeps } from '../query/deps.js'
-import { asSystemPrompt } from '../utils/systemPromptType.js'
+import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
+import type { Tools } from '../Tool.js'
 import {
   createAssistantMessage,
   createUserMessage,
 } from '../utils/messages.js'
+import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { parseMaxTurnsCli, resolveReplMaxTurns } from '../utils/replMaxTurns.js'
+import { runHeadless } from './print.js'
 
 function makeHeadlessQueryParams(maxTurns: number | undefined): QueryParams {
   return {
@@ -72,7 +78,84 @@ function makeHeadlessQueryParams(maxTurns: number | undefined): QueryParams {
   }
 }
 
+function createHeadlessSuccessResult(): SDKMessage {
+  return {
+    type: 'result',
+    subtype: 'success',
+    duration_ms: 0,
+    duration_api_ms: 0,
+    is_error: false,
+    num_turns: 1,
+    result: 'done',
+    stop_reason: 'end_turn',
+    total_cost_usd: 0,
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    modelUsage: {},
+    permission_denials: [],
+    uuid: '00000000-0000-4000-8000-000000000001',
+    session_id: 'test-session',
+  }
+}
+
+function createHeadlessRunOptions(maxTurns: number | undefined) {
+  return {
+    continue: undefined,
+    resume: undefined,
+    fromPr: undefined,
+    resumeSessionAt: undefined,
+    verbose: false,
+    outputFormat: 'text',
+    jsonSchema: undefined,
+    permissionPromptToolName: undefined,
+    allowedTools: undefined,
+    thinkingConfig: { type: 'disabled' as const },
+    maxTurns,
+    maxBudgetUsd: undefined,
+    taskBudget: undefined,
+    systemPrompt: undefined,
+    appendSystemPrompt: undefined,
+    userSpecifiedModel: undefined,
+    fallbackModel: undefined,
+    teleport: undefined,
+    sdkUrl: undefined,
+    replayUserMessages: undefined,
+    includePartialMessages: undefined,
+    forkSession: undefined,
+    rewindFiles: undefined,
+    enableAuthStatus: undefined,
+    agent: undefined,
+    workload: undefined,
+  }
+}
+
+async function waitForAskCall(
+  askSpy: ReturnType<typeof spyOn<typeof queryEngineModule, 'ask'>>,
+): Promise<void> {
+  const deadline = Date.now() + 15_000
+  while (askSpy.mock.calls.length === 0) {
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for runHeadless to call ask()')
+    }
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
 describe('headless --print max-turns', () => {
+  const savedSimple = process.env.CLAUDE_CODE_SIMPLE
+
+  afterEach(() => {
+    if (savedSimple === undefined) {
+      delete process.env.CLAUDE_CODE_SIMPLE
+    } else {
+      process.env.CLAUDE_CODE_SIMPLE = savedSimple
+    }
+  })
+
   test('forwards parsed --max-turns 0 into query params without interactive resolution', async () => {
     const headlessMaxTurns = parseMaxTurnsCli('0')
     expect(headlessMaxTurns).toBe(0)
@@ -94,5 +177,39 @@ describe('headless --print max-turns', () => {
     expect(querySpy.mock.calls[0]?.[0]?.maxTurns).toBe(0)
     expect(terminal?.reason).toBe('completed')
     querySpy.mockRestore()
+  })
+
+  test('forwards maxTurns 0 through runHeadless into ask()', async () => {
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+
+    const askSpy = spyOn(queryEngineModule, 'ask').mockImplementation(
+      async function* () {
+        yield createHeadlessSuccessResult()
+      },
+    )
+
+    let state = getDefaultAppState()
+    const getAppState = () => state
+    const setAppState = (update: (previous: AppState) => AppState) => {
+      state = update(state)
+    }
+
+    const runPromise = runHeadless(
+      'headless prompt',
+      getAppState,
+      setAppState,
+      [] as Command[],
+      [] as Tools,
+      {},
+      [],
+      createHeadlessRunOptions(0),
+    ).catch(() => {})
+
+    await waitForAskCall(askSpy)
+
+    expect(askSpy.mock.calls[0]?.[0]?.maxTurns).toBe(0)
+
+    askSpy.mockRestore()
+    await runPromise
   })
 })
