@@ -537,6 +537,8 @@ test('unknown openai-compatible model fallback logs one debug warning and no con
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
+  delete process.env.OPENCLAUDE_MAX_TURNS
+  delete process.env.CLAUDE_CODE_MAX_TURNS
 
   const actualDebugModule = await import('./debug.js')
   const logForDebugging = spyOn(
@@ -559,8 +561,13 @@ test('unknown openai-compatible model fallback logs one debug warning and no con
       contextModule.getContextWindowForModel('another-unknown-3p-model'),
     ).toBe(128_000)
     expect(consoleError).not.toHaveBeenCalled()
-    expect(logForDebugging).toHaveBeenCalledTimes(1)
-    expect(logForDebugging.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+    const contextWarnings = logForDebugging.mock.calls.filter(
+      ([message, options]) =>
+        typeof message === 'string' &&
+        message.startsWith('[context] Warning:') &&
+        options?.level === 'warn',
+    )
+    expect(contextWarnings).toHaveLength(1)
   } finally {
     console.error = originalConsoleError
     mock.restore()

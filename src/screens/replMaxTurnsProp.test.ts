@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import {
   Command as CommanderCommand,
   InvalidArgumentError,
@@ -70,6 +70,10 @@ function createMaxTurnsCliProgram(): CommanderCommand {
     .action(() => {})
   return program
 }
+
+beforeEach(() => {
+  clearTurnEnv()
+})
 
 afterEach(() => {
   for (const key of ENV_KEYS) {
