@@ -180,6 +180,54 @@ describe('LocalMainSessionTask', () => {
     expect(state.tasks[taskId]?.status).toBe('killed')
   })
 
+  test('does not restore notifications after provider dispatch commits ownership', async () => {
+    let state = getDefaultAppState()
+    const setAppState = (update: (previous: AppState) => AppState): void => {
+      state = update(state)
+    }
+    let restoreCalls = 0
+    let ownershipActive = true
+    let releaseQuery!: () => void
+    const queryBlocked = new Promise<void>(resolve => {
+      releaseQuery = resolve
+    })
+    let taskRegistered = false
+
+    const { taskId, abortController } = startBackgroundSession({
+      description: 'post-dispatch abort',
+      setAppState,
+      prepare: async () => ({
+        messages: [],
+        restoreNotificationsIfUnsent: () => {
+          if (!ownershipActive) return
+          ownershipActive = false
+          restoreCalls++
+        },
+        commitNotificationOwnership: () => {
+          ownershipActive = false
+        },
+        queryParams: {} as Omit<QueryParams, 'messages'>,
+      }),
+      onRegistered: () => {
+        taskRegistered = true
+      },
+      queryImpl: (async function* (
+        params,
+      ): AsyncGenerator<Message, Terminal> {
+        params.onModelRequestStart?.()
+        await queryBlocked
+        yield createAssistantMessage({ content: 'late' })
+        return { reason: 'completed' }
+      }) as typeof import('../query.js').query,
+    })
+
+    await waitFor(() => taskRegistered, 'task registration')
+    abortController.abort('stopped')
+    releaseQuery()
+    await waitFor(() => state.tasks[taskId]?.status === 'killed', 'task killed')
+    expect(restoreCalls).toBe(0)
+  })
+
   test('retains a max-turn terminal attachment in task messages', async () => {
     let state = getDefaultAppState()
     const setAppState = (update: (previous: AppState) => AppState): void => {
