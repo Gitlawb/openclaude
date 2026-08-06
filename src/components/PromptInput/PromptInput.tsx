@@ -133,6 +133,9 @@ type Props = {
   commands: Command[];
   agents: AgentDefinition[];
   isLoading: boolean;
+  /** True when ultracode is the active effort. Tints the prompt border
+   *  cyan-blue as a persistent ambient indicator of the mode. */
+  ultracodeActive?: boolean;
   verbose: boolean;
   messages: Message[];
   onAutoUpdaterResult: (result: AutoUpdaterResult) => void;
@@ -203,6 +206,7 @@ function PromptInput({
   commands,
   agents,
   isLoading,
+  ultracodeActive,
   verbose,
   messages,
   onAutoUpdaterResult,
@@ -2267,6 +2271,13 @@ function PromptInput({
     const teammateColorName = getTeammateColor();
     if (teammateColorName && AGENT_COLORS.includes(teammateColorName as AgentColorName)) {
       return AGENT_COLOR_TO_THEME_COLOR[teammateColorName as AgentColorName];
+    }
+
+    // Ambient ultracode indicator: cyan-blue border whenever ultracode is the
+    // active effort. Ranks below bash mode and teammate identity (explicit
+    // contextual overrides) but above the default border.
+    if (ultracodeActive) {
+      return 'ultracode';
     }
     return 'promptBorder';
   };
