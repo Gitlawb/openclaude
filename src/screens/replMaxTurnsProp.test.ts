@@ -271,6 +271,13 @@ describe('interactive REPL max-turn cap', () => {
     await expect(wait).resolves.toBeNull()
   })
 
+  test('does not continue a background handoff after the foreground query throws', () => {
+    const source = readScreen('REPL.tsx')
+    const onQueryBody = objectBody(source, /const onQuery = useCallback/)
+    expect(onQueryBody).toContain('!didThrow')
+    expect(onQueryBody).toContain('shouldContinueBackground')
+  })
+
   test('Config panel exposes Max turns (interactive)', () => {
     const source = readSourceUp(join('components', 'Settings', 'Config.tsx'))
     expect(source).toContain("id: 'replMaxTurns'")

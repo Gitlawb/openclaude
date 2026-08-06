@@ -3358,7 +3358,12 @@ export function REPL({
       // The ref is only an ownership marker for the currently foregrounded
       // prompt. A background handoff already captured the budget object, so
       // clear the ref on every terminal path without disturbing a newer query.
-      const shouldContinueBackground = abortController.signal.reason === 'background' && (queryTerminal === undefined || queryTerminal.reason === 'aborted_streaming' || queryTerminal.reason === 'aborted_tools');
+      const shouldContinueBackground =
+        !didThrow &&
+        abortController.signal.reason === 'background' &&
+        (queryTerminal === undefined ||
+          queryTerminal.reason === 'aborted_streaming' ||
+          queryTerminal.reason === 'aborted_tools');
       releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
       // A provider response can hand off to tools before the assistant turn
       // finishes. Keep correction ownership through that work (and retries),
