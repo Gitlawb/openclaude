@@ -148,6 +148,8 @@ test('cleans up the caller signal after early body cancellation', async () => {
   } finally {
     if (originalAbortSignalAny) {
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    } else {
+      delete (AbortSignal as { any?: unknown }).any
     }
   }
 })

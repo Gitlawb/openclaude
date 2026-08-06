@@ -4832,6 +4832,8 @@ test('manual signal fallback removes caller forwarding after the body settles', 
   } finally {
     if (originalAbortSignalAny) {
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    } else {
+      delete (AbortSignal as { any?: unknown }).any
     }
   }
 })
