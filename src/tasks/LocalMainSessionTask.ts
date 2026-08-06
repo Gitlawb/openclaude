@@ -563,7 +563,11 @@ export function startBackgroundSession({
       completeMainSessionTask(taskId, true, setAppState)
     } catch (error) {
       if (abortSignal.aborted) {
-        if (taskRegistered) finishAbortedTask()
+        if (taskRegistered) {
+          finishAbortedTask()
+        } else {
+          restorePreDispatchNotifications()
+        }
         return
       }
       logError(error)

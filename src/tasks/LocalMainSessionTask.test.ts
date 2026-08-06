@@ -76,6 +76,7 @@ afterEach(async () => {
   try {
     await _clearOutputsForTest()
     await flushSessionStorage()
+  } finally {
     resetProjectForTesting()
     _resetTaskOutputDirForTest()
     setClaudeConfigHomeDirForTesting(originalConfigDir)
@@ -89,7 +90,6 @@ afterEach(async () => {
     }
     getClaudeTempDir.cache?.clear?.()
     await rm(testRoot, { recursive: true, force: true })
-  } finally {
     releaseSharedMutationLock()
   }
 })

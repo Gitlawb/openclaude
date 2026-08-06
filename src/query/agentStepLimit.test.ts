@@ -17,6 +17,8 @@ import {
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { countToolUses } from '../tools/AgentTool/agentToolUtils.js'
 import { AGENT_STEP_LIMIT_TOOL_RESULT_PREFIX } from './agentStepLimit.js'
+import type { Terminal } from './transitions.js'
+import type { Message } from '../types/message.js'
 import { dequeueAll, enqueue } from '../utils/messageQueueManager.js'
 
 const echoCalls: string[] = []
@@ -510,10 +512,16 @@ describe('agent step limits', () => {
       foregroundParams.toolUseContext.abortController
     const turnBudget = createQueryTurnBudget(1)
     const foregroundGenerator = query({ ...foregroundParams, turnBudget })
-    const foregroundYielded: any[] = []
+    type ForegroundNext = Awaited<
+      ReturnType<typeof foregroundGenerator.next>
+    >
+    type ForegroundYield = ForegroundNext extends IteratorResult<infer Y, unknown>
+      ? Y
+      : never
+    const foregroundYielded: ForegroundYield[] = []
 
     try {
-      let foregroundReturned: any
+      let foregroundReturned: Terminal | undefined
       while (true) {
         const next = await foregroundGenerator.next()
         if (next.done) {

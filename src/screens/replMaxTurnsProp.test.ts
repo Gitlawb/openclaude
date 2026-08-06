@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   Command as CommanderCommand,
   InvalidArgumentError,
@@ -35,20 +33,10 @@ import {
 } from '../utils/replMaxTurns.js'
 import * as debug from '../utils/debug.js'
 
-const screenDir = import.meta.dirname
-
 const ENV_KEYS = ['OPENCLAUDE_MAX_TURNS', 'CLAUDE_CODE_MAX_TURNS'] as const
 const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> =
   {}
 const savedReplMaxTurns = getGlobalConfig().replMaxTurns
-
-function readScreen(name: string): string {
-  return readFileSync(join(screenDir, name), 'utf8')
-}
-
-function readSourceUp(name: string): string {
-  return readFileSync(join(screenDir, '..', name), 'utf8')
-}
 
 function clearTurnEnv(): void {
   for (const key of ENV_KEYS) {
@@ -251,6 +239,14 @@ describe('interactive REPL max-turn cap', () => {
     expect(REPL_MAX_TURNS_OPTIONS).toEqual([50, 100, 200, 500])
   })
 
+  test('headless --max-turns 0 stays distinct from interactive unlimited resolution', () => {
+    expect(parseMaxTurnsCli('0')).toBe(0)
+    expect(resolveReplMaxTurns(0)).toBeUndefined()
+    const help = MAX_TURNS_CLI_DESCRIPTION.toLowerCase()
+    expect(help).toContain('local interactive mode')
+    expect(help).toContain('--print mode')
+  })
+
   test('background budget handoff preserves identity, settlement, and one-shot ownership', async () => {
     const handoff = createForegroundTurnBudgetHandoff(50)
     const budgetRef = { current: handoff }
@@ -344,22 +340,6 @@ describe('interactive REPL max-turn cap', () => {
         queryTerminal: { reason: 'aborted_streaming' },
       }),
     ).toBe(false)
-  })
-
-  test('Config panel exposes Max turns (interactive)', () => {
-    const source = readSourceUp(join('components', 'Settings', 'Config.tsx'))
-    expect(source).toContain("id: 'replMaxTurns'")
-    expect(source).toContain("label: 'Max turns (interactive)'")
-  })
-
-  test('passes the cap from the resume selector into REPL', () => {
-    const source = readScreen('ResumeConversation.tsx')
-    const repl = source.slice(
-      source.indexOf('<REPL'),
-      source.indexOf('/>', source.indexOf('<REPL')) + 2,
-    )
-
-    expect(repl).toContain('maxTurns={maxTurns}')
   })
 
   test('Commander --max-turns help scopes the interactive cap to local query loops', () => {

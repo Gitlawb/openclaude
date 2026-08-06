@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  dedupeQueuedTaskNotifications,
   getTaskNotificationDedupKey,
   parseTaskNotificationTaskId,
 } from './taskNotificationIdentity.js'
+import { createAttachmentMessage } from './attachments.js'
 
 function taskNotification(taskId: string, summary: string): string {
   return `<task-notification>
@@ -36,5 +38,28 @@ describe('task notification identity', () => {
   test('falls back to full content when no task id is present', () => {
     const payload = '<task-notification><summary>hook</summary></task-notification>'
     expect(getTaskNotificationDedupKey(payload)).toBe(payload)
+  })
+
+  test('dedupes duplicate task ids within a claimed notification batch', () => {
+    const summary = 'Background session "work" completed'
+    const first = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt: taskNotification('s1111111', summary),
+    })
+    const duplicate = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt: taskNotification('s1111111', summary),
+    })
+    const distinct = createAttachmentMessage({
+      type: 'queued_command',
+      commandMode: 'task-notification',
+      prompt: taskNotification('s2222222', summary),
+    })
+
+    expect(
+      dedupeQueuedTaskNotifications([], [first, duplicate, distinct]),
+    ).toEqual([first, distinct])
   })
 })

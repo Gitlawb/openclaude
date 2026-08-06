@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import {
   dequeue,
   dequeueAll,
@@ -9,7 +9,20 @@ import {
   subscribeToCommandQueue,
 } from './messageQueueManager.js'
 
+beforeEach(() => resetCommandQueue())
 afterEach(() => resetCommandQueue())
+
+test('prepend ignores an empty array', () => {
+  const notifications: number[] = []
+  const unsubscribe = subscribeToCommandQueue(() => notifications.push(1))
+  try {
+    prepend([])
+    expect(getCommandQueue()).toEqual([])
+    expect(notifications).toHaveLength(0)
+  } finally {
+    unsubscribe()
+  }
+})
 
 test('prepend restores commands ahead of later enqueues in FIFO order', () => {
   const notifications: number[] = []

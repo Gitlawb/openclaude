@@ -291,7 +291,7 @@ import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type M
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
-import { getTaskNotificationDedupKey } from '../utils/taskNotificationIdentity.js';
+import { dedupeQueuedTaskNotifications } from '../utils/taskNotificationIdentity.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -2916,17 +2916,11 @@ export function REPL({
         }
         const notificationMessages = notificationAttachments.map(createAttachmentMessage);
 
-        // Deduplicate: if the query loop already yielded a notification into
-        // messagesRef before we removed it from the queue, skip duplicates.
-        // Use the embedded task id so distinct tasks with identical summary
-        // text are not collapsed.
-        const existingNotificationKeys = new Set<string>();
-        for (const m of settledMessages) {
-          if (m.type === 'attachment' && m.attachment.type === 'queued_command' && m.attachment.commandMode === 'task-notification' && typeof m.attachment.prompt === 'string') {
-            existingNotificationKeys.add(getTaskNotificationDedupKey(m.attachment.prompt));
-          }
-        }
-        const uniqueNotifications = notificationMessages.filter(m => m.attachment.type === 'queued_command' && (typeof m.attachment.prompt !== 'string' || !existingNotificationKeys.has(getTaskNotificationDedupKey(m.attachment.prompt))));
+        // Deduplicate against settled transcript keys and within the claimed batch.
+        const uniqueNotifications = dedupeQueuedTaskNotifications(
+          settledMessages,
+          notificationMessages,
+        );
         notificationOwnershipActive = false;
         return {
           messages: [...settledMessages, ...uniqueNotifications],
