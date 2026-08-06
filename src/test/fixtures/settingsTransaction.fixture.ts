@@ -34,6 +34,7 @@ import {
 } from '../../utils/settings/settingsFileLock.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import { createCurrentSettingsLockOwner } from './settingsLockOwner.js'
 
 const scenario = process.argv[2]
 const configDir = realpathSync(
@@ -187,7 +188,9 @@ function deadOwnerScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-owner'),
+    ),
     'utf8',
   )
   const recovered = updateSettingsForSource('userSettings', {
@@ -246,12 +249,16 @@ function orphanedRecoveryClaimScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-owner'),
+    ),
     'utf8',
   )
   writeFileSync(
     recoveryPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-recoverer' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-recoverer'),
+    ),
     'utf8',
   )
 
@@ -263,6 +270,248 @@ function orphanedRecoveryClaimScenario(): unknown {
     error: result.error?.message ?? null,
     lockExists: existsSync(lockPath),
     final: readSettings(),
+  }
+}
+
+function separatorRecoveryTokenScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const recoveryPath = join(lockPath, 'recovery.json')
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    recoveryPath,
+    JSON.stringify(
+      createCurrentSettingsLockOwner(
+        MISSING_PROCESS_PID,
+        join('nested', 'untrusted'),
+      ),
+    ),
+    'utf8',
+  )
+
+  const result = updateSettingsForSource('userSettings', {
+    env: { RECOVERED_UNTRUSTED_TOKEN: 'yes' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    final: readSettings(),
+  }
+}
+
+function abandonedOwnerlessLockScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const originalFs = getFsImplementation()
+  const abandonedAt = Date.now() - 10 * 60 * 1000
+
+  mkdirSync(lockPath)
+  const abandonedIdentity = originalFs.lstatSync(lockPath)
+  setFsImplementation({
+    ...originalFs,
+    lstatSync(path) {
+      const stats = originalFs.lstatSync(path)
+      if (
+        stats.dev !== abandonedIdentity.dev ||
+        stats.ino !== abandonedIdentity.ino
+      ) {
+        return stats
+      }
+      return new Proxy(stats, {
+        get(target, property) {
+          if (
+            property === 'birthtimeMs' ||
+            property === 'ctimeMs' ||
+            property === 'mtimeMs'
+          ) {
+            return abandonedAt
+          }
+          const value = Reflect.get(target, property, target) as unknown
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+    },
+  })
+
+  try {
+    const result = updateSettingsForSource('userSettings', {
+      env: { RECOVERED_OWNERLESS_LOCK: 'yes' },
+    })
+    return {
+      error: result.error?.message ?? null,
+      lockExists: existsSync(lockPath),
+      final: readSettings(),
+    }
+  } finally {
+    setOriginalFsImplementation()
+  }
+}
+
+function foreignRuntimeOwnerScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const before = readFileSync(settingsPath, 'utf8')
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({
+      pid: MISSING_PROCESS_PID,
+      hostId: 'foreign-host',
+      runtimeId: 'foreign-runtime',
+      token: 'foreign-runtime-owner',
+    }),
+    'utf8',
+  )
+  const result = updateSettingsForSource('userSettings', {
+    env: { FOREIGN_RUNTIME_MUST_NOT_LAND: 'true' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    unchanged: readFileSync(settingsPath, 'utf8') === before,
+  }
+}
+
+function priorBootOwnerScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const owner = createCurrentSettingsLockOwner(
+    MISSING_PROCESS_PID,
+    'prior-boot-owner',
+  )
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({
+      ...owner,
+      bootId: 'v1:prior-boot',
+      runtimeId: 'v1:prior-runtime',
+    }),
+    'utf8',
+  )
+  const result = updateSettingsForSource('userSettings', {
+    env: { RECOVERED_AFTER_REBOOT: 'yes' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    final: readSettings(),
+  }
+}
+
+function legacyOwnerScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const ownerPath = join(lockPath, 'owner.json')
+  const before = readFileSync(settingsPath, 'utf8')
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'legacy-owner' }),
+    'utf8',
+  )
+  const result = updateSettingsForSource('userSettings', {
+    env: { LEGACY_OWNER_MUST_NOT_LAND: 'true' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    unchanged: readFileSync(settingsPath, 'utf8') === before,
+  }
+}
+
+function longRecoveryQuarantineNameScenario(): unknown {
+  if (process.platform === 'win32') {
+    return { skipped: true }
+  }
+
+  const targetPath = join(configDir, 'x'.repeat(210))
+  const lockPath = `${targetPath}.lock`
+  const recoveryPath = join(lockPath, 'recovery.json')
+  writeFileSync(targetPath, '{}\n', 'utf8')
+  mkdirSync(lockPath)
+  writeFileSync(
+    recoveryPath,
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'x'.repeat(36)),
+    ),
+    'utf8',
+  )
+
+  let error: string | null = null
+  try {
+    withSettingsFileLockSync(targetPath, () => {})
+  } catch (cause) {
+    error = String(cause)
+  }
+
+  return {
+    skipped: false,
+    error,
+    lockExists: existsSync(lockPath),
+  }
+}
+
+function successorDuringReleaseScenario(): unknown {
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = `${targetPath}.lock`
+  const originalFs = getFsImplementation()
+  let successorIdentity: { dev: number; ino: number } | null = null
+
+  setFsImplementation({
+    ...originalFs,
+    renameSync(oldPath, newPath) {
+      const result = originalFs.renameSync(oldPath, newPath)
+      if (
+        oldPath === lockPath &&
+        typeof newPath === 'string' &&
+        newPath.includes('.openclaude-settings-released-')
+      ) {
+        originalFs.mkdirSync(lockPath)
+        const stats = originalFs.lstatSync(lockPath)
+        successorIdentity = { dev: stats.dev, ino: stats.ino }
+      }
+      return result
+    },
+  })
+
+  try {
+    const result = updateSettingsForSource('userSettings', {
+      env: { RELEASED_WITH_SUCCESSOR: 'yes' },
+    })
+    const expectedIdentity = successorIdentity as {
+      dev: number
+      ino: number
+    } | null
+    const current = existsSync(lockPath) ? lstatSync(lockPath) : null
+    return {
+      error: result.error?.message ?? null,
+      successorCreated: expectedIdentity !== null,
+      successorSurvived:
+        expectedIdentity !== null &&
+        current !== null &&
+        current.dev === expectedIdentity.dev &&
+        current.ino === expectedIdentity.ino,
+      final: readSettings(),
+    }
+  } finally {
+    setOriginalFsImplementation()
   }
 }
 
@@ -404,7 +653,9 @@ function ownerMetadataScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     recoveryPath,
-    JSON.stringify({ pid: process.pid, token: 'live-recoverer' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(process.pid, 'live-recoverer'),
+    ),
     'utf8',
   )
   const liveRecoveryError =
@@ -441,7 +692,9 @@ function unknownPidScenario(): unknown {
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: INVALID_PROCESS_PID, token: 'unknown-pid' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(INVALID_PROCESS_PID, 'unknown-pid'),
+    ),
     'utf8',
   )
   const blocked = updateSettingsForSource('userSettings', {
@@ -490,16 +743,23 @@ function writeFailureScenario(): unknown {
 }
 
 const individualScenarios: Record<string, () => unknown> = {
+  'abandoned-ownerless-lock': abandonedOwnerlessLockScenario,
   cache: cacheScenario,
   dangling: danglingAliasScenario,
   dead: deadOwnerScenario,
   live: liveLockScenario,
+  'legacy-owner': legacyOwnerScenario,
   'long-dangling': longDanglingChainScenario,
+  'long-recovery-quarantine-name': longRecoveryQuarantineNameScenario,
   malformed: malformedScenario,
   metadata: ownerMetadataScenario,
   'orphaned-recovery-claim': orphanedRecoveryClaimScenario,
   'pid-one': pidOneScenario,
+  'prior-boot-owner': priorBootOwnerScenario,
+  'separator-recovery-token': separatorRecoveryTokenScenario,
   semantics: semanticsScenario,
+  'successor-during-release': successorDuringReleaseScenario,
+  'foreign-runtime-owner': foreignRuntimeOwnerScenario,
   'unknown-pid': unknownPidScenario,
   'write-failure': writeFailureScenario,
 }

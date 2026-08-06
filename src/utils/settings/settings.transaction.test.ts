@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
+import { createCurrentSettingsLockOwner } from '../../test/fixtures/settingsLockOwner.js'
 import {
   clearInternalWrites,
   consumeInternalWrite,
@@ -32,6 +33,18 @@ const DEAD_RECOVERY_WRITER_FIXTURE = join(
 const SETTINGS_SYNC_CONTENTION_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsSyncContention.fixture.ts',
+)
+const SETTINGS_SYNC_PARTIAL_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSyncPartial.fixture.ts',
+)
+const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsLockSymlinkSwap.fixture.ts',
+)
+const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsReloadNotification.fixture.ts',
 )
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
 const MISSING_PROCESS_PID = 2_147_483_647
@@ -432,7 +445,9 @@ test('recovery quarantine cannot remove a newly acquired live lock', async () =>
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-owner'),
+    ),
     'utf8',
   )
 
@@ -499,7 +514,9 @@ test('recovery resumes from a dead claim with owner metadata absent', async () =
   mkdirSync(lockPath)
   writeFileSync(
     recoveryPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-recoverer' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-recoverer'),
+    ),
     'utf8',
   )
 
@@ -531,6 +548,155 @@ test('recovery resumes from a dead claim with owner metadata absent', async () =
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
+test('recovery metadata tokens cannot control quarantine paths', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    final: unknown
+  }>('separator-recovery-token')
+
+  expect(result).toEqual({
+    error: null,
+    lockExists: false,
+    final: { env: { BASE: '1', RECOVERED_UNTRUSTED_TOKEN: 'yes' } },
+  })
+})
+
+test('abandoned ownerless locks are recovered after a conservative grace period', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    final: unknown
+  }>('abandoned-ownerless-lock')
+
+  expect(result).toEqual({
+    error: null,
+    lockExists: false,
+    final: { env: { BASE: '1', RECOVERED_OWNERLESS_LOCK: 'yes' } },
+  })
+})
+
+test('foreign runtime PIDs cannot authorize local dead-lock recovery', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    unchanged: boolean
+  }>('foreign-runtime-owner')
+
+  expect(result).toMatchObject({
+    error: expect.stringContaining('already being held'),
+    lockExists: true,
+    unchanged: true,
+  })
+})
+
+test('same-host locks from a prior boot are recoverable without probing a reused PID', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    final: unknown
+  }>('prior-boot-owner')
+
+  expect(result).toEqual({
+    error: null,
+    lockExists: false,
+    final: { env: { BASE: '1', RECOVERED_AFTER_REBOOT: 'yes' } },
+  })
+})
+
+test('legacy owner metadata fails closed without a runtime boundary', async () => {
+  const result = await getScenario<{
+    error: string | null
+    lockExists: boolean
+    unchanged: boolean
+  }>('legacy-owner')
+
+  expect(result).toMatchObject({
+    error: expect.stringContaining('already being held'),
+    lockExists: true,
+    unchanged: true,
+  })
+})
+
+test('a crashed writer is recoverable from another process in the same runtime', async () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-runtime-recovery-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  const lockedMarker = join(tempDir, 'writer-locked')
+  const neverRelease = join(tempDir, 'never-release')
+
+  writeFileSync(
+    settingsPath,
+    `${JSON.stringify({ env: { BASE: '1' } }, null, 2)}\n`,
+    'utf8',
+  )
+  const crashedWriter = startRecoveryWriter(
+    tempDir,
+    settingsPath,
+    'CRASHED_WRITER',
+    'pause-write-stat',
+    lockedMarker,
+    neverRelease,
+  )
+
+  try {
+    await waitFor(() => existsSync(lockedMarker), 'writer to acquire lock')
+    crashedWriter.kill('SIGKILL')
+    await Promise.all([
+      new Response(crashedWriter.stdout).text(),
+      new Response(crashedWriter.stderr).text(),
+      crashedWriter.exited,
+    ])
+
+    const next = await collectChild<{ ok: boolean; error?: string }>(
+      startRecoveryWriter(
+        tempDir,
+        settingsPath,
+        'RECOVERED_AFTER_WRITER_CRASH',
+        'complete',
+        join(tempDir, 'unused-marker'),
+        join(tempDir, 'unused-release'),
+      ),
+    )
+
+    expect(next).toMatchObject({ exitCode: 0, value: { ok: true } })
+  } finally {
+    crashedWriter.kill('SIGKILL')
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('recovery quarantine names stay within the parent filename limit', async () => {
+  const result = await getScenario<{
+    skipped: boolean
+    error?: string | null
+    lockExists?: boolean
+  }>('long-recovery-quarantine-name')
+  if (result.skipped) return
+
+  expect(result).toEqual({ skipped: false, error: null, lockExists: false })
+})
+
+test('acquisition failure cannot unlink owner metadata through a swapped lock symlink', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    foreignOwnerExists?: boolean
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+  if (result.value.skipped) return
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: { foreignOwnerExists: true },
+  })
+})
+
 test('recovery cleanup crashes only after the live lock path is freed', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-recovery-cleanup-')),
@@ -549,7 +715,9 @@ test('recovery cleanup crashes only after the live lock path is freed', async ()
   mkdirSync(lockPath)
   writeFileSync(
     ownerPath,
-    JSON.stringify({ pid: MISSING_PROCESS_PID, token: 'dead-owner' }),
+    JSON.stringify(
+      createCurrentSettingsLockOwner(MISSING_PROCESS_PID, 'dead-owner'),
+    ),
     'utf8',
   )
 
@@ -599,6 +767,80 @@ test('recovery cleanup crashes only after the live lock path is freed', async ()
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
+test('normal release frees the canonical lock before owner cleanup', async () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-release-cleanup-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  const lockPath = `${settingsPath}.lock`
+  const cleanupMarker = join(tempDir, 'owner-metadata-removed')
+  const neverRelease = join(tempDir, 'never-release')
+
+  writeFileSync(
+    settingsPath,
+    `${JSON.stringify({ env: { BASE: '1' } }, null, 2)}\n`,
+    'utf8',
+  )
+  const writer = startRecoveryWriter(
+    tempDir,
+    settingsPath,
+    'FIRST_WRITER',
+    'pause-after-owner-unlink',
+    cleanupMarker,
+    neverRelease,
+  )
+
+  try {
+    await waitFor(
+      () => existsSync(cleanupMarker),
+      'writer to remove its owner metadata',
+    )
+    const canonicalFreedBeforeCleanup = !existsSync(lockPath)
+
+    writer.kill('SIGKILL')
+    await Promise.all([
+      new Response(writer.stdout).text(),
+      new Response(writer.stderr).text(),
+      writer.exited,
+    ])
+
+    const next = await collectChild<{ ok: boolean; error?: string }>(
+      startRecoveryWriter(
+        tempDir,
+        settingsPath,
+        'SECOND_WRITER',
+        'complete',
+        join(tempDir, 'unused-marker'),
+        join(tempDir, 'unused-release'),
+      ),
+    )
+
+    expect({ canonicalFreedBeforeCleanup, next }).toMatchObject({
+      canonicalFreedBeforeCleanup: true,
+      next: { exitCode: 0, value: { ok: true } },
+    })
+  } finally {
+    writer.kill('SIGKILL')
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('normal release cannot remove a successor acquired after quarantine', async () => {
+  const result = await getScenario<{
+    error: string | null
+    successorCreated: boolean
+    successorSurvived: boolean
+    final: unknown
+  }>('successor-during-release')
+
+  expect(result).toEqual({
+    error: null,
+    successorCreated: true,
+    successorSurvived: true,
+    final: { env: { BASE: '1', RELEASED_WITH_SUCCESSOR: 'yes' } },
+  })
+})
+
 test('settings sync reports contention as an unapplied download', async () => {
   const result = await collectChild<{
     applied: boolean
@@ -618,6 +860,61 @@ test('settings sync reports contention as an unapplied download', async () => {
     },
   )
 }, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('partial settings sync reports landed writes separately from completeness', async () => {
+  const result = await collectChild<{
+    result: {
+      complete: boolean
+      settingsWritten: boolean
+      settingsSourcesWritten: string[]
+    }
+    userLanded: boolean
+    localUnchanged: boolean
+    cachedUser?: string
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_PARTIAL_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      result: {
+        complete: false,
+        settingsWritten: true,
+        settingsSourcesWritten: ['userSettings'],
+      },
+      userLanded: true,
+      localUnchanged: true,
+      cachedUser: 'yes',
+    },
+  })
+})
+
+test('reload plugins notifies every settings source landed by a partial download', async () => {
+  const result = await collectChild<{ notified: string[] }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        '--feature=DOWNLOAD_USER_SETTINGS',
+        SETTINGS_RELOAD_NOTIFICATION_FIXTURE,
+      ],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    ),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: { notified: ['userSettings', 'localSettings'] },
+  })
+})
 
 test('unexpected PID probe errors do not authorize dead-owner recovery', async () => {
   const result = await getScenario<{

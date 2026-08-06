@@ -1,13 +1,20 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import {
   closeSync,
   constants,
   fstatSync,
   lstatSync,
+  lutimesSync,
+  mkdirSync,
   openSync,
+  readFileSync,
   readSync,
+  realpathSync,
+  rmdirSync,
+  statSync,
   writeFileSync,
 } from 'fs'
+import { hostname } from 'os'
 import { dirname, join, resolve } from 'path'
 import { logForDebugging } from '../debug.js'
 import { getErrnoCode, toError } from '../errors.js'
@@ -25,10 +32,81 @@ import { resetSettingsCache } from './settingsCache.js'
 const SETTINGS_LOCK_STALE_MS = Number.MAX_SAFE_INTEGER
 const SETTINGS_LOCK_UPDATE_MS = 60_000
 const SETTINGS_LOCK_OWNER_MAX_BYTES = 1_024
+const SETTINGS_LOCK_OWNERLESS_GRACE_MS = 30_000
+
+type SettingsLockRuntimeIdentity = {
+  hostId: string
+  bootId?: string
+  runtimeId: string
+}
+
+function hashIdentity(parts: string[]): string {
+  return `v1:${createHash('sha256').update(parts.join('\0')).digest('hex')}`
+}
+
+function readIdentityFile(path: string): string | undefined {
+  try {
+    const value = readFileSync(path, 'utf8').trim()
+    return value || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getSettingsLockRuntimeIdentity(): SettingsLockRuntimeIdentity {
+  const stableHostIdentity =
+    process.platform === 'linux'
+      ? readIdentityFile('/etc/machine-id') ?? hostname()
+      : hostname()
+  const hostId = hashIdentity([
+    'openclaude-settings-host',
+    process.platform,
+    stableHostIdentity,
+  ])
+  let bootId: string | undefined
+  let namespaceId = ''
+  if (process.platform === 'linux') {
+    const linuxBootId = readIdentityFile('/proc/sys/kernel/random/boot_id')
+    if (linuxBootId) {
+      bootId = hashIdentity(['openclaude-settings-boot', linuxBootId])
+    }
+    try {
+      // Follow the procfs link: lstat identifies the per-process symlink,
+      // while stat identifies the PID namespace shared by peer processes.
+      const namespace = statSync('/proc/self/ns/pid')
+      namespaceId = `${namespace.dev}:${namespace.ino}`
+    } catch {
+      // PID namespace identity is unavailable on some Linux environments.
+    }
+  }
+  return {
+    hostId,
+    ...(bootId ? { bootId } : {}),
+    runtimeId: hashIdentity([
+      'openclaude-settings-runtime',
+      process.platform,
+      hostId,
+      bootId ?? '',
+      namespaceId,
+    ]),
+  }
+}
+
+const SETTINGS_LOCK_RUNTIME = getSettingsLockRuntimeIdentity()
 
 type SettingsLockOwner = {
+  bootId?: string
+  hostId?: string
   pid: number
+  runtimeId?: string
   token: string
+}
+
+function createSettingsLockOwner(
+  pid: number,
+  token: string,
+): SettingsLockOwner {
+  return { pid, ...SETTINGS_LOCK_RUNTIME, token }
 }
 
 type LockIdentity = {
@@ -98,12 +176,24 @@ function readOwner(ownerPath: string): SettingsLockOwner | null {
 
     const raw = buffer.toString('utf8')
     const parsed = jsonParse(raw) as Partial<SettingsLockOwner>
+    const optionalIdentityIsValid = (value: unknown): boolean =>
+      value === undefined ||
+      (typeof value === 'string' && value.length > 0 && value.length <= 256)
     return Number.isSafeInteger(parsed.pid) &&
       (parsed.pid ?? 0) > 0 &&
+      optionalIdentityIsValid(parsed.hostId) &&
+      optionalIdentityIsValid(parsed.bootId) &&
+      optionalIdentityIsValid(parsed.runtimeId) &&
       typeof parsed.token === 'string' &&
       parsed.token.length > 0 &&
       parsed.token.length <= 128
-      ? { pid: parsed.pid!, token: parsed.token }
+      ? {
+          pid: parsed.pid!,
+          ...(parsed.hostId ? { hostId: parsed.hostId } : {}),
+          ...(parsed.bootId ? { bootId: parsed.bootId } : {}),
+          ...(parsed.runtimeId ? { runtimeId: parsed.runtimeId } : {}),
+          token: parsed.token,
+        }
       : null
   } catch {
     return null
@@ -127,9 +217,28 @@ function writeOwner(ownerPath: string, owner: SettingsLockOwner): void {
   })
 }
 
-function isProcessDead(pid: number): boolean {
+function isProcessDead(owner: SettingsLockOwner): boolean {
+  // Metadata without a runtime boundary cannot distinguish a local dead PID
+  // from a live owner on another host or PID namespace. It must fail closed.
+  if (!owner.hostId || !owner.runtimeId) {
+    return false
+  }
+  if (owner.hostId !== SETTINGS_LOCK_RUNTIME.hostId) {
+    return false
+  }
+  // A different boot on the same stable host proves the old process is gone.
+  if (
+    owner.bootId &&
+    SETTINGS_LOCK_RUNTIME.bootId &&
+    owner.bootId !== SETTINGS_LOCK_RUNTIME.bootId
+  ) {
+    return true
+  }
+  // On the same boot, a mismatch represents another PID namespace. A local
+  // ESRCH result says nothing about liveness there, so recovery stays closed.
+  if (owner.runtimeId !== SETTINGS_LOCK_RUNTIME.runtimeId) return false
   try {
-    process.kill(pid, 0)
+    process.kill(owner.pid, 0)
     return false
   } catch (error) {
     // Only ESRCH demonstrates that no such process exists. EPERM and argument,
@@ -166,6 +275,38 @@ function lockIdentityMatches(
   )
 }
 
+function createSettingsLockfileFs(
+  lockPath: string,
+  getOwnedIdentity: () => LockIdentity | null,
+) {
+  return {
+    mkdirSync,
+    realpathSync,
+    rmdirSync(path: string): void {
+      const ownedIdentity = getOwnedIdentity()
+      if (
+        resolve(path) === lockPath &&
+        ownedIdentity &&
+        !lockIdentityMatches(readLockIdentity(lockPath), ownedIdentity)
+      ) {
+        // proper-lockfile treats ENOENT as a successful unlock. Once our
+        // original directory has moved, this retires its timer/state without
+        // deleting a successor that already reused the canonical path.
+        throw Object.assign(new Error('Settings lock path was replaced'), {
+          code: 'ENOENT',
+          path,
+        })
+      }
+      rmdirSync(path)
+    },
+    // proper-lockfile uses stat for contention and mtime updates. Keep those
+    // operations on the directory entry itself so a lock-path symlink cannot
+    // redirect them to another filesystem location.
+    statSync: lstatSync,
+    utimesSync: lutimesSync,
+  }
+}
+
 function ownersMatch(
   left: SettingsLockOwner | null,
   right: SettingsLockOwner,
@@ -173,6 +314,7 @@ function ownersMatch(
   return (
     left !== null &&
     left.pid === right.pid &&
+    left.runtimeId === right.runtimeId &&
     left.token === right.token
   )
 }
@@ -200,13 +342,20 @@ function claimRecoveryPath(
   identity: LockIdentity,
   ownerPath: string,
   owner: SettingsLockOwner,
-  recoveryPath: string,
   recoveryOwner: SettingsLockOwner,
-): boolean {
+): string | null {
   const fs = getFsImplementation()
+  const claimId = hashIdentity([
+    'openclaude-settings-recovery-claim',
+    lockPath,
+  ]).slice(3)
+  const recoveryPath = join(
+    dirname(lockPath),
+    `.openclaude-settings-claim-${claimId}`,
+  )
   try {
     writeOwner(recoveryPath, recoveryOwner)
-    return true
+    return recoveryPath
   } catch (error) {
     if (getErrnoCode(error) !== 'EEXIST') {
       throw error
@@ -216,22 +365,22 @@ function claimRecoveryPath(
   // Staleness is intentionally disabled for settings locks, so a recovery
   // claim left by a confirmed-dead process must itself be recoverable.
   const existingClaim = readOwner(recoveryPath)
-  if (!existingClaim || !isProcessDead(existingClaim.pid)) {
-    return false
+  if (!existingClaim || !isProcessDead(existingClaim)) {
+    return null
   }
   if (
     !ownersMatch(readOwner(ownerPath), owner) ||
     !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
     !ownersMatch(readOwner(recoveryPath), existingClaim)
   ) {
-    return false
+    return null
   }
 
   try {
     fs.unlinkSync(recoveryPath)
   } catch (error) {
     if (getErrnoCode(error) === 'ENOENT') {
-      return false
+      return null
     }
     throw error
   }
@@ -242,46 +391,72 @@ function claimRecoveryPath(
     !ownersMatch(readOwner(ownerPath), owner) ||
     !lockIdentityMatches(readLockIdentity(lockPath), identity)
   ) {
-    return false
+    return null
   }
 
   try {
     writeOwner(recoveryPath, recoveryOwner)
-    return true
+    return recoveryPath
   } catch (error) {
     if (getErrnoCode(error) === 'EEXIST') {
-      return false
+      return null
     }
     throw error
   }
 }
 
-function quarantineRecoveredLock(
+function releaseRecoveryClaim(
+  recoveryPath: string,
+  recoveryOwner: SettingsLockOwner,
+): void {
+  if (!ownersMatch(readOwner(recoveryPath), recoveryOwner)) return
+  try {
+    getFsImplementation().unlinkSync(recoveryPath)
+  } catch (error) {
+    if (getErrnoCode(error) !== 'ENOENT') {
+      logForDebugging(`Failed to release settings recovery claim: ${error}`, {
+        level: 'error',
+      })
+    }
+  }
+}
+
+type QuarantinedSettingsLock = {
+  lockPath: string
+  ownerPath: string
+  recoveryPath: string
+}
+
+function quarantineSettingsLock(
   lockPath: string,
   identity: LockIdentity,
-  ownerPath: string,
   owner: SettingsLockOwner | null,
-  recoveryOwner: SettingsLockOwner,
-): boolean {
+  recoveryOwner: SettingsLockOwner | null,
+  purpose: 'aborted' | 'ownerless' | 'recovered' | 'released',
+): QuarantinedSettingsLock | null {
   const fs = getFsImplementation()
+  const ownerPath = join(lockPath, 'owner.json')
   const recoveryPath = join(lockPath, 'recovery.json')
   if (
     !metadataMatches(ownerPath, owner) ||
     !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
-    !ownersMatch(readOwner(recoveryPath), recoveryOwner)
+    !metadataMatches(recoveryPath, recoveryOwner)
   ) {
-    return false
+    return null
   }
 
-  // Moving the proven-dead directory frees the canonical acquisition path in
-  // one filesystem operation. Cleanup can then be interrupted at any point
-  // without leaving an unmarked empty directory that resembles a live acquire.
-  const cleanupPath = `${lockPath}.recovered-${recoveryOwner.token}`
+  // Keep the sibling basename independent of the target name and all on-disk
+  // metadata. This stays within NAME_MAX for long settings filenames and keeps
+  // untrusted tokens from influencing the rename destination.
+  const cleanupPath = join(
+    dirname(lockPath),
+    `.openclaude-settings-${purpose}-${randomUUID()}`,
+  )
   try {
     fs.renameSync(lockPath, cleanupPath)
   } catch (error) {
     if (getErrnoCode(error) === 'ENOENT') {
-      return false
+      return null
     }
     throw error
   }
@@ -291,7 +466,7 @@ function quarantineRecoveredLock(
   if (
     !metadataMatches(cleanupOwnerPath, owner) ||
     !lockIdentityMatches(readLockIdentity(cleanupPath), identity) ||
-    !ownersMatch(readOwner(cleanupRecoveryPath), recoveryOwner)
+    !metadataMatches(cleanupRecoveryPath, recoveryOwner)
   ) {
     try {
       if (pathIsAbsent(lockPath)) {
@@ -300,23 +475,84 @@ function quarantineRecoveredLock(
     } catch {
       // The ownership-change error below is more useful than cleanup failure.
     }
-    throw new Error('Settings lock ownership changed during recovery')
+    throw new Error('Settings lock ownership changed during quarantine')
   }
 
+  return {
+    lockPath: cleanupPath,
+    ownerPath: cleanupOwnerPath,
+    recoveryPath: cleanupRecoveryPath,
+  }
+}
+
+function cleanupQuarantinedSettingsLock(
+  quarantined: QuarantinedSettingsLock,
+  owner: SettingsLockOwner | null,
+  recoveryOwner: SettingsLockOwner | null,
+): void {
+  const fs = getFsImplementation()
   try {
     if (owner) {
-      fs.unlinkSync(cleanupOwnerPath)
+      fs.unlinkSync(quarantined.ownerPath)
     }
-    fs.unlinkSync(cleanupRecoveryPath)
-    fs.rmdirSync(cleanupPath)
+    if (recoveryOwner) {
+      fs.unlinkSync(quarantined.recoveryPath)
+    }
+    fs.rmdirSync(quarantined.lockPath)
   } catch (error) {
     // The canonical lock path is already free. A uniquely named cleanup
     // directory is harmless and must not make this acquisition fail.
-    logForDebugging(`Failed to clean recovered settings lock: ${error}`, {
+    logForDebugging(`Failed to clean quarantined settings lock: ${error}`, {
       level: 'error',
     })
   }
+}
+
+function quarantineRecoveredLock(
+  lockPath: string,
+  identity: LockIdentity,
+  owner: SettingsLockOwner | null,
+  recoveryOwner: SettingsLockOwner,
+): boolean {
+  const quarantined = quarantineSettingsLock(
+    lockPath,
+    identity,
+    owner,
+    recoveryOwner,
+    'recovered',
+  )
+  if (!quarantined) return false
+
+  cleanupQuarantinedSettingsLock(quarantined, owner, recoveryOwner)
   return true
+}
+
+function lockIsOlderThan(
+  lockPath: string,
+  identity: LockIdentity,
+  minimumAgeMs: number,
+): boolean {
+  try {
+    const stats = getFsImplementation().lstatSync(lockPath)
+    if (
+      !stats.isDirectory() ||
+      stats.isSymbolicLink() ||
+      !lockIdentityMatches(
+        { dev: stats.dev, ino: stats.ino, birthtimeMs: stats.birthtimeMs },
+        identity,
+      )
+    ) {
+      return false
+    }
+    const newestTimestamp = Math.max(
+      stats.birthtimeMs,
+      stats.ctimeMs,
+      stats.mtimeMs,
+    )
+    return Date.now() - newestTimestamp >= minimumAgeMs
+  } catch {
+    return false
+  }
 }
 
 function removeOwnerlessRecoveryLock(
@@ -326,16 +562,33 @@ function removeOwnerlessRecoveryLock(
 ): boolean {
   const recoveryPath = join(lockPath, 'recovery.json')
   const recoveryOwner = readOwner(recoveryPath)
-  if (!recoveryOwner || !isProcessDead(recoveryOwner.pid)) {
+  if (recoveryOwner) {
+    if (!isProcessDead(recoveryOwner)) return false
+    return quarantineRecoveredLock(
+      lockPath,
+      identity,
+      null,
+      recoveryOwner,
+    )
+  }
+  if (
+    !pathIsAbsent(recoveryPath) ||
+    !pathIsAbsent(ownerPath) ||
+    !lockIsOlderThan(lockPath, identity, SETTINGS_LOCK_OWNERLESS_GRACE_MS)
+  ) {
     return false
   }
-  return quarantineRecoveredLock(
+
+  const quarantined = quarantineSettingsLock(
     lockPath,
     identity,
-    ownerPath,
     null,
-    recoveryOwner,
+    null,
+    'ownerless',
   )
+  if (!quarantined) return false
+  cleanupQuarantinedSettingsLock(quarantined, null, null)
+  return true
 }
 
 function removeDeadOwnerLock(
@@ -350,38 +603,56 @@ function removeDeadOwnerLock(
   if (!owner) {
     return removeOwnerlessRecoveryLock(lockPath, identity, ownerPath)
   }
-  if (!isProcessDead(owner.pid)) {
+  if (!isProcessDead(owner)) {
     return false
+  }
+
+  // Recover claim metadata written by older versions as one quarantined unit;
+  // never unlink through the mutable lock directory before its identity moves.
+  const legacyRecoveryPath = join(lockPath, 'recovery.json')
+  if (!pathIsAbsent(legacyRecoveryPath)) {
+    const legacyRecoveryOwner = readOwner(legacyRecoveryPath)
+    if (!legacyRecoveryOwner || !isProcessDead(legacyRecoveryOwner)) {
+      return false
+    }
+    return quarantineRecoveredLock(
+      lockPath,
+      identity,
+      owner,
+      legacyRecoveryOwner,
+    )
   }
 
   // Only one contender may recover this dead directory. Without this
-  // exclusive claim, a delayed contender can unlink the owner metadata from a
-  // replacement lock created by the first recovery winner.
-  const recoveryPath = join(lockPath, 'recovery.json')
-  const recoveryOwner: SettingsLockOwner = {
-    pid: process.pid,
-    token: randomUUID(),
-  }
-  if (
-    !claimRecoveryPath(
-      lockPath,
-      identity,
-      ownerPath,
-      owner,
-      recoveryPath,
-      recoveryOwner,
-    )
-  ) {
-    return false
-  }
-
-  return quarantineRecoveredLock(
+  // exclusive sibling claim, a delayed contender can rename a successor that
+  // already reused the canonical lock path. Keeping the claim outside that
+  // mutable directory also prevents lock-path symlinks from redirecting it.
+  const recoveryOwner = createSettingsLockOwner(process.pid, randomUUID())
+  const recoveryPath = claimRecoveryPath(
     lockPath,
     identity,
     ownerPath,
     owner,
     recoveryOwner,
   )
+  if (!recoveryPath) {
+    return false
+  }
+
+  try {
+    const quarantined = quarantineSettingsLock(
+      lockPath,
+      identity,
+      owner,
+      null,
+      'recovered',
+    )
+    if (!quarantined) return false
+    cleanupQuarantinedSettingsLock(quarantined, owner, null)
+    return true
+  } finally {
+    releaseRecoveryClaim(recoveryPath, recoveryOwner)
+  }
 }
 
 export function resolveSettingsFileTarget(filePath: string): string {
@@ -421,11 +692,10 @@ function acquireSettingsFileLock(filePath: string): {
 
   const targetPath = resolveSettingsFileTarget(filePath)
   const { lockPath, ownerPath } = getSettingsLockPaths(targetPath)
-  const owner: SettingsLockOwner = {
-    pid: process.pid,
-    token: randomUUID(),
-  }
+  const owner = createSettingsLockOwner(process.pid, randomUUID())
   let compromisedError: Error | null = null
+  let identity: LockIdentity | null = null
+  const lockfileFs = createSettingsLockfileFs(lockPath, () => identity)
 
   const attempt = (): (() => void) =>
     lockfile.lockSync(targetPath, {
@@ -437,6 +707,7 @@ function acquireSettingsFileLock(filePath: string): {
         })
       },
       realpath: false,
+      fs: lockfileFs,
       stale: SETTINGS_LOCK_STALE_MS,
       update: SETTINGS_LOCK_UPDATE_MS,
     })
@@ -454,22 +725,36 @@ function acquireSettingsFileLock(filePath: string): {
     releaseLock = attempt()
   }
 
-  let identity: LockIdentity
+  let ownerWritten = false
   try {
-    writeOwner(ownerPath, owner)
-    const acquiredIdentity = readLockIdentity(lockPath)
-    if (!acquiredIdentity) {
+    identity = readLockIdentity(lockPath)
+    if (!identity) {
       throw new Error('Settings lock path is not a directory')
     }
-    identity = acquiredIdentity
+    writeOwner(ownerPath, owner)
+    ownerWritten = true
+    if (!lockIdentityMatches(readLockIdentity(lockPath), identity)) {
+      throw new Error('Settings lock ownership changed during acquisition')
+    }
   } catch (error) {
     try {
-      fs.unlinkSync(ownerPath)
-    } catch {
-      // Owner metadata may not have been created yet.
-    }
-    try {
-      releaseLock()
+      const quarantined =
+        ownerWritten && identity
+          ? quarantineSettingsLock(
+              lockPath,
+              identity,
+              owner,
+              null,
+              'aborted',
+            )
+          : null
+      try {
+        releaseLock()
+      } finally {
+        if (quarantined) {
+          cleanupQuarantinedSettingsLock(quarantined, owner, null)
+        }
+      }
     } catch {
       // Preserve the owner-write/stat failure.
     }
@@ -480,11 +765,9 @@ function acquireSettingsFileLock(filePath: string): {
     if (compromisedError) {
       throw new Error(`Settings lock was compromised: ${compromisedError}`)
     }
-    const currentOwner = readOwner(ownerPath)
     if (
-      !currentOwner ||
-      currentOwner.pid !== owner.pid ||
-      currentOwner.token !== owner.token ||
+      !ownersMatch(readOwner(ownerPath), owner) ||
+      !identity ||
       !lockIdentityMatches(readLockIdentity(lockPath), identity)
     ) {
       throw new Error('Settings lock ownership changed during update')
@@ -497,19 +780,24 @@ function acquireSettingsFileLock(filePath: string): {
     release(): void {
       if (released) return
       assertOwned()
-      fs.unlinkSync(ownerPath)
+      if (!identity) {
+        throw new Error('Settings lock identity is unavailable during release')
+      }
+      const quarantined = quarantineSettingsLock(
+        lockPath,
+        identity,
+        owner,
+        null,
+        'released',
+      )
+      if (!quarantined) {
+        throw new Error('Settings lock ownership changed during release')
+      }
       try {
         releaseLock()
         released = true
-      } catch (error) {
-        try {
-          if (fs.existsSync(lockPath) && !fs.existsSync(ownerPath)) {
-            writeOwner(ownerPath, owner)
-          }
-        } catch {
-          // Keep the release failure as the returned error.
-        }
-        throw error
+      } finally {
+        cleanupQuarantinedSettingsLock(quarantined, owner, null)
       }
     },
   }

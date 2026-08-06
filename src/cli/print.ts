@@ -3282,9 +3282,9 @@ function runHeadlessStreaming(
             ) {
               // Re-pull user settings so enabledPlugins pushed from the
               // user's local CLI take effect before the cache sweep.
-              const applied = await redownloadUserSettings()
-              if (applied) {
-                settingsChangeDetector.notifyChange('userSettings')
+              const result = await redownloadUserSettings()
+              for (const source of result.settingsSourcesWritten) {
+                settingsChangeDetector.notifyChange(source)
               }
             }
 
