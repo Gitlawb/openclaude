@@ -501,6 +501,8 @@ export type QueryParams = {
   /** Called around each outbound model request, including retries. */
   onModelRequestStart?: () => void
   onModelRequestEnd?: () => void
+  /** Called once provider dispatch is accepted for the current attempt. */
+  onProviderDispatchAccepted?: () => void
   systemPrompt: SystemPrompt
   userContext: { [k: string]: string }
   systemContext: { [k: string]: string }
@@ -1491,8 +1493,13 @@ async function* queryLoop(
           // Claim the turn from its callback immediately before the actual
           // request is dispatched, not merely when callModel is entered.
           let providerDispatchRejected = false
-          let providerRequestStarted = false
+          let providerDispatchAccepted = false
+          let modelRequestLifecycleStarted = false
           try {
+            // Arm interruption correction and other per-attempt hooks before
+            // callModel performs async provider preparation.
+            params.onModelRequestStart?.()
+            modelRequestLifecycleStarted = true
             for await (const message of deps.callModel({
             messages: prependUserContext(
               injectRequestOnlyMessages(
@@ -1543,21 +1550,12 @@ async function* queryLoop(
                 // Retries reuse this turn's reservation, but they must still
                 // prove the foreground owns dispatch after any asynchronous
                 // credential refresh or client recreation.
-                if (providerRequestStarted) return true
+                if (providerDispatchAccepted) return true
                 if (
                   params.turnBudget &&
                   params.turnBudget.turnsStarted >= turnCount &&
                   reservedTurnCount !== turnCount
                 ) {
-                  providerDispatchRejected = true
-                  return false
-                }
-                params.onModelRequestStart?.()
-                // The matching end callback belongs to the lifecycle start,
-                // even when that callback aborts before provider dispatch.
-                providerRequestStarted = true
-                // The lifecycle callback is synchronous but may itself abort.
-                if (toolUseContext.abortController.signal.aborted) {
                   providerDispatchRejected = true
                   return false
                 }
@@ -1570,6 +1568,8 @@ async function* queryLoop(
                   params.turnBudget.turnsStarted = turnCount
                   reservedTurnCount = turnCount
                 }
+                providerDispatchAccepted = true
+                params.onProviderDispatchAccepted?.()
                 return true
               },
               // Explicit /effort selection wins. When it is unset, carry the
@@ -1793,7 +1793,7 @@ async function* queryLoop(
               return { reason: 'aborted_streaming' }
             }
           } finally {
-            if (providerRequestStarted) params.onModelRequestEnd?.()
+            if (modelRequestLifecycleStarted) params.onModelRequestEnd?.()
           }
           queryCheckpoint('query_api_streaming_end')
 

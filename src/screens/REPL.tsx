@@ -666,6 +666,7 @@ export function REPL({
   const isRemoteSession = !!remoteSessionConfig;
   const foregroundTurnBudgetRef = useRef<ForegroundTurnBudgetHandoff | null>(null);
   const backgroundHandoffStartedRef = useRef(false);
+  const [backgroundHandoffPreparing, setBackgroundHandoffPreparing] = useState(false);
 
   useEffect(() => {
     if (
@@ -1059,7 +1060,7 @@ export function REPL({
   // Derived: any loading source active. Read-only — no setter. Local query
   // loading is driven by queryGuard (reserve/tryStart/end/cancelReservation),
   // external loading by setIsExternalLoading.
-  const isLoading = isQueryActive || isExternalLoading;
+  const isLoading = isQueryActive || isExternalLoading || backgroundHandoffPreparing;
 
   // Elapsed time is computed by SpinnerWithVerb from these refs on each
   // animation frame, avoiding a useInterval that re-renders the entire REPL.
@@ -2855,20 +2856,32 @@ export function REPL({
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
     const backgroundSessionId = getSessionId();
+    const backgroundSessionTitle = terminalTitle;
+    setBackgroundHandoffPreparing(true);
     // Transfer the exact per-prompt budget before aborting. Re-resolving the
     // limit or copying a callback-maintained count here can reset or skew the
     // cap while the foreground query is winding down.
     const backgroundHandoff = claimBackgroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef);
     if (!backgroundHandoff) return;
     const restoreDeferredMaxTurnsCap = () => {
-      const cap = backgroundHandoff.deferredMaxTurnsCap;
-      if (!cap || !canRestoreDeferredMaxTurnsCap(backgroundHandoff, messagesRef.current)) return;
-      backgroundHandoff.deferredMaxTurnsCap = undefined;
-      setMessages(prev => [...prev, createAttachmentMessage({
-        type: 'max_turns_reached',
-        maxTurns: cap.maxTurns,
-        turnCount: cap.turnCount
-      })]);
+      const attemptRestore = (): boolean => {
+        const cap = backgroundHandoff.deferredMaxTurnsCap;
+        if (!cap || !canRestoreDeferredMaxTurnsCap(backgroundHandoff, messagesRef.current)) {
+          return false;
+        }
+        backgroundHandoff.deferredMaxTurnsCap = undefined;
+        setMessages(prev => [...prev, createAttachmentMessage({
+          type: 'max_turns_reached',
+          maxTurns: cap.maxTurns,
+          turnCount: cap.turnCount
+        })]);
+        return true;
+      };
+      if (!attemptRestore()) {
+        void backgroundHandoff.settled.then(() => {
+          attemptRestore();
+        });
+      }
     };
     const backgroundSession = startBackgroundSession({
       prepare: async backgroundAbortController => {
@@ -2969,7 +2982,7 @@ export function REPL({
           throw error;
         }
       },
-      description: terminalTitle,
+      description: backgroundSessionTitle,
       setAppState,
       agentDefinition: mainThreadAgentDefinition,
       onPreparationError: () => {
@@ -2987,6 +3000,7 @@ export function REPL({
         );
       },
       onSettled: controller => {
+        setBackgroundHandoffPreparing(false);
         setAbortController(current =>
           current === controller ? null : current,
         );
@@ -3287,6 +3301,16 @@ export function REPL({
     // Returns null if already running — no separate check-then-set.
     const lifecycleTracker = queryLifecycleTrackerRef.current;
     const querySource = getQuerySourceForREPL();
+    if (backgroundHandoffPreparing) {
+      logEvent('tengu_concurrent_onquery_detected', {});
+      newMessages.filter((m): m is UserMessage => m.type === 'user' && !m.isMeta).map(_ => getContentText(_.message.content)).filter(_ => _ !== null).forEach((msg, i) => {
+        enqueue(buildConcurrentRequeuedPrompt(msg, isInterruptionCorrectionEligible));
+        if (i === 0) {
+          logEvent('tengu_concurrent_onquery_enqueued', {});
+        }
+      });
+      return false;
+    }
     const startResult = queryGuard.tryStart({
       queryId: randomUUID(),
       querySource,
@@ -3572,7 +3596,7 @@ export function REPL({
         }
       }
     }
-  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp, isRemoteSession, directConnectConfig, sshSession]);
+  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp, isRemoteSession, directConnectConfig, sshSession, backgroundHandoffPreparing]);
 
   // Handle initial message (from CLI args or plan mode exit with context clear)
   // This effect runs when isLoading becomes false and there's a pending message

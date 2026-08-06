@@ -198,8 +198,9 @@ describe('headless --print max-turns', () => {
       state = update(state)
     }
 
+    let runPromise: Promise<void> | undefined
     try {
-      const runPromise = runHeadless(
+      runPromise = runHeadless(
         'headless prompt',
         getAppState,
         setAppState,
@@ -214,6 +215,7 @@ describe('headless --print max-turns', () => {
       expect(askSpy.mock.calls[0]?.[0]?.maxTurns).toBe(0)
       await runPromise
     } finally {
+      await runPromise?.catch(() => {})
       askSpy.mockRestore()
       stdoutSpy.mockRestore()
     }

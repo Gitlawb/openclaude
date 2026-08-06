@@ -394,6 +394,7 @@ export function startBackgroundSession({
 
   const finishAbortedTask = (): void => {
     restorePreDispatchNotifications()
+    onContinuationCancelled?.()
     // chat:killAgents already marks the task notified and emits this event.
     // stopTask kills it without doing either for local-agent tasks, so close
     // the SDK lifecycle exactly once no matter which phase observed abort.
@@ -488,12 +489,9 @@ export function startBackgroundSession({
       for await (const event of queryImpl({
         messages: bgMessages,
         ...queryParams,
-        onModelRequestStart: () => {
-          queryParams.onModelRequestStart?.()
-          if (!abortSignal.aborted) {
-            providerRequestStarted = true
-            commitNotificationOwnership?.()
-          }
+        onProviderDispatchAccepted: () => {
+          providerRequestStarted = true
+          commitNotificationOwnership?.()
         },
       })) {
         if (abortSignal.aborted) {
@@ -577,7 +575,9 @@ export function startBackgroundSession({
         finishAbortedTask()
         return
       }
-      commitNotificationOwnership?.()
+      if (providerRequestStarted) {
+        commitNotificationOwnership?.()
+      }
       completeMainSessionTask(taskId, true, setAppState)
     } catch (error) {
       if (abortSignal.aborted) {
@@ -591,7 +591,9 @@ export function startBackgroundSession({
       }
       logError(error)
       if (taskRegistered) {
-        commitNotificationOwnership?.()
+        if (providerRequestStarted) {
+          commitNotificationOwnership?.()
+        }
         completeMainSessionTask(taskId, false, setAppState)
       } else {
         restorePreDispatchNotifications()

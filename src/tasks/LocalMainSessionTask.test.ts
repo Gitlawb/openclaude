@@ -215,7 +215,7 @@ describe('LocalMainSessionTask', () => {
       queryImpl: (async function* (
         params,
       ): AsyncGenerator<Message, Terminal> {
-        params.onModelRequestStart?.()
+        params.onProviderDispatchAccepted?.()
         await queryBlocked
         yield createAssistantMessage({ content: 'late' })
         return { reason: 'completed' }
@@ -269,7 +269,7 @@ describe('LocalMainSessionTask', () => {
     )
 
     expect(restoreCalls).toBe(0)
-    expect(commitCalls).toBe(1)
+    expect(commitCalls).toBe(0)
   })
 
   test('retains a max-turn terminal attachment in task messages', async () => {
