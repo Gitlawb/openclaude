@@ -42,6 +42,7 @@ import {
   clearAimlapiTopupState,
   recordAimlapiCheckoutSession,
   recordAimlapiSettledKeyAsync,
+  refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
@@ -700,24 +701,37 @@ async function exchangeKeyWithLease(
   paidToken: string,
   settledPhase: TopupPhase,
 ): Promise<{ apiKey: string; apiKeyId: string }> {
-  const doExchange = async (): Promise<{ apiKey: string; apiKeyId: string }> => {
-    if (settledPhase === 'wait-exchange') {
-      await pollUntilExchangeSettled(client, paidToken, options.signal, options.onSession)
-    }
-    const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
-    return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }
-  }
-
   const intent = options.intent
-  if (!intent) return doExchange()
-
-  const expected = { ...intent, paymentSessionId: options.paymentSessionId }
+  const expected = intent
+    ? { ...intent, paymentSessionId: options.paymentSessionId }
+    : undefined
   // One lease owner per operation (not per process): two overlapping top-ups in
   // the same process must each see the other's live lease as foreign and back
   // off, rather than sharing one owner id that lets both reclaim it and POST the
   // non-idempotent /exchange concurrently. A retry WITHIN this operation still
   // reclaims the lease it just released, because it keeps this same owner.
   const owner = randomUUID()
+
+  const doExchange = async (): Promise<{ apiKey: string; apiKeyId: string }> => {
+    if (settledPhase === 'wait-exchange') {
+      await pollUntilExchangeSettled(
+        client,
+        paidToken,
+        options.signal,
+        options.onSession,
+        // Keep the lease alive for up to POLL_TIMEOUT_MS of read-only waiting
+        // here, even though EXCHANGE_LEASE_STALE_MS is sized for the single
+        // POST below — without this a peer reclaims the "stale" lease mid-wait
+        // and both processes can reach /exchange on the same one-shot session.
+        expected ? () => refreshAimlapiExchangeLeaseAsync(expected, owner) : undefined,
+      )
+    }
+    const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
+    return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }
+  }
+
+  if (!expected) return doExchange()
+
   // Elect a single exchanger across racing same-intent operations, then keep
   // re-attempting the lease: a live foreign lease means a peer is exchanging now,
   // so we resume the moment it records a settled receipt OR frees the lease —
@@ -747,6 +761,22 @@ async function exchangeKeyWithLease(
       try {
         exchanged = await doExchange()
       } catch (error) {
+        // The failure can mean a peer finished /exchange (and recorded the
+        // settled key) WHILE this held the lease and was polling/exchanging —
+        // e.g. pollUntilExchangeSettled sees the session flip to 'exchanged'
+        // and throws, even though the key is already sitting in a settled
+        // receipt. Recover from it instead of hard-failing when so; the CAS
+        // in this same check is also just a harmless self-reaffirm of our own
+        // still-held lease when nothing settled.
+        const recheck = await acquireAimlapiExchangeLeaseAsync(expected, owner).catch(
+          (): null => null,
+        )
+        if (recheck?.status === 'settled') {
+          return {
+            apiKey: recheck.state.apiKey?.trim() ?? '',
+            apiKeyId: recheck.state.apiKeyId?.trim() ?? '',
+          }
+        }
         // Release the lease so a retry proceeds promptly instead of waiting out
         // the stale window; the settled receipt supersedes it on success. If the
         // release itself fails the lease still expires on its own (only more
@@ -796,10 +826,17 @@ async function pollUntilExchangeSettled(
   sessionToken: string,
   signal?: AbortSignal,
   onSession?: (sessionToken: string) => void,
+  refreshLease?: () => Promise<boolean>,
 ): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
     if (signal?.aborted) throw abortError(signal)
+    // Best-effort: POLL_INTERVAL_MS (3s) refreshes the lease well within
+    // EXCHANGE_LEASE_STALE_MS (75s), so a live holder's lease never goes stale
+    // mid-wait. A failed refresh is not fatal here — it just means a peer may
+    // race to reclaim the lease, which acquireAimlapiExchangeLeaseAsync already
+    // resolves safely (one winner) on this function's next outer retry.
+    await refreshLease?.().catch(() => false)
     try {
       const session = await client.getSession(sessionToken, signal)
       if (session.status === 'exchanged') throw alreadyExchangedError(session)

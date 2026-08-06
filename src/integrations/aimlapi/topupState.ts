@@ -450,6 +450,14 @@ export function loadAimlapiTopupState(
  * to this intent and payment session. Retained key fields (`apiKey`, `apiKeyId`,
  * `model`, `settled`) are MERGED, not replaced, so omitting them preserves what
  * is already stored rather than wiping an already-issued credential.
+ *
+ * `resumeSessionToken` is merged the same way: callers save this record at
+ * points (right after sign-in, before a checkout session exists) where their
+ * in-memory copy is still empty. A concurrent peer running the same intent can
+ * have already elected and recorded a real token for this payment id in that
+ * window (`recordAimlapiCheckoutSession`); overwriting it with the caller's
+ * stale empty value would strand that peer's chargeable checkout and let a
+ * later run open a second one.
  */
 export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
   withStateLock(() => {
@@ -457,6 +465,7 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
     if (!current) return
     writeAimlapiTopupStateUnlocked({
       ...state,
+      resumeSessionToken: state.resumeSessionToken?.trim() || current.resumeSessionToken,
       // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
       // top-up path), NOT a value to persist: the reader rejects empty strings, so
       // a serialized "" would make the whole receipt unreadable and lose an
@@ -568,6 +577,21 @@ export function claimAimlapiTopupState(
     if (existing && matchesIntent(existing, intent)) {
       return toCheckoutState(existing)
     }
+    if (existing && existing.settled === true && existing.apiKey?.trim()) {
+      // abandonExisting confirms giving up an UNPAID checkout (the amount-edit
+      // "do NOT pay it" gate) — never an already paid + exchanged credential
+      // just waiting on its profile write. Refuse unconditionally, so a rare
+      // race (a peer settled this exact payment id while the caller was
+      // confirming abandonment of what it still saw as unpaid) can't silently
+      // discard a paid credential; the caller must go through the normal
+      // settled-receipt recovery path instead.
+      const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
+      throw new Error(
+        `An earlier AI/ML API top-up of $${priorUsd} already succeeded and is waiting to ` +
+          `be saved. Re-run that same top-up to finish saving it before starting a ` +
+          `different one.`,
+      )
+    }
     if (
       !options.abandonExisting &&
       existing &&
@@ -585,10 +609,33 @@ export function claimAimlapiTopupState(
     const claimed: AimlapiCheckoutState = {
       paymentSessionId: randomUUID(),
       resumeSessionToken: '',
+      // A settled credential is already refused above regardless of
+      // abandonExisting, so anything reaching here is (at worst) a minted but
+      // not-yet-paid existing-account key — still worth keeping, matching
+      // resetAimlapiCheckoutSession's retain-key pattern. Deliberately
+      // excludes `settled`/`exchange`: those describe the OLD payment
+      // intent's outcome, not this new one's.
+      ...(options.abandonExisting && existing?.apiKey?.trim()
+        ? { apiKey: existing.apiKey, apiKeyId: existing.apiKeyId, model: existing.model }
+        : {}),
     }
     writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
     return claimed
   })
+}
+
+function resetCheckoutSessionOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): AimlapiCheckoutState | null {
+  const current = matchingStateOrNull(expected)
+  if (!current || !current.apiKey?.trim()) return null
+  const next: AimlapiPersistedTopup = {
+    ...current,
+    paymentSessionId: randomUUID(),
+    resumeSessionToken: '',
+  }
+  writeAimlapiTopupStateUnlocked(next)
+  return toCheckoutState(next)
 }
 
 /**
@@ -602,17 +649,19 @@ export function claimAimlapiTopupState(
 export function resetAimlapiCheckoutSession(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
 ): AimlapiCheckoutState | null {
-  return withStateLock(() => {
-    const current = matchingStateOrNull(expected)
-    if (!current || !current.apiKey?.trim()) return null
-    const next: AimlapiPersistedTopup = {
-      ...current,
-      paymentSessionId: randomUUID(),
-      resumeSessionToken: '',
-    }
-    writeAimlapiTopupStateUnlocked(next)
-    return toCheckoutState(next)
-  })
+  return withStateLock(() => resetCheckoutSessionOperation(expected))
+}
+
+/**
+ * Non-blocking counterpart for the interactive flow's onSession callback,
+ * which runs off a synchronous-signature hook (`onSession?: (token: string) =>
+ * string | void`) and must never risk freezing the UI on lock contention. See
+ * `resetAimlapiCheckoutSession`.
+ */
+export function resetAimlapiCheckoutSessionAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+): Promise<AimlapiCheckoutState | null> {
+  return withStateLockAsync(() => resetCheckoutSessionOperation(expected))
 }
 
 export function clearAimlapiTopupState(
@@ -734,6 +783,33 @@ export function releaseAimlapiExchangeLeaseAsync(
   owner: string,
 ): Promise<void> {
   return withStateLockAsync(() => releaseExchangeLeaseOperation(expected, owner))
+}
+
+function refreshExchangeLeaseOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): boolean {
+  const current = matchingStateOrNull(expected)
+  if (!current || current.exchangeLeaseOwner !== owner) return false
+  writeAimlapiTopupStateUnlocked({ ...current, exchangeLeaseAt: Date.now() })
+  return true
+}
+
+/**
+ * Touch the exchange lease's timestamp while its holder is still working. The
+ * lease is acquired once and `EXCHANGE_LEASE_STALE_MS` (75s) is sized for a
+ * single non-idempotent POST, but a resumed `wait-exchange` holder can sit in a
+ * read-only poll for up to `POLL_TIMEOUT_MS` (20 minutes) before ever reaching
+ * that POST — without refreshing, a peer would see the lease go stale mid-wait,
+ * reclaim it, and risk a second concurrent /exchange on the same one-shot
+ * session. Returns false once the lease is no longer ours (reclaimed, cleared,
+ * or superseded by a settled receipt), so the caller can stop refreshing.
+ */
+export function refreshAimlapiExchangeLeaseAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): Promise<boolean> {
+  return withStateLockAsync(() => refreshExchangeLeaseOperation(expected, owner))
 }
 
 // --- Sign-in key cache ------------------------------------------------------

@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   acquireAimlapiExchangeLeaseAsync,
+  refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
@@ -169,6 +170,49 @@ test('a future-dated exchange lease is reclaimed instead of pinning the slot for
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
+test('refreshing the exchange lease keeps a live long wait from going stale', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  const acquired = await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')
+  expect(acquired.status).toBe('acquired')
+
+  // Simulate owner-a sitting in a long `wait-exchange` poll: the lease's
+  // timestamp ages well past what a single POST would ever take, exactly the
+  // window a peer would otherwise reclaim it in.
+  const staleState = JSON.parse(readFileSync(join(directory, 'aimlapi-topup.json'), 'utf8'))
+  staleState.exchangeLeaseAt = Date.now() - 60_000
+  writeFileSync(join(directory, 'aimlapi-topup.json'), JSON.stringify(staleState))
+
+  // owner-a refreshes (as pollUntilExchangeSettled now does every iteration)
+  // instead of letting the aged timestamp stand.
+  expect(await refreshAimlapiExchangeLeaseAsync(expected, 'owner-a')).toBe(true)
+
+  // A peer arriving right after the refresh must back off — the lease is live
+  // again, not stale — instead of reclaiming it and racing owner-a to /exchange.
+  const peerAttempt = await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')
+  expect(peerAttempt.status).toBe('held')
+  if (peerAttempt.status === 'held') {
+    expect(peerAttempt.owner).toBe('owner-a')
+    expect(peerAttempt.ageMs).toBeLessThan(1_000)
+  }
+})
+
+test('refreshing a lease this process no longer owns reports false and touches nothing', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')
+  // No owner recorded at all (e.g. the record was reset/cleared meanwhile).
+  expect(await refreshAimlapiExchangeLeaseAsync(expected, 'owner-b')).toBe(false)
+  // The real owner's lease is untouched by the failed foreign refresh.
+  const stillHeld = await acquireAimlapiExchangeLeaseAsync(expected, 'owner-c')
+  expect(stillHeld.status).toBe('held')
+  if (stillHeld.status === 'held') expect(stillHeld.owner).toBe('owner-a')
+})
+
 test('claiming a different intent refuses to clobber an opened (possibly paid) checkout', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -211,6 +255,31 @@ test('abandonExisting overrides the refusal once the caller has confirmed abando
   expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).not.toBeNull()
 })
 
+test('abandonExisting retains an already-minted (unpaid) key instead of discarding it', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: '',
+    apiKey: 'minted-key',
+    apiKeyId: 'minted-id',
+  })
+
+  // An existing-account key was already minted for this account, but no
+  // checkout was opened/paid yet — abandoning the amount must not throw the
+  // key away along with the dead payment session.
+  const next = claimAimlapiTopupState(
+    { ...intent, amountUsdMinor: 5000 },
+    { abandonExisting: true },
+  )
+  expect(next.paymentSessionId).not.toBe(claimed.paymentSessionId)
+  expect(next.resumeSessionToken).toBe('')
+  expect(next.apiKey).toBe('minted-key')
+  expect(next.apiKeyId).toBe('minted-id')
+  expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })?.apiKey).toBe('minted-key')
+})
+
 test('claiming a different intent refuses to clobber a settled-but-unpersisted key', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -224,10 +293,16 @@ test('claiming a different intent refuses to clobber a settled-but-unpersisted k
   })
 
   // A settled key not yet written to a profile is still recoverable only via this
-  // record; a changed intent must not silently discard it.
+  // record; a changed intent must not silently discard it — not even with
+  // abandonExisting, since that confirms giving up an UNPAID checkout, never
+  // an already paid + exchanged credential.
   expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
-    /hasn't finished/i,
+    /already succeeded/i,
   )
+  expect(() =>
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }, { abandonExisting: true }),
+  ).toThrow(/already succeeded/i)
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('exchanged-key')
 })
 
 test('claiming a different intent replaces a never-advanced claim', () => {
@@ -402,6 +477,35 @@ test('recordAimlapiCheckoutSession elects the first session token and a loser ad
       resumeSessionToken: 'session-C',
     }),
   ).toBeNull()
+})
+
+test('saveAimlapiTopupState never wipes a peer-recorded resumeSessionToken', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const base = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // A peer process for the SAME intent (e.g. a second CLI/GUI run) elects and
+  // records a real checkout session in the window between this process's
+  // claim and its next save.
+  const peerRecorded = recordAimlapiCheckoutSession({ ...base, resumeSessionToken: 'peer-session' })
+  expect(peerRecorded?.resumeSessionToken).toBe('peer-session')
+
+  // This process's own in-memory checkoutState still has an empty
+  // resumeSessionToken (it claimed before the peer raced ahead and created a
+  // session) — e.g. the sign-in path saving a freshly minted key.
+  saveAimlapiTopupState({
+    ...base,
+    resumeSessionToken: '',
+    apiKey: 'minted-key',
+    apiKeyId: 'minted-id',
+  })
+
+  // The peer's chargeable checkout must survive: a stale empty token must
+  // never overwrite a real one.
+  const after = loadAimlapiTopupState(intent)
+  expect(after?.resumeSessionToken).toBe('peer-session')
+  expect(after?.apiKey).toBe('minted-key')
+  expect(after?.apiKeyId).toBe('minted-id')
 })
 
 test('top-up state is cleared only by its matching intent', () => {
