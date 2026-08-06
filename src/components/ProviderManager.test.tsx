@@ -1365,9 +1365,19 @@ test('ProviderManager switch-account overrides a stale receipt left by an earlie
       frame.includes('aimlapi.com account is already configured'),
     )
 
-    // Select "Set up a new key or switch account" (the second option).
+    // Select "Set up a new key or switch account" (the second option). Wait
+    // for the frame to settle (unchanged across a poll) after moving focus,
+    // rather than a fixed delay, so Enter never lands before the highlighted
+    // row actually moved and could select "Continue with your saved API key"
+    // instead.
     mounted.stdin.write('j')
-    await Bun.sleep(25)
+    let previousConfiguredFrame = ''
+    await waitForCondition(() => {
+      const frame = mounted.getOutput()
+      const settled = frame === previousConfiguredFrame && frame.includes('already configured')
+      previousConfiguredFrame = frame
+      return settled
+    })
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Do you have an aimlapi.com key?'))
     mounted.stdin.write('\r')
