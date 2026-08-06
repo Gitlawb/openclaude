@@ -3,7 +3,10 @@ import {
   isShiftEnterKeyBindingInstalled,
 } from '../../commands/terminalSetup/terminalSetup.js'
 import type { Key } from '../../ink.js'
-import type { PromptInputMode } from '../../types/textInputTypes.js'
+import type {
+  PromptInputMode,
+  TextInputChangeContext,
+} from '../../types/textInputTypes.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { env } from '../../utils/env.js'
 import type { ModeEntryDecision } from './inputModes.js'
@@ -54,12 +57,50 @@ export function isNonSpacePrintable(input: string, key: Key): boolean {
     key.pageUp ||
     key.pageDown ||
     key.home ||
-    key.end ||
-    input.includes('\x7f')
+    key.end
   ) {
     return false
   }
-  return input.length > 0 && !/^\s/.test(input) && !input.startsWith('\x1b')
+  const delIndex = input.indexOf('\x7f')
+  const leadingInput = delIndex === -1 ? input : input.slice(0, delIndex)
+  return (
+    leadingInput.length > 0 &&
+    !/^\s/.test(leadingInput) &&
+    !leadingInput.startsWith('\x1b')
+  )
+}
+
+export function normalizePromptInputChunk(
+  input: string,
+  key: Key,
+  prependLazySpace: boolean,
+): string {
+  const normalizedInput = input.replaceAll('\t', '    ')
+  return prependLazySpace && isNonSpacePrintable(normalizedInput, key)
+    ? ` ${normalizedInput}`
+    : normalizedInput
+}
+
+export function resolveHelpToggleChange(
+  value: string,
+  changeContext?: TextInputChangeContext,
+):
+  | {
+      restore?: { value: string; cursorOffset: number }
+      suppressSubmit: boolean
+    }
+  | null {
+  if (value !== '?') return null
+
+  return {
+    restore: changeContext
+      ? {
+          value: changeContext.previousValue,
+          cursorOffset: changeContext.cursorOffset,
+        }
+      : undefined,
+    suppressSubmit: changeContext?.willSubmit === true,
+  }
 }
 
 export function resolveCoalescedModeSubmission(

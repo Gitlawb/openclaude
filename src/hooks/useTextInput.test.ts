@@ -207,6 +207,13 @@ describe('prepareTextInputEvent', () => {
     })
   })
 
+  test('strips a final CR from embedded multiline paste without submitting', () => {
+    expect(prepareTextInputEvent('a\rb\r')).toEqual({
+      input: 'a\nb',
+      shouldSubmit: false,
+    })
+  })
+
   test('preserves backslash plus CR as a newline insertion', () => {
     expect(prepareTextInputEvent('\\\r')).toEqual({
       input: '\\\n',

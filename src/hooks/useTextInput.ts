@@ -51,7 +51,15 @@ export function prepareTextInputEvent(input: string): {
     visibleInput.length > 1 &&
     !visibleInput.slice(0, -1).includes('\r') &&
     visibleInput[visibleInput.length - 2] !== '\\'
-  const editableInput = shouldSubmit ? input.slice(0, -1) : input
+  const shouldStripTrailingCr =
+    visibleInput.endsWith('\r') &&
+    visibleInput.length > 1 &&
+    !['\\', '\r', '\n'].includes(visibleInput[visibleInput.length - 2]!)
+  const editableInput = shouldStripTrailingCr
+    ? input.endsWith('\r')
+      ? input.slice(0, -1)
+      : visibleInput.slice(0, -1)
+    : input
 
   return {
     input: editableInput.replace(/\r/g, '\n'),
@@ -265,12 +273,12 @@ export function useTextInput({
 
     updateRenderedInput(nextValue, nextOffset)
 
-    if (previousValue !== nextValue) {
-      onChange(nextValue, changeContext)
-    }
-
     if (previousOffset !== nextOffset) {
       onOffsetChange(nextOffset)
+    }
+
+    if (previousValue !== nextValue) {
+      onChange(nextValue, changeContext)
     }
   }
   const setValue = (nextValue: string, nextOffset = liveOffsetRef.current): void => {

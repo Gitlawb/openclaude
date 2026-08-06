@@ -123,7 +123,7 @@ import { useMaybeTruncateInput } from './useMaybeTruncateInput.js';
 import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
 import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
-import { canAcceptPromptSuggestion, isNonSpacePrintable, isVimModeEnabled, resolveCoalescedModeSubmission } from './utils.js';
+import { canAcceptPromptSuggestion, isVimModeEnabled, normalizePromptInputChunk, resolveCoalescedModeSubmission, resolveHelpToggleChange } from './utils.js';
 type Props = {
   debug: boolean;
   ideSelection: IDESelection | undefined;
@@ -871,10 +871,18 @@ function PromptInput({
     viewingAgentName
   });
   const pendingCoalescedModeSubmitRef = React.useRef<ReturnType<typeof detectModeEntry>>(null);
+  const suppressNextCoalescedSubmitRef = React.useRef(false);
   const onChange = useCallback((value: string, changeContext?: TextInputChangeContext) => {
-    if (value === '?') {
+    const helpToggleChange = resolveHelpToggleChange(value, changeContext);
+    if (helpToggleChange) {
       logEvent('tengu_help_toggled', {});
       setHelpOpen(v => !v);
+      pendingCoalescedModeSubmitRef.current = null;
+      suppressNextCoalescedSubmitRef.current = helpToggleChange.suppressSubmit;
+      if (helpToggleChange.restore) {
+        trackAndSetInput(helpToggleChange.restore.value);
+        setCursorOffset(helpToggleChange.restore.cursorOffset);
+      }
       return;
     }
     setHelpOpen(false);
@@ -890,12 +898,12 @@ function PromptInput({
     // mode itself is shown via the prompt prefix in the UI. Without this,
     // typing `!` into empty input would enter bash mode but leave the literal
     // `!` in the buffer (issue #662).
-    const previousValue = changeContext?.previousValue ?? input;
-    const previousCursorOffset = changeContext?.cursorOffset ?? cursorOffset;
+    const modeDetectionValue = changeContext?.previousValue ?? input;
+    const modeDetectionCursorOffset = changeContext?.cursorOffset ?? cursorOffset;
     const modeEntry = detectModeEntry({
       value,
-      prevInputLength: previousValue.length,
-      cursorOffset: previousCursorOffset,
+      prevInputLength: modeDetectionValue.length,
+      cursorOffset: modeDetectionCursorOffset,
     });
     if (modeEntry) {
       const cleaned = modeEntry.strippedValue.replaceAll('\t', '    ');
@@ -904,7 +912,7 @@ function PromptInput({
         strippedValue: cleaned
       } : null;
       onModeChange(modeEntry.mode);
-      pushToBuffer(previousValue, previousCursorOffset, pastedContents);
+      pushToBuffer(input, cursorOffset, pastedContents);
       trackAndSetInput(cleaned);
       setCursorOffset(cleaned.length);
       return;
@@ -1007,6 +1015,10 @@ function PromptInput({
     setSuggestionsStateRaw(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
   const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false, slashCommandOverride?: Command) => {
+    if (suppressNextCoalescedSubmitRef.current) {
+      suppressNextCoalescedSubmitRef.current = false;
+      return;
+    }
     const pendingModeEntry = pendingCoalescedModeSubmitRef.current;
     pendingCoalescedModeSubmitRef.current = null;
     const modeSubmission = resolveCoalescedModeSubmission(inputParam, mode, pendingModeEntry);
@@ -1291,10 +1303,9 @@ function PromptInput({
     }
   }
   const lazySpaceInputFilter = useCallback((input: string, key: Key): string => {
-    if (!pendingSpaceAfterPillRef.current) return input;
+    const prependLazySpace = pendingSpaceAfterPillRef.current;
     pendingSpaceAfterPillRef.current = false;
-    if (isNonSpacePrintable(input, key)) return ' ' + input;
-    return input;
+    return normalizePromptInputChunk(input, key, prependLazySpace);
   }, []);
   // Ref mirrors cursorOffset for use in synchronous loops (e.g. multi-image
   // paste) where React batches state updates and the closure value is stale.

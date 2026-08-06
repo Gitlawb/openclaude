@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react'
+import { isInputModeCharacter } from '../components/PromptInput/inputModes.js'
 import type { Key } from '../ink.js'
 import type { VimInputState, VimMode } from '../types/textInputTypes.js'
 import { Cursor } from '../utils/Cursor.js'
@@ -230,6 +231,7 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
           props.columns,
           state.insertedText.length,
         )
+        let recordedModeEntry = false
         applyCoalescedDelInput(
           cursor,
           preparedInput.input,
@@ -241,8 +243,19 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
               visibleResult &&
               visibleResult.text !== visibleCursor.text
             ) {
+              const modeCharacter = visibleResult.text[0]
+              const isModeEntry =
+                !recordedModeEntry &&
+                visibleCursor.text.length === 0 &&
+                visibleCursor.isAtStart() &&
+                modeCharacter !== undefined &&
+                isInputModeCharacter(modeCharacter)
+              recordedModeEntry ||= isModeEntry
+              const recordedText = isModeEntry
+                ? visibleResult.text.slice(modeCharacter.length)
+                : text
               insertedTextCursor =
-                applyPrintableInput(insertedTextCursor, text, {
+                applyPrintableInput(insertedTextCursor, recordedText, {
                   modeCharacterIsText: true,
                 }) ?? insertedTextCursor
             }

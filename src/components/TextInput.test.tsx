@@ -23,6 +23,10 @@ import {
   resetKillAccumulation,
 } from '../utils/Cursor.js'
 import { detectModeEntry } from './PromptInput/inputModes.js'
+import {
+  normalizePromptInputChunk,
+  resolveHelpToggleChange,
+} from './PromptInput/utils.js'
 import TextInput from './TextInput.js'
 import VimTextInput from './VimTextInput.js'
 
@@ -422,17 +426,23 @@ async function runInputScenario({
   inputFilter,
 }: InputScenarioOptions): Promise<{
   value: string
+  cursorOffset: number
   changes: string[]
   submissions: string[]
 }> {
   let observedValue = initialValue
+  let observedCursorOffset = cursorOffset
   let receivedInputCount = 0
   const changes: string[] = []
   const submissions: string[] = []
 
   function ScenarioTextInput(): React.ReactNode {
     const [value, setValue] = React.useState(initialValue)
-    const [offset, setOffset] = React.useState(cursorOffset)
+    const [offset, setOffsetState] = React.useState(cursorOffset)
+    const setOffset = (nextOffset: number): void => {
+      observedCursorOffset = nextOffset
+      setOffsetState(nextOffset)
+    }
 
     return (
       <AppStateProvider>
@@ -485,7 +495,12 @@ async function runInputScenario({
     stdout.end()
   }
 
-  return { value: observedValue, changes, submissions }
+  return {
+    value: observedValue,
+    cursorOffset: observedCursorOffset,
+    changes,
+    submissions,
+  }
 }
 
 async function runPromptModeScenario({
@@ -497,20 +512,26 @@ async function runPromptModeScenario({
 }): Promise<{
   mode: string
   value: string
+  cursorOffset: number
   submissions: Array<{ value: string; mode: string }>
 }> {
   let observedMode = 'prompt'
   let observedValue = initialValue
+  let observedCursorOffset = initialValue.length
   let receivedInputCount = 0
   const submissions: Array<{ value: string; mode: string }> = []
 
   function PromptModeTextInput(): React.ReactNode {
     const [value, setValue] = React.useState(initialValue)
-    const [offset, setOffset] = React.useState(initialValue.length)
+    const [offset, setOffsetState] = React.useState(initialValue.length)
     const [mode, setMode] = React.useState('prompt')
     const pendingSubmitModeRef = React.useRef<
       ReturnType<typeof detectModeEntry>
     >(null)
+    const setOffset = (nextOffset: number): void => {
+      observedCursorOffset = nextOffset
+      setOffsetState(nextOffset)
+    }
 
     const handleChange = (
       nextValue: string,
@@ -590,7 +611,12 @@ async function runPromptModeScenario({
     stdout.end()
   }
 
-  return { mode: observedMode, value: observedValue, submissions }
+  return {
+    mode: observedMode,
+    value: observedValue,
+    cursorOffset: observedCursorOffset,
+    submissions,
+  }
 }
 
 test('TextInput preserves replacement text coalesced after raw DEL', async () => {
@@ -629,6 +655,104 @@ test('TextInput honors a filter that changes replacement text', async () => {
   })
 
   expect(result.value).toBe('ș')
+})
+
+test('TextInput keeps the cursor aligned after filtering a coalesced tab', async () => {
+  const result = await runInputScenario({
+    initialValue: 'a',
+    chunk: '\x7f\tfoo',
+    inputFilter: (input, key) => normalizePromptInputChunk(input, key, false),
+  })
+
+  expect(result.value).toBe('    foo')
+  expect(result.cursorOffset).toBe(7)
+})
+
+test('TextInput restores state and suppresses submission for coalesced help', async () => {
+  let observedValue = 'a'
+  let observedCursorOffset = 1
+  let helpToggleCount = 0
+  let receivedInputCount = 0
+  const submissions: string[] = []
+
+  function HelpToggleTextInput(): React.ReactNode {
+    const [value, setValue] = React.useState('a')
+    const [offset, setOffsetState] = React.useState(1)
+    const suppressNextSubmitRef = React.useRef(false)
+    const setOffset = (nextOffset: number): void => {
+      observedCursorOffset = nextOffset
+      setOffsetState(nextOffset)
+    }
+
+    return (
+      <AppStateProvider>
+        <TextInput
+          value={value}
+          onChange={(nextValue, context) => {
+            const helpToggleChange = resolveHelpToggleChange(nextValue, context)
+            if (helpToggleChange) {
+              helpToggleCount++
+              suppressNextSubmitRef.current = helpToggleChange.suppressSubmit
+              if (helpToggleChange.restore) {
+                observedValue = helpToggleChange.restore.value
+                setValue(helpToggleChange.restore.value)
+                setOffset(helpToggleChange.restore.cursorOffset)
+              }
+              return
+            }
+            observedValue = nextValue
+            setValue(nextValue)
+          }}
+          onSubmit={nextValue => {
+            if (suppressNextSubmitRef.current) {
+              suppressNextSubmitRef.current = false
+              return
+            }
+            submissions.push(nextValue)
+          }}
+          placeholder="Type here..."
+          columns={60}
+          cursorOffset={offset}
+          onChangeCursorOffset={setOffset}
+          inputFilter={input => {
+            receivedInputCount++
+            return input
+          }}
+          focus
+          showCursor
+          multiline
+        />
+      </AppStateProvider>
+    )
+  }
+
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  try {
+    root.render(<HelpToggleTextInput />)
+    await waitForOutput(getOutput, output => output.includes('a'))
+    const previousInputCount = receivedInputCount
+    stdin.write('\x7f?\r')
+    await waitFor(
+      () =>
+        receivedInputCount > previousInputCount && helpToggleCount === 1,
+    )
+    await Bun.sleep(25)
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
+
+  expect(observedValue).toBe('')
+  expect(observedCursorOffset).toBe(0)
+  expect(helpToggleCount).toBe(1)
+  expect(submissions).toEqual([])
 })
 
 test('TextInput honors a filter that rejects the complete chunk', async () => {
@@ -704,6 +828,7 @@ test('TextInput preserves mode entry plus coalesced Enter submission', async () 
 
   expect(result.mode).toBe('bash')
   expect(result.value).toBe('')
+  expect(result.cursorOffset).toBe(0)
   expect(result.submissions).toEqual([{ value: '', mode: 'bash' }])
 })
 
@@ -736,6 +861,7 @@ test('TextInput carries DEL-coalesced bash text into submission mode', async () 
 
   expect(result.mode).toBe('bash')
   expect(result.value).toBe('ls')
+  expect(result.cursorOffset).toBe(2)
   expect(result.submissions).toEqual([{ value: 'ls', mode: 'bash' }])
 })
 
@@ -1002,7 +1128,7 @@ test('VimTextInput dot-repeat does not record a post-DEL mode sentinel', async (
   await Bun.sleep(25)
   inputState!.onInput('a', {} as Key)
   await Bun.sleep(25)
-  inputState!.onInput('\x7f!', {} as Key)
+  inputState!.onInput('\x7f!ls', {} as Key)
   await Bun.sleep(25)
   inputState!.onInput('', { escape: true } as Key)
   await Bun.sleep(25)
@@ -1014,7 +1140,8 @@ test('VimTextInput dot-repeat does not record a post-DEL mode sentinel', async (
   stdout.end()
 
   expect(observedMode).toBe('bash')
-  expect(observedValue).toBe('')
+  expect(observedValue).toBe('llss')
+  expect(observedValue).not.toContain('!')
 })
 
 test('VimTextInput records post-DEL text from the live cursor in one batch', async () => {
