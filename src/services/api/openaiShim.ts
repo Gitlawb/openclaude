@@ -95,10 +95,6 @@ import {
 import { geminiSseToAnthropic as convertGeminiStream } from './openaiShim/geminiStreamConversion.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import {
-  fetchWithProxyRetry,
-  type ProxyRetryFetcher,
-} from './fetchWithProxyRetry.js'
-import {
   createClassifiedTransportError,
   fetchWithHeadersDeadline,
   getApiTimeoutMs,
@@ -131,15 +127,6 @@ import {
   markOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
-import {
-  redactEncodedSecretSubstringsForDisplay,
-  redactSecretSubstringsForDisplay,
-} from '../../utils/providerSecrets.js'
-import {
-  redactUrlForDisplay,
-  shouldRedactUrlQueryParam,
-} from '../../utils/redaction.js'
-import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
   normalizeToolArguments,
   hasToolFieldMapping,

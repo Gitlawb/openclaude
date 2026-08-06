@@ -28,7 +28,7 @@ test('API timeout parser accepts bounded positive integers', () => {
   process.env.API_TIMEOUT_MS = '3000000000'
   expect(getApiTimeoutMs()).toBe(2_147_483_647)
 
-  for (const invalid of ['9007199254740993', '25ms', '0', '-5']) {
+  for (const invalid of ['abc', '', '1.5', '9007199254740993', '25ms', '0', '-5']) {
     process.env.API_TIMEOUT_MS = invalid
     expect(getApiTimeoutMs()).toBe(600_000)
   }
