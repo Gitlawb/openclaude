@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, mock, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -804,6 +804,65 @@ test('a peer settling mid-wait is resumed from instead of hard-failing the excha
   expect(result.apiKey).toBe('peer-exchanged-key')
   expect(result.apiKeyId).toBe('peer-exchanged-id')
 })
+
+test('a lease reclaimed mid-wait stops the poll instead of racing the peer to /exchange', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_test',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    reads += 1
+    if (reads === 1) {
+      // resolveTopupSession's resume read: still exchanging → wait-exchange.
+      // This process now acquires the exchange lease.
+      return sessionJson({ sessionToken: 'session', status: 'exchanging' })
+    }
+    if (reads === 2) {
+      // The poll's first read: still exchanging, so it loops again. A PEER
+      // reclaims the lease right here, between this read and the poll's next
+      // refresh — simulated by overwriting the owner directly on disk.
+      const state = JSON.parse(readFileSync(statePath, 'utf8'))
+      state.exchangeLeaseOwner = 'peer-owner'
+      state.exchangeLeaseAt = Date.now()
+      writeFileSync(statePath, JSON.stringify(state))
+      return sessionJson({ sessionToken: 'session', status: 'exchanging' })
+    }
+    // The peer hasn't finished yet (no settled receipt), so the recovery
+    // recheck in exchangeKeyWithLease's catch also finds nothing to resume
+    // from. A THIRD read (or a call to POST /exchange) means the lease loss
+    // went undetected and this process raced the peer to the one-shot POST.
+    throw new Error(`Unexpected further request: ${init?.method ?? 'GET'} (read ${reads})`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    provisionAimlapiKey({
+      sessionToken: 'account-session',
+      resumeSessionToken: 'session',
+      paymentSessionId: claimed.paymentSessionId,
+      exchange: true,
+      intent,
+      amountUsd: '25',
+      noOpen: true,
+    }),
+  ).rejects.toThrow(/reclaimed by another process/i)
+  expect(reads).toBe(2)
+}, 10_000)
 
 test('email-session checkout carries the stable payment id', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'
