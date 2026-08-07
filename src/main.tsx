@@ -708,7 +708,7 @@ export async function main() {
 
       // Headless (-p) mode is not supported with SSH in v1 — reject early
       // so the flag doesn't silently cause local execution.
-      if (rest.includes('-p') || rest.includes('--print')) {
+      if (hasPrintFlag(rest)) {
         process.stderr.write('Error: headless (-p/--print) mode is not supported with openclaude ssh\n');
         gracefulShutdownSync(1);
         return;
@@ -3694,7 +3694,7 @@ async function run(): Promise<CommanderCommand> {
   // + 40ms sync keychain subprocess), both hidden by the try/catch that
   // always returns false before enableConfigs(). cc:// URLs are rewritten to
   // `open` at main() line ~851 BEFORE this runs, so argv check is safe here.
-  const isPrintMode = process.argv.includes('-p') || process.argv.includes('--print');
+  const isPrintMode = hasPrintFlag(process.argv);
   const isCcUrl = process.argv.some(a => a.startsWith('cc://') || a.startsWith('cc+unix://'));
   if (isPrintMode && !isCcUrl) {
     profileCheckpoint('run_before_parse');

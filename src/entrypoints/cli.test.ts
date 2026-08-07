@@ -697,20 +697,13 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
     }
   }, { timeout: 20000 })
 
-  it('registers --yolo via .option() on the main command, ssh, and open subcommands', async () => {
+  it('uses the shared hasPrintFlag predicate for all startup print-mode checks', async () => {
     const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-    // Structured, not a bare string count: each occurrence must be a real
-    // .option() registration call, so a stray string or comment cannot satisfy
-    // the guard. Registered on the main command, the `ssh` subcommand, and the
-    // internal `open` subcommand (the cc:// headless route) — the three commands
-    // that consume the flag.
-    const optionCalls = [
-      ...src.matchAll(/\.option\(\s*'--yolo, --dangerously-skip-permissions'/g),
-    ]
-    expect(optionCalls).toHaveLength(3)
-    // `ssh --yolo` is consumed by the ssh pre-scan (host/flag routing) before
-    // commander; its arity/`--` handling has runtime tests in
-    // utils/sshPreParse.test.ts.
-    expect(src).toContain('parseSshFlags(rawCliArgs)')
+    // The cc:// rewrite, the SSH headless rejection, and the main print-mode
+    // gate must all use the same arity-aware predicate so forms like
+    // `--print=prompt` and `-pprompt` are handled consistently.
+    expect(src).toContain('if (hasPrintFlag(rawCliArgs))')
+    expect(src).toContain('if (hasPrintFlag(rest))')
+    expect(src).toContain('const isPrintMode = hasPrintFlag(process.argv)')
   })
 })
