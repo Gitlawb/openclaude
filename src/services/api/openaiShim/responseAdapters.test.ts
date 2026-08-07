@@ -120,6 +120,25 @@ test('geminiSseToAnthropic wrapper emits content, usage, and terminal stop', asy
     event.type === 'content_block_delta' &&
     (event.delta as { text?: string })?.text === 'Inspecting.',
   )).toBe(true)
+
+  const toolStartIndex = events.findIndex(event =>
+    event.type === 'content_block_start' &&
+    (event.content_block as { type?: string; name?: string })?.type === 'tool_use' &&
+    (event.content_block as { name?: string })?.name === 'Read',
+  )
+  expect(toolStartIndex).toBeGreaterThan(-1)
+  expect(events[toolStartIndex + 1]).toMatchObject({
+    type: 'content_block_delta',
+    delta: {
+      type: 'input_json_delta',
+      partial_json: '{"file_path":"a.ts"}',
+    },
+  })
+  expect(events[toolStartIndex + 2]).toEqual({
+    type: 'content_block_stop',
+    index: (events[toolStartIndex] as { index: number }).index,
+  })
+
   expect(events.at(-2)).toMatchObject({
     type: 'message_delta',
     delta: { stop_reason: 'tool_use' },

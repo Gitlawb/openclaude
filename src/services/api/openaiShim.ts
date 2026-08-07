@@ -42,7 +42,7 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { anthropicSsePassthrough as parseAnthropicSsePassthrough, createReaderCanceller, createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError, throwIfStreamAborted } from './openaiShim/streamControl.js'
+import { createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError } from './openaiShim/streamControl.js'
 export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import {
@@ -69,10 +69,6 @@ import {
 } from '../../integrations/routeMetadata.js'
 import { getSessionId } from '../../bootstrap/state.js'
 import {
-  createThinkTagFilter,
-  stripThinkTags,
-} from './thinkTagSanitizer.js'
-import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
   convertAnthropicMessagesToResponsesInput,
@@ -80,19 +76,12 @@ import {
   convertToolsToResponsesTools,
   performCodexRequest,
   type AnthropicStreamEvent,
-  type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
 import {
   createRequestBodyPlanner,
   hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv,
 } from './openaiShim/requestPlanner.js'
-import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
-import {
-  convertOpenAIStreamUsage,
-  openaiStreamToAnthropic as convertOpenAIStream,
-} from './openaiShim/streamConversion.js'
-import { geminiSseToAnthropic as convertGeminiStream } from './openaiShim/geminiStreamConversion.js'
 import {
   anthropicSsePassthrough,
   convertGeminiToAnthropicResponse,
@@ -100,8 +89,6 @@ import {
   geminiSseToAnthropic,
   makeMessageId,
   openaiStreamToAnthropic as convertOpenAIResponseStream,
-  parseTextToolCalls,
-  parseXmlToolCalls,
 } from './openaiShim/responseAdapters.js'
 export { parseTextToolCalls, parseXmlToolCalls } from './openaiShim/responseAdapters.js'
 import { compressToolHistory } from './compressToolHistory.js'
@@ -138,10 +125,6 @@ import {
   markOpenAIRequestNonReplayable,
 } from './openaiErrorClassification.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
-import {
-  normalizeToolArguments,
-  hasToolFieldMapping,
-} from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
 import {
   createStreamState,
@@ -150,13 +133,6 @@ import {
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
 import {
-  findXmlToolCallOpener as findXmlToolCallOpenerModule,
-  isHy3Model as isHy3ModelModule,
-  parseXmlToolCalls as parseXmlToolCallsModule,
-  trailingXmlOpenerPrefixLen as trailingXmlOpenerPrefixLenModule,
-} from './openaiShim/xmlToolCallParsing.js'
-import {
-  convertNonStreamingResponseToAnthropicMessage as convertResponseToAnthropicMessage,
   type NonStreamingOpenAIResponse,
 } from './openaiShim/responseConversion.js'
 import {
@@ -190,17 +166,6 @@ import {
   convertMessages as convertAnthropicMessages,
   convertSystemPrompt as convertSystemPromptImpl,
 } from './openaiShim/messageConversion.js'
-import {
-  JSON_REPAIR_SUFFIXES,
-  couldBeRawToolCallsRequestedPrefix,
-  extractBalancedJson,
-  parseRawToolCallsRequestedText,
-  parseTextToolCalls as parseTextToolCallsModule,
-  repairPossiblyTruncatedObjectJson,
-  stripRanges,
-  type ParsedRawToolCall,
-  type ParsedTextToolCall,
-} from './openaiShim/rawToolCallParsing.js'
 import {
   convertTools as convertToolsModule,
   normalizeSchemaForOpenAI as normalizeSchemaForOpenAIModule,

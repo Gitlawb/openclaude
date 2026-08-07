@@ -17,8 +17,6 @@ import {
 import {
   createOpenAIShimClient,
   hasMistralApiHost,
-  parseTextToolCalls,
-  parseXmlToolCalls,
 } from './openaiShim.ts'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
