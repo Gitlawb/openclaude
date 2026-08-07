@@ -699,11 +699,12 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
 
   it('uses the shared hasPrintFlag predicate for all startup print-mode checks', async () => {
     const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-    // The cc:// rewrite, the SSH headless rejection, and the main print-mode
-    // gate must all use the same arity-aware predicate so forms like
-    // `--print=prompt` and `-pprompt` are handled consistently.
+    // The cc:// rewrite, the SSH headless rejection, the main print-mode gate,
+    // and the SIGINT handler must all use the same arity-aware predicate so
+    // forms like `--print=prompt` and `-pprompt` are handled consistently.
     expect(src).toContain('if (hasPrintFlag(rawCliArgs))')
     expect(src).toContain('if (hasPrintFlag(rest))')
     expect(src).toContain('const isPrintMode = hasPrintFlag(process.argv)')
+    expect(src).toContain('if (hasPrintFlag(process.argv))')
   })
 })
