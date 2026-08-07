@@ -175,7 +175,7 @@ import type { ProcessUserInputContext } from '../utils/processUserInput/processU
 import type { PastedContent } from '../utils/config.js';
 import { copyPlanForFork, copyPlanForResume, getPlanSlug, setPlanSlug } from '../utils/plans.js';
 import { clearSessionMetadata, resetSessionFilePointer, adoptResumedSessionFile, removeTranscriptMessage, restoreSessionMetadata, getCurrentSessionTitle, isEphemeralToolProgress, isLoggableMessage, saveWorktreeState, getAgentTranscript, saveAgentSetting } from '../utils/sessionStorage.js';
-import { deserializeMessages, restoreSkillStateFromMessages } from '../utils/conversationRecovery.js';
+import { deserializeMessages, prepareInReplResumeListingState } from '../utils/conversationRecovery.js';
 import { extractReadFilesFromMessages, extractBashToolsFromMessages } from '../utils/queryHelpers.js';
 import { resetMicrocompactState } from '../services/compact/microCompact.js';
 import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js';
@@ -1982,11 +1982,10 @@ export function REPL({
       // This filters unresolved tool uses and adds a synthetic assistant message if needed
       const messages = deserializeMessages(log.messages);
 
-      // Same as loadConversationForResume (CLI --resume / --continue): arm
-      // suppressNextSkillListing / suppressNextAgentListing from local
-      // transcript listings so the first post-resume turn does not re-inject
-      // full skill / agent catalogs already present in JSONL.
-      restoreSkillStateFromMessages(messages);
+      // Same listing restore as loadConversationForResume, plus clear
+      // process-local sentSkillNames / suppress latches that survive in-REPL
+      // /resume (CLI --resume starts a fresh process and skips this helper).
+      prepareInReplResumeListingState(messages);
 
       // Match coordinator/normal mode to the resumed session
       if (feature('COORDINATOR_MODE')) {

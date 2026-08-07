@@ -143,6 +143,43 @@ test('getAnnouncedMcpInstructionBlocks applies removals before same-name re-adds
   expect(announced.get('docs')).toBe('## docs\nnew')
 })
 
+test('getAnnouncedMcpInstructionBlocks ignores mismatched addedNames/addedBlocks lengths', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nold']),
+    {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000m0mis',
+      attachment: {
+        type: 'mcp_instructions_delta',
+        addedNames: ['docs'],
+        addedBlocks: [],
+        removedNames: ['docs'],
+      },
+    } as unknown as Message,
+  ]
+  const announced = getAnnouncedMcpInstructionBlocks(messages)
+  // Fail closed: mismatched record must not delete the prior docs block.
+  expect(announced.get('docs')).toBe('## docs\nold')
+})
+
+test('getAnnouncedMcpInstructionBlocks ignores non-string mcp delta entries', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nold']),
+    {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000m0ns',
+      attachment: {
+        type: 'mcp_instructions_delta',
+        addedNames: ['docs'],
+        addedBlocks: [null],
+        removedNames: ['docs'],
+      },
+    } as unknown as Message,
+  ]
+  const announced = getAnnouncedMcpInstructionBlocks(messages)
+  expect(announced.get('docs')).toBe('## docs\nold')
+})
+
 test('getMcpInstructionsDelta announces newly connected servers', () => {
   const delta = getMcpInstructionsDelta(
     [connected('chrome', 'Prefer keyboard shortcuts.')],

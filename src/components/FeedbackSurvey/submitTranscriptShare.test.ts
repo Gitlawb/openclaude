@@ -1,0 +1,171 @@
+import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Message } from '../../types/message.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+
+type AxiosModule = typeof import('axios')
+
+let originalAxiosModule: AxiosModule | undefined
+let tempDir: string | undefined
+let postedBodies: Array<{ content?: string }> = []
+
+function buildAxiosModuleStub(
+  post: (...args: unknown[]) => Promise<unknown>,
+): AxiosModule {
+  const instance = {
+    get: async () => ({ status: 200 }),
+    post,
+    isAxiosError: () => false,
+    defaults: {} as Record<string, unknown>,
+    interceptors: {
+      request: { use: () => 0, eject: () => {} },
+      response: { use: () => 0, eject: () => {} },
+    },
+  }
+  return { default: instance } as unknown as AxiosModule
+}
+
+beforeAll(async () => {
+  await acquireSharedMutationLock('submitTranscriptShare.egress')
+  originalAxiosModule = await import('axios')
+
+  // MACRO is build-time; stub for the under-test import path.
+  ;(globalThis as { MACRO?: { VERSION: string } }).MACRO = {
+    VERSION: 'test-version',
+  }
+
+  const realProviders = await import('../../utils/model/providers.js')
+  mock.module('../../utils/model/providers.js', () => ({
+    ...realProviders,
+    isFirstPartyAnthropicProvider: () => true,
+  }))
+
+  const realAuth = await import('../../utils/auth.js')
+  mock.module('../../utils/auth.js', () => ({
+    ...realAuth,
+    checkAndRefreshOAuthTokenIfNeeded: async () => {},
+  }))
+
+  const realHttp = await import('../../utils/http.js')
+  mock.module('../../utils/http.js', () => ({
+    ...realHttp,
+    getAuthHeaders: () => ({
+      headers: { Authorization: 'Bearer test' },
+      error: undefined,
+    }),
+    getUserAgent: () => 'test-agent',
+  }))
+
+  tempDir = await mkdtemp(join(tmpdir(), 'openclaude-transcript-share-'))
+  const transcriptPath = join(tempDir, 'session.jsonl')
+  await writeFile(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'user',
+      uuid: '00000000-0000-4000-8000-00000000s001',
+      parentUuid: null,
+      timestamp: '2026-08-07T00:00:00.000Z',
+      message: { role: 'user', content: 'share me' },
+    })}\n${JSON.stringify({
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000s002',
+      parentUuid: '00000000-0000-4000-8000-00000000s001',
+      timestamp: '2026-08-07T00:00:00.000Z',
+      attachment: {
+        type: 'skill_listing',
+        content: 'Available skills:\n- /leak-me-please',
+        skillCount: 1,
+        isInitial: true,
+      },
+    })}\n`,
+  )
+
+  const realSession = await import('../../utils/sessionStorage.js')
+  mock.module('../../utils/sessionStorage.js', () => ({
+    ...realSession,
+    getTranscriptPath: () => transcriptPath,
+    loadSubagentTranscripts: async () => ({
+      'agent-leak': [
+        {
+          type: 'attachment',
+          uuid: '00000000-0000-4000-8000-00000000a101',
+          attachment: {
+            type: 'agent_listing_delta',
+            addedTypes: ['Explore'],
+            addedLines: ['- Explore: /leak-agent-listing'],
+            removedTypes: [],
+            isInitial: true,
+            showConcurrencyNote: false,
+          },
+        },
+        {
+          type: 'user',
+          uuid: '00000000-0000-4000-8000-00000000a102',
+          message: { role: 'user', content: 'subagent turn' },
+        },
+      ],
+    }),
+  }))
+
+  mock.module('axios', () =>
+    buildAxiosModuleStub(async (_url: unknown, body: unknown) => {
+      postedBodies.push(body as { content?: string })
+      return { status: 200, data: { transcript_id: 'shared-1' } }
+    }),
+  )
+})
+
+afterAll(async () => {
+  try {
+    if (originalAxiosModule) {
+      mock.module('axios', () => originalAxiosModule!)
+    }
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
+
+test('submitTranscriptShare strips listing payloads from the outgoing content body', async () => {
+  postedBodies = []
+  process.env.USER_TYPE = 'external'
+
+  const { submitTranscriptShare } = await import('./submitTranscriptShare.js')
+
+  const listing = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000m001',
+    attachment: {
+      type: 'skill_listing',
+      content: 'Available skills:\n- /leak-me-please',
+      skillCount: 1,
+      isInitial: true,
+    },
+  } as unknown as Message
+  const user = {
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000m002',
+    message: { role: 'user', content: 'plain turn' },
+  } as unknown as Message
+
+  const result = await submitTranscriptShare(
+    [listing, user],
+    'bad_feedback_survey',
+    'appearance-test',
+  )
+
+  expect(result.success).toBe(true)
+  expect(postedBodies).toHaveLength(1)
+  const content = postedBodies[0]?.content ?? ''
+  expect(content).toContain('plain turn')
+  expect(content).not.toContain('leak-me-please')
+  expect(content).not.toContain('leak-agent-listing')
+  expect(content).toContain('subagent turn')
+})

@@ -62,22 +62,24 @@ export function getAnnouncedMcpInstructionBlocks(
     // Require the full recognized schema before processing. Malformed or
     // partial legacy entries must be skipped — not partially applied.
     const { addedNames, addedBlocks, removedNames } = msg.attachment
+    // Fail closed: match attachments/toolSearch — equal added lengths and
+    // every entry a string. Misaligned added* would delete without restore.
     if (
       !Array.isArray(removedNames) ||
       !Array.isArray(addedNames) ||
-      !Array.isArray(addedBlocks)
+      !Array.isArray(addedBlocks) ||
+      addedNames.length !== addedBlocks.length ||
+      !removedNames.every(n => typeof n === 'string') ||
+      !addedNames.every(n => typeof n === 'string') ||
+      !addedBlocks.every(b => typeof b === 'string')
     ) {
       continue
     }
     for (const n of removedNames) {
-      if (typeof n === 'string') announced.delete(n)
+      announced.delete(n)
     }
     for (let i = 0; i < addedNames.length; i++) {
-      const name = addedNames[i]
-      const block = addedBlocks[i]
-      if (typeof name === 'string' && typeof block === 'string') {
-        announced.set(name, block)
-      }
+      announced.set(addedNames[i]!, addedBlocks[i]!)
     }
   }
   return announced

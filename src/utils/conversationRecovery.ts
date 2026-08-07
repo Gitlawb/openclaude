@@ -19,6 +19,7 @@ import type {
 } from '../types/message.js'
 import { PERMISSION_MODES } from '../types/permissions.js'
 import {
+  resetSentSkillNames,
   suppressNextAgentListing,
   suppressNextSkillListing,
 } from './attachments.js'
@@ -658,23 +659,26 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // getAgentListingDeltaAttachment, which rejects partial deltas.
     if (attachment.type === 'agent_listing_delta') {
       const { addedTypes, addedLines, removedTypes } = attachment
+      // Fail closed: match getAgentListingDeltaAttachment — reject unless
+      // arrays are length-aligned and every entry is a string. Partial apply
+      // can delete an announcement without restoring it and bust prefix cache.
       if (
         !Array.isArray(addedTypes) ||
         !Array.isArray(addedLines) ||
-        !Array.isArray(removedTypes)
+        !Array.isArray(removedTypes) ||
+        addedTypes.length !== addedLines.length ||
+        !removedTypes.every(t => typeof t === 'string') ||
+        !addedTypes.every(t => typeof t === 'string') ||
+        !addedLines.every(l => typeof l === 'string')
       ) {
         continue
       }
       sawAgentListing = true
       for (const t of removedTypes) {
-        if (typeof t === 'string') recoveredAgentLines.delete(t)
+        recoveredAgentLines.delete(t)
       }
       for (let i = 0; i < addedTypes.length; i++) {
-        const type = addedTypes[i]
-        const line = addedLines[i]
-        if (typeof type === 'string' && typeof line === 'string') {
-          recoveredAgentLines.set(type, line)
-        }
+        recoveredAgentLines.set(addedTypes[i]!, addedLines[i]!)
       }
     }
   }
@@ -682,6 +686,19 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
   if (sawAgentListing) {
     suppressNextAgentListing(recoveredAgentLines)
   }
+}
+
+/**
+ * In-REPL /resume keeps the same process, so module-scope sentSkillNames
+ * (and suppress latches) from the prior session survive. Clear them before
+ * restoreSkillStateFromMessages so a resumed transcript without skill_listing
+ * can announce current skills, and so transcript listings re-arm suppress
+ * from the resumed messages only. CLI --resume / --continue spawn a fresh
+ * process and must not call this.
+ */
+export function prepareInReplResumeListingState(messages: Message[]): void {
+  resetSentSkillNames()
+  restoreSkillStateFromMessages(messages)
 }
 
 /**

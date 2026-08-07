@@ -25,7 +25,7 @@ import {
 } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
-import { extractTeammateTranscriptsFromTasks, filterJsonlForExternalEgress, filterMessagesForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
+import { extractTeammateTranscriptsFromTasks, filterJsonlForExternalEgress, filterMessagesForExternalEgress, filterSubagentTranscriptsForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
 import { asSystemPrompt } from '../utils/systemPromptType.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -161,15 +161,10 @@ export function Feedback({
     const lastAssistantMessageId = lastAssistantMessage?.requestId ?? null;
     const [diskTranscripts, rawTranscriptJsonl] = await Promise.all([loadAllSubagentTranscriptsFromDisk(), loadRawTranscriptJsonl()]);
     const teammateTranscripts = extractTeammateTranscriptsFromTasks(backgroundTasks);
-    const subagentTranscripts: {
-      [agentId: string]: Message[];
-    } = {};
-    for (const [agentId, msgs] of Object.entries({
+    const subagentTranscripts = filterSubagentTranscriptsForExternalEgress({
       ...diskTranscripts,
       ...teammateTranscripts
-    })) {
-      subagentTranscripts[agentId] = filterMessagesForExternalEgress(msgs);
-    }
+    });
     const redactedTranscriptJsonl = rawTranscriptJsonl
       ? redactJsonLines(rawTranscriptJsonl)
       : undefined;

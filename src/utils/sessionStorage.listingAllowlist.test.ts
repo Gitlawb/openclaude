@@ -14,12 +14,16 @@ import {
   buildConversationChain,
   filterJsonlForExternalEgress,
   filterMessagesForExternalEgress,
+  filterSubagentTranscriptsForExternalEgress,
   isLoggableMessage,
   isPrefixCacheListingAttachment,
   isSafeForExternalEgress,
   loadTranscriptFile,
   projectTranscriptParentForExternalEgress,
+  rebuildRemoteEgressOmittedParentsForTesting,
   recordExternalEgressOmission,
+  resetProjectForTesting,
+  setSessionFileForTesting,
 } from './sessionStorage.ts'
 
 function asUuid(value: string): UUID {
@@ -855,6 +859,77 @@ test('remote-resume contract: hydrate-equivalent reparented projection walks ear
       localWalked.map(m => m.uuid),
     )
   } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('filterSubagentTranscriptsForExternalEgress strips listings per agent', () => {
+  process.env.USER_TYPE = 'external'
+  const listing = attachment('skill_listing', {
+    content: 'Available skills:\n- /leak-me-please',
+    skillCount: 1,
+    isInitial: true,
+  })
+  const user = {
+    type: 'user',
+    uuid: '00000000-0000-4000-8000-00000000u010',
+    message: { role: 'user', content: 'subagent turn' },
+  } as unknown as Message
+
+  const filtered = filterSubagentTranscriptsForExternalEgress({
+    a1: [listing, user],
+  })
+  expect(filtered.a1).toHaveLength(1)
+  expect(filtered.a1![0]).toMatchObject({ type: 'user' })
+  expect(JSON.stringify(filtered)).not.toContain('leak-me-please')
+})
+
+test('rebuildRemoteEgressOmittedParentsForTesting rebuilds omission ancestry from local JSONL', async () => {
+  process.env.USER_TYPE = 'external'
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-rebuild-'))
+  try {
+    const path = join(dir, 'session.jsonl')
+    const listingUuid = '00000000-0000-4000-8000-00000000e002'
+    const userUuid = '00000000-0000-4000-8000-00000000e001'
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-07T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId: '00000000-0000-4000-8000-00000000e000',
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        message: { role: 'user', content: 'turn' },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: listingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-07T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId: '00000000-0000-4000-8000-00000000e000',
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          content: 'Available skills:\n- /demo',
+          skillCount: 1,
+          isInitial: true,
+        },
+      })}\n`,
+    )
+
+    resetProjectForTesting()
+    setSessionFileForTesting(path)
+    const map = rebuildRemoteEgressOmittedParentsForTesting()
+    expect(map.has(asUuid(listingUuid))).toBe(true)
+    expect(map.get(asUuid(listingUuid))).toBe(asUuid(userUuid))
+  } finally {
+    resetProjectForTesting()
     await rm(dir, { recursive: true, force: true })
   }
 })

@@ -11,6 +11,7 @@ import {
   extractAgentIdsFromMessages,
   filterJsonlForExternalEgress,
   filterMessagesForExternalEgress,
+  filterSubagentTranscriptsForExternalEgress,
   getTranscriptPath,
   loadSubagentTranscripts,
   MAX_TRANSCRIPT_READ_BYTES,
@@ -47,10 +48,8 @@ export async function submitTranscriptShare(
     // Collect subagent transcripts
     const agentIds = extractAgentIdsFromMessages(messages)
     const loadedSubagents = await loadSubagentTranscripts(agentIds)
-    const subagentTranscripts: { [agentId: string]: Message[] } = {}
-    for (const [agentId, msgs] of Object.entries(loadedSubagents)) {
-      subagentTranscripts[agentId] = filterMessagesForExternalEgress(msgs)
-    }
+    const subagentTranscripts =
+      filterSubagentTranscriptsForExternalEgress(loadedSubagents)
 
     // Read raw JSONL transcript (with size guard to prevent OOM)
     let rawTranscriptJsonl: string | undefined

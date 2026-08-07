@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, fstatSync, openSync, readSync } from 'fs'
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -1232,6 +1232,48 @@ class Project {
     )
   }
 
+  /**
+   * After local --resume / --continue, remoteEgressOmittedParents starts empty
+   * (it only accumulates on new writes; resetSessionFile clears it). Rebuild
+   * from the adopted local transcript so the first post-resume remote append
+   * whose parentUuid pointed at a withheld listing can reparent instead of
+   * dangling on CCR / session-ingress.
+   */
+  rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
+    this.remoteEgressOmittedParents.clear()
+    const path = this.sessionFile
+    if (!path) return
+    let content: string
+    try {
+      content = readFileSync(path, 'utf8')
+    } catch {
+      return
+    }
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (!isTranscriptMessage(parsed as Entry)) continue
+      const entry = parsed as TranscriptMessage
+      if (!isSafeForExternalEgress(entry)) {
+        recordExternalEgressOmission(
+          this.remoteEgressOmittedParents,
+          entry.uuid,
+          entry.parentUuid ?? null,
+        )
+      }
+    }
+  }
+
+  /** @internal Testing: expose omission map after rebuild. */
+  _getRemoteEgressOmittedParentsForTesting(): Map<UUID, UUID | null> {
+    return this.remoteEgressOmittedParents
+  }
+
   resetSessionFile(): void {
     this.sessionFile = null
     this.pendingEntries = []
@@ -2222,7 +2264,24 @@ export async function resetSessionFilePointer() {
 export function adoptResumedSessionFile(): void {
   const project = getProject()
   project.sessionFile = getTranscriptPath()
+  // Local resume clears remoteEgressOmittedParents via resetSessionFilePointer.
+  // Rebuild from the adopted JSONL so post-resume remote appends reparent
+  // across withheld listing attachments (privacy boundary stays intact).
+  project.rebuildRemoteEgressOmittedParentsFromLocalTranscript()
   project.reAppendSessionMetadata(true)
+}
+
+/**
+ * @internal Testing helper — rebuild omission ancestry from the current
+ * sessionFile (set via adoptResumedSessionFile or tests).
+ */
+export function rebuildRemoteEgressOmittedParentsForTesting(): Map<
+  UUID,
+  UUID | null
+> {
+  const project = getProject()
+  project.rebuildRemoteEgressOmittedParentsFromLocalTranscript()
+  return new Map(project._getRemoteEgressOmittedParentsForTesting())
 }
 
 /**
@@ -5545,6 +5604,26 @@ export function filterMessagesForExternalEgress<
     }
   }
   return kept
+}
+
+/**
+ * Project every subagent transcript through filterMessagesForExternalEgress.
+ * Shared by Feedback submit and submitTranscriptShare so the egress rule
+ * cannot drift between upload paths.
+ */
+export function filterSubagentTranscriptsForExternalEgress<
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
+>(transcripts: { [agentId: string]: T[] }): { [agentId: string]: T[] } {
+  const filtered: { [agentId: string]: T[] } = {}
+  for (const [agentId, msgs] of Object.entries(transcripts)) {
+    filtered[agentId] = filterMessagesForExternalEgress(msgs)
+  }
+  return filtered
 }
 
 /**

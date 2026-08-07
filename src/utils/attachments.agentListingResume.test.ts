@@ -13,7 +13,10 @@ import {
   resetSentSkillNames,
   suppressNextAgentListing,
 } from './attachments.js'
-import { restoreSkillStateFromMessages } from './conversationRecovery.js'
+import {
+  prepareInReplResumeListingState,
+  restoreSkillStateFromMessages,
+} from './conversationRecovery.js'
 
 const originalAgentListEnv = process.env.CLAUDE_CODE_AGENT_LIST_IN_MESSAGES
 
@@ -233,6 +236,21 @@ test('suppressNextAgentListing uses recovered announced set when messages lack l
   expect(getAgentListingDeltaAttachment(ctx, [])).toEqual([])
 })
 
+test('suppressNextAgentListing emits corrective delta from recovered set when messages lack listing', () => {
+  const recovered = new Map([['Explore', formatAgentLine(agent('Explore'))]])
+  const ctx = toolUseContext([agent('Plan')])
+
+  suppressNextAgentListing(recovered)
+  const delta = getAgentListingDeltaAttachment(ctx, [])
+  expect(delta).toHaveLength(1)
+  expect(delta[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Plan'],
+    removedTypes: ['Explore'],
+    isInitial: false,
+  })
+})
+
 test('restoreSkillStateFromMessages retains recovered set for unhydrated first pass', () => {
   const agents = [agent('Explore'), agent('Plan')]
   const messages = [listingDeltaMessage(agents)]
@@ -264,6 +282,54 @@ test('restoreSkillStateFromMessages ignores partial agent_listing_delta before a
     expect(delta[0].isInitial).toBe(true)
     expect(delta[0].addedTypes).toEqual(['Explore', 'Plan'])
   }
+})
+
+test('restoreSkillStateFromMessages ignores mismatched-length agent_listing_delta', () => {
+  const explore = agent('Explore')
+  const prior = listingDeltaMessage([explore])
+  const mismatched = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000a0misr',
+    attachment: {
+      type: 'agent_listing_delta',
+      addedTypes: ['Explore'],
+      addedLines: [],
+      removedTypes: ['Explore'],
+    },
+  } as unknown as Message
+  const ctx = toolUseContext([explore])
+
+  restoreSkillStateFromMessages([prior, mismatched])
+  // Fail closed: mismatched record must not strip Explore from the recovered map.
+  expect(getAgentListingDeltaAttachment(ctx, [])).toEqual([])
+})
+
+test('prepareInReplResumeListingState clears prior suppress latch before restore', () => {
+  const agents = [agent('Explore')]
+  const ctx = toolUseContext(agents)
+
+  // Simulate prior in-process session latch still armed.
+  suppressNextAgentListing()
+  prepareInReplResumeListingState([])
+
+  const delta = getAgentListingDeltaAttachment(ctx, [])
+  expect(delta).toHaveLength(1)
+  expect(delta[0]).toMatchObject({
+    type: 'agent_listing_delta',
+    addedTypes: ['Explore'],
+    isInitial: true,
+  })
+})
+
+test('prepareInReplResumeListingState restores transcript listing after clear', () => {
+  const agents = [agent('Explore'), agent('Plan')]
+  const messages = [listingDeltaMessage(agents)]
+  const ctx = toolUseContext(agents)
+
+  suppressNextAgentListing()
+  prepareInReplResumeListingState(messages)
+  // Transcript restore re-arms suppress against the hydrated messages.
+  expect(getAgentListingDeltaAttachment(ctx, messages)).toEqual([])
 })
 
 test('getAgentListingDeltaAttachment ignores mismatched addedTypes/addedLines lengths', () => {
