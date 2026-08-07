@@ -42,7 +42,7 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
-  '--yolo',
+  '--yolo', // alias for --dangerously-skip-permissions
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--disable-slash-commands',
@@ -312,6 +312,25 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
+  // --yolo is registered as a native commander alias of
+  // --dangerously-skip-permissions on the commands that support it (see
+  // main.tsx), so commander resolves it and all opts().dangerouslySkipPermissions
+  // reads work unchanged. The handful of paths that read the raw flag straight
+  // from process.argv (skills pre-parse below, the connect/ssh strip blocks and
+  // the safety notice in main.tsx / statusNoticeDefinitions.tsx) each accept the
+  // --yolo spelling too, so no per-token rewrite is needed here.
+  //
+  // main() is the production entrypoint. In the normal flow it is called with
+  // no arguments, so `args` defaults to `process.argv.slice(2)`. It does NOT
+  // mirror a caller-provided `args` array onto `process.argv`, and it does NOT
+  // forward `args` to `cliMain()` — cliMain() itself reads the global
+  // `process.argv`. Keeping programmatic arguments out of the process-global
+  // argv avoids leaking a permission-bypass flag (or any other caller state)
+  // into an overlapping call or the host process. Callers that need to control
+  // argv should set `process.argv` before calling `cliMain()` directly, or call
+  // `main()` with no args from a fresh process. (The `skills` and `--update`
+  // fast-paths below rewrite `process.argv`, but only to re-route to their own
+  // subcommand, not to inject the caller's args.)
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}
