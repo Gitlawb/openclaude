@@ -11,6 +11,7 @@ import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { spawnSync } from 'child_process'
+import { enableNodeCompileCacheIfAvailable } from './node-compile-cache.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
@@ -107,6 +108,7 @@ function relaunchWithLongSessionHeapIfNeeded() {
 
 if (existsSync(distPath)) {
   relaunchWithLongSessionHeapIfNeeded()
+  enableNodeCompileCacheIfAvailable()
   await import(pathToFileURL(distPath).href)
 } else {
   console.error(`

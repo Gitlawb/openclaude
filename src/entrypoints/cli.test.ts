@@ -565,4 +565,99 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
     expect(src).toMatch(/await main\(\)/)
     expect(src).not.toMatch(/^\s*void main\(\)/m)
   })
+
+  describe('--yolo alias', () => {
+    it('is registered on the main command next to the canonical flag', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      expect(src).toContain(
+        ".option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks",
+      )
+    })
+
+    it('is registered on the ssh stub command', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      const sshCmd = src.indexOf("program.command('ssh <host> [dir]')")
+      expect(sshCmd).toBeGreaterThanOrEqual(0)
+      const sshAction = src.indexOf('.action(async () => {', sshCmd)
+      const sshBlock = src.slice(sshCmd, sshAction)
+      expect(sshBlock).toContain(
+        "--yolo, --dangerously-skip-permissions",
+      )
+    })
+
+    it('is recognized by the cc:// and ssh raw-argv scans', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // cc:// sets remote state via includes(); the rewrites and ssh path strip
+      // both spellings from the forwarded argv.
+      expect(src).toContain(
+        "rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo')",
+      )
+      expect(src).toContain("arg !== '--dangerously-skip-permissions' && arg !== '--yolo'")
+      expect(src).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // Passing both flags at once must not leave one behind as an unknown
+      // option on the headless `open` subcommand or in the ssh forwarded line.
+      const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
+      const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
+      const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
+      const ccOccurrences =
+        ccBlock.split("'--dangerously-skip-permissions'").length - 1 +
+        ccBlock.split("'--yolo'").length - 1
+      expect(ccOccurrences).toBeGreaterThanOrEqual(4)
+
+      const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
+      const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
+      const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
+      expect(sshBlock).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('is recognized by the skills leading scan so --yolo skills list routes', async () => {
+      const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+      const setStart = src.indexOf('SKILLS_LEADING_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('is recognized by the skills trailing scan so skills list --yolo routes', async () => {
+      const src = await Bun.file(
+        `${import.meta.dir}/../cli/handlers/skillsCli.ts`,
+      ).text()
+      const setStart = src.indexOf('TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('appears in the built CLI help', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
+      expect(fs.existsSync(cliPath)).toBe(true)
+
+      const originalGuard = process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      try {
+        const proc = Bun.spawn(['node', cliPath, '--help'], { stdout: 'pipe' })
+        const text = await new Response(proc.stdout).text()
+        await proc.exited
+        expect(text).toContain('--yolo, --dangerously-skip-permissions')
+      } finally {
+        if (originalGuard === undefined) {
+          delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+        } else {
+          process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = originalGuard
+        }
+      }
+    })
+  })
 })

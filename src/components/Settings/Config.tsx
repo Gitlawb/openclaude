@@ -11,6 +11,7 @@ import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type Outp
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
 import { normalizeCompactTailTurns } from '../../utils/relevancePruning.js';
+import { normalizeReplMaxTurns, REPL_MAX_TURNS_OPTIONS } from '../../utils/replMaxTurns.js';
 import chalk from 'chalk';
 import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
@@ -333,6 +334,29 @@ export function Config({
       });
       logEvent('tengu_compact_tail_turns_changed', {
         value: compactTailTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
+    id: 'replMaxTurns',
+    label: 'Max turns (interactive)',
+    // Display/persist the saved preference (normalized). Effective runtime cap
+    // may still be overridden by CLI `--max-turns` or OPENCLAUDE_MAX_TURNS.
+    value: String(normalizeReplMaxTurns(globalConfig.replMaxTurns)),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set([...REPL_MAX_TURNS_OPTIONS.map(String), String(normalizeReplMaxTurns(globalConfig.replMaxTurns))])],
+    type: 'enum' as const,
+    onChange(replMaxTurnsValue: string) {
+      const replMaxTurns = normalizeReplMaxTurns(replMaxTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        replMaxTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        replMaxTurns
+      });
+      logEvent('tengu_repl_max_turns_changed', {
+        value: replMaxTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
   }, {
@@ -1271,6 +1295,9 @@ export function Config({
     }
     if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
       formattedChanges.push(`Set compaction recent messages kept to ${normalizeCompactTailTurns(globalConfig.compactTailTurns)}`);
+    }
+    if (globalConfig.replMaxTurns !== initialConfig.current.replMaxTurns) {
+      formattedChanges.push(`Set interactive max turns to ${normalizeReplMaxTurns(globalConfig.replMaxTurns)}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

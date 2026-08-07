@@ -3,18 +3,18 @@ import figures from 'figures';
 import * as React from 'react';
 import { useMemo, useRef } from 'react';
 import { stringWidth } from '../../ink/stringWidth.js';
-import { Box, Text, useAnimationFrame } from '../../ink.js';
+import { Box, Text, useAnimationFrame, useTheme } from '../../ink.js';
 import type { InProcessTeammateTaskState } from '../../tasks/InProcessTeammateTask/types.js';
 import { formatDuration, formatNumber } from '../../utils/format.js';
 import { toInkColor } from '../../utils/ink.js';
-import type { Theme } from '../../utils/theme.js';
+import { getTheme, type Theme } from '../../utils/theme.js';
 import { Byline } from '../design-system/Byline.js';
 import FullWidthRow from '../design-system/FullWidthRow.js';
 import { GlimmerMessage } from './GlimmerMessage.js';
 import { SpinnerGlyph } from './SpinnerGlyph.js';
 import type { SpinnerMode } from './types.js';
 import { useStalledAnimation } from './useStalledAnimation.js';
-import { interpolateColor, toRGBColor } from './utils.js';
+import { interpolateColor, parseRGB, toRGBColor } from './utils.js';
 const SEP_WIDTH = stringWidth(' · ');
 const THINKING_BARE_WIDTH = stringWidth('thinking');
 // Show the elapsed-time counter after a short delay so long tool calls still
@@ -34,8 +34,30 @@ const THINKING_INACTIVE_SHIMMER = {
   g: 185,
   b: 185
 };
+// Ultracode thinking shimmer (blue/cyan) — distinct from the gray thinking
+// shimmer. Endpoints are normally derived from the `ultracode`/`ultracodeShimmer`
+// theme tokens so the spinner, border, and shimmer share one source of truth.
+// These constants are the fallback for ANSI/daltonized themes where the token
+// is a named ANSI color that parseRGB can't interpolate.
+const ULTRACODE_INACTIVE_FALLBACK = {
+  r: 0,
+  g: 155,
+  b: 196
+};
+const ULTRACODE_SHIMMER_FALLBACK = {
+  r: 44,
+  g: 200,
+  b: 237
+};
 const THINKING_DELAY_MS = 3000;
 const THINKING_GLOW_PERIOD_S = 2;
+
+// Exported for tests: renderToString strips ANSI color, so the shimmer color
+// selection (theme-token interpolation vs ANSI-theme fallback) is only
+// observable through this helper.
+export function getThinkingShimmerColor(theme: Pick<Theme, 'ultracode' | 'ultracodeShimmer'>, isUltracodeOverride: boolean, thinkingOpacity: number) {
+  return isUltracodeOverride ? toRGBColor(interpolateColor(parseRGB(theme.ultracode) ?? ULTRACODE_INACTIVE_FALLBACK, parseRGB(theme.ultracodeShimmer) ?? ULTRACODE_SHIMMER_FALLBACK, thinkingOpacity)) : toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
+}
 
 export function getCurrentResponseTokenCount(responseLength: number): number {
   return Math.round(responseLength / 4);
@@ -112,6 +134,8 @@ export function SpinnerAnimationRow({
   effortSuffix
 }: SpinnerAnimationRowProps): React.ReactNode {
   const [viewportRef, time] = useAnimationFrame(reducedMotion ? null : 50);
+  const [themeName] = useTheme();
+  const theme = getTheme(themeName);
 
   // === Elapsed time (wall-clock, derived from refs each frame) ===
   const now = Date.now();
@@ -607,7 +631,8 @@ export function SpinnerAnimationRow({
   // second useAnimationFrame(50) subscription.
   const thinkingElapsedSec = (time - THINKING_DELAY_MS) / 1000;
   const thinkingOpacity = time < THINKING_DELAY_MS ? 0 : (Math.sin(thinkingElapsedSec * Math.PI * 2 / THINKING_GLOW_PERIOD_S) + 1) / 2;
-  const thinkingShimmerColor = toRGBColor(interpolateColor(THINKING_INACTIVE, THINKING_INACTIVE_SHIMMER, thinkingOpacity));
+  const isUltracodeOverride = overrideColor === 'ultracode';
+  const thinkingShimmerColor = getThinkingShimmerColor(theme, isUltracodeOverride, thinkingOpacity);
 
   // === Build status parts ===
   // bareThinkingOnly nests parens on the thinking word (no outer status parens).

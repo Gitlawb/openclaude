@@ -292,10 +292,11 @@ test('keeps an explicit effort selection over ultrathink', async () => {
   expect(requestEffort).toBe('low')
 })
 
-test('scopes model-request lifecycle callbacks to callModel', async () => {
+test('scopes model-request lifecycle callbacks to provider dispatch', async () => {
   const events: string[] = []
   const params = baseParams(
-    async function* () {
+    async function* ({ options }) {
+      if (options.onProviderRequestStart?.() === false) return
       yield createAssistantMessage({ content: 'done' })
     },
     async () => ({ wasCompacted: false }),
@@ -305,6 +306,29 @@ test('scopes model-request lifecycle callbacks to callModel', async () => {
 
   await collect(params)
 
+  expect(events).toEqual(['start', 'end'])
+})
+
+test('closes the model-request lifecycle when its start callback aborts', async () => {
+  const events: string[] = []
+  let providerDispatched = false
+  const params = baseParams(
+    async function* ({ options }) {
+      if (options.onProviderRequestStart?.() === false) return
+      providerDispatched = true
+      yield createAssistantMessage({ content: 'must not dispatch' })
+    },
+    async () => ({ wasCompacted: false }),
+  )
+  params.onModelRequestStart = () => {
+    events.push('start')
+    params.toolUseContext.abortController.abort('background')
+  }
+  params.onModelRequestEnd = () => events.push('end')
+
+  await collect(params)
+
+  expect(providerDispatched).toBe(false)
   expect(events).toEqual(['start', 'end'])
 })
 
