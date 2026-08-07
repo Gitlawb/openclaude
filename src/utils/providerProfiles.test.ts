@@ -1341,6 +1341,44 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).not.toBe('xai')
   })
 
+  test('does not mirror MINIMAX_API_KEY for a lookalike host containing "minimax"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // A bare includes('minimax') matched any URL carrying that word — a proxy
+    // host or a lookalike like `api.minimax.io.evil.com` — and mirrored the key
+    // into MINIMAX_API_KEY, which providerAutoDetect then redirects to the real
+    // api.minimax.io. Match by hostname (isMiniMaxBaseUrl), not substring.
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://minimax-proxy.example.com/v1',
+        model: 'some-model',
+        apiKey: 'not-a-minimax-key',
+      }),
+    )
+
+    expect(process.env.MINIMAX_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-a-minimax-key')
+  })
+
+  test('does not mirror VENICE_API_KEY for a lookalike host containing "api.venice.ai"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.venice.ai.evil.com/v1',
+        model: 'some-model',
+        apiKey: 'not-a-venice-key',
+      }),
+    )
+
+    expect(process.env.VENICE_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-a-venice-key')
+  })
+
   test('openai-compatible profile applies maxContextLength env override', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
