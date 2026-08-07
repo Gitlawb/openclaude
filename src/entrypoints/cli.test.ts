@@ -668,10 +668,10 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
     expect(process.argv).toEqual(hostArgv)
   })
 
-  it('the built CLI lists --yolo on the main command help (live registration)', async () => {
-    // Behavioral proof the alias is registered on the real main command — not
-    // dead code or the wrong command: commander only prints an option in --help
-    // if it is actually registered. --help short-circuits before any startup.
+  it('the built CLI lists --yolo on the main, ssh, and open command help (live registration)', async () => {
+    // Behavioral proof the alias is registered on the real commands — not dead
+    // code or the wrong command: commander only prints an option in --help if it
+    // is actually registered. --help short-circuits before any startup.
     const fs = await import('node:fs')
     const path = await import('node:path')
     const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
@@ -684,14 +684,18 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
       OPENCLAUDE_DISABLE_TELEMETRY: '1',
     }
     delete childEnv.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
-    const out = Bun.spawnSync(['node', cliPath, '--yolo', '--help'], {
-      env: childEnv,
-    })
-    const text = `${out.stdout.toString()}${out.stderr.toString()}`
-    expect(out.exitCode).toBe(0)
-    expect(text).not.toContain('unknown option')
-    expect(text).toContain('--yolo, --dangerously-skip-permissions')
-  })
+    for (const argv of [
+      ['--yolo', '--help'],
+      ['ssh', '--yolo', '--help'],
+      ['open', '--yolo', '--help'],
+    ]) {
+      const out = Bun.spawnSync(['node', cliPath, ...argv], { env: childEnv })
+      const text = `${out.stdout.toString()}${out.stderr.toString()}`
+      expect(out.exitCode).toBe(0)
+      expect(text).not.toContain('unknown option')
+      expect(text).toContain('--yolo, --dangerously-skip-permissions')
+    }
+  }, { timeout: 20000 })
 
   it('registers --yolo via .option() on the main command, ssh, and open subcommands', async () => {
     const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()

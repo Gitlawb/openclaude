@@ -320,15 +320,17 @@ export async function main(
   // the safety notice in main.tsx / statusNoticeDefinitions.tsx) each accept the
   // --yolo spelling too, so no per-token rewrite is needed here.
   //
-  // main() does NOT mirror the caller's `args` array onto process.argv for the
-  // general cliMain flow: cliMain() parses the global process.argv, and the sole
-  // production entry (the auto-run at the tail of this file) calls main() with no
-  // args, so `args` already equals process.argv.slice(2). Keeping a caller's args
-  // out of the process-global argv avoids leaking a programmatic invocation's
-  // arguments (including a permission-bypass flag) into an overlapping call or
-  // the host process. (The `skills` and `--update` fast-paths below do rewrite
-  // process.argv, but only to re-route to their own subcommand, not to inject the
-  // caller's args.)
+  // main() is the production entrypoint. In the normal flow it is called with
+  // no arguments, so `args` defaults to `process.argv.slice(2)`. It does NOT
+  // mirror a caller-provided `args` array onto `process.argv`, and it does NOT
+  // forward `args` to `cliMain()` — cliMain() itself reads the global
+  // `process.argv`. Keeping programmatic arguments out of the process-global
+  // argv avoids leaking a permission-bypass flag (or any other caller state)
+  // into an overlapping call or the host process. Callers that need to control
+  // argv should set `process.argv` before calling `cliMain()` directly, or call
+  // `main()` with no args from a fresh process. (The `skills` and `--update`
+  // fast-paths below rewrite `process.argv`, but only to re-route to their own
+  // subcommand, not to inject the caller's args.)
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}

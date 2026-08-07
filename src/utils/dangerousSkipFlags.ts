@@ -1,11 +1,18 @@
 /**
  * `--yolo` is registered as a native commander alias of
- * `--dangerously-skip-permissions`, so the pre-commander argv scanners in
- * main.tsx (the direct-connect `cc://` and `ssh` rewrites) and the bypass
- * safety notice must recognize either spelling. Both rewrites strip every
- * dangerous-skip token before handing the argv to the main command, so a
- * shared, tested helper is used rather than ad-hoc single-token removal
- * (which previously let a second token survive and silently re-enable bypass).
+ * `--dangerously-skip-permissions`, so the pre-commander argv scanners and the
+ * bypass safety notice must recognize either spelling.
+ *
+ * The SSH pre-parser strips every dangerous-skip token before forwarding the
+ * remaining argv, using the shared helpers below instead of ad-hoc single-token
+ * removal (which previously let a second token survive and silently re-enable
+ * bypass).
+ *
+ * The direct-connect `cc://` rewrite deliberately does NOT strip the flag: it
+ * removes only the `cc://` URL and leaves `--yolo` / `--dangerously-skip-permissions`
+ * for commander to parse on the main command (interactive) or the internal `open`
+ * subcommand (headless), so commander remains the single authority for option
+ * arity and the `--` end-of-options marker.
  *
  * These scanners run BEFORE commander and detect the flag by presence alone.
  * That is deliberately an approximation — fully matching commander (which can
