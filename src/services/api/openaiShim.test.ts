@@ -17,6 +17,8 @@ import {
 import {
   createOpenAIShimClient,
   hasMistralApiHost,
+  parseTextToolCalls,
+  parseXmlToolCalls,
 } from './openaiShim.ts'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
@@ -3761,6 +3763,19 @@ test('the OpenAI shim façade creates independent client instances', () => {
   expect(first.beta.messages).not.toBe(second.beta.messages)
 })
 // openaiShim test extraction seam 112 end
+
+test('facade parseTextToolCalls and parseXmlToolCalls share adapter sequencing', () => {
+  const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
+  const xml = parseXmlToolCalls(
+    '<tool_call>{"name":"from_xml","arguments":{}}</tool_call>',
+  )
+
+  expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
+  expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
+  const textSequence = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
+  const xmlSequence = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
+  expect(xmlSequence).toBe(textSequence + 1)
+})
 
 // ---------------------------------------------------------------------------
 // openaiShim test extraction seam 113 start: non-streaming: reasoning_content emitted as thinking block only when content is null
