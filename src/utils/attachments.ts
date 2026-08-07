@@ -130,7 +130,10 @@ import {
   isFileWithinReadSizeLimit,
 } from './file.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
-import { filterAgentsByMcpRequirements } from '../tools/AgentTool/loadAgentsDir.js'
+import {
+  filterAgentsByMcpRequirements,
+  hasRequiredMcpServers,
+} from '../tools/AgentTool/loadAgentsDir.js'
 import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
 import {
   formatAgentLine,
@@ -1718,9 +1721,21 @@ export function getAgentListingDeltaAttachment(
     const prev = announced.get(a.agentType)
     return prev === undefined || prev !== formatAgentLine(a)
   })
+  // Resume race: MCP tools often join the pool after the first attachment
+  // pass. Agents gated on requiredMcpServers look "removed" while
+  // mcpServers is still empty, then reappear once MCP connects — another
+  // mid-history listing rewrite. Hold those removals until at least one
+  // MCP tool name is present in the pool (or the agent does not require MCP).
   const removed: string[] = []
   for (const t of announced.keys()) {
-    if (!currentTypes.has(t)) removed.push(t)
+    if (currentTypes.has(t)) continue
+    if (mcpServers.size === 0) {
+      const def = activeAgents.find(a => a.agentType === t)
+      if (def && !hasRequiredMcpServers(def, [])) {
+        continue
+      }
+    }
+    removed.push(t)
   }
 
   if (added.length === 0 && removed.length === 0) return []

@@ -265,3 +265,76 @@ test('restoreSkillStateFromMessages ignores partial agent_listing_delta before a
     expect(delta[0].addedTypes).toEqual(['Explore', 'Plan'])
   }
 })
+
+test('holds MCP-gated agent removals while MCP tool pool is still empty', () => {
+  // Resume race: transcript announced McpAgent, but tools have no MCP names yet.
+  const mcpAgent: AgentDefinition = {
+    ...agent('McpAgent'),
+    requiredMcpServers: ['docs'],
+  }
+  const messages = [listingDeltaMessage([mcpAgent])]
+  const ctx = toolUseContext([mcpAgent])
+
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toEqual([])
+})
+
+test('emits MCP-gated agent removal once MCP tools are in the pool', () => {
+  const mcpAgent: AgentDefinition = {
+    ...agent('McpAgent'),
+    requiredMcpServers: ['docs'],
+  }
+  const messages = [listingDeltaMessage([mcpAgent])]
+  // MCP tool present → pool settled; agent still fails requirements → remove.
+  const ctx = {
+    options: {
+      tools: [{ name: AGENT_TOOL_NAME }, { name: 'mcp__other__tool' }],
+      agentDefinitions: {
+        activeAgents: [mcpAgent],
+        allAgents: [mcpAgent],
+      },
+    },
+    getAppState: () => ({
+      toolPermissionContext: {
+        mode: 'default',
+        additionalWorkingDirectories: new Map(),
+        alwaysAllowRules: {},
+        alwaysDenyRules: {},
+        alwaysAskRules: {},
+        isBypassPermissionsModeAvailable: false,
+      },
+    }),
+  } as unknown as ToolUseContext
+
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toHaveLength(1)
+  if (delta[0]?.type === 'agent_listing_delta') {
+    expect(delta[0].removedTypes).toEqual(['McpAgent'])
+    expect(delta[0].addedTypes).toEqual([])
+  }
+})
+
+test('in-REPL resume contract: restoreSkillStateFromMessages after deserialize arms suppress', () => {
+  // screens/REPL.tsx resume() must call restoreSkillStateFromMessages(messages)
+  // after deserializeMessages — same helper as loadConversationForResume.
+  // Without it, skill_listing / agent_listing_delta in local JSONL do not arm
+  // the one-shot suppress latches on the in-REPL session picker path.
+  const agents = [agent('Explore'), agent('Plan')]
+  const messages = [
+    {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000sk01',
+      attachment: {
+        type: 'skill_listing',
+        content: 'Available skills:\n- /demo',
+        skillCount: 1,
+        isInitial: true,
+      },
+    } as unknown as Message,
+    listingDeltaMessage(agents),
+  ]
+  const ctx = toolUseContext(agents)
+
+  restoreSkillStateFromMessages(messages)
+  expect(getAgentListingDeltaAttachment(ctx, messages)).toEqual([])
+})

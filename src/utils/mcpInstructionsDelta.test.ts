@@ -67,13 +67,41 @@ test('getMcpInstructionsDelta re-announces when same-name instructions change af
   expect(delta!.removedNames).toEqual([])
 })
 
-test('getMcpInstructionsDelta removes disconnected servers by name', () => {
+test('getMcpInstructionsDelta does not remove when mcpClients empty (not settled yet)', () => {
+  // Resume race: announced from local JSONL, MCP not wired into context yet.
+  // Empty clients = "not connected yet", not "disconnected".
   const messages = [
     deltaMessage(['docs'], ['## docs\nUse the search tool.']),
   ]
   const delta = getMcpInstructionsDelta([], messages, [])
+  expect(delta).toBeNull()
+})
+
+test('getMcpInstructionsDelta does not remove while every client is still pending', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nUse the search tool.']),
+  ]
+  const pending: MCPServerConnection = {
+    type: 'pending',
+    name: 'docs',
+    config: {} as never,
+  }
+  const delta = getMcpInstructionsDelta([pending], messages, [])
+  expect(delta).toBeNull()
+})
+
+test('getMcpInstructionsDelta removes disconnected servers once client set is settled', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nUse the search tool.']),
+  ]
+  // Another server is connected → client set is settled; docs is gone.
+  const delta = getMcpInstructionsDelta(
+    [connected('other', 'Still here.')],
+    messages,
+    [],
+  )
   expect(delta).not.toBeNull()
-  expect(delta!.addedNames).toEqual([])
+  expect(delta!.addedNames).toEqual(['other'])
   expect(delta!.removedNames).toEqual(['docs'])
 })
 

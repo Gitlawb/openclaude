@@ -156,9 +156,23 @@ export function getMcpInstructionsDelta(
   // client-side block) → removed. Content-changed servers stay connected;
   // they are re-added above with the new block (history keeps the old
   // attachment; the new delta is the corrective update the model should follow).
+  //
+  // Resume race: interactive --resume / --continue does not block on MCP
+  // connect, so the first attachment pass often sees mcpClients=[] while
+  // announced is non-empty (local JSONL now persists mcp_instructions_delta).
+  // Empty / all-pending clients means "not connected yet", not "disconnected"
+  // — hold name-based removals until at least one client leaves pending.
+  const clientSetSettledForRemovals =
+    mcpClients.length > 0 &&
+    mcpClients.some(c => c.type !== 'pending')
   const removed: string[] = []
   for (const n of announced.keys()) {
-    if (!connectedNames.has(n) || !blocks.has(n)) removed.push(n)
+    if (connectedNames.has(n)) {
+      if (!blocks.has(n)) removed.push(n)
+      continue
+    }
+    if (!clientSetSettledForRemovals) continue
+    removed.push(n)
   }
 
   if (added.length === 0 && removed.length === 0) return null

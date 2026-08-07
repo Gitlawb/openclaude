@@ -701,12 +701,32 @@ export function getDeferredToolsDelta(
   const attachmentTypesSeen = new Set<string>()
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing —
+    // mirror getAnnouncedMcpInstructionBlocks / getAgentListingDeltaAttachment.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     attachmentCount++
-    attachmentTypesSeen.add(msg.attachment.type)
-    if (msg.attachment.type !== 'deferred_tools_delta') continue
+    const attachmentType =
+      typeof (msg.attachment as { type?: unknown }).type === 'string'
+        ? (msg.attachment as { type: string }).type
+        : 'unknown'
+    attachmentTypesSeen.add(attachmentType)
+    if (attachmentType !== 'deferred_tools_delta') continue
+    const { addedNames, removedNames } = msg.attachment as {
+      addedNames?: unknown
+      removedNames?: unknown
+    }
+    // Require the full recognized schema before processing. Partial legacy
+    // entries must be skipped — not partially applied.
+    if (!Array.isArray(addedNames) || !Array.isArray(removedNames)) continue
     dtdCount++
-    for (const n of msg.attachment.addedNames) announced.add(n)
-    for (const n of msg.attachment.removedNames) announced.delete(n)
+    for (const n of addedNames) {
+      if (typeof n === 'string') announced.add(n)
+    }
+    for (const n of removedNames) {
+      if (typeof n === 'string') announced.delete(n)
+    }
   }
 
   const deferred: Tool[] = tools.filter(isDeferredTool)
