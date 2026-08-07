@@ -57,7 +57,9 @@ import {
   isCanonicalApismartInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
+  isMiniMaxBaseUrl,
   isNearaiBaseUrl,
+  isVeniceBaseUrl,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
   resolveEnvOnlyProviderRouteId,
@@ -797,7 +799,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.AIMLAPI_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('api.venice.ai')
+    (isVeniceBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.VENICE_API_KEY, profile.apiKey)
       : true) &&
@@ -1003,7 +1005,7 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'apismart' && !isApismartProfile(profile)
     if (profile.apiKey && !withholdRetargetedApismartCredential) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
-      if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
+      if (route.vendorId === 'minimax' || isMiniMaxBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
       if (
@@ -1022,7 +1024,7 @@ export function applyProviderProfileToProcessEnv(
       if (isAimlapiProfile) {
         openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'venice' || normalizedProfileBaseUrl.toLowerCase().includes('api.venice.ai')) {
+      if (route.routeId === 'venice' || isVeniceBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
       if (
@@ -1479,7 +1481,7 @@ function buildOpenAICompatibleStartupEnv(
     if (isAimlapiProfile) {
       env.AIMLAPI_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
+    if (isVeniceBaseUrl(activeProfile.baseUrl)) {
       env.VENICE_API_KEY = activeProfile.apiKey
     }
     if (
