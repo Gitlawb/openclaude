@@ -299,12 +299,11 @@ const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   isActive: ctx => ctx.permissionMode === 'bypassPermissions',
   render: () => <WarningNoticeRow>
       <Text color="warning">
-        <Text bold>--dangerously-skip-permissions</Text> (alias{' '}
-        <Text bold>--yolo</Text>) is active.
+        <Text bold>bypassPermissions</Text> mode is active.
       </Text>
       <Text dimColor>
         Every tool consent check is bypassed. Only use inside a sandbox with no internet access.
-        Restart without the flag to re-enable prompts.
+        Restart without the bypass flag/mode to re-enable prompts.
       </Text>
     </WarningNoticeRow>
 };

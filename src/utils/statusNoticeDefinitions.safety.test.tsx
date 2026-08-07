@@ -149,14 +149,16 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     )
   })
 
-  test('rendered notice names the --yolo alias so the message is not misleading', async () => {
+  test('rendered notice names the mode, not a specific flag, so settings-driven bypass is not mislabeled', async () => {
     const notice = await renderNoticePlainText(
       'dangerously-skip-permissions-no-sandbox',
       buildContext({ permissionMode: 'bypassPermissions' }),
     )
-    // Fires for either spelling, so its text must name both.
-    expect(notice).toContain('--yolo')
-    expect(notice).toContain('--dangerously-skip-permissions')
+    // The notice fires whenever permissionMode is bypassPermissions, which can
+    // come from the CLI flags or from a settings defaultMode.
+    expect(notice).toContain('bypassPermissions')
+    expect(notice).not.toContain('--dangerously-skip-permissions')
+    expect(notice).not.toContain('--yolo')
   })
 
   test('does not fire in default mode without the flag', () => {
@@ -187,10 +189,10 @@ describe('safety notice rendering', () => {
       `${figures.warning}bypassPermissions`,
     )
     expect(dangerouslySkipNotice).toContain(
-      `${figures.warning} --dangerously-skip-permissions`,
+      `${figures.warning} bypassPermissions`,
     )
     expect(dangerouslySkipNotice).not.toContain(
-      `${figures.warning}--dangerously-skip-permissions`,
+      `${figures.warning}bypassPermissions`,
     )
     expect(
       thirdPartyNotice

@@ -1,4 +1,4 @@
-import { hasDangerousSkipFlag, isDangerousSkipFlag, stripDangerousSkipFlags } from './dangerousSkipFlags.js'
+import { hasDangerousSkipFlag, stripDangerousSkipFlags } from './dangerousSkipFlags.js'
 
 /**
  * Result of pre-parsing the flags of a `claude ssh …` invocation, before the
@@ -18,12 +18,11 @@ export interface SshFlagParse {
 /**
  * Pull SSH-relevant flags out of `rawCliArgs` (which starts with `ssh`).
  *
- * Value-taking flags are extracted BEFORE dangerous-skip (`--yolo` /
- * `--dangerously-skip-permissions`) tokens are stripped, and they consume a
- * dangerous-skip token that sits in their value position. Otherwise
- * `ssh host --permission-mode --yolo` would strip `--yolo` as a bypass flag —
- * escalating to permission bypass while leaving `--permission-mode` valueless —
- * whereas commander parses `--yolo` as the (invalid) mode value and rejects it.
+ * Value-taking flags are extracted before dangerous-skip tokens are stripped,
+ * and they consume the next token unconditionally — matching commander's
+ * required-argument behavior. This prevents a value that looks like a flag
+ * (e.g. `--model --print` or `--permission-mode --local`) from being left in
+ * the remaining argv and misinterpreted by later guards.
  */
 export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
   // Honor the `--` end-of-options marker: tokens at/after it are positional and
@@ -49,7 +48,7 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
 
   const pmIdx = args.indexOf('--permission-mode')
   const pmVal = pmIdx !== -1 ? args[pmIdx + 1] : undefined
-  if (pmVal !== undefined && (!pmVal.startsWith('-') || isDangerousSkipFlag(pmVal))) {
+  if (pmVal !== undefined) {
     permissionMode = pmVal
     args.splice(pmIdx, 2)
   }
@@ -64,9 +63,9 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     if (i !== -1) {
       extraCliArgs.push(opts.as ?? flag)
       const val = args[i + 1]
-      // Consume a dangerous-skip token in the value slot (see the doc comment)
-      // so it is not later mistaken for a bypass flag.
-      if (opts.hasValue && val !== undefined && (!val.startsWith('-') || isDangerousSkipFlag(val))) {
+      // Consume the next token unconditionally for value-taking flags, matching
+      // commander's required-argument behavior.
+      if (opts.hasValue && val !== undefined) {
         extraCliArgs.push(val)
         args.splice(i, 2)
       } else {
