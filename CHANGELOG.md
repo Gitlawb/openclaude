@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.28.0](https://github.com/Gitlawb/openclaude/compare/v0.27.0...v0.28.0) (2026-08-07)
+
+
+### Features
+
+* **cli:** add --yolo alias for --dangerously-skip-permissions ([#2097](https://github.com/Gitlawb/openclaude/issues/2097)) ([95eeb0b](https://github.com/Gitlawb/openclaude/commit/95eeb0bde38c4ba0e274877ee905c566ffe4e9cd))
+
+
+### Bug Fixes
+
+* **cost:** guard model-cost lookup against prototype-member model ids ([#2064](https://github.com/Gitlawb/openclaude/issues/2064)) ([c327805](https://github.com/Gitlawb/openclaude/commit/c327805e1d00b5e689b7d0265c4b51a5d2370373))
+* **input:** preserve text in DEL-coalesced chunks ([#2091](https://github.com/Gitlawb/openclaude/issues/2091)) ([1bf8076](https://github.com/Gitlawb/openclaude/commit/1bf8076d48252e3c41bf5ed584d69016954f2cf0))
+* **mcp:** serialize OAuth and XAA refresh across processes ([#2093](https://github.com/Gitlawb/openclaude/issues/2093)) ([6465a51](https://github.com/Gitlawb/openclaude/commit/6465a516f2ae566305d4298e7fba208a02134f5f))
+* **model-picker:** eliminate O(n²) catalog rebuild lag in /model ([#2078](https://github.com/Gitlawb/openclaude/issues/2078)) ([248424f](https://github.com/Gitlawb/openclaude/commit/248424ffe3d8da981ebbfd31c347eb197f88d262))
+* **repl:** make local interactive max-turns configurable ([#2086](https://github.com/Gitlawb/openclaude/issues/2086)) ([b0cbfe1](https://github.com/Gitlawb/openclaude/commit/b0cbfe11000eef4d85b96fc3173afbb8b0930c81))
+* **repomap:** resolve file language by real extension, own-property only ([#2100](https://github.com/Gitlawb/openclaude/issues/2100)) ([41d2f3b](https://github.com/Gitlawb/openclaude/commit/41d2f3b831c7c6b426c21fd466526d784ba547ff))
+* **session:** make transcript replacements crash-safe ([#2094](https://github.com/Gitlawb/openclaude/issues/2094)) ([d834904](https://github.com/Gitlawb/openclaude/commit/d834904e5a3fc295484e78bcf564ca01adf3b1b8))
+* **web:** add v0.27.0 changelog entry and clarify release-data ownership ([#2075](https://github.com/Gitlawb/openclaude/issues/2075)) ([63fda83](https://github.com/Gitlawb/openclaude/commit/63fda83d5578ddcc251eefa0c6800a85913895b5))
+
+
+### Performance Improvements
+
+* **cli:** enable Node module compile cache ([#2092](https://github.com/Gitlawb/openclaude/issues/2092)) ([d427a4b](https://github.com/Gitlawb/openclaude/commit/d427a4b2bb7b84564c5d2232de13942bc75fe9d2))
+
 ## [0.27.0](https://github.com/Gitlawb/openclaude/compare/v0.26.0...v0.27.0) (2026-07-30)
 
 
