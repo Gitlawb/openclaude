@@ -2425,7 +2425,7 @@ test('/model refresh passes first pooled OpenAI credential to descriptor discove
   expect(discoverModelsForRoute).toHaveBeenCalledWith('openrouter', {
     apiKey: 'key-a',
     baseUrl: 'https://openrouter.ai/api/v1',
-    headers: undefined,
+    headers: {},
     forceRefresh: true,
   })
 })
@@ -3294,7 +3294,62 @@ test('cross-profile /model does NOT switch a literal prefixed model id lacking t
     expect(doneMessage).toContain(
       encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
     )
-  } finally {
-    instance.unmount()
-  }
-})
+	  } finally {
+	    instance.unmount()
+	  }
+	})
+
+	test('/model remote custom route uses descriptor discovery', async () => {
+	  // Remote custom endpoint — not a local URL so no openai: cache scope.
+	  // The route resolves to 'custom' and must use descriptor discovery
+	  // since there is a real custom gateway with an OpenAI-compatible catalog.
+	  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+	  process.env.OPENAI_BASE_URL = 'https://api.custom-remote.example.com/v1'
+	  process.env.OPENAI_MODEL = 'remote-model'
+	  delete process.env.OPENAI_API_KEY
+	  delete process.env.OPENROUTER_API_KEY
+	  delete process.env.CLAUDE_CODE_USE_GEMINI
+	  delete process.env.CLAUDE_CODE_USE_GITHUB
+	  delete process.env.CLAUDE_CODE_USE_MISTRAL
+	  delete process.env.CLAUDE_CODE_USE_BEDROCK
+	  delete process.env.CLAUDE_CODE_USE_VERTEX
+	  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+		delete process.env.OPENAI_API_BASE
+
+		// Mock descriptor discovery for the custom route
+		mockDescriptorDiscovery({
+			cachedModels: [
+				{ id: 'remote-model', apiName: 'remote-model', label: 'Remote Model' },
+				{ id: 'model-b', apiName: 'model-b', label: 'Model B' },
+			],
+			discoveredModels: [
+				{ id: 'remote-model', apiName: 'remote-model', label: 'Remote Model' },
+			],
+			routeId: 'custom',
+		})
+
+		mockProviderProfiles({
+			getActiveOpenAIModelOptionsCache: () => [],
+			getActiveProviderProfile: () => undefined,
+			getProfileModelOptions: () => [],
+			setActiveOpenAIModelOptionsCache: () => {},
+		})
+
+		const rendered = await renderModelCommandWithCapturedPicker(
+			'remote-custom-descriptor',
+		)
+		try {
+			const props = rendered.getCapturedProps()
+			// Remote custom route: uses descriptor discovery path
+			expect(props).toBeDefined()
+			// Should show discovered models
+			expect(props.optionsOverride).toContainEqual(
+				expect.objectContaining({
+					value: 'remote-model',
+				}),
+			)
+		} finally {
+			rendered.instance.unmount()
+			rendered.stdout.end()
+		}
+	})
