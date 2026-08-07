@@ -8,7 +8,10 @@ import {
   getAllowedSettingSources,
   setAllowedSettingSources,
 } from '../../bootstrap/state.js'
-import { SETTING_SOURCES } from '../../utils/settings/constants.js'
+import {
+  SETTING_SOURCES,
+  type SettingSource,
+} from '../../utils/settings/constants.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -294,7 +297,19 @@ test('refuses user add/remove when the user scope is fatally poisoned', async ()
   )
 })
 
-test('refuses local add/remove when the local scope is fatally poisoned', async () => {
+// Re-establish the poisoned local-scope fixture synchronously, immediately
+// before the mutation under test. addMcpConfig/removeMcpConfig reach their scope
+// write guard with no awaited work in between, so the guard's read of NODE_ENV,
+// the enabled setting sources, and the process-wide test project config all run
+// in the same tick as this call. Pinning all three here -- with no await
+// separating it from the mutation -- keeps the read atomic even if another
+// suite's stray async task clobbered NODE_ENV or testProjectConfigForTesting
+// during an await gap earlier in this test. sharedMutationLock only serializes
+// other lock holders, not every writer of the shared test config, so this is
+// the isolation that makes the regression stable under the full parallel suite.
+function pinPoisonedLocalScope(sources: SettingSource[]): void {
+  process.env.NODE_ENV = 'test'
+  setAllowedSettingSources(sources)
   saveCurrentProjectConfig(config => ({
     ...config,
     mcpServers: JSON.parse(
@@ -302,9 +317,14 @@ test('refuses local add/remove when the local scope is fatally poisoned', async 
         '"reallocal":{"command":"echo","args":[]}}',
     ),
   }))
+}
+
+test('refuses local add/remove when the local scope is fatally poisoned', async () => {
+  pinPoisonedLocalScope([...SETTING_SOURCES])
   await expect(
     addMcpConfig('newsrv', { command: 'echo', args: [] }, 'local'),
   ).rejects.toThrow('Cannot modify local config')
+  pinPoisonedLocalScope([...SETTING_SOURCES])
   await expect(removeMcpConfig('reallocal', 'local')).rejects.toThrow(
     'Cannot modify local config',
   )
@@ -315,19 +335,14 @@ test('still refuses a poisoned scope whose setting source is disabled', async ()
   // getMcpConfigsByScope() reports no errors for a disabled source, but
   // add/remove still write the raw map, so a fatally poisoned scope has to be
   // refused even when the user narrowed --setting-sources to exclude it.
-  saveCurrentProjectConfig(config => ({
-    ...config,
-    mcpServers: JSON.parse(
-      '{"__proto__":{"command":"echo","args":[]},' +
-        '"reallocal":{"command":"echo","args":[]}}',
-    ),
-  }))
-  setAllowedSettingSources(
-    SETTING_SOURCES.filter(source => source !== 'localSettings'),
+  const withoutLocal = SETTING_SOURCES.filter(
+    source => source !== 'localSettings',
   )
+  pinPoisonedLocalScope(withoutLocal)
   await expect(
     addMcpConfig('newsrv', { command: 'echo', args: [] }, 'local'),
   ).rejects.toThrow('Cannot modify local config')
+  pinPoisonedLocalScope(withoutLocal)
   await expect(removeMcpConfig('reallocal', 'local')).rejects.toThrow(
     'Cannot modify local config',
   )
