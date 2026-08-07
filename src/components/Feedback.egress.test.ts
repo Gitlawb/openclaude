@@ -2,11 +2,11 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Message } from '../../types/message.js'
+import type { Message } from '../types/message.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
-} from '../../test/sharedMutationLock.js'
+} from '../test/sharedMutationLock.js'
 
 type AxiosModule = typeof import('axios')
 
@@ -24,6 +24,7 @@ function buildAxiosModuleStub(
     get: async () => ({ status: 200 }),
     post,
     isAxiosError: () => false,
+    isCancel: () => false,
     defaults: {} as Record<string, unknown>,
     interceptors: {
       request: { use: () => 0, eject: () => {} },
@@ -34,31 +35,30 @@ function buildAxiosModuleStub(
 }
 
 beforeAll(async () => {
-  await acquireSharedMutationLock('submitTranscriptShare.egress')
+  await acquireSharedMutationLock('Feedback.egress')
   originalAxiosModule = await import('axios')
   originalUserType = process.env.USER_TYPE
   hadMacro = Object.prototype.hasOwnProperty.call(globalThis, 'MACRO')
   originalMacro = (globalThis as { MACRO?: unknown }).MACRO
-
-  // MACRO is build-time; stub for the under-test import path.
   ;(globalThis as { MACRO?: { VERSION: string } }).MACRO = {
     VERSION: 'test-version',
   }
 
-  const realProviders = await import('../../utils/model/providers.js')
-  mock.module('../../utils/model/providers.js', () => ({
+  const realProviders = await import('../utils/model/providers.js')
+  mock.module('../utils/model/providers.js', () => ({
     ...realProviders,
-    isFirstPartyAnthropicProvider: () => true,
+    getAPIProvider: () => 'firstParty',
+    isFirstPartyAnthropicBaseUrl: () => true,
   }))
 
-  const realAuth = await import('../../utils/auth.js')
-  mock.module('../../utils/auth.js', () => ({
+  const realAuth = await import('../utils/auth.js')
+  mock.module('../utils/auth.js', () => ({
     ...realAuth,
     checkAndRefreshOAuthTokenIfNeeded: async () => {},
   }))
 
-  const realHttp = await import('../../utils/http.js')
-  mock.module('../../utils/http.js', () => ({
+  const realHttp = await import('../utils/http.js')
+  mock.module('../utils/http.js', () => ({
     ...realHttp,
     getAuthHeaders: () => ({
       headers: { Authorization: 'Bearer test' },
@@ -67,20 +67,26 @@ beforeAll(async () => {
     getUserAgent: () => 'test-agent',
   }))
 
-  tempDir = await mkdtemp(join(tmpdir(), 'openclaude-transcript-share-'))
+  const realPrivacy = await import('../utils/privacyLevel.js')
+  mock.module('../utils/privacyLevel.js', () => ({
+    ...realPrivacy,
+    isEssentialTrafficOnly: () => false,
+  }))
+
+  tempDir = await mkdtemp(join(tmpdir(), 'openclaude-feedback-egress-'))
   const transcriptPath = join(tempDir, 'session.jsonl')
   await writeFile(
     transcriptPath,
     `${JSON.stringify({
       type: 'user',
-      uuid: '00000000-0000-4000-8000-00000000s001',
+      uuid: '00000000-0000-4000-8000-00000000f001',
       parentUuid: null,
       timestamp: '2026-08-07T00:00:00.000Z',
-      message: { role: 'user', content: 'share me' },
+      message: { role: 'user', content: 'feedback main turn' },
     })}\n${JSON.stringify({
       type: 'attachment',
-      uuid: '00000000-0000-4000-8000-00000000s002',
-      parentUuid: '00000000-0000-4000-8000-00000000s001',
+      uuid: '00000000-0000-4000-8000-00000000f002',
+      parentUuid: '00000000-0000-4000-8000-00000000f001',
       timestamp: '2026-08-07T00:00:00.000Z',
       attachment: {
         type: 'skill_listing',
@@ -91,15 +97,15 @@ beforeAll(async () => {
     })}\n`,
   )
 
-  const realSession = await import('../../utils/sessionStorage.js')
-  mock.module('../../utils/sessionStorage.js', () => ({
+  const realSession = await import('../utils/sessionStorage.js')
+  mock.module('../utils/sessionStorage.js', () => ({
     ...realSession,
     getTranscriptPath: () => transcriptPath,
-    loadSubagentTranscripts: async () => ({
+    loadAllSubagentTranscriptsFromDisk: async () => ({
       'agent-leak': [
         {
           type: 'attachment',
-          uuid: '00000000-0000-4000-8000-00000000a101',
+          uuid: '00000000-0000-4000-8000-00000000a201',
           attachment: {
             type: 'agent_listing_delta',
             addedTypes: ['Explore'],
@@ -111,7 +117,7 @@ beforeAll(async () => {
         },
         {
           type: 'user',
-          uuid: '00000000-0000-4000-8000-00000000a102',
+          uuid: '00000000-0000-4000-8000-00000000a202',
           message: { role: 'user', content: 'subagent turn' },
         },
       ],
@@ -121,7 +127,7 @@ beforeAll(async () => {
   mock.module('axios', () =>
     buildAxiosModuleStub(async (_url: unknown, body: unknown) => {
       postedBodies.push(body as { content?: string })
-      return { status: 200, data: { transcript_id: 'shared-1' } }
+      return { status: 200, data: { feedback_id: 'fb-egress-1' } }
     }),
   )
 })
@@ -149,15 +155,17 @@ afterAll(async () => {
   }
 })
 
-test('submitTranscriptShare strips listing payloads from the outgoing content body', async () => {
+test('Feedback upload strips listing payloads from the posted content body', async () => {
   postedBodies = []
   process.env.USER_TYPE = 'external'
 
-  const { submitTranscriptShare } = await import('./submitTranscriptShare.js')
+  const { assembleFeedbackEgressReportData, submitFeedback } = await import(
+    './Feedback.js'
+  )
 
   const listing = {
     type: 'attachment',
-    uuid: '00000000-0000-4000-8000-00000000m001',
+    uuid: '00000000-0000-4000-8000-00000000m101',
     attachment: {
       type: 'skill_listing',
       content: 'Available skills:\n- /leak-me-please',
@@ -167,21 +175,21 @@ test('submitTranscriptShare strips listing payloads from the outgoing content bo
   } as unknown as Message
   const user = {
     type: 'user',
-    uuid: '00000000-0000-4000-8000-00000000m002',
+    uuid: '00000000-0000-4000-8000-00000000m102',
     message: { role: 'user', content: 'plain turn' },
   } as unknown as Message
 
-  const result = await submitTranscriptShare(
-    [listing, user],
-    'bad_feedback_survey',
-    'appearance-test',
-  )
+  const report = await assembleFeedbackEgressReportData({
+    messages: [listing, user],
+    description: 'egress regression',
+  })
+  const result = await submitFeedback(report)
 
   expect(result.success).toBe(true)
   expect(postedBodies).toHaveLength(1)
   const content = postedBodies[0]?.content ?? ''
   expect(content).toContain('plain turn')
+  expect(content).toContain('subagent turn')
   expect(content).not.toContain('leak-me-please')
   expect(content).not.toContain('leak-agent-listing')
-  expect(content).toContain('subagent turn')
 })
