@@ -1724,14 +1724,27 @@ export function getAgentListingDeltaAttachment(
   // Resume race: MCP tools often join the pool after the first attachment
   // pass. Agents gated on requiredMcpServers look "removed" while
   // mcpServers is still empty, then reappear once MCP connects — another
-  // mid-history listing rewrite. Hold those removals until at least one
-  // MCP tool name is present in the pool (or the agent does not require MCP).
+  // mid-history listing rewrite. Hold those removals until MCP availability
+  // can no longer satisfy the agent's requirements (empty pool, or a pending
+  // client that would satisfy requiredMcpServers). An unrelated connected
+  // client (e.g. "other") must not authorize removal of a docs-gated agent
+  // while "docs" is still pending.
+  const mcpClients = toolUseContext.options.mcpClients ?? []
+  const pendingServerNames = mcpClients
+    .filter(c => c.type === 'pending')
+    .map(c => c.name)
   const removed: string[] = []
   for (const t of announced.keys()) {
     if (currentTypes.has(t)) continue
-    if (mcpServers.size === 0) {
-      const def = activeAgents.find(a => a.agentType === t)
-      if (def && !hasRequiredMcpServers(def, [])) {
+    const def = activeAgents.find(a => a.agentType === t)
+    if (def && !hasRequiredMcpServers(def, [...mcpServers])) {
+      if (mcpServers.size === 0) {
+        continue
+      }
+      if (
+        pendingServerNames.length > 0 &&
+        hasRequiredMcpServers(def, [...mcpServers, ...pendingServerNames])
+      ) {
         continue
       }
     }

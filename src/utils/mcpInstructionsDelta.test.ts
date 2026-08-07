@@ -90,6 +90,27 @@ test('getMcpInstructionsDelta does not remove while every client is still pendin
   expect(delta).toBeNull()
 })
 
+test('getMcpInstructionsDelta does not remove docs while docs is pending and other is connected', () => {
+  // Mixed state: an unrelated connected client must not authorize removal of
+  // a server that is still pending.
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nUse the search tool.']),
+  ]
+  const pendingDocs: MCPServerConnection = {
+    type: 'pending',
+    name: 'docs',
+    config: {} as never,
+  }
+  const delta = getMcpInstructionsDelta(
+    [connected('other', 'Still here.'), pendingDocs],
+    messages,
+    [],
+  )
+  expect(delta).not.toBeNull()
+  expect(delta!.addedNames).toEqual(['other'])
+  expect(delta!.removedNames).toEqual([])
+})
+
 test('getMcpInstructionsDelta removes disconnected servers once client set is settled', () => {
   const messages = [
     deltaMessage(['docs'], ['## docs\nUse the search tool.']),

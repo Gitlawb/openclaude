@@ -713,13 +713,23 @@ export function getDeferredToolsDelta(
         : 'unknown'
     attachmentTypesSeen.add(attachmentType)
     if (attachmentType !== 'deferred_tools_delta') continue
-    const { addedNames, removedNames } = msg.attachment as {
+    const { addedNames, removedNames, addedLines } = msg.attachment as {
       addedNames?: unknown
       removedNames?: unknown
+      addedLines?: unknown
     }
     // Require the full recognized schema before processing. Partial legacy
-    // entries must be skipped — not partially applied.
-    if (!Array.isArray(addedNames) || !Array.isArray(removedNames)) continue
+    // entries must be skipped — not partially applied. addedLines must be an
+    // array aligned with addedNames; otherwise a names-only record would mark
+    // tools announced and suppress a later valid listing.
+    if (
+      !Array.isArray(addedNames) ||
+      !Array.isArray(removedNames) ||
+      !Array.isArray(addedLines) ||
+      addedLines.length !== addedNames.length
+    ) {
+      continue
+    }
     dtdCount++
     for (const n of addedNames) {
       if (typeof n === 'string') announced.add(n)

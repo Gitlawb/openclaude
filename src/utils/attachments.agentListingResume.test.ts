@@ -279,6 +279,54 @@ test('holds MCP-gated agent removals while MCP tool pool is still empty', () => 
   expect(delta).toEqual([])
 })
 
+test('holds MCP-gated agent removals while required server is still pending', () => {
+  // Mixed state: other MCP tools are in the pool, but docs is still pending.
+  // An unrelated connected client must not authorize removal of a docs-gated agent.
+  const mcpAgent: AgentDefinition = {
+    ...agent('McpAgent'),
+    requiredMcpServers: ['docs'],
+  }
+  const messages = [listingDeltaMessage([mcpAgent])]
+  const ctx = {
+    options: {
+      tools: [{ name: AGENT_TOOL_NAME }, { name: 'mcp__other__tool' }],
+      mcpClients: [
+        {
+          type: 'connected',
+          name: 'other',
+          instructions: 'Still here.',
+          client: {} as never,
+          capabilities: {},
+          config: {} as never,
+          cleanup: async () => {},
+        },
+        {
+          type: 'pending',
+          name: 'docs',
+          config: {} as never,
+        },
+      ],
+      agentDefinitions: {
+        activeAgents: [mcpAgent],
+        allAgents: [mcpAgent],
+      },
+    },
+    getAppState: () => ({
+      toolPermissionContext: {
+        mode: 'default',
+        additionalWorkingDirectories: new Map(),
+        alwaysAllowRules: {},
+        alwaysDenyRules: {},
+        alwaysAskRules: {},
+        isBypassPermissionsModeAvailable: false,
+      },
+    }),
+  } as unknown as ToolUseContext
+
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toEqual([])
+})
+
 test('emits MCP-gated agent removal once MCP tools are in the pool', () => {
   const mcpAgent: AgentDefinition = {
     ...agent('McpAgent'),
@@ -286,9 +334,21 @@ test('emits MCP-gated agent removal once MCP tools are in the pool', () => {
   }
   const messages = [listingDeltaMessage([mcpAgent])]
   // MCP tool present → pool settled; agent still fails requirements → remove.
+  // No pending client can satisfy docs.
   const ctx = {
     options: {
       tools: [{ name: AGENT_TOOL_NAME }, { name: 'mcp__other__tool' }],
+      mcpClients: [
+        {
+          type: 'connected',
+          name: 'other',
+          instructions: 'Still here.',
+          client: {} as never,
+          capabilities: {},
+          config: {} as never,
+          cleanup: async () => {},
+        },
+      ],
       agentDefinitions: {
         activeAgents: [mcpAgent],
         allAgents: [mcpAgent],

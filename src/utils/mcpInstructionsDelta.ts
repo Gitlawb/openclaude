@@ -162,6 +162,10 @@ export function getMcpInstructionsDelta(
   // announced is non-empty (local JSONL now persists mcp_instructions_delta).
   // Empty / all-pending clients means "not connected yet", not "disconnected"
   // — hold name-based removals until at least one client leaves pending.
+  //
+  // Mixed state: an unrelated connected client must NOT authorize removal of
+  // a server that is still pending (other connected + docs pending → keep
+  // docs until docs settles or disappears from the client list).
   const clientSetSettledForRemovals =
     mcpClients.length > 0 &&
     mcpClients.some(c => c.type !== 'pending')
@@ -171,6 +175,10 @@ export function getMcpInstructionsDelta(
       if (!blocks.has(n)) removed.push(n)
       continue
     }
+    const serverStillPending = mcpClients.some(
+      c => c.type === 'pending' && c.name === n,
+    )
+    if (serverStillPending) continue
     if (!clientSetSettledForRemovals) continue
     removed.push(n)
   }
