@@ -25,12 +25,12 @@ export const call: LocalCommandCall = async (_args, context) => {
     feature('DOWNLOAD_USER_SETTINGS') &&
     (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
   ) {
-    const applied = await redownloadUserSettings()
+    const result = await redownloadUserSettings()
     // applyRemoteEntriesToLocal uses markInternalWrite to suppress the
     // file watcher (correct for startup, nothing listening yet); fire
     // notifyChange here so mid-session applySettingsChange runs.
-    if (applied) {
-      settingsChangeDetector.notifyChange('userSettings')
+    for (const source of result.settingsSourcesWritten) {
+      settingsChangeDetector.notifyChange(source)
     }
   }
 
