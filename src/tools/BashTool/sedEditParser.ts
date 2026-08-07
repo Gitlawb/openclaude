@@ -532,6 +532,15 @@ function ereHasUnfaithfulConstructs(pattern: string): boolean {
     if (char === '|') return true
     if (char === '^' && i !== 0) return true
     if (char === '$' && i !== pattern.length - 1) return true
+    if (char === '(' && pattern[i + 1] === '?') {
+      // POSIX/GNU `sed -E` supports only plain capturing groups `(...)`. A `(?`
+      // opens JavaScript-only syntax -- non-capturing `(?:)`, lookaround
+      // `(?=)`/`(?!)`/`(?<=)`/`(?<!)`, and named `(?<name>)` groups -- which JS
+      // compiles but GNU sed rejects ("Invalid preceding regular expression").
+      // The simulator would render a concrete edit for a command sed refuses to
+      // run, so decline.
+      return true
+    }
     if (char === '{') {
       // JS reads an illegal interval body as literal braces, but GNU sed either
       // errors or applies its own extension: `sed -E 's/a{,3}/X/g'` rewrites

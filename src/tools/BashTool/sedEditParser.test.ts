@@ -218,6 +218,29 @@ describe('declines to simulate what it cannot reproduce faithfully', () => {
     ).toBeNull()
   })
 
+  test('rejects ERE (?...) group extensions GNU sed does not implement', () => {
+    // `sed -E` supports only plain capturing `(...)`. `(?` opens JS-only syntax
+    // -- non-capturing, lookaround, named groups -- that JavaScript compiles
+    // but GNU sed rejects, so a preview would edit a file the real command
+    // leaves untouched. Every `(?` form must decline.
+    for (const pattern of [
+      '(?:a)b',
+      '(?=a)',
+      '(?!a)b',
+      '(?<=a)b',
+      '(?<!a)b',
+      '(?<n>a)',
+    ]) {
+      expect(
+        parseSedEditCommand(`sed -i '' -E 's/${pattern}/X/' example.txt`),
+      ).toBeNull()
+    }
+    // A plain capturing group is faithful and still parses.
+    expect(
+      parseSedEditCommand("sed -i '' -E 's/(a)b/X/' example.txt"),
+    ).not.toBeNull()
+  })
+
   test('rejects numeric occurrence flags it does not model', () => {
     // `2` selects the second match on each line, but the simulator always
     // rewrites the first: sed turns "aaaa" into "aaX", a preview into "Xaa".
