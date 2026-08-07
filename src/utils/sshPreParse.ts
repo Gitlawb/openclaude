@@ -25,6 +25,10 @@ export interface SshFlagParse {
  * remaining argv to be misinterpreted by later guards. Every occurrence of a
  * recognized option, including equals forms, is consumed.
  *
+ * If a value-taking flag has no available value (it is the last pre-`--` token,
+ * or the equals form has no `=` delimiter), the option token is left in
+ * `remaining` so commander can surface the missing-required-argument error.
+ *
  * Tokens at/after `--` are positional and are never parsed as flags.
  */
 export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
@@ -59,41 +63,54 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     }
 
     if (arg === '--permission-mode') {
-      permissionMode = args[++i]
+      if (i + 1 < args.length) {
+        permissionMode = args[++i]
+        continue
+      }
+      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--permission-mode=')) {
-      permissionMode = arg.split('=', 2)[1]
+      permissionMode = arg.slice('--permission-mode='.length)
       continue
     }
 
     if (arg === '--resume') {
-      const val = args[++i]
-      if (val !== undefined) extraCliArgs.push('--resume', val)
+      if (i + 1 < args.length) {
+        extraCliArgs.push('--resume', args[++i])
+        continue
+      }
+      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--resume=')) {
-      extraCliArgs.push('--resume', arg.split('=', 2)[1]!)
+      extraCliArgs.push('--resume', arg.slice('--resume='.length))
       continue
     }
 
     if (arg === '--model') {
-      const val = args[++i]
-      if (val !== undefined) extraCliArgs.push('--model', val)
+      if (i + 1 < args.length) {
+        extraCliArgs.push('--model', args[++i])
+        continue
+      }
+      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--model=')) {
-      extraCliArgs.push('--model', arg.split('=', 2)[1]!)
+      extraCliArgs.push('--model', arg.slice('--model='.length))
       continue
     }
 
     if (arg === '--fallback-model') {
-      const val = args[++i]
-      if (val !== undefined) extraCliArgs.push('--fallback-model', val)
+      if (i + 1 < args.length) {
+        extraCliArgs.push('--fallback-model', args[++i])
+        continue
+      }
+      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--fallback-model=')) {
-      extraCliArgs.push('--fallback-model', arg.split('=', 2)[1]!)
+      extraCliArgs.push('--fallback-model', arg.slice('--fallback-model='.length))
       continue
     }
 

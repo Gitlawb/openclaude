@@ -80,16 +80,26 @@ describe('parseSshFlags', () => {
     expect(r.remaining).toEqual(['ssh', 'host'])
   })
 
-  it('consumes equals forms of value-taking flags', () => {
+  it('consumes equals forms of value-taking flags and preserves embedded =', () => {
     const r = parseSshFlags([
       'ssh',
       'host',
       '--permission-mode=fullAccess',
-      '--model=gpt-5',
-      '--resume=abc',
+      '--model=provider=model',
+      '--resume=abc=def',
     ])
     expect(r.permissionMode).toBe('fullAccess')
-    expect(r.extraCliArgs).toEqual(['--model', 'gpt-5', '--resume', 'abc'])
+    expect(r.extraCliArgs).toEqual(['--model', 'provider=model', '--resume', 'abc=def'])
     expect(r.remaining).toEqual(['ssh', 'host'])
+  })
+
+  it('preserves value-taking flags that lack a value so commander can error', () => {
+    const last = parseSshFlags(['ssh', 'host', '--model'])
+    expect(last.extraCliArgs).toEqual([])
+    expect(last.remaining).toEqual(['ssh', 'host', '--model'])
+
+    const beforeEoo = parseSshFlags(['ssh', 'host', '--permission-mode', '--', 'x'])
+    expect(beforeEoo.permissionMode).toBeUndefined()
+    expect(beforeEoo.remaining).toEqual(['ssh', 'host', '--permission-mode', '--', 'x'])
   })
 })
