@@ -720,22 +720,26 @@ export function getDeferredToolsDelta(
     }
     // Require the full recognized schema before processing. Partial legacy
     // entries must be skipped — not partially applied. addedLines must be an
-    // array aligned with addedNames; otherwise a names-only record would mark
-    // tools announced and suppress a later valid listing.
+    // array aligned with addedNames, and every entry a string; otherwise a
+    // names-only / null-line record would mark tools announced and suppress a
+    // later valid listing.
     if (
       !Array.isArray(addedNames) ||
       !Array.isArray(removedNames) ||
       !Array.isArray(addedLines) ||
-      addedLines.length !== addedNames.length
+      addedLines.length !== addedNames.length ||
+      !addedNames.every(n => typeof n === 'string') ||
+      !removedNames.every(n => typeof n === 'string') ||
+      !addedLines.every(l => typeof l === 'string')
     ) {
       continue
     }
     dtdCount++
     for (const n of addedNames) {
-      if (typeof n === 'string') announced.add(n)
+      announced.add(n)
     }
     for (const n of removedNames) {
-      if (typeof n === 'string') announced.delete(n)
+      announced.delete(n)
     }
   }
 

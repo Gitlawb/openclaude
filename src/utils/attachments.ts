@@ -1655,22 +1655,25 @@ export function getAgentListingDeltaAttachment(
     // Require the full recognized schema before processing. Malformed or
     // partial legacy entries must be skipped — not partially applied.
     const { addedTypes, addedLines, removedTypes } = msg.attachment
+    // Fail closed: container shape, equal added lengths, and every entry a
+    // string. Partial application can delete an announcement without a
+    // replacement line, or arm suppress from non-string garbage.
     if (
       !Array.isArray(removedTypes) ||
       !Array.isArray(addedTypes) ||
-      !Array.isArray(addedLines)
+      !Array.isArray(addedLines) ||
+      addedTypes.length !== addedLines.length ||
+      !removedTypes.every(t => typeof t === 'string') ||
+      !addedTypes.every(t => typeof t === 'string') ||
+      !addedLines.every(l => typeof l === 'string')
     ) {
       continue
     }
     for (const t of removedTypes) {
-      if (typeof t === 'string') announced.delete(t)
+      announced.delete(t)
     }
     for (let i = 0; i < addedTypes.length; i++) {
-      const type = addedTypes[i]
-      const line = addedLines[i]
-      if (typeof type === 'string' && typeof line === 'string') {
-        announced.set(type, line)
-      }
+      announced.set(addedTypes[i]!, addedLines[i]!)
     }
   }
 

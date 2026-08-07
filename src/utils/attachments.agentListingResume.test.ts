@@ -266,6 +266,46 @@ test('restoreSkillStateFromMessages ignores partial agent_listing_delta before a
   }
 })
 
+test('getAgentListingDeltaAttachment ignores mismatched addedTypes/addedLines lengths', () => {
+  // Malformed record must not delete Explore without a replacement line.
+  const explore = agent('Explore')
+  const prior = listingDeltaMessage([explore])
+  const mismatched = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000a0mis',
+    attachment: {
+      type: 'agent_listing_delta',
+      addedTypes: ['Explore'],
+      addedLines: [], // length mismatch vs addedTypes
+      removedTypes: ['Explore'],
+    },
+  } as unknown as Message
+  const ctx = toolUseContext([explore])
+
+  const delta = getAgentListingDeltaAttachment(ctx, [prior, mismatched])
+  // Prior announcement still stands; no corrective delta.
+  expect(delta).toEqual([])
+})
+
+test('getAgentListingDeltaAttachment ignores non-string agent delta entries', () => {
+  const explore = agent('Explore')
+  const prior = listingDeltaMessage([explore])
+  const badEntries = {
+    type: 'attachment',
+    uuid: '00000000-0000-4000-8000-00000000a0ns',
+    attachment: {
+      type: 'agent_listing_delta',
+      addedTypes: ['Explore'],
+      addedLines: [null],
+      removedTypes: ['Explore'],
+    },
+  } as unknown as Message
+  const ctx = toolUseContext([explore])
+
+  const delta = getAgentListingDeltaAttachment(ctx, [prior, badEntries])
+  expect(delta).toEqual([])
+})
+
 test('holds MCP-gated agent removals while MCP tool pool is still empty', () => {
   // Resume race: transcript announced McpAgent, but tools have no MCP names yet.
   const mcpAgent: AgentDefinition = {

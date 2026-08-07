@@ -55,6 +55,28 @@ test('getDeferredToolsDelta ignores record missing addedLines and emits current 
   expect(delta!.removedNames).toEqual([])
 })
 
+test('getDeferredToolsDelta ignores non-string addedLines and emits current deferred tool as addition', () => {
+  const messages = [
+    {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000d005',
+      attachment: {
+        type: 'deferred_tools_delta',
+        addedNames: ['SomeTool'],
+        addedLines: [null],
+        removedNames: [],
+      },
+    } as unknown as Message,
+  ]
+  const tools = [
+    { name: 'SomeTool', isMcp: true },
+  ] as unknown as Tools
+  const delta = getDeferredToolsDelta(tools, messages)
+  expect(delta).not.toBeNull()
+  expect(delta!.addedNames).toEqual(['SomeTool'])
+  expect(delta!.removedNames).toEqual([])
+})
+
 test('getDeferredToolsDelta applies complete deferred_tools_delta records', () => {
   const messages = [
     {
