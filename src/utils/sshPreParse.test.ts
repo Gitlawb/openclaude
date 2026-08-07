@@ -65,10 +65,31 @@ describe('parseSshFlags', () => {
     expect(r.remaining).toEqual(['ssh', 'host', '--', '--model', 'x'])
   })
 
-  it('parses --local and forwards resume/model flags', () => {
-    const r = parseSshFlags(['ssh', '--local', 'host', '--model', 'gpt', '--continue'])
-    expect(r.local).toBe(true)
-    expect(r.extraCliArgs).toEqual(['--continue', '--model', 'gpt'])
+  it('consumes every occurrence of value-taking flags left-to-right, including flag-like values', () => {
+    const r = parseSshFlags(['ssh', 'host', '--model', 'ok', '--model', '--yolo', 'value'])
+    expect(r.extraCliArgs).toEqual(['--model', 'ok', '--model', '--yolo'])
+    expect(r.dangerouslySkipPermissions).toBe(false)
+    expect(r.remaining).toEqual(['ssh', 'host', 'value'])
+  })
+
+  it('does not let --local interfere with --permission-mode value consumption', () => {
+    const r = parseSshFlags(['ssh', 'host', '--permission-mode', '--local'])
+    expect(r.permissionMode).toBe('--local')
+    expect(r.local).toBe(false)
+    expect(r.dangerouslySkipPermissions).toBe(false)
+    expect(r.remaining).toEqual(['ssh', 'host'])
+  })
+
+  it('consumes equals forms of value-taking flags', () => {
+    const r = parseSshFlags([
+      'ssh',
+      'host',
+      '--permission-mode=fullAccess',
+      '--model=gpt-5',
+      '--resume=abc',
+    ])
+    expect(r.permissionMode).toBe('fullAccess')
+    expect(r.extraCliArgs).toEqual(['--model', 'gpt-5', '--resume', 'abc'])
     expect(r.remaining).toEqual(['ssh', 'host'])
   })
 })

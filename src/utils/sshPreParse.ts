@@ -18,11 +18,14 @@ export interface SshFlagParse {
 /**
  * Pull SSH-relevant flags out of `rawCliArgs` (which starts with `ssh`).
  *
- * Value-taking flags are extracted before dangerous-skip tokens are stripped,
- * and they consume the next token unconditionally — matching commander's
- * required-argument behavior. This prevents a value that looks like a flag
- * (e.g. `--model --print` or `--permission-mode --local`) from being left in
- * the remaining argv and misinterpreted by later guards.
+ * Recognized options are parsed in a single left-to-right arity-aware pass.
+ * Value-taking flags consume the next token unconditionally — matching
+ * commander's required-argument behavior — so a value that looks like a flag
+ * (e.g. `--model --print` or `--permission-mode --local`) is never left in the
+ * remaining argv to be misinterpreted by later guards. Every occurrence of a
+ * recognized option, including equals forms, is consumed.
+ *
+ * Tokens at/after `--` are positional and are never parsed as flags.
  */
 export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
   // Honor the `--` end-of-options marker: tokens at/after it are positional and
@@ -35,60 +38,75 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
   const eoo = all.indexOf('--')
   const trailing = eoo === -1 ? [] : all.splice(eoo)
   const args = all
+
   let local = false
   let permissionMode: string | undefined
   let dangerouslySkipPermissions = false
   const extraCliArgs: string[] = []
+  const remaining: string[] = []
 
-  const localIdx = args.indexOf('--local')
-  if (localIdx !== -1) {
-    local = true
-    args.splice(localIdx, 1)
-  }
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
 
-  const pmIdx = args.indexOf('--permission-mode')
-  const pmVal = pmIdx !== -1 ? args[pmIdx + 1] : undefined
-  if (pmVal !== undefined) {
-    permissionMode = pmVal
-    args.splice(pmIdx, 2)
-  }
-  const pmEqIdx = args.findIndex(a => a.startsWith('--permission-mode='))
-  if (pmEqIdx !== -1) {
-    permissionMode = args[pmEqIdx]!.split('=')[1]
-    args.splice(pmEqIdx, 1)
-  }
-
-  const extractFlag = (flag: string, opts: { hasValue?: boolean; as?: string } = {}) => {
-    const i = args.indexOf(flag)
-    if (i !== -1) {
-      extraCliArgs.push(opts.as ?? flag)
-      const val = args[i + 1]
-      // Consume the next token unconditionally for value-taking flags, matching
-      // commander's required-argument behavior.
-      if (opts.hasValue && val !== undefined) {
-        extraCliArgs.push(val)
-        args.splice(i, 2)
-      } else {
-        args.splice(i, 1)
-      }
+    if (arg === '--local') {
+      local = true
+      continue
     }
-    const eqI = args.findIndex(a => a.startsWith(`${flag}=`))
-    if (eqI !== -1) {
-      extraCliArgs.push(opts.as ?? flag, args[eqI]!.slice(flag.length + 1))
-      args.splice(eqI, 1)
+
+    if (arg === '-c' || arg === '--continue') {
+      extraCliArgs.push('--continue')
+      continue
     }
+
+    if (arg === '--permission-mode') {
+      permissionMode = args[++i]
+      continue
+    }
+    if (arg.startsWith('--permission-mode=')) {
+      permissionMode = arg.split('=', 2)[1]
+      continue
+    }
+
+    if (arg === '--resume') {
+      const val = args[++i]
+      if (val !== undefined) extraCliArgs.push('--resume', val)
+      continue
+    }
+    if (arg.startsWith('--resume=')) {
+      extraCliArgs.push('--resume', arg.split('=', 2)[1]!)
+      continue
+    }
+
+    if (arg === '--model') {
+      const val = args[++i]
+      if (val !== undefined) extraCliArgs.push('--model', val)
+      continue
+    }
+    if (arg.startsWith('--model=')) {
+      extraCliArgs.push('--model', arg.split('=', 2)[1]!)
+      continue
+    }
+
+    if (arg === '--fallback-model') {
+      const val = args[++i]
+      if (val !== undefined) extraCliArgs.push('--fallback-model', val)
+      continue
+    }
+    if (arg.startsWith('--fallback-model=')) {
+      extraCliArgs.push('--fallback-model', arg.split('=', 2)[1]!)
+      continue
+    }
+
+    remaining.push(arg)
   }
-  extractFlag('-c', { as: '--continue' })
-  extractFlag('--continue')
-  extractFlag('--resume', { hasValue: true })
-  extractFlag('--model', { hasValue: true })
-  extractFlag('--fallback-model', { hasValue: true })
 
   // Every value-taking flag has now consumed its value, so any remaining
   // dangerous-skip token is a genuine standalone bypass flag.
-  if (hasDangerousSkipFlag(args)) {
+  if (hasDangerousSkipFlag(remaining)) {
     dangerouslySkipPermissions = true
-    args.splice(0, args.length, ...stripDangerousSkipFlags(args))
+    const stripped = stripDangerousSkipFlags(remaining)
+    remaining.length = 0
+    remaining.push(...stripped)
   }
 
   return {
@@ -96,6 +114,6 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     permissionMode,
     dangerouslySkipPermissions,
     extraCliArgs,
-    remaining: [...args, ...trailing],
+    remaining: [...remaining, ...trailing],
   }
 }

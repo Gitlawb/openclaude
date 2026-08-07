@@ -142,9 +142,16 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
 describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
   // The notice is Commander-authoritative: both --dangerously-skip-permissions
   // and its --yolo alias are resolved into permissionMode === 'bypassPermissions'
-  // during startup, so the notice keys off the resolved mode, not raw argv.
+  // during startup, while --permission-mode fullAccess resolves to 'fullAccess'.
+  // The notice keys off the resolved mode, not raw argv.
   test('fires when permission mode is bypassPermissions (either spelling, or settings defaultMode)', () => {
     expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
+      'dangerously-skip-permissions-no-sandbox',
+    )
+  })
+
+  test('fires when permission mode is fullAccess', () => {
+    expect(activeIds(buildContext({ permissionMode: 'fullAccess' }))).toContain(
       'dangerously-skip-permissions-no-sandbox',
     )
   })
@@ -157,6 +164,16 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     // The notice fires whenever permissionMode is bypassPermissions, which can
     // come from the CLI flags or from a settings defaultMode.
     expect(notice).toContain('bypassPermissions')
+    expect(notice).not.toContain('--dangerously-skip-permissions')
+    expect(notice).not.toContain('--yolo')
+  })
+
+  test('rendered notice names fullAccess when that mode is active', async () => {
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      buildContext({ permissionMode: 'fullAccess' }),
+    )
+    expect(notice).toContain('fullAccess')
     expect(notice).not.toContain('--dangerously-skip-permissions')
     expect(notice).not.toContain('--yolo')
   })
