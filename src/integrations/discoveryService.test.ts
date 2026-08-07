@@ -461,6 +461,7 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.source).toBe('network')
     expect(capturedHeaders).toEqual({
+      'X-AIMLAPI-Source': 'agent/openclaude',
       'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
       'X-AIMLAPI-Integration-Version': publicBuildVersion,

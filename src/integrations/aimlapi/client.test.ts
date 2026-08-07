@@ -8,10 +8,23 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
+// The default *.example.test hosts stand in for a user-overridden (non-aimlapi)
+// deployment: attribution headers must be withheld from them.
 const endpoints: AimlapiEndpoints = {
   authBaseUrl: 'https://auth.example.test',
   appBaseUrl: 'https://app.example.test',
+  payBaseUrl: 'https://pay.example.test',
   inferenceBaseUrl: 'https://api.example.test/v1',
+  verificationBaseUrl: 'https://front.example.test',
+}
+
+// Production AI/ML API hosts, which DO receive the mandatory attribution headers.
+const canonicalEndpoints: AimlapiEndpoints = {
+  authBaseUrl: 'https://auth.aimlapi.com',
+  appBaseUrl: 'https://app.aimlapi.com',
+  payBaseUrl: 'https://pay.aimlapi.com',
+  inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+  verificationBaseUrl: 'https://aimlapi.com/app',
 }
 
 function jsonResponse(value: unknown): Response {
@@ -111,9 +124,9 @@ test('pay only sends autoTopUp when it is enabled', async () => {
   ])
 })
 
-test('pay carries the selected method and omits an absent payment session id', async () => {
-  // The password flow lets the user pick crypto and has no payment session id;
-  // both must survive alongside the passwordless defaults.
+test('pay omits an absent payment session id and always sends card', async () => {
+  // Card is the only rail; the field is always present and there is no payment
+  // session id here, so the body carries just the amount + return URL + card.
   const bodies: unknown[] = []
   globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
     bodies.push(typeof init?.body === 'string' ? JSON.parse(init.body) : undefined)
@@ -123,11 +136,10 @@ test('pay carries the selected method and omits an absent payment session id', a
   const client = new AimlapiClient(endpoints)
   await client.pay('bearer', 'session', {
     amountUsdMinor: 2500,
-    method: 'crypto',
     successUrl: 'https://ok.test',
   })
   expect(bodies).toEqual([
-    { amountUsdMinor: 2500, method: 'crypto', successUrl: 'https://ok.test' },
+    { amountUsdMinor: 2500, method: 'card', successUrl: 'https://ok.test' },
   ])
 })
 
@@ -209,14 +221,16 @@ test('sendSignInCode accepts a non-empty plain-text acknowledgement', async () =
   )
 })
 
-test('a receipt whose payUrl cannot be opened is rejected', async () => {
-  // `payUrl` goes straight to openBrowser; a value it cannot open would leave the
-  // flow polling for 20 minutes with no usable checkout link after the charge.
+test('a receipt whose payUrl is not HTTPS is rejected at the response boundary', async () => {
+  // `payUrl` must be HTTPS (it is opened in a browser and matches announceCheckout).
+  // Rejecting a cleartext/unopenable URL here stops the session being retained and
+  // then polled for 20 minutes with no usable checkout link after the charge.
   for (const payUrl of [
     'not-a-url',
     'javascript:alert(1)',
     'file:///tmp/checkout',
     'ftp://checkout.test/pay',
+    'http://checkout.test/pay',
   ]) {
     globalThis.fetch = mock(async () =>
       jsonResponse(payReceipt({ checkout: { providerSessionId: 'provider', payUrl } })),
@@ -326,7 +340,7 @@ test('a JSON-escaped credential is redacted from a reflected body', async () => 
 
   const client = new AimlapiClient(endpoints)
   const error = await client
-    .login('user@example.com', password)
+    .verifySignInCode('user@example.com', password)
     .then(() => null, (reason: unknown) => reason)
 
   expect(error).toBeInstanceOf(AimlapiApiError)
@@ -400,65 +414,6 @@ test('a short session token is still redacted from transport errors', async () =
   expect(error).toBeInstanceOf(AimlapiApiError)
   expect((error as AimlapiApiError).message).not.toContain('abc')
   expect((error as AimlapiApiError).message).toContain('[REDACTED]')
-})
-
-test('password sign-up and sign-in keep their existing contracts', async () => {
-  const calls: Array<{ method?: string; url: string; body?: unknown }> = []
-  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
-    calls.push({
-      method: init?.method,
-      url: String(input),
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-    })
-    return jsonResponse({ token: 'legacy-bearer', exp: 7 })
-  }) as unknown as typeof fetch
-
-  const client = new AimlapiClient(endpoints)
-  expect(
-    await client.signup({
-      email: 'user@example.com',
-      password: 'secret',
-      inviteCode: 'invite',
-    }),
-  ).toEqual({ token: 'legacy-bearer', exp: 7 })
-  expect(await client.login('user@example.com', 'secret')).toEqual({
-    token: 'legacy-bearer',
-    exp: 7,
-  })
-
-  expect(calls).toEqual([
-    {
-      method: 'POST',
-      url: 'https://auth.example.test/v1/auth/account',
-      body: { email: 'user@example.com', password: 'secret', inviteCode: 'invite' },
-    },
-    {
-      method: 'PUT',
-      url: 'https://auth.example.test/v1/auth/account',
-      body: { email: 'user@example.com', password: 'secret' },
-    },
-  ])
-})
-
-test('password methods reject a response without a token', async () => {
-  globalThis.fetch = mock(async () => jsonResponse({ exp: 1 })) as unknown as typeof fetch
-
-  const client = new AimlapiClient(endpoints)
-  // A malformed success payload must surface the same error contract as every
-  // other endpoint, so a caller can branch on the type/status uniformly instead
-  // of special-casing the auth paths.
-  for (const call of [
-    () => client.signup({ email: 'user@example.com', password: 'secret' }),
-    () => client.login('user@example.com', 'secret'),
-  ]) {
-    const error = await call().then(
-      () => null,
-      (reason: unknown) => reason,
-    )
-    expect(error).toBeInstanceOf(AimlapiApiError)
-    expect((error as AimlapiApiError).status).toBe(200)
-    expect((error as AimlapiApiError).message).toContain('did not return an auth token')
-  }
 })
 
 test('topUpByKey uses the v2 billing endpoint and API key bearer', async () => {
@@ -654,4 +609,41 @@ test('typed methods reject wrong-typed success fields without a raw TypeError', 
   const accountError = await client.checkAccount('user@example.com').catch((e: unknown) => e)
   expect(accountError).toBeInstanceOf(AimlapiApiError)
   expect(accountError).toHaveProperty('status', 200)
+})
+
+test('every request to an AI/ML API host carries the mandatory attribution headers', async () => {
+  let headers = new Headers()
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    headers = new Headers(init?.headers)
+    return jsonResponse({ action: 'sign-in' })
+  }) as unknown as typeof fetch
+
+  const client = new AimlapiClient(canonicalEndpoints)
+  await client.checkAccount('user@example.com')
+
+  // Both headers are mandatory on EVERY aimlapi request (auth / checkout /
+  // catalog): the integration source and the partner id.
+  expect(headers.get('X-AIMLAPI-Source')).toBe('agent/openclaude')
+  const partner = headers.get('X-AIMLAPI-Partner-ID')
+  expect(partner).toBeTruthy()
+  expect(partner?.startsWith('part_')).toBe(true)
+})
+
+test('attribution headers are withheld from an overridden (non-aimlapi) inference host', async () => {
+  let headers = new Headers()
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    headers = new Headers(init?.headers)
+    return jsonResponse({ balance: 10, lowBalance: false, lowBalanceThreshold: 20 })
+  }) as unknown as typeof fetch
+
+  // inferenceBaseUrl points at api.example.test (a user proxy). The balance probe
+  // must not leak OpenClaude's partner/source identity to a third-party host,
+  // mirroring the inference/catalog stripping contract.
+  const client = new AimlapiClient(endpoints)
+  await client.getBalance('key_test')
+
+  expect(headers.get('X-AIMLAPI-Source')).toBeNull()
+  expect(headers.get('X-AIMLAPI-Partner-ID')).toBeNull()
+  // The caller's own credential still rides — only OpenClaude attribution is gated.
+  expect(headers.get('Authorization')).toBe('Bearer key_test')
 })
