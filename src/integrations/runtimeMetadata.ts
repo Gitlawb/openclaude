@@ -510,28 +510,39 @@ export function resolveModelRuntimeLimits(options: {
     runtimeEnv,
   )
 
-  // Precedence: an exact env override wins outright; then the built-in
-  // catalog / discovery-cache value (a `:cloud` variant must take its known
-  // catalog limit rather than inherit a broad base-model env *prefix*); then a
-  // broad env *prefix* override; then the settings.json `modelLimits` override;
-  // then the descriptor default. The key fix for the env/settings drift is
-  // keeping `settings` strictly below `prefix` so a broad env-prefix override is
+  // Precedence (high → low):
+  // 1. exact env override
+  // 2. built-in route catalog (so `:cloud` variants keep their catalog cap over
+  //    a broad base-model env *prefix*)
+  // 3. env *prefix* override
+  // 4. settings.json `modelLimits` (explicit user pin)
+  // 5. discovery cache
+  // 6. model descriptor default
+  // Discovery stays authoritative over the descriptor: a gateway's advertised
+  // `context_length` is the endpoint's real cap (it may legitimately be a
+  // smaller deployment/tenant limit for a globally larger model), and the
+  // OpenAI-compatible response carries no signal that would let us tell a
+  // synthetic gateway default apart from a real cap. Users whose gateway
+  // advertises a wrong window pin it via an exact env override, `modelLimits`
+  // for an uncatalogued model, or `/set-context-window`; each applicable
+  // override sits above discovery here.
+  // Keep `settings` strictly below `prefix` so a broad env-prefix override is
   // never silently overtaken by a settings entry — matching the scalar
   // getOpenAIContextWindow, where env (exact or prefix) beats settings.
   return {
     contextWindow:
       externalContextWindow.exact ??
       catalogEntry?.contextWindow ??
-      cachedCatalogEntry?.contextWindow ??
       externalContextWindow.prefix ??
       externalContextWindow.settings ??
+      cachedCatalogEntry?.contextWindow ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
-      cachedCatalogEntry?.maxOutputTokens ??
       externalMaxOutputTokens.prefix ??
       externalMaxOutputTokens.settings ??
+      cachedCatalogEntry?.maxOutputTokens ??
       modelDescriptor?.maxOutputTokens,
   }
 }

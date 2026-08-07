@@ -519,12 +519,19 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   key is `localhost:4000:my-model`, not `localhost:my-model`. Either field may be
   omitted to override only one limit.
 - **Precedence** — from highest to lowest: an **exact** env-var override → the
-  built-in catalog value → the discovery-cache value → a **prefix** env-var
-  override → `modelLimits` → the descriptor default. (The built-in catalog is
-  checked before the discovery cache.) So env-var overrides always win over
-  `modelLimits`, and `modelLimits` mainly fills in models that have no built-in
-  metadata (a known catalog model keeps its catalog limit unless you set an
-  *exact* env override for it).
+  built-in catalog value → a **prefix** env-var override → `modelLimits` → the
+  discovery-cache value → the descriptor default. So env-var overrides and
+  `modelLimits` both win over discovery. A known catalog model keeps its catalog
+  limit unless you set an *exact* env override for it.
+- **When a gateway advertises the wrong window** — some OpenAI-compatible
+  gateways report a flat `context_length` (often `128000`) for every model they
+  proxy. OpenClaude keeps that value, because an advertised window can just as
+  easily be a real per-deployment cap, and budgeting above the endpoint's true
+  limit turns early auto-compact into a mid-session API failure. If you know the
+  real window, use an **exact** `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` entry for a
+  catalogued model. For a custom or discovered model, use `modelLimits` or an
+  exact env entry. Use `/set-context-window <tokens>` for the current session
+  only.
 
 ## Safety strictness
 
