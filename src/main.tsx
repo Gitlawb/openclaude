@@ -28,6 +28,7 @@ import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { getOauthConfig } from './constants/oauth.js';
 import { parseSshFlags } from './utils/sshPreParse.js';
+import { hasPrintFlag } from './utils/printFlag.js';
 import { getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
 import { init, initializeTelemetryAfterTrust } from './entrypoints/init.js';
@@ -568,26 +569,6 @@ export async function main() {
   process.on('exit', () => {
     resetCursor();
   });
-
-  // Detects the print flag in raw argv, including forms commander accepts for
-  // the boolean `-p, --print` option: `-p`, `--print`, `--print=prompt`, and
-  // attached short-option values like `-pprompt`. Stops at `--` so positional
-  // values after the end-of-options marker are not mistaken for flags.
-  function hasPrintFlag(argv: readonly string[]): boolean {
-    for (const arg of argv) {
-      if (arg === '--') break
-      if (
-        arg === '-p' ||
-        arg === '--print' ||
-        arg.startsWith('--print=') ||
-        (arg.startsWith('-p') && arg.length > 2)
-      ) {
-        return true
-      }
-    }
-    return false
-  }
-
   process.on('SIGINT', () => {
     // In print mode, print.ts registers its own SIGINT handler that aborts
     // the in-flight query and calls gracefulShutdown; skip here to avoid
