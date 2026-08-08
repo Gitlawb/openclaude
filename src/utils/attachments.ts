@@ -187,7 +187,10 @@ import {
 } from './mcpInstructionsDelta.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
 import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
+import {
+  isMcpClientUnsettledForRemovals,
+  type MCPServerConnection,
+} from '../services/mcp/types.js'
 import type {
   HookEvent,
   SyncHookJSONOutput,
@@ -1735,13 +1738,13 @@ export function getAgentListingDeltaAttachment(
   // pass. Agents gated on requiredMcpServers look "removed" while
   // mcpServers is still empty, then reappear once MCP connects — another
   // mid-history listing rewrite. Hold those removals until MCP availability
-  // can no longer satisfy the agent's requirements (empty pool, or a pending
-  // client that would satisfy requiredMcpServers). An unrelated connected
-  // client (e.g. "other") must not authorize removal of a docs-gated agent
-  // while "docs" is still pending.
+  // can no longer satisfy the agent's requirements (empty pool, or an
+  // unsettled pending/needs-auth client that would satisfy requiredMcpServers).
+  // An unrelated connected client (e.g. "other") must not authorize removal of
+  // a docs-gated agent while "docs" is still unsettled.
   const mcpClients = toolUseContext.options.mcpClients ?? []
-  const pendingServerNames = mcpClients
-    .filter(c => c.type === 'pending')
+  const unsettledServerNames = mcpClients
+    .filter(isMcpClientUnsettledForRemovals)
     .map(c => c.name)
   const removed: string[] = []
   for (const t of announced.keys()) {
@@ -1752,8 +1755,8 @@ export function getAgentListingDeltaAttachment(
         continue
       }
       if (
-        pendingServerNames.length > 0 &&
-        hasRequiredMcpServers(def, [...mcpServers, ...pendingServerNames])
+        unsettledServerNames.length > 0 &&
+        hasRequiredMcpServers(def, [...mcpServers, ...unsettledServerNames])
       ) {
         continue
       }

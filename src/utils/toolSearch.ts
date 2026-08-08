@@ -26,7 +26,10 @@ import {
 } from '../tools/ToolSearchTool/prompt.js'
 import type { Message } from '../types/message.js'
 import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
+import {
+  isMcpClientUnsettledForRemovals,
+  type MCPServerConnection,
+} from '../services/mcp/types.js'
 import {
   countToolDefinitionTokens,
   TOOL_TOKEN_COUNT_OVERHEAD,
@@ -759,14 +762,15 @@ export function getDeferredToolsDelta(
   const added = deferred.filter(t => !announced.has(t.name))
   // Empty tools pool = "not loaded yet", not "everything disconnected".
   const poolSettledForRemovals = tools.length > 0
-  const pendingServerNames = new Set(
-    mcpClients.filter(c => c.type === 'pending').map(c => c.name),
+  // Mirror mcp_instructions_delta: pending and needs-auth are unsettled
+  // (jatmn [P3] / CodeRabbit). Unrelated connected clients must not authorize
+  // removal of a server that is still unsettled.
+  const unsettledServerNames = new Set(
+    mcpClients.filter(isMcpClientUnsettledForRemovals).map(c => c.name),
   )
-  // Mirror mcp_instructions_delta: at least one non-pending client means
-  // the client set has started settling. Unrelated connected clients must
-  // not authorize removal of a server that is still pending.
   const mcpClientSetSettledForRemovals =
-    mcpClients.length > 0 && mcpClients.some(c => c.type !== 'pending')
+    mcpClients.length > 0 &&
+    mcpClients.some(c => !isMcpClientUnsettledForRemovals(c))
   const mcpServersInPool = new Set<string>()
   for (const t of tools) {
     const info = mcpInfoFromString(t.name)
@@ -779,8 +783,8 @@ export function getDeferredToolsDelta(
     if (!poolSettledForRemovals) continue
     const mcpInfo = mcpInfoFromString(n)
     if (mcpInfo) {
-      if (pendingServerNames.has(mcpInfo.serverName)) continue
-      // No MCP tools yet and clients empty / all-pending → hold MCP removals.
+      if (unsettledServerNames.has(mcpInfo.serverName)) continue
+      // No MCP tools yet and clients empty / all-unsettled → hold MCP removals.
       if (
         mcpServersInPool.size === 0 &&
         !mcpClientSetSettledForRemovals

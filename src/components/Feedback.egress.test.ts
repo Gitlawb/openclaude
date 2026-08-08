@@ -189,6 +189,7 @@ test('Feedback upload strips listing payloads from the posted content body', asy
   expect(postedBodies).toHaveLength(1)
   const content = postedBodies[0]?.content ?? ''
   expect(content).toContain('plain turn')
+  expect(content).toContain('feedback main turn')
   expect(content).toContain('subagent turn')
   expect(content).not.toContain('leak-me-please')
   expect(content).not.toContain('leak-agent-listing')

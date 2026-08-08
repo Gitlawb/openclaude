@@ -90,6 +90,19 @@ test('getMcpInstructionsDelta does not remove while every client is still pendin
   expect(delta).toBeNull()
 })
 
+test('getMcpInstructionsDelta does not remove while every client needs-auth (jatmn [P3])', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nUse the search tool.']),
+  ]
+  const auth: MCPServerConnection = {
+    type: 'needs-auth',
+    name: 'docs',
+    config: {} as never,
+  }
+  const delta = getMcpInstructionsDelta([auth], messages, [])
+  expect(delta).toBeNull()
+})
+
 test('getMcpInstructionsDelta does not remove docs while docs is pending and other is connected', () => {
   // Mixed state: an unrelated connected client must not authorize removal of
   // a server that is still pending.
@@ -103,6 +116,25 @@ test('getMcpInstructionsDelta does not remove docs while docs is pending and oth
   }
   const delta = getMcpInstructionsDelta(
     [connected('other', 'Still here.'), pendingDocs],
+    messages,
+    [],
+  )
+  expect(delta).not.toBeNull()
+  expect(delta!.addedNames).toEqual(['other'])
+  expect(delta!.removedNames).toEqual([])
+})
+
+test('getMcpInstructionsDelta does not remove docs while docs needs-auth and other is connected', () => {
+  const messages = [
+    deltaMessage(['docs'], ['## docs\nUse the search tool.']),
+  ]
+  const authDocs: MCPServerConnection = {
+    type: 'needs-auth',
+    name: 'docs',
+    config: {} as never,
+  }
+  const delta = getMcpInstructionsDelta(
+    [connected('other', 'Still here.'), authDocs],
     messages,
     [],
   )

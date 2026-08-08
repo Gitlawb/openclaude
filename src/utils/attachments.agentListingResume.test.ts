@@ -433,6 +433,52 @@ test('holds MCP-gated agent removals while required server is still pending', ()
   expect(delta).toEqual([])
 })
 
+test('holds MCP-gated agent removals while required server needs-auth (jatmn [P3])', () => {
+  const mcpAgent: AgentDefinition = {
+    ...agent('McpAgent'),
+    requiredMcpServers: ['docs'],
+  }
+  const messages = [listingDeltaMessage([mcpAgent])]
+  const ctx = {
+    options: {
+      tools: [{ name: AGENT_TOOL_NAME }, { name: 'mcp__other__tool' }],
+      mcpClients: [
+        {
+          type: 'connected',
+          name: 'other',
+          instructions: 'Still here.',
+          client: {} as never,
+          capabilities: {},
+          config: {} as never,
+          cleanup: async () => {},
+        },
+        {
+          type: 'needs-auth',
+          name: 'docs',
+          config: {} as never,
+        },
+      ],
+      agentDefinitions: {
+        activeAgents: [mcpAgent],
+        allAgents: [mcpAgent],
+      },
+    },
+    getAppState: () => ({
+      toolPermissionContext: {
+        mode: 'default',
+        additionalWorkingDirectories: new Map(),
+        alwaysAllowRules: {},
+        alwaysDenyRules: {},
+        alwaysAskRules: {},
+        isBypassPermissionsModeAvailable: false,
+      },
+    }),
+  } as unknown as ToolUseContext
+
+  const delta = getAgentListingDeltaAttachment(ctx, messages)
+  expect(delta).toEqual([])
+})
+
 test('emits MCP-gated agent removal once MCP tools are in the pool', () => {
   const mcpAgent: AgentDefinition = {
     ...agent('McpAgent'),

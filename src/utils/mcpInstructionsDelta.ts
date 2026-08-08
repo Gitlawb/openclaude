@@ -1,8 +1,9 @@
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { logEvent } from '../services/analytics/index.js'
-import type {
-  ConnectedMCPServer,
-  MCPServerConnection,
+import {
+  isMcpClientUnsettledForRemovals,
+  type ConnectedMCPServer,
+  type MCPServerConnection,
 } from '../services/mcp/types.js'
 import type { Message } from '../types/message.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
@@ -162,25 +163,26 @@ export function getMcpInstructionsDelta(
   // Resume race: interactive --resume / --continue does not block on MCP
   // connect, so the first attachment pass often sees mcpClients=[] while
   // announced is non-empty (local JSONL now persists mcp_instructions_delta).
-  // Empty / all-pending clients means "not connected yet", not "disconnected"
-  // — hold name-based removals until at least one client leaves pending.
+  // Empty / all-unsettled clients means "not connected yet", not "disconnected"
+  // — hold name-based removals until at least one client settles
+  // (pending and needs-auth both count as unsettled; jatmn [P3]).
   //
   // Mixed state: an unrelated connected client must NOT authorize removal of
-  // a server that is still pending (other connected + docs pending → keep
+  // a server that is still unsettled (other connected + docs needs-auth → keep
   // docs until docs settles or disappears from the client list).
   const clientSetSettledForRemovals =
     mcpClients.length > 0 &&
-    mcpClients.some(c => c.type !== 'pending')
+    mcpClients.some(c => !isMcpClientUnsettledForRemovals(c))
   const removed: string[] = []
   for (const n of announced.keys()) {
     if (connectedNames.has(n)) {
       if (!blocks.has(n)) removed.push(n)
       continue
     }
-    const serverStillPending = mcpClients.some(
-      c => c.type === 'pending' && c.name === n,
+    const serverStillUnsettled = mcpClients.some(
+      c => isMcpClientUnsettledForRemovals(c) && c.name === n,
     )
-    if (serverStillPending) continue
+    if (serverStillUnsettled) continue
     if (!clientSetSettledForRemovals) continue
     removed.push(n)
   }

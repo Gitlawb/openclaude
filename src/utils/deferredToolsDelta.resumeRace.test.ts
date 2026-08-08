@@ -56,6 +56,14 @@ function pending(name: string): MCPServerConnection {
   }
 }
 
+function needsAuth(name: string): MCPServerConnection {
+  return {
+    type: 'needs-auth',
+    name,
+    config: {} as never,
+  }
+}
+
 function toolSearchPool(...extra: Tools[number][]): Tools {
   return [
     { name: TOOL_SEARCH_TOOL_NAME, isMcp: false } as Tools[number],
@@ -96,6 +104,32 @@ test('getDeferredToolsDelta holds MCP removals while that server is still pendin
   expect(delta).not.toBeNull()
   expect(delta!.removedNames).toEqual([])
   expect(delta!.addedNames).toEqual(['mcp__other__list'])
+})
+
+test('getDeferredToolsDelta holds MCP removals while that server needs-auth (jatmn [P3])', () => {
+  // CodeRabbit / jatmn [P3]: needs-auth is unsettled — same hold as pending.
+  const messages = [
+    deltaMessage(['mcp__docs__search'], ['mcp__docs__search']),
+  ]
+  const tools = [mcpTool('mcp__other__list')] as unknown as Tools
+  const delta = getDeferredToolsDelta(tools, messages, undefined, [
+    connected('other'),
+    needsAuth('docs'),
+  ])
+  expect(delta).not.toBeNull()
+  expect(delta!.removedNames).toEqual([])
+  expect(delta!.addedNames).toEqual(['mcp__other__list'])
+})
+
+test('getDeferredToolsDelta holds MCP removals while every client is needs-auth', () => {
+  const messages = [
+    deltaMessage(['mcp__docs__search'], ['mcp__docs__search']),
+  ]
+  const tools = [{ name: 'SomeBuiltin', isMcp: false }] as unknown as Tools
+  const delta = getDeferredToolsDelta(tools, messages, undefined, [
+    needsAuth('docs'),
+  ])
+  expect(delta).toBeNull()
 })
 
 test('getDeferredToolsDelta removes MCP tool once client set settled and server gone', () => {

@@ -225,6 +225,17 @@ export type MCPServerConnection =
   | PendingMCPServer
   | DisabledMCPServer
 
+/**
+ * True when a client must not authorize name-based removals on resume.
+ * `pending` = still connecting; `needs-auth` = blocked on credentials —
+ * both can later become `connected` with the same server name.
+ */
+export function isMcpClientUnsettledForRemovals(
+  client: MCPServerConnection,
+): boolean {
+  return client.type === 'pending' || client.type === 'needs-auth'
+}
+
 // Resource types
 export type ServerResource = Resource & { server: string }
 
