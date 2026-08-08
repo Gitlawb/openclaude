@@ -209,6 +209,7 @@ import {
   hydrateRemoteSession,
   hydrateFromCCRv2InternalEvents,
   resetSessionFilePointer,
+  adoptResumedSessionFile,
   recordContentReplacement,
   doesMessageExistInSession,
   findUnresolvedToolUse,
@@ -5184,6 +5185,13 @@ async function loadInitialMessages(
             : result,
         )
 
+        // Match interactive --continue: adopt after reset so sessionFile
+        // points at the resumed JSONL and remoteEgressOmittedParents is
+        // rebuilt before the first post-resume remote/CCR append.
+        if (!options.forkSession && persistSession && result.sessionId) {
+          adoptResumedSessionFile()
+        }
+
         // Write mode entry for the resumed session
         if (feature('COORDINATOR_MODE') && coordinatorModeModule) {
           saveMode(
@@ -5424,6 +5432,13 @@ async function loadInitialMessages(
           ? { ...result, worktreeSession: undefined }
           : result,
       )
+
+      // Match interactive --resume: adopt after reset so sessionFile points
+      // at the resumed JSONL and remoteEgressOmittedParents is rebuilt
+      // before the first post-resume remote/CCR append (print -p --resume).
+      if (!options.forkSession && persistSession && result.sessionId) {
+        adoptResumedSessionFile()
+      }
 
       // Write mode entry for the resumed session
       if (feature('COORDINATOR_MODE') && coordinatorModeModule) {

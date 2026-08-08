@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { UUID } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  setSessionPersistenceDisabled,
+  switchSession,
+} from '../bootstrap/state.js'
 import type { TranscriptMessage } from '../types/logs.js'
 import type { Message } from '../types/message.js'
 import {
@@ -11,10 +15,13 @@ import {
 } from '../test/sharedMutationLock.js'
 import { normalizeMessagesForAPI } from './messages.js'
 import {
+  adoptResumedSessionFile,
   buildConversationChain,
+  clearSessionMessagesCache,
   filterJsonlForExternalEgress,
   filterMessagesForExternalEgress,
   filterSubagentTranscriptsForExternalEgress,
+  flushSessionStorage,
   isLoggableMessage,
   isPrefixCacheListingAttachment,
   isSafeForExternalEgress,
@@ -22,7 +29,10 @@ import {
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
   recordExternalEgressOmission,
+  recordTranscript,
   resetProjectForTesting,
+  resetSessionFilePointer,
+  setInternalEventWriter,
   setSessionFileForTesting,
 } from './sessionStorage.ts'
 
@@ -930,6 +940,483 @@ test('rebuildRemoteEgressOmittedParentsForTesting rebuilds omission ancestry fro
     expect(map.get(asUuid(listingUuid))).toBe(asUuid(userUuid))
   } finally {
     resetProjectForTesting()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('print-style resume adopt rebuilds omission map so remote append reparents past listing', async () => {
+  // Mirrors print.ts --continue/--resume: switchSession → resetSessionFilePointer
+  // → adoptResumedSessionFile, then the first post-resume remote/CCR append
+  // whose local parentUuid is a withheld listing must reparent onto the
+  // surviving ancestor (jatmn Finding 1).
+  process.env.USER_TYPE = 'external'
+  const originalNodeEnv = process.env.NODE_ENV
+  const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
+  const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  process.env.NODE_ENV = 'development'
+  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+  process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+  delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  setSessionPersistenceDisabled(false)
+
+  const sessionId = '00000000-0000-4000-8000-00000000p100'
+  const userUuid = '00000000-0000-4000-8000-00000000p101'
+  const listingUuid = '00000000-0000-4000-8000-00000000p102'
+  const postResumeUuid = '00000000-0000-4000-8000-00000000p103'
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-print-resume-adopt-'))
+  const filePath = join(dir, `${sessionId}.jsonl`)
+
+  try {
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-08T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        message: { role: 'user', content: 'resume turn' },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: listingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-08T00:00:01.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          content: 'Available skills:\n- /print-resume-leak',
+          skillCount: 1,
+          isInitial: true,
+        },
+      })}\n`,
+    )
+
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+
+    // Pre-fix print path left the omission map empty after reset alone.
+    expect(rebuildRemoteEgressOmittedParentsForTesting().size).toBe(0)
+
+    adoptResumedSessionFile()
+    const map = rebuildRemoteEgressOmittedParentsForTesting()
+    expect(map.has(asUuid(listingUuid))).toBe(true)
+    expect(map.get(asUuid(listingUuid))).toBe(asUuid(userUuid))
+
+    const remotePayloads: Array<Record<string, unknown>> = []
+    setInternalEventWriter(async (_eventType, payload) => {
+      remotePayloads.push(payload)
+    })
+
+    clearSessionMessagesCache()
+    await recordTranscript(
+      [
+        {
+          type: 'assistant',
+          uuid: postResumeUuid,
+          timestamp: '2026-08-08T00:00:02.000Z',
+          message: {
+            id: postResumeUuid,
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'post-resume reply' }],
+            model: 'test-model',
+            stop_reason: 'end_turn',
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        } as unknown as Message,
+      ],
+      undefined,
+      asUuid(listingUuid),
+    )
+    await flushSessionStorage()
+
+    const remoteAssistant = remotePayloads.find(
+      p => (p as { uuid?: string }).uuid === postResumeUuid,
+    )
+    expect(remoteAssistant).toBeDefined()
+    expect((remoteAssistant as { parentUuid?: string }).parentUuid).toBe(
+      userUuid,
+    )
+    expect(JSON.stringify(remotePayloads)).not.toContain('print-resume-leak')
+  } finally {
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+    if (originalTestPersist === undefined) {
+      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalTestPersist
+    }
+    if (originalEnablePersist === undefined) {
+      delete process.env.ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.ENABLE_SESSION_PERSISTENCE = originalEnablePersist
+    }
+    if (originalSkipHistory === undefined) {
+      delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    } else {
+      process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipHistory
+    }
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+function enablePrintResumePersistenceForTest(): {
+  restore: () => void
+} {
+  const originalNodeEnv = process.env.NODE_ENV
+  const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
+  const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  process.env.NODE_ENV = 'development'
+  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+  process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+  delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  setSessionPersistenceDisabled(false)
+  return {
+    restore: () => {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = originalNodeEnv
+      }
+      if (originalTestPersist === undefined) {
+        delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+      } else {
+        process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalTestPersist
+      }
+      if (originalEnablePersist === undefined) {
+        delete process.env.ENABLE_SESSION_PERSISTENCE
+      } else {
+        process.env.ENABLE_SESSION_PERSISTENCE = originalEnablePersist
+      }
+      if (originalSkipHistory === undefined) {
+        delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+      } else {
+        process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipHistory
+      }
+    },
+  }
+}
+
+function postResumeAssistantMessage(uuid: string, text: string): Message {
+  return {
+    type: 'assistant',
+    uuid,
+    timestamp: '2026-08-08T00:00:02.000Z',
+    message: {
+      id: uuid,
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      model: 'test-model',
+      stop_reason: 'end_turn',
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+  } as unknown as Message
+}
+
+test('print-style resume WITHOUT adopt leaves remote parentUuid on withheld listing', async () => {
+  // Negative control for Finding 1: the old print path only resetSessionFilePointer,
+  // so remoteEgressOmittedParents stayed empty and the first CCR append kept a
+  // parentUuid pointing at a listing UUID that never reaches remote hydrate.
+  process.env.USER_TYPE = 'external'
+  const persist = enablePrintResumePersistenceForTest()
+
+  const sessionId = '00000000-0000-4000-8000-00000000n100'
+  const userUuid = '00000000-0000-4000-8000-00000000n101'
+  const listingUuid = '00000000-0000-4000-8000-00000000n102'
+  const postResumeUuid = '00000000-0000-4000-8000-00000000n103'
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-print-resume-no-adopt-'))
+  const filePath = join(dir, `${sessionId}.jsonl`)
+
+  try {
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-08T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        message: { role: 'user', content: 'resume turn' },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: listingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-08T00:00:01.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          content: 'Available skills:\n- /no-adopt-leak',
+          skillCount: 1,
+          isInitial: true,
+        },
+      })}\n`,
+    )
+
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    // Deliberately skip adoptResumedSessionFile — pre-fix print behavior.
+    expect(rebuildRemoteEgressOmittedParentsForTesting().size).toBe(0)
+
+    const remotePayloads: Array<Record<string, unknown>> = []
+    setInternalEventWriter(async (_eventType, payload) => {
+      remotePayloads.push(payload)
+    })
+
+    clearSessionMessagesCache()
+    await recordTranscript(
+      [postResumeAssistantMessage(postResumeUuid, 'post-resume reply')],
+      undefined,
+      asUuid(listingUuid),
+    )
+    await flushSessionStorage()
+
+    const remoteAssistant = remotePayloads.find(
+      p => (p as { uuid?: string }).uuid === postResumeUuid,
+    )
+    expect(remoteAssistant).toBeDefined()
+    expect((remoteAssistant as { parentUuid?: string }).parentUuid).toBe(
+      listingUuid,
+    )
+  } finally {
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    persist.restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('print-style resume adopt keeps listing locally while remote reparents and strips catalog', async () => {
+  // Different angle from the happy-path remote assert: local JSONL must remain
+  // byte-stable for --resume prefix (listing stays, assistant still chains from
+  // listingUuid), while the CCR payload alone is reparented + catalog-free.
+  process.env.USER_TYPE = 'external'
+  const persist = enablePrintResumePersistenceForTest()
+
+  const sessionId = '00000000-0000-4000-8000-00000000l100'
+  const userUuid = '00000000-0000-4000-8000-00000000l101'
+  const listingUuid = '00000000-0000-4000-8000-00000000l102'
+  const postResumeUuid = '00000000-0000-4000-8000-00000000l103'
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-print-resume-local-'))
+  const filePath = join(dir, `${sessionId}.jsonl`)
+
+  try {
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-08T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        message: { role: 'user', content: 'resume turn' },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: listingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-08T00:00:01.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          content: 'Available skills:\n- /local-keep-leak',
+          skillCount: 1,
+          isInitial: true,
+        },
+      })}\n`,
+    )
+
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    adoptResumedSessionFile()
+
+    const remotePayloads: Array<Record<string, unknown>> = []
+    setInternalEventWriter(async (_eventType, payload) => {
+      remotePayloads.push(payload)
+    })
+
+    clearSessionMessagesCache()
+    await recordTranscript(
+      [postResumeAssistantMessage(postResumeUuid, 'post-resume reply')],
+      undefined,
+      asUuid(listingUuid),
+    )
+    await flushSessionStorage()
+
+    const localText = await readFile(filePath, 'utf8')
+    expect(localText).toContain('/local-keep-leak')
+    expect(localText).toContain(`"uuid":"${listingUuid}"`)
+    const localAssistant = localText
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line) as { uuid?: string; parentUuid?: string })
+      .find(entry => entry.uuid === postResumeUuid)
+    expect(localAssistant?.parentUuid).toBe(listingUuid)
+
+    const remoteAssistant = remotePayloads.find(
+      p => (p as { uuid?: string }).uuid === postResumeUuid,
+    )
+    expect(remoteAssistant).toBeDefined()
+    expect((remoteAssistant as { parentUuid?: string }).parentUuid).toBe(
+      userUuid,
+    )
+    expect(JSON.stringify(remotePayloads)).not.toContain('local-keep-leak')
+  } finally {
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    persist.restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('print-style resume adopt reparents past a multi-listing prefix chain', async () => {
+  // Different angle: rebuild must compress nested listing omissions
+  // (skill_listing → agent_listing_delta) so one remote hop lands on the user.
+  process.env.USER_TYPE = 'external'
+  const persist = enablePrintResumePersistenceForTest()
+
+  const sessionId = '00000000-0000-4000-8000-00000000m100'
+  const userUuid = '00000000-0000-4000-8000-00000000m101'
+  const skillListingUuid = '00000000-0000-4000-8000-00000000m102'
+  const agentListingUuid = '00000000-0000-4000-8000-00000000m103'
+  const postResumeUuid = '00000000-0000-4000-8000-00000000m104'
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-print-resume-multi-'))
+  const filePath = join(dir, `${sessionId}.jsonl`)
+
+  try {
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-08T00:00:00.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        message: { role: 'user', content: 'resume turn' },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: skillListingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-08T00:00:01.000Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          content: 'Available skills:\n- /multi-chain-a',
+          skillCount: 1,
+          isInitial: true,
+        },
+      })}\n${JSON.stringify({
+        type: 'attachment',
+        uuid: agentListingUuid,
+        parentUuid: skillListingUuid,
+        timestamp: '2026-08-08T00:00:01.500Z',
+        cwd: '/tmp',
+        sessionId,
+        version: 'test',
+        userType: 'external',
+        isSidechain: false,
+        attachment: {
+          type: 'agent_listing_delta',
+          addedTypes: ['Explore'],
+          addedLines: ['- Explore: stub'],
+          removedTypes: [],
+          isInitial: true,
+          showConcurrencyNote: true,
+        },
+      })}\n`,
+    )
+
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    adoptResumedSessionFile()
+
+    const map = rebuildRemoteEgressOmittedParentsForTesting()
+    expect(map.get(asUuid(skillListingUuid))).toBe(asUuid(userUuid))
+    // Nested omission compresses through the prior listing onto the user.
+    expect(map.get(asUuid(agentListingUuid))).toBe(asUuid(userUuid))
+
+    const remotePayloads: Array<Record<string, unknown>> = []
+    setInternalEventWriter(async (_eventType, payload) => {
+      remotePayloads.push(payload)
+    })
+
+    clearSessionMessagesCache()
+    await recordTranscript(
+      [postResumeAssistantMessage(postResumeUuid, 'post-resume reply')],
+      undefined,
+      asUuid(agentListingUuid),
+    )
+    await flushSessionStorage()
+
+    const remoteAssistant = remotePayloads.find(
+      p => (p as { uuid?: string }).uuid === postResumeUuid,
+    )
+    expect(remoteAssistant).toBeDefined()
+    expect((remoteAssistant as { parentUuid?: string }).parentUuid).toBe(
+      userUuid,
+    )
+    expect(JSON.stringify(remotePayloads)).not.toContain('multi-chain-a')
+    expect(JSON.stringify(remotePayloads)).not.toContain('Explore: stub')
+  } finally {
+    resetProjectForTesting()
+    clearSessionMessagesCache()
+    persist.restore()
     await rm(dir, { recursive: true, force: true })
   }
 })
